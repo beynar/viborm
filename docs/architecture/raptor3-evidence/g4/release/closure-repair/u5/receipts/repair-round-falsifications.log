@@ -1,0 +1,53 @@
+== Falsification R2: drop the decimal-wide-arithmetic include from providerProject("mysql2") ==
+[31m+   "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",[39m
+[31m+ ][39m
+
+ ❯ tests/contracts/architecture/gate-inventory-census.core.test.ts:64:7
+     62|         (file) => !file.startsWith(REVIEW_SCRATCH_PREFIX)
+     63|       )
+     64|     ).toEqual([]);
+       |       ^
+     65|   });
+     66| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  16:56:35
+   Duration  317ms (transform 25ms, setup 12ms, collect 12ms, tests 159ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 2.09s wall, 355.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+== Falsification R3: a witness placed where no project registers it (tests/providers/docker/zz-unregistered-probe.test.ts) ==
+   ✓ the qualification gate's registered inventory > registers both files the native MySQL glob missed in provider-mysql2 133ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+[31m+   "tests/providers/docker/zz-unregistered-probe.test.ts",[39m
+ ❯ tests/contracts/architecture/gate-inventory-census.core.test.ts:64:7
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+== Falsification R1 (the retained-review prefix): index dry run, repaired vs base copy ==
+repaired exit 0
+55:Retained review evidence this checkpoint answers:
+56-
+57-| review | files | identity |
+58-| --- | --- | --- |
+59-| `docs/architecture/raptor3-evidence/g4/release/closure-review` | 3 | `49e0aee0876882eb68c6ec6f64102b4b31a872c88c0ac6e33b53943c05ec0762` (sha256 over the directory's sorted (path, file sha256) pairs) |
+60-
+61-## 2. Harness identity
+base-copy exit 0
+55:No retained review directory sits beside this checkpoint.
+== Falsification R4: a native stage that runs all but one of its project's files ==
+Of them 122 are covered by a stage whose file list this plan
+- `provider-pg`: 6 file(s); covered by native provider-pg 5; covered by no enumerated stage: 1
+- `provider-mysql2`: 13 file(s); covered by native provider-mysql2 12; covered by no enumerated stage: 1
+-- restored --
+Of them 124 are covered by a stage whose file list this plan
+- `provider-pg`: 6 file(s); covered by native provider-pg 6; covered by no enumerated stage: 0
+- `provider-mysql2`: 13 file(s); covered by native provider-mysql2 13; covered by no enumerated stage: 0
+== Falsification R5: the fixed stage's owner symbol no longer resolves ==
+Of them 59 are covered by a stage whose file list this plan
+- `raptor3`: 193 file(s); covered by parity 24; covered by no enumerated stage: 169
+-- restored --
+Of them 124 are covered by a stage whose file list this plan
+- `raptor3`: 193 file(s); covered by fixed 89, parity 24; covered by no enumerated stage: 104

@@ -284,6 +284,21 @@ describe("provider-free MySQL catalog reconstruction", () => {
           EXTRA: "DEFAULT_GENERATED",
         },
         {
+          ...column("backslash", "text"),
+          COLUMN_DEFAULT: String.raw`_utf8mb4\'a\\\\b\'`,
+          EXTRA: "DEFAULT_GENERATED",
+        },
+        {
+          ...column("controls", "text"),
+          COLUMN_DEFAULT: String.raw`_utf8mb4\'a\\rb\\0c\\Zd\'`,
+          EXTRA: "DEFAULT_GENERATED",
+        },
+        {
+          ...column("unowned", "text"),
+          COLUMN_DEFAULT: String.raw`_utf8mb4\'tab\\there\'`,
+          EXTRA: "DEFAULT_GENERATED",
+        },
+        {
           ...column("stamped", "datetime"),
           COLUMN_DEFAULT: "CURRENT_TIMESTAMP(3)",
           EXTRA: "DEFAULT_GENERATED",
@@ -307,13 +322,21 @@ describe("provider-free MySQL catalog reconstruction", () => {
     expect(byName.get("quoted")?.default).toBe("('it''s')");
     expect(byName.get("plain")?.default).toBe("('plain')");
     expect(byName.get("literal")?.default).toBe("'it''s'");
-    // MySQL prints a newline `\n`, and a value carrying a real backslash is
-    // one `escapeValue` could not have written in the first place. Neither is
-    // an escape this inverse owns, so the catalog text stays EXACTLY as read:
-    // it keeps reading as a difference, which refuses the push instead of
-    // calling two defaults equal that nobody proved equal.
-    expect(byName.get("multiline")?.default).toBe(
-      String.raw`_utf8mb4\'line1\\nline2\'`
+    // Re-expressed for the repaired inverse (repair prompt §4.1): the escapes
+    // MySQL's printer writes — `\n`, `\r`, `\0`, `\Z` and the doubled
+    // backslash — are the table the DDL spelling writes, read backwards, so a
+    // value carrying any of them round-trips into the spelling the desired
+    // side wrote instead of keeping the catalog's text.
+    expect(byName.get("multiline")?.default).toBe(String.raw`('line1\nline2')`);
+    expect(byName.get("backslash")?.default).toBe(String.raw`('a\\b')`);
+    expect(byName.get("controls")?.default).toBe(String.raw`('a\rb\0c\Zd')`);
+    // An escape OUTSIDE that table is not one this server printed for a value
+    // the estate spelled (a tab is printed raw, measured), so the body is not
+    // translated at all: the catalog text stays EXACTLY as read, keeps reading
+    // as a difference, and refuses the push instead of calling two defaults
+    // equal that nobody proved equal.
+    expect(byName.get("unowned")?.default).toBe(
+      String.raw`_utf8mb4\'tab\\there\'`
     );
     // Not a string literal at all, and not this inverse's business.
     expect(byName.get("stamped")?.default).toBe("CURRENT_TIMESTAMP(3)");

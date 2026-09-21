@@ -1,0 +1,81 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ❯ |provider-sqlite3| tests/providers/local/sqlite3-captured-answer-settlement.test.ts (4 tests | 1 failed) 30ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it 20ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it 3ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a listener that fails beside a captured answer that SUCCEEDED is still published alone 2ms
+   × a captured mutation's answer is settled before its listener failure is released > interactive route: a captured row that stops matching before the write is answered by the cardinality sentence 5ms
+     → expected [ { id: 'n1', label: 'one' }, …(1) ] to be undefined
+ ❯ |coverage-drivers| tests/providers/local/sqlite3-captured-answer-settlement.test.ts (4 tests | 1 failed) 32ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it 20ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it 4ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a listener that fails beside a captured answer that SUCCEEDED is still published alone 2ms
+   × a captured mutation's answer is settled before its listener failure is released > interactive route: a captured row that stops matching before the write is answered by the cardinality sentence 5ms
+     → expected [ { id: 'n1', label: 'one' }, …(1) ] to be undefined
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-captured-answer-settlement.test.ts > a captured mutation's answer is settled before its listener failure is released > interactive route: a captured row that stops matching before the write is answered by the cardinality sentence
+AssertionError: expected [ { id: 'n1', label: 'one' }, …(1) ] to be undefined
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+[
+  {
+    "id": "n1",
+    "label": "one",
+  },
+  {
+    "id": "n2",
+    "label": "two",
+  },
+]
+
+ ❯ tests/providers/local/sqlite3-captured-answer-settlement.test.ts:391:27
+    389|     // same `answered` closure, on the arm that dispatches rather than…
+    390|     expect(driver?.drifted).toBe(true);
+    391|     expect(outcome.value).toBeUndefined();
+       |                           ^
+    392|     expect(messageOf(outcome.error)).toContain(CHANGED("deleteMany"));
+    393|     expect(outcome.error).not.toBeInstanceOf(AggregateError);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-captured-answer-settlement.test.ts > a captured mutation's answer is settled before its listener failure is released > interactive route: a captured row that stops matching before the write is answered by the cardinality sentence
+AssertionError: expected [ { id: 'n1', label: 'one' }, …(1) ] to be undefined
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+[
+  {
+    "id": "n1",
+    "label": "one",
+  },
+  {
+    "id": "n2",
+    "label": "two",
+  },
+]
+
+ ❯ tests/providers/local/sqlite3-captured-answer-settlement.test.ts:391:27
+    389|     // same `answered` closure, on the arm that dispatches rather than…
+    390|     expect(driver?.drifted).toBe(true);
+    391|     expect(outcome.value).toBeUndefined();
+       |                           ^
+    392|     expect(messageOf(outcome.error)).toContain(CHANGED("deleteMany"));
+    393|     expect(outcome.error).not.toBeInstanceOf(AggregateError);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 6 passed (8)
+   Start at  19:40:56
+   Duration  2.81s (transform 1.60s, setup 15ms, collect 2.39s, tests 63ms, environment 0ms, prepare 49ms)
+
+Vitest resources: 4.59s wall, 540.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

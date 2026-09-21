@@ -290,7 +290,13 @@ describe("post-G3 selector preparation", () => {
       const target = targetResult.value;
       const set = setResult.value;
 
-      assert.equal(conjunction.mock.calls.length, 2);
+      // Three conjunctions, one per prepared meaning this shape needs: the two
+      // condition probes, and — the repair prompt §1, the shared
+      // FOUND-consumption rule — the ONE confirmation that re-takes the located
+      // row under lock over EVERY matched condition. That third operand list is
+      // the two probe selectors themselves, so the base is reused a third time
+      // and nothing is prepared again (`preparation` is still 3 above).
+      assert.equal(conjunction.mock.calls.length, 3);
       const targetOperands = conjunction.mock.calls[0]?.[1];
       const setOperands = conjunction.mock.calls[1]?.[1];
       assert(targetOperands);
@@ -319,10 +325,30 @@ describe("post-G3 selector preparation", () => {
           ([selector]) => selector === setConjunctionResult.value
         )
       );
+      const confirmationOperands = conjunction.mock.calls[2]?.[1];
+      assert(confirmationOperands);
+      assert.deepEqual(
+        [...confirmationOperands],
+        [targetConjunctionResult.value, setConjunctionResult.value]
+      );
+      const confirmationResult = conjunction.mock.results[2];
+      assert(confirmationResult);
+      if (confirmationResult.type !== "return")
+        assert.fail("confirmation conjunction did not return normally");
+      assert(
+        lowering.mock.calls.some(
+          ([selector]) => selector === confirmationResult.value
+        )
+      );
 
+      // The locator probe, the two condition probes, ONE confirmation of the
+      // located row carrying both matched conditions, the update arm's effect
+      // and the terminal read (repair prompt §1: the confirmation is one
+      // statement over every requirement the operation owns, not one statement
+      // per requirement).
       assert.deepEqual(
         driver.statements.map((statement) => statement.match(/^\w+/)?.[0]),
-        ["SELECT", "SELECT", "SELECT", "UPDATE", "SELECT"]
+        ["SELECT", "SELECT", "SELECT", "SELECT", "UPDATE", "SELECT"]
       );
       assert.deepEqual(
         database

@@ -1,0 +1,22 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sm
+
+ ❯ |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts (3 tests | 1 failed) 374ms
+   × MySQL declared defaults, at the database's own oracle > PROBE unicode expression default 123ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   ✓ MySQL declared defaults, at the database's own oracle > round-trips a backslash, a newline and a CRLF through DDL, catalog and a raw insert 120ms
+   ✓ MySQL declared defaults, at the database's own oracle > spells now() at the resolved column's precision, and nowhere else 131ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts > MySQL declared defaults, at the database's own oracle > PROBE unicode expression default
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  16:53:36
+   Duration  1.93s (transform 939ms, setup 8ms, collect 1.41s, tests 374ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.75s wall, 514.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

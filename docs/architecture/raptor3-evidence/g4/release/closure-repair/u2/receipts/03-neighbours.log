@@ -1,0 +1,45 @@
+# Neighbour families (credential-free), after the repair
+
+## series premise + staleness
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-staleness.test.ts (5 tests) 105ms
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-membership-race.test.ts (3 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 63ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 62ms
+ ✓ |raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 52ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 78ms
+
+ Test Files  6 passed (6)
+      Tests  24 passed (24)
+   Start at  18:34:55
+   Duration  7.41s (transform 3.94s, setup 30ms, collect 6.37s, tests 379ms, environment 0ms, prepare 125ms)
+
+Vitest resources: 10.29s wall, 588.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+## captured-set and atomic-unit consumers
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |coverage-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 3ms
+ ✓ |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts (39 tests) 275ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts (14 tests) 107ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 43ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests) 93ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/correlated-membership.test.ts (5 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 22ms
+ ✓ |raptor3| tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts (14 tests) 135ms
+ ✓ |raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 52ms
+ ✓ |raptor3| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests) 112ms
+ ✓ |raptor3| tests/raptor3/g4/parity/correlated-membership.test.ts (5 tests) 27ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 40ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 1ms
+ ✓ |coverage-write-engine-core| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 1ms
+
+ Test Files  14 passed (14)
+      Tests  150 passed (150)
+   Start at  18:35:06
+   Duration  8.35s (transform 3.74s, setup 68ms, collect 6.28s, tests 927ms, environment 1ms, prepare 237ms)
+
+Vitest resources: 11.15s wall, 693.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

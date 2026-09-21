@@ -187,6 +187,7 @@ const extendedLocalExclusions = new Set([
   "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
   "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
   "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
+  "tests/unit/migrations/mysql-defaults-docker.test.ts",
 ]);
 
 export const RAPTOR3_FIXED_LOCAL_TESTS = Object.freeze([

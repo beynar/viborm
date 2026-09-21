@@ -1,0 +1,27 @@
+LOCK WAIT  {
+  "waiting_trx": 35159,
+  "blocking_trx": 35158,
+  "lock_type": "RECORD",
+  "lock_mode": "X,REC_NOT_GAP",
+  "object_name": "atomic_mysql_items",
+  "index_name": "PRIMARY",
+  "lock_data": "'held'",
+  "waiting_query": "SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`atomic_mysql_items` AS `q0` WHERE (`q0`.`email` = 'held@test.com' AND `q0`.`id` = 'held') ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE",
+  "blocking_query": null,
+  "blocking_state": "RUNNING"
+}
+vitest exit code 0
+--- vitest output (tail) ---
+
+ RUN  v3.1.4 /private/tmp/viborm-sfix
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (93 tests | 92 skipped) 1144ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a competing upsert waits on the held row and consumes the committed row, not the one it probed  1143ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 92 skipped (93)
+   Start at  21:31:14
+   Duration  2.47s (transform 815ms, setup 7ms, collect 1.20s, tests 1.14s, environment 0ms, prepare 25ms)
+
+Vitest resources: 4.11s wall, 515.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+

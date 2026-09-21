@@ -294,19 +294,24 @@ export function runNonReturningMutationAtomicityBehavior(
             await releaseFirst.promise;
           },
         });
-        // The upsert probe no longer locks (the decided handoff's "MySQL
+        // The upsert probe still does not lock (the decided handoff's "MySQL
         // deadlocks": the arm it chooses INSERTS the key it just looked for,
         // and locking that absence is a gap lock two racers are granted at
-        // once — see `Selection.insertsWhenAbsent`). So the second operation's
-        // CONTENTION POINT is no longer its probe but the UPDATE its found arm
-        // issues, which is the statement that queues behind the first
-        // operation's row lock. The latch waits for that statement; the
-        // interleaving this row measures, and every assertion below, are
-        // unchanged. The two rows above still latch on `isItemLock`: a root
-        // update and a root delete keep the locate lock they have always had.
+        // once — see `Selection.insertsWhenAbsent`). What the probe therefore
+        // cannot do is protect what the found arm consumes, so the arm is
+        // preceded by the shared FOUND-consumption rule's one locked
+        // confirmation of the located row (repair prompt §1,
+        // `CommandExecution.confirmFound`). THAT is the second operation's
+        // contention point: the first statement it sends which queues behind
+        // the first operation's row lock, measured as an `X,REC_NOT_GAP` wait
+        // on the located PRIMARY key. The latch waits for that statement — it
+        // cannot wait for the UPDATE behind it, which this operation reaches
+        // only once the lock is granted. The interleaving this row measures,
+        // and every assertion below, are unchanged, and the latch is now the
+        // same `isItemLock` the two rows above use.
         const secondDriver = createDriver({
           beforeStatement: ({ statement }) => {
-            if (isItemUpdate(statement)) secondContended.resolve();
+            if (isItemLock(statement)) secondContended.resolve();
           },
         });
         const first = boot(firstDriver);
@@ -336,6 +341,116 @@ export function runNonReturningMutationAtomicityBehavior(
         expect(secondResult).toMatchObject({ id: "upsert", name: "second" });
         expect(firstDriver.statements.some(isNativeUpsert)).toBe(false);
         expect(secondDriver.statements.some(isNativeUpsert)).toBe(false);
+        assertConnectionAffinity(firstDriver);
+        assertConnectionAffinity(secondDriver);
+        assertDifferentConnections(firstDriver, secondDriver);
+      }
+    );
+
+    test(
+      "a competing upsert waits on the held row and consumes the committed row, not the one it probed",
+      { timeout: 30_000 },
+      async () => {
+        // The control for the row above (repair prompt §1: prove the
+        // protection with a lock-HELD schedule, not only with a hook moved
+        // ahead of the race). The latch above resolves BEFORE the confirmation
+        // is dispatched, so it cannot by itself say the confirmation waited.
+        // Here the holder parks with the row lock taken and never releases it
+        // until the waiter has demonstrably made no progress; then the
+        // confirmation answers over what the holder COMMITTED — a row that no
+        // longer satisfies the selector the probe found it under — and the
+        // found arm raises its own sentence rather than writing the row it was
+        // promised, switching arms or retrying.
+        const seeder = clients[0]!;
+        await seeder.item.create({
+          data: { id: "held", email: "held@test.com", name: "before" },
+        });
+
+        const firstHolding = createDeferred();
+        const releaseFirst = createDeferred();
+        const secondAttempting = createDeferred();
+        let holding = false;
+        const firstDriver = createDriver({
+          afterStatement: async ({ statement }) => {
+            if (holding || !isItemLock(statement)) return;
+            holding = true;
+            firstHolding.resolve();
+            await releaseFirst.promise;
+          },
+        });
+        // The waiter's first CONTENDING statement, whichever it is: the cell
+        // pins below that it was the locking confirmation, so the latch does
+        // not assume it — an engine that consumed the found row without
+        // confirming it under lock would arrive here with its UPDATE and fail
+        // those pins rather than hang this schedule.
+        const secondDriver = createDriver({
+          beforeStatement: ({ statement }) => {
+            if (isItemLock(statement) || isItemUpdate(statement))
+              secondAttempting.resolve();
+          },
+        });
+        const first = boot(firstDriver);
+        const second = boot(secondDriver);
+
+        const firstPromise = Promise.resolve(
+          first.item.update({
+            where: { email: "held@test.com" },
+            data: { email: "moved@test.com", name: "first" },
+          })
+        );
+        await firstHolding.promise;
+
+        let secondOutcome: { value?: unknown; failure?: unknown } | undefined;
+        const secondPromise = second.item
+          .upsert({
+            where: { email: "held@test.com" },
+            create: {
+              id: "unused-second",
+              email: "held@test.com",
+              name: "second",
+            },
+            update: { name: "second" },
+          })
+          .then(
+            (value) => {
+              secondOutcome = { value };
+            },
+            (failure: unknown) => {
+              secondOutcome = { failure };
+            }
+          );
+        await secondAttempting.promise;
+        // Long enough for an uncontended upsert of one row on an idle pool to
+        // have finished many times over.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // HELD: the second operation's confirmation is queued behind the
+        // first's row lock and has produced neither an answer nor a failure.
+        expect(secondOutcome).toBeUndefined();
+        expect(secondDriver.statements.filter(isItemLock)).toHaveLength(1);
+        expect(secondDriver.statements.some(isItemUpdate)).toBe(false);
+
+        releaseFirst.resolve();
+        await Promise.all([firstPromise, secondPromise]);
+
+        // The waiter then read what the holder COMMITTED: the row is still
+        // there, at the identity the probe named, and no longer carries the
+        // selector it was found under.
+        expect(secondOutcome?.value).toBeUndefined();
+        expect(secondOutcome?.failure).toBeInstanceOf(NotFoundError);
+        expect((secondOutcome?.failure as Error).message).toBe(
+          "No item record found for update"
+        );
+        expect(secondDriver.statements.some(isNativeUpsert)).toBe(false);
+        expect(secondDriver.statements.some(isItemUpdate)).toBe(false);
+        await expect(
+          seeder.item.findUnique({ where: { id: "held" } })
+        ).resolves.toMatchObject({ email: "moved@test.com", name: "first" });
+        await expect(
+          seeder.item.findMany({
+            where: { email: { in: ["held@test.com", "moved@test.com"] } },
+          })
+        ).resolves.toHaveLength(1);
         assertConnectionAffinity(firstDriver);
         assertConnectionAffinity(secondDriver);
         assertDifferentConnections(firstDriver, secondDriver);

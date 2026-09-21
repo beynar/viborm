@@ -1,0 +1,185 @@
+## Gate plan
+
+- `typecheck` (command)
+    node scripts/run-typecheck.mjs
+- `fixed` (command)
+    pnpm test:all --only "Raptor 3 fixed"
+    file list owned by scripts/credential-free-test-manifest.mjs RAPTOR3_FIXED_LOCAL_TESTS
+- `parity` (files) — 31 file(s), 55 project execution(s), 227 declared cell(s) across 24 of 31 file(s), 454 executed cell(s) from those files
+    node scripts/run-vitest-safe.mjs run <files>
+    run credential-free in thirds; the PGlite-backed parity pins are their own stage
+    tests/raptor3/g4/parity/batch-captured-bulk.test.ts — 7 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/batch-observed-publication.test.ts — 10 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/blind-premise-attribution.test.ts — 1 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts — 3 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/captured-identity-domains.test.ts — 18 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/cascaded-current-identity.test.ts — 21 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/combinator-named-scalar.test.ts — 4 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/correlated-membership.test.ts — 5 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/driver-result-parser.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts — 14 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/fresh-member-placement.test.ts — 16 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/generated-key-reach.test.ts — 7 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/increment-key-width.test.ts — 1 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/integration-membership-race.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/integration-staleness.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/json-read-schema.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/lane-x-route-seam.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/lane-x-set-mutations.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/lax-to-one.test.ts — 27 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/member-boundary-packaging.test.ts — 5 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/one-write-outcome-composition.test.ts — 4 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/ordered-observation.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/prepared-set-predicates.test.ts — 9 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/published-key.test.ts — 12 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/read-only-build-contract.test.ts — 3 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/reference-representability.test.ts — 26 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/series-member-premise.test.ts — 4 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/singular-slot-transition.test.ts — 10 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/suppressed-membership-target.test.ts — 7 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/transport-witnesses.test.ts — 7 declared cell(s), in 2 projects
+    tests/raptor3/g4/parity/upsert-array-route.test.ts — 6 declared cell(s), in 2 projects
+- `conformance` (files) — 6 file(s), 6 project execution(s), 0 declared cell(s) across 0 of 6 file(s), 0 executed cell(s) from those files
+    node <shared-family launcher> <file>
+    one file per invocation
+    tests/contracts/engine/query/nested-write-conformance-fk.test.ts — no declared-cell map
+    tests/contracts/engine/query/nested-write-conformance-m2m.test.ts — no declared-cell map
+    tests/contracts/engine/query/nested-write-conformance-membership.test.ts — no declared-cell map
+    tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts — no declared-cell map
+    tests/contracts/engine/query/nested-write-conformance-to-one.test.ts — no declared-cell map
+    tests/contracts/engine/query/nested-write-conformance-transitive.test.ts — no declared-cell map
+- `g2-baseline` (runner-mode)
+    node scripts/run-raptor3.mjs g2-baseline
+- `g2-contracts` (runner-mode)
+    node scripts/run-raptor3.mjs g2-contracts
+- `g1-compare` (runner-mode)
+    node scripts/run-raptor3.mjs g1-compare
+- `transport-smoke` (runner-mode)
+    node scripts/run-raptor3.mjs g3-generated-transport-smoke
+- `transaction-array` (runner-mode)
+    node scripts/run-raptor3.mjs g3-transaction-array
+- `pglite-provider` (files) — 3 file(s), 3 project execution(s), 0 declared cell(s) across 0 of 3 file(s), 0 executed cell(s) from those files
+    node <shared-family launcher> <files> --project raptor3-provider
+    tests/raptor3/g4/parity/postgres-declared-type-scratch.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/postgres-identity-scratch.test.ts — no declared-cell map
+    tests/raptor3/g4/parity/transport-seam-pglite.test.ts — no declared-cell map
+- `census` (command)
+    node scripts/raptor3-refusal-census.mjs
+- `build` (command)
+    pnpm package:build
+- `campaign-receipts` (command)
+    node scripts/run-node-safe.mjs 512 60000 scripts/raptor3-campaign-receipts.test.mjs
+- `coverage-policy` (command)
+    pnpm test:coverage:policy
+- `native provider-mysql2` (files) — 13 file(s), 13 project execution(s), 0 declared cell(s) across 0 of 13 file(s), 0 executed cell(s) from those files
+    <MYSQL_TEST_CONNECTION_STRING> node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=provider-mysql2 <file>
+    one file per invocation; the whole registered project, not a hand-written glob
+    tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-cascaded-identity.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-concurrency-policy.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-generated-key.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-read-surface.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-reference-representability.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-relations-ddl.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-scalars.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-schema-attestation.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-writes-raw.test.ts — no declared-cell map
+    tests/providers/docker/mysql2.test.ts — no declared-cell map
+    tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts — no declared-cell map
+    tests/unit/migrations/mysql-strict-mode-docker.test.ts — no declared-cell map
+- `native provider-pg` (files) — 6 file(s), 6 project execution(s), 0 declared cell(s) across 0 of 6 file(s), 0 executed cell(s) from those files
+    <PG_TEST_CONNECTION_STRING> node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=provider-pg <file>
+    one file per invocation; the whole registered project, not a hand-written glob
+    tests/providers/docker/pg-captured-set-concurrency.test.ts — no declared-cell map
+    tests/providers/docker/pg-nested-write-races.test.ts — no declared-cell map
+    tests/providers/docker/pg-polymorphism-ddl.test.ts — no declared-cell map
+    tests/providers/docker/pg-read-surface.test.ts — no declared-cell map
+    tests/providers/docker/pg-reference-representability.test.ts — no declared-cell map
+    tests/providers/docker/pg.test.ts — no declared-cell map
+
+## 83 test file(s) in the tree that NO workspace project registers
+
+- tests/raptor3/g4/review/cutover/d14-publication.review.test.ts
+- tests/raptor3/g4/review/cutover/one-owner-every-lineage.review.test.ts
+- tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts
+- tests/raptor3/g4/review/cutover/routed-operations-authority.review.test.ts
+- tests/raptor3/g4/review/freeze/native-nested-refusal-pg.review.test.ts
+- tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts
+- tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts
+- tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts
+- tests/raptor3/g4/review/g3-02-specimen/specimen-parity.review.test.ts
+- tests/raptor3/g4/review/harness-reconciliation/folded-fault-census.test.ts
+- tests/raptor3/g4/review/harness-reconciliation/folded-fault-coverage.test.ts
+- tests/raptor3/g4/review/harness-reconciliation/folded-root-create-publication.test.ts
+- tests/raptor3/g4/review/harness-reconciliation/lookup-recognizer.test.ts
+- tests/raptor3/g4/review/harness-reconciliation/recognizer-tapes.test.ts
+- tests/raptor3/g4/review/harness-reconciliation/sc13-refusal-and-leak.test.ts
+- tests/raptor3/g4/review/harness-reconciliation/vector-read-witness.test.ts
+- tests/raptor3/g4/review/pattern-retirement/dropped-gate-cells.review.test.ts
+- tests/raptor3/g4/review/pattern-retirement/retirement-closure.review.test.ts
+- tests/raptor3/g4/review/pattern-retirement/type-anchor-parity.review.test.ts
+- tests/raptor3/g4/review/perf/alias-scope.review.test.ts
+- tests/raptor3/g4/review/perf/deferred-failure-identity.review.test.ts
+- tests/raptor3/g4/review/perf/sentinel-and-scalars.review.test.ts
+- tests/raptor3/g4/review/perf2/digest.test.ts
+- tests/raptor3/g4/review/perf2/lazy-machinery.review.test.ts
+- tests/raptor3/g4/review/perf2/memo-isolation.review.test.ts
+- tests/raptor3/g4/review/perf2/resolution-check.review.test.ts
+- tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts
+- tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts
+- tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts
+- tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts
+- tests/raptor3/g4/review/unit02-closure3/junction-upsert-scope.review.test.ts
+- tests/raptor3/g4/review/unit02-closure3/root-and-parent-held-scope.review.test.ts
+- tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts
+- tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts
+- tests/raptor3/g4/review/unit02-decisions/junction-link-bytes.review.test.ts
+- tests/raptor3/g4/review/unit02-decisions/key-refusal-parity.review.test.ts
+- tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2-followup/decimal-relation-key.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2-followup/native-pg-key-arithmetic.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/arithmetic-parity.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/counted-slot.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/json-operator-keys.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/operation-region.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/recursive-carrier.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/root-create-fold.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/statement-atomic-parity.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/tagged-quantifier.review.test.ts
+- tests/raptor3/g4/review/unit02-phase2/witness-defect-checks.review.test.ts
+- tests/raptor3/g4/review/unit02/admission-and-projection.review.test.ts
+- tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts
+- tests/raptor3/g4/review/unit02/envelope-rule-owner.review.test.ts
+- tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts
+- tests/raptor3/g4/review/unit02/repair-envelope-sentinel.review.test.ts
+- tests/raptor3/g4/review/unit02/repair-read-facts.review.test.ts
+- tests/raptor3/g4/review/unit02/repair-statement-context.review.test.ts
+- tests/raptor3/g4/review/unit02/statement-context.review.test.ts
+- tests/raptor3/g4/review/unit03/route-region-mechanism.review.test.ts
+- tests/raptor3/g4/review/witness-followup/evidence-identity.review.test.ts
+- tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts
+- tests/raptor3/g4/review/witness-followup/native-pool-configuration.review.test.ts
+- tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts
+- tests/raptor3/g4/review/witness-followup2/pool-background-failure.review.test.ts
+- tests/raptor3/g4/review/witness-followup3/evidence-identity.review.test.ts
+- tests/raptor3/g4/review/witness-followup3/landed-unit01.review.test.ts
+- tests/raptor3/g4/review/witness-followup3/native-authority.review.test.ts
+- tests/raptor3/g4/review/witness-followup3/write-lane-range.review.test.ts
+- tests/raptor3/g4/review/witness-followup4/corpus-snapshot.review.test.ts
+- tests/raptor3/g4/review/witness-followup4/record-consistency.review.test.ts
+- tests/raptor3/g4/review/witness-followup4/repair2-identity.review.test.ts
+- tests/raptor3/g4/review/witness/cache-bypass-blindness.review.test.ts
+- tests/raptor3/g4/review/witness/campaign-codec-blindness.review.test.ts
+- tests/raptor3/g4/review/witness/campaign-profile-power.review.test.ts
+- tests/raptor3/g4/review/witness/campaign-subject-authority.review.test.ts
+- tests/raptor3/g4/review/witness/campaign-transport-models.review.test.ts
+- tests/raptor3/g4/review/witness/candidate-refusal-holes.review.test.ts
+- tests/raptor3/g4/review/witness/coverage-gap.review.test.ts
+- tests/raptor3/g4/review/witness/evidence-integrity.review.test.ts
+- tests/raptor3/g4/review/witness/native-fixture-consistency.review.test.ts
+- tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts
+

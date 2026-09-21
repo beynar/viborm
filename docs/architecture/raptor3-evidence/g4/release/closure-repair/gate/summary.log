@@ -1,0 +1,131 @@
+source 392dfd30c0c7226b8fba0ebd4f8d1366d8bbecbd
+tree-clean-tracked 2
+harness-identity f3323fba30892ef99a9120738c00d4f4900c05890a4b434990ad53ef9d2888fe
+node v24.21.0 pnpm 10.11.0 lockfile c366c9806e268e19970626c34e0c5ea1bb74cc7c24b388fa072d580d7bf9aceb
+started 2026-09-21T20:00:30Z
+22:00  up 21 days, 21:40, 3 users, load averages: 7.23 6.05 5.88
+=== typecheck
+exit=0
+=== fixed
+exit=0
+ Test Files  89 passed (89)
+      Tests  955 passed (955)
+Vitest resources: 13.91s wall, 842.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== parity-1
+exit=0
+ Test Files  19 passed (19)
+      Tests  172 passed (172)
+Vitest resources: 7.86s wall, 747.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== parity-2
+exit=0
+ Test Files  15 passed (15)
+      Tests  140 passed (140)
+Vitest resources: 7.75s wall, 732.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== parity-3
+exit=0
+ Test Files  21 passed (21)
+      Tests  215 passed (215)
+Vitest resources: 8.30s wall, 742.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== conf-fk
+exit=0
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+Vitest resources: 4.49s wall, 1594.0 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-m2m
+exit=0
+ Test Files  1 passed (1)
+      Tests  34 passed (34)
+Vitest resources: 4.76s wall, 1647.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-membership
+exit=0
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+Vitest resources: 4.19s wall, 1596.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-root-dependency
+exit=0
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+Vitest resources: 4.14s wall, 1592.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-to-one
+exit=0
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+Vitest resources: 4.24s wall, 1580.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-transitive
+exit=0
+ Test Files  1 passed (1)
+      Tests  31 passed (31)
+Vitest resources: 4.57s wall, 1673.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== g2-baseline
+exit=0
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+Vitest resources: 4.60s wall, 703.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== g2-contracts
+exit=0
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+Vitest resources: 5.88s wall, 730.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== g1-compare
+exit=0
+ Test Files  4 passed (4)
+      Tests  36 passed (36)
+Vitest resources: 3.54s wall, 644.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== transport-smoke
+exit=0
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+Vitest resources: 3.35s wall, 479.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== transaction-array
+exit=0
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+Vitest resources: 3.14s wall, 470.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== pglite-provider
+exit=0
+ Test Files  3 passed (3)
+      Tests  7 passed (7)
+Vitest resources: 4.75s wall, 1657.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== census
+exit=0
+=== build
+exit=0
+ℹ dist/diagnostics-CFGk6R7k.mjs.map                    48.47 kB │ gzip:  11.73 kB
+ℹ dist/diagnostics-CFGk6R7k.mjs                        11.81 kB │ gzip:   4.53 kB
+Node resources: 2.60s wall, 796.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== campaign-receipts
+exit=0
+Node resources: 0.50s wall, 61.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== coverage-policy
+exit=0
+Node resources: 0.43s wall, 0.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Node resources: 6.85s wall, 61.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Node resources: 0.58s wall, 0.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Node resources: 6.71s wall, 311.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== native mysql2 (docker, per file)
+tests/providers/docker/mysql2-cascaded-identity.test.ts exit=0       Tests  4 passed (4)
+tests/providers/docker/mysql2-concurrency-policy.test.ts exit=0       Tests  11 passed (11)
+tests/providers/docker/mysql2-found-consumption.test.ts exit=0       Tests  12 passed (12)
+tests/providers/docker/mysql2-generated-key.test.ts exit=0       Tests  5 passed (5)
+tests/providers/docker/mysql2-read-surface.test.ts exit=0       Tests  122 passed (122)
+tests/providers/docker/mysql2-reference-representability.test.ts exit=0       Tests  5 passed (5)
+tests/providers/docker/mysql2-relations-ddl.test.ts exit=0       Tests  106 passed (106)
+tests/providers/docker/mysql2-scalars.test.ts exit=0       Tests  293 passed (293)
+tests/providers/docker/mysql2-schema-attestation.test.ts exit=0       Tests  5 passed (5)
+tests/providers/docker/mysql2-writes-raw.test.ts exit=0       Tests  93 passed (93)
+tests/providers/docker/mysql2.test.ts exit=0       Tests  84 passed | 1 skipped (85)
+tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts exit=0       Tests  35 passed (35)
+tests/unit/migrations/mysql-strict-mode-docker.test.ts exit=0       Tests  9 passed (9)
+tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts exit=0       Tests  1 passed (1)
+tests/unit/migrations/mysql-defaults-docker.test.ts exit=0       Tests  3 passed (3)
+mysql2 red cells: 0
+=== native pg (docker, per file)
+tests/providers/docker/pg-captured-set-concurrency.test.ts exit=0       Tests  28 passed (28)
+tests/providers/docker/pg-nested-write-races.test.ts exit=0       Tests  95 passed (95)
+tests/providers/docker/pg-polymorphism-ddl.test.ts exit=0       Tests  60 passed (60)
+tests/providers/docker/pg-read-surface.test.ts exit=0       Tests  76 passed (76)
+tests/providers/docker/pg-reference-representability.test.ts exit=0       Tests  5 passed (5)
+tests/providers/docker/pg.test.ts exit=0       Tests  220 passed | 7 skipped (227)
+finished 2026-09-21T20:13:58Z
+22:13  up 21 days, 21:54, 3 users, load averages: 24.73 21.73 13.94
+GATE DONE

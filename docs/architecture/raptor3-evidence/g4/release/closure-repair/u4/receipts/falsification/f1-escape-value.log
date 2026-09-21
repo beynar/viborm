@@ -1,0 +1,21 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sm
+
+ ❯ |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts (2 tests | 1 failed) 302ms
+   × MySQL declared defaults, at the database's own oracle > round-trips a backslash, a newline and a CRLF through DDL, catalog and a raw insert 79ms
+     → Manual SQL fragments containing carriage returns are refused
+   ✓ MySQL declared defaults, at the database's own oracle > spells now() at the resolved column's precision, and nowhere else 222ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts > MySQL declared defaults, at the database's own oracle > round-trips a backslash, a newline and a CRLF through DDL, catalog and a raw insert
+MigrationError: Manual SQL fragments containing carriage returns are refused
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  16:47:31
+   Duration  1.93s (transform 972ms, setup 10ms, collect 1.44s, tests 302ms, environment 0ms, prepare 42ms)
+
+Vitest resources: 3.97s wall, 512.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

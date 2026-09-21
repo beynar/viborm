@@ -1,0 +1,48 @@
+# Falsifications of the U5 hunks. Each mutation is applied to a BACKUP-protected
+# copy of scripts/closure-final-inventory.mjs and restored by cp afterwards.
+
+## control (unmutated):
+  - `provider-pg` (vitest.workspace.ts): 6 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+  - `provider-mysql2` (vitest.workspace.ts): 13 file(s), 0 declared cell(s), needs MYSQL_TEST_CONNECTION_STRING
+  - `parity` (files) — 31 file(s), 55 project execution(s), 227 declared cell(s) across 24 of 31 file(s), 454 executed cell(s) from those files
+  - `native provider-mysql2` (files) — 13 file(s), 13 project execution(s), 0 declared cell(s) across 0 of 13 file(s), 0 executed cell(s) from those files
+
+## mutation A - the glob expander stops expanding the wildcard (patterns match literally).
+  - `provider-pg` (vitest.workspace.ts): 0 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+  - `provider-mysql2` (vitest.workspace.ts): 3 file(s), 0 declared cell(s), needs MYSQL_TEST_CONNECTION_STRING
+  - `parity` (files) — 31 file(s), 55 project execution(s), 227 declared cell(s) across 24 of 31 file(s), 454 executed cell(s) from those files
+  - `native provider-mysql2` (files) — 3 file(s), 3 project execution(s), 0 declared cell(s) across 0 of 3 file(s), 0 executed cell(s) from those files
+
+## mutation B — include spreads are no longer resolved to their manifest list.
+  - `provider-pg` (vitest.workspace.ts): 6 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+  - `provider-mysql2` (vitest.workspace.ts): 13 file(s), 0 declared cell(s), needs MYSQL_TEST_CONNECTION_STRING
+  - `parity` (files) — 34 file(s), 0 project execution(s), 227 declared cell(s) across 24 of 34 file(s), 0 executed cell(s) from those files
+  - `native provider-mysql2` (files) — 13 file(s), 13 project execution(s), 0 declared cell(s) across 0 of 13 file(s), 0 executed cell(s) from those files
+
+## mutation C — the workspace's second literal patterns are dropped (only the first include entry is read).
+  - `provider-pg` (vitest.workspace.ts): 6 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+  - `provider-mysql2` (vitest.workspace.ts): 10 file(s), 0 declared cell(s), needs MYSQL_TEST_CONNECTION_STRING
+  - `parity` (files) — 31 file(s), 55 project execution(s), 227 declared cell(s) across 24 of 31 file(s), 454 executed cell(s) from those files
+  - `native provider-mysql2` (files) — 10 file(s), 10 project execution(s), 0 declared cell(s) across 0 of 10 file(s), 0 executed cell(s) from those files
+
+## restored control:
+  - `provider-pg` (vitest.workspace.ts): 6 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+  - `provider-mysql2` (vitest.workspace.ts): 13 file(s), 0 declared cell(s), needs MYSQL_TEST_CONNECTION_STRING
+
+## mutation D - the index really consumes the inventory (mutation C re-applied, index re-assembled).
+  | `provider-mysql2` | `vitest.workspace.ts` | 10 | `MYSQL_TEST_CONNECTION_STRING` | 0 (0 of 10) |
+  restored:
+  | `provider-mysql2` | `vitest.workspace.ts` | 13 | `MYSQL_TEST_CONNECTION_STRING` | 0 (0 of 13) |
+
+## the four Git tree ids are path-specific, not one constant (git rev-parse, independently):
+  HEAD:src 46fd05115fabf717ebd346291f47fbf0509ac1c5
+  HEAD:tests 8124d70eb2a462b16d2f12a134cc30ec7a4aa55d
+  HEAD:scripts 687dcf6f382314c9a95d1ffe70c3848f68278340
+  HEAD:benchmarks 63f383607dadd33c8a87a98e728d5a20b47a8baa
+  HEAD^{tree} 3614eb42d120e20cf4ea4e02e755d7f9c532ab6d
+  as the index printed them:
+  | commit tree | `3614eb42d120e20cf4ea4e02e755d7f9c532ab6d` |
+  | `src/` | `46fd05115fabf717ebd346291f47fbf0509ac1c5` |
+  | `tests/` | `8124d70eb2a462b16d2f12a134cc30ec7a4aa55d` |
+  | `scripts/` | `687dcf6f382314c9a95d1ffe70c3848f68278340` |
+  | `benchmarks/` | `63f383607dadd33c8a87a98e728d5a20b47a8baa` |

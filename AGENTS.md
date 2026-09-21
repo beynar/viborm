@@ -695,6 +695,27 @@ Both halves of the engine are fast layers, not coverage-only lanes:
 project re-reads those same 56 write files only so the query-core report can
 merge them; it is not their only home.
 
+A qualification gate enumerates a Vitest project BY THE PROJECT, never by a
+shell glob over the directory its files usually live in. `vitest.workspace.ts`
+owns what a project registers, and `node scripts/closure-final-inventory.mjs`
+expands those include patterns against the test tree: `providers` prints each
+provider project's registered file list, `plan` prints every gate stage with
+its files, and `credential-free` prints the unkeyed file stages. The final
+local closure's gate globbed `tests/providers/docker/mysql2*.test.ts` plus
+`tests/unit/migrations/mysql*docker*.test.ts`, ran eleven of `provider-mysql2`'s
+thirteen registered files and reported the number as the project's; the two
+files whose names matched neither spelling were simply absent. The command also
+lists test files no project registers, so a witness placed outside every
+include pattern is visible instead of quietly unrun, and it prints the
+symmetric omission beside it: per project, which stages cover its registered
+files and how many no enumerated stage covers — a file a project DOES register
+and no stage runs is exactly how the eleven-of-thirteen lane passed. The registered list and the unregistered list are pinned by
+`tests/contracts/architecture/gate-inventory-census.core.test.ts`; the
+stage-coverage reading is printed by the command and asserted by no cell. A stage's
+reported `Tests`
+total is executed cells across PROJECT EXECUTIONS — a file registered in two
+projects executes twice — and is not a count of distinct declared cases.
+
 Raptor 3 fixed public contracts and harness falsifiers have one explicit
 admission owner, `scripts/raptor3-manifest.mjs`, and their own `raptor3` Vitest
 project. `pnpm test:all` runs that fixed lane once; it clears replay/specimen

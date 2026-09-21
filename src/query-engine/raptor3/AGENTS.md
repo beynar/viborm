@@ -248,6 +248,37 @@ PostgreSQL, the default route kept apart from the forced non-RETURNING profile),
 with `batch-captured-bulk`, `prepared-set-predicates`, `member-boundary-packaging`
 and `published-key` as the credential-free consumers.
 
+**Addendum (the repair prompt §2, the member's requirement is HELD).** "still
+enforced" was true of the STATEMENT and not of its lifetime. A batch is one
+transaction, not one statement: under READ COMMITTED each statement takes its
+own snapshot, so a membership change committed after a premise answered is
+visible to the write behind it — and the closure review measured exactly that,
+a member moved to another parent between the unit's last premise and its own
+ID-addressed DELETE being deleted for the parent that no longer held it. The
+requirement is now re-taken where the member is CONSUMED
+(`CommandExecution.holdMember`, beside the parent requirement `executeSeries`
+already restates there) as a read that HOLDS what it proves for the rest of the
+transaction, taken on the row that STORES the membership: a REFERENCE
+membership is a column of the member's own row, so one held premise over that
+row proves the membership, holds it and proves the row is still there; a
+JUNCTION membership is a row of its own that no lock on the member reaches, and
+it is taken under its own lock through `Queries.junction`, the read owner the
+singular junction capture already uses. A locking read of the member alone does
+NOT do: PostgreSQL re-evaluates a blocked write's qualification against the
+updated TARGET row but keeps the original snapshot for subqueries over other
+tables, so a membership carried into the effect as SQL waits for the racer,
+wakes, reads a stale junction and writes anyway (measured both ways in
+`g4/release/closure-repair/u2/receipts/13-substrate-probe.log`). Nothing
+reselects, retries or replays: the failure is the one that member already owned
+— the captured series' membership race for a deletion, the located target's own
+sentence for an update — and whatever segment the unit already acknowledged
+stands and is reported. The INTERACTIVE route holds the member ROWS already
+(its capture reads `FOR UPDATE`), so only the junction row is left to take
+there. D-65's bound is untouched: the filter that SELECTED the worklist is
+still not re-asked at a member's own write, and a future joiner stays outside
+it. The file is 28 cells; the three `driver.shape` pins are `[9, 8]`, the two
+statements being the first member's held requirement and its junction row.
+
 `Commands.analyze` materializes one placement-owned `CommandOccurrence` tree
 from immutable command recipes. Reusing a command or `Selection` never reuses
 occurrence ancestry, children, refusal, or attempt state. Choice arms and static
@@ -573,6 +604,29 @@ composing sites are unchanged and stay four, because their timings differ:
 `submit`'s dispatch-failure catch, the carried value's decode catch,
 `settleSubmitted` and `stateWriteOutcome`. Pin:
 `tests/raptor3/g4/parity/one-write-outcome-composition.test.ts`.
+
+**U3 addendum (2026-09-21): what "the operation has answered" INCLUDES.** The
+paragraph above is right that the batch transport holds the listener's failure
+and composes it once the operation has answered. Until this unit "answered"
+meant only that `submit`'s responses had been extracted and decoded: a captured
+mutation's own cardinality — the rows its statement reached, against the rows
+the capture named — was judged by its CALLERS, one statement after
+`settleSubmitted` had already released the hold. Transport success is not result
+success. The settlement therefore called a shortfall an answer that SUCCEEDED
+and published the listener's failure alone, losing both the registered
+cardinality sentence and the `atomicity: "segment"` progress attached to it —
+measured on both verbs by the closure review. The SEMANTIC answer now lives
+inside the settlement: `capturedMutation` takes the caller's own answer as
+`answered` — the verb keeps its own sentence — and states it INSIDE
+`settleSubmitted`'s region, so what follows is the composition this paragraph
+already describes — the operation's failure primary, the listener's retained
+beside it — while a successful answer beside a failed listener still publishes
+the listener's alone. The rule generalises: a settlement region must contain
+every judgement that can still turn this operation's answer into a failure, not
+only the decode. The composing sites stay FOUR — the region grew, no fifth
+composition was added — and nothing is replayed, because a check after dispatch
+cannot undo the batch it judges. Pins: the three combined-failure cells of
+`tests/providers/docker/pg-captured-set-concurrency.test.ts` (repair prompt §3).
 
 A `borrowed-transaction` operation owns a region only when its caller SAID so.
 `operationRegion` is that grant — the callback-transaction route supplies it
@@ -1702,9 +1756,9 @@ provider, so a row it FINDS is no longer held for the update arm that follows
 either. Two readers answer that, and neither is the probe. A CORRELATED nested
 `upsert` — one that carries its OWN `where`, which is the to-many arm — states
 its found target through a membership confirmation (`foundRequirement`, issued
-as `Selection.inspectMembership`) that keeps `forUpdate`: its answer IS the row
-the found arm updates, and a row deleted meanwhile makes that read empty and
-the arm refuse. A to-ONE nested `upsert` carries no `where`, so nothing builds
+as `Selection.confirm`) that keeps `forUpdate`: its answer IS the row the found
+arm updates, and a row deleted meanwhile makes that read empty and the arm
+refuse. A to-ONE nested `upsert` carries no `where`, so nothing builds
 that confirmation for it and no such read is issued; it is answered instead by
 the demanded target keys the postwave addendum below states. Where no such
 confirmation exists — a root `upsert` — the answer is the read the write
@@ -1755,6 +1809,119 @@ this binding builds. Witness:
 `tests/providers/docker/mysql2-concurrency-policy.test.ts`, "a nested to-ONE
 upsert whose found target is deleted before the update arm loses nothing
 silently".
+
+**Addendum (the shared FOUND-consumption rule, 2026-09-21, after the local
+closure review), correcting the three paragraphs above at their cause.** They
+counted READERS, and every reader they counted runs AFTER the effect. A read
+taken there proves the row still exists. It does not prove the identity, the
+membership, the matched condition or the reference that effect just spent were
+still the ones the operation was promised, and three native MySQL schedules
+measured each of those losses on unchanged source: a holder connected to `b2`,
+a row that acquired the referenced key `G` after the probe read it off `b1`
+(`ON UPDATE CASCADE`, so no lawful connection to `b1` produces it); a
+conditional upsert that wrote `42` after the `count: 7` it matched became `8`;
+a nested to-one upsert that wrote a profile after it had been reparented. An
+observation is not a lasting requirement (ELEGANCE §6) — and neither is a later
+observation of the same row.
+
+So the answer is ONE read, taken between the observation and every arm rather
+than after the effect: `CommandExecution.confirmFound` issues
+`Selection.confirm` — the membership confirmation the correlated to-many arm
+already had, with the membership and the condition it proves turned into
+arguments. It addresses the located row by IDENTITY, so it can adopt no
+replacement record; it keeps `forUpdate`, so under the transaction this
+operation is already in the requirement it proves LASTS THROUGH the consuming
+effect; and it returns the whole stored row, which then REPLACES the probe's
+bytes as this row's binding, so a reference a holder's own INSERT spends is the
+current one and never a captured key another row has since acquired. Values
+this operation itself produced are untouched: they are read where they are
+spent (`CommandAttempt.read`) and nothing here compares against a stale
+pre-sibling literal. Where a requirement has been lost the operation raises the
+failure it ALREADY owns for that loss — the found membership's sentence, a
+`connectOrCreate`'s replacement race, a located target's identity sentence, a
+conditional premise's own match failure — and nothing reselects, switches a
+selected arm or replays.
+
+Three facts this does not change. A probe that may answer ABSENT still locks
+nothing, and neither does the confirmation lock an absence: it is issued only
+once that probe has FOUND a row and is addressed by that row's identity, so it
+never locks the absence the operation is about to INSERT. Where the row has
+SINCE gone the confirmation misses — that is the deleted-target family above —
+and a locking read whose exact match finds nothing does take the gap in
+REPEATABLE READ; what makes that harmless is that the miss raises the arm's own
+failure immediately and takes no further lock, so no cycle can form and R2c's
+convergence and no-replay policy are unaffected (the whole of R2c stands). The
+BATCH route asks for no read here at all — it states the IDENTITY, the
+MEMBERSHIP and the matched CONDITION as PREMISES of the atomic unit that
+consumes them (`Selection.retained` in `runSelection`, the found record
+command's own `requirePresent`, and the condition premises), which are the same
+facts proved atomically and abort before any write; the eager
+membership read the interactive path used to take for a non-dependent
+correlated upsert is gone, because that premise already proves it. And not
+every initial selection filter becomes a continuing requirement: D-65's nested
+worklist filter remains an admission/capture fact, not a per-member filter.
+
+The readers the paragraphs above named stay where they are, behind this one,
+and their unique coverage is nameable: a provider whose select assembly OMITS
+`FOR UPDATE` (SQLite, `sqlite-adapter.ts`) takes no lock for the confirmation
+to hold, and there the read-back `OperationContext.update` takes for the keys it demands (`UPDATE … RETURNING` where the provider has RETURNING, as SQLite does; the CURRENT stored-row read where it has none) and the target keys `RelationBody` demands of an arm whose probe did not lock are
+what answer — witnessed, on that substrate and in that window, by "a target
+lost AFTER the confirmation is caught by the reader of last resort"
+(`tests/providers/local/sqlite3-found-consumption.test.ts`), which plants its
+delete before the first MUTATION of the table rather than before a read: remove
+either half and the operation resolves, returning the renamed parent, having
+written nothing. What the rule costs on the INTERACTIVE found path of an arm
+whose probe withdrew its lock is one extra round trip per MATCHED condition
+probe — one where the locator is the only requirement, two for an upsert that
+carries both `targetWhere` and `setWhere` (`confirmFound` confirms the located
+row once per condition probe, each through that probe's own narrowed selector).
+Not on a miss, not on the batch route, and not for an arm whose probe still
+locks. Witnesses:
+`tests/providers/docker/mysql2-found-consumption.test.ts` (the three schedules,
+a real lock-HELD schedule, the placements and key shapes, and the controls) and
+`tests/providers/docker/mysql2-concurrency-policy.test.ts` §4, whose three
+deleted-target rows now plant in front of the confirmation because a plant in
+front of the effect would wait on a lock this code correctly takes.
+
+**Addendum (the repair prompt §1, 2026-09-21, correcting the cost sentence and
+the latch above).** The cost is **ONE** extra round trip, whatever the arm's
+requirement is — not one per matched condition probe. Every matched condition is
+a requirement of the SAME consumption of the SAME row, so they are one premise
+and one statement: `confirmFound` conjoins the probes that matched
+(`Queries.andSelectors` over the prepared selectors those probes already carry,
+the locator's base among them) and re-takes the located row once under that
+conjunction. Two statements would ask one locked row the same question twice.
+What one statement cannot do is name WHICH of two matched conditions a
+concurrent commit took away, so the failure is the first condition's — the same
+ordering `case "choose"` already speaks with when it reports one unmatched probe
+for the skip; exact per-field attribution would need the conditions evaluated
+over the confirmed row rather than in its `WHERE`, which no adapter can project
+(`g4/release/closure-repair/g1/note.md` §1). Witness:
+`tests/raptor3/post-prep/selector-preparation.test.ts`, "reuses one upsert base
+selector across both prepared condition probes" — three conjunctions and four
+SELECTs before the UPDATE (the locator probe, the two condition probes, the one
+confirmation), then the terminal read. And because the confirmation is where an interactive found
+arm now first contends, a concurrency test may not latch on the effect BEHIND
+it: the competing-upserts interleaving in
+`tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts`
+latches on the locking read (`isItemLock`, as its root-update and root-delete
+neighbours already did), and the lock-HELD control beside it proves the waiter
+queues on the holder's `X,REC_NOT_GAP` record lock and then answers over what
+the holder COMMITTED.
+
+**Addendum (the repair prompt §2, what "proved atomically" does and does not
+say).** It is true of the UNIT's OUTCOME — a premise that disagrees aborts the
+batch before it commits — and not of the window between a premise and the
+statement it protects, which under READ COMMITTED are two snapshots of the same
+transaction. Where a requirement has to LAST through the effect, the premise is
+issued as a HELD read instead (`Selection.captured`'s `held` argument), which is
+what a nested captured series now does at each member's consumption position
+(the addendum under D-65 above). The found-consumption premises named in this
+paragraph keep their unlocked form: no schedule in this tree measures that
+window for them, and the note that repaired the nested one names it as a
+residual rather than claiming it closed
+(`g4/release/closure-repair/u2/note.md` §11).
+
 **Addendum (D-65).** That last sentence names a ROW LOCK, not phantom exclusion:
 `FOR UPDATE` holds the members the plan-time read returned, and a member
 connected afterwards is a row it never covered. Neither route claims otherwise —

@@ -20,6 +20,16 @@ reader and is quoted.
    assembly, and the `calibrationSourceIdentity` hash — the existing calibration
    owner over `src/`, `benchmarks/`, `scripts/`, `package.json`,
    `pnpm-lock.yaml`, `tsconfig.json`, `tsdown.config.ts` and `biome.jsonc`.
+   **Addendum (2026-09-21, after the review of `bc18b4e23`).** It also records
+   the Git TREE object ids of the commit and of `src`, `tests`, `scripts` and
+   `benchmarks`, the sha256 of the config and lockfiles, and the identity of
+   each retained review directory beside the checkpoint — the bare
+   `closure-review` and any `closure-review-<sha>` a later round leaves. Each
+   digest is printed with its own scope AND algorithm: a Git object id is
+   SHA-1 over a tree object and a file digest is sha256 over bytes, and
+   neither is the other's harness identity. The tree ids are what support "the
+   squash carries the same `src`"; the manifest digest of item 2 does not reach
+   a native entry file or an imported fixture.
 2. **Harness identity.** Every test file any registered manifest names, hashed
    file by file into one digest, plus the sha256 of each manifest module. A
    gate is only as identified as the harness that ran it, and
@@ -42,6 +52,16 @@ reader and is quoted.
 5. **The manifests.** Every registered test list with its file count, and every
    declared-cell map with its cell total, read from the manifest modules
    themselves.
+   **Addendum (2026-09-21, after the review of `bc18b4e23`).** Section 5 now
+   leads with what each VITEST PROJECT registers, derived by
+   `scripts/closure-final-inventory.mjs` from `vitest.workspace.ts`'s own
+   include patterns, and with the gate plan those lists imply. A manifest list
+   counts the paths a manifest names; a project list is what a gate stage must
+   run, and the two differ — this gate ran eleven of `provider-mysql2`'s
+   thirteen files because it globbed the directory instead of reading the
+   project. The same section keeps project EXECUTIONS and declared CELLS in
+   separate columns, because a file registered in two projects executes twice
+   and its cells are then counted twice in a stage's `Tests` total.
 6. **The bundle table.** From `scripts/measure-raptor3-baseline.mjs --bundle`
    run on the final source. The engine and public PostgreSQL fixture ratios of
    the release tree (0.646 and 0.735) are HISTORICAL until a new measurement on
@@ -52,6 +72,13 @@ reader and is quoted.
 ## Producing it
 
 ```sh
+# 0. what the gate must run, before it runs: every stage and file, both
+#    provider projects' complete registered lists, any test file no project
+#    registers, and — per project — which stages cover its registered files.
+#    Reads the tree, runs nothing, needs no credentials.
+node scripts/closure-final-inventory.mjs plan
+node scripts/closure-final-inventory.mjs providers
+
 # 1. source and bundles, on the frozen source
 node scripts/run-node-safe.mjs 3072 600000 \
   scripts/measure-raptor3-baseline.mjs --bundle \

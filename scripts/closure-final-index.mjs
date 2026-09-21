@@ -12,6 +12,11 @@
  *   node scripts/closure-final-index.mjs --gate <dir> --out <dir> \
  *     [--measurement <baseline.json>] [--recount <recount.json>] [--label <text>]
  *
+ * The registered inventory is `closure-final-inventory.mjs`'s answer, not a
+ * second walk: that module derives each project's file list from
+ * `vitest.workspace.ts`'s own include patterns, so a project this index reports
+ * as registering N files is the project a gate stage must run in full.
+ *
  * The gate directory is the integrator's: one `<stage>.log` per stage plus a
  * `summary.log` whose `=== <stage>` / `exit=<n>` pairs own the exit codes. A
  * stage with no recorded exit code is reported as `unrecorded`, never as zero;
@@ -33,6 +38,11 @@ import {
 } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { calibrationSourceIdentity } from "../benchmarks/operation-pipeline-semantics.mjs";
+import {
+  gatePlan,
+  inventory,
+  MANIFEST_MODULES,
+} from "./closure-final-inventory.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -160,17 +170,15 @@ const stagesWithoutLog = Object.entries(exitCodes)
 /**
  * Every test path any registered manifest names, and the cell counts the
  * manifests that carry them declare. The manifest modules are the owners; this
- * walk states no list of its own.
+ * walk states no list of its own, and WHICH modules they are is
+ * `closure-final-inventory.mjs`'s `MANIFEST_MODULES` — one list, imported,
+ * not a second copy that can drift when a manifest is added.
+ *
+ * The two readers aggregate the same maps differently on purpose: this one
+ * reports a map's total for the manifest table, the inventory reports a
+ * FILE's cells so a stage's declared count can be told apart from its
+ * executions.
  */
-const MANIFEST_MODULES = [
-  "scripts/raptor3-manifest.mjs",
-  "scripts/credential-free-test-manifest.mjs",
-  "scripts/client-test-manifest.mjs",
-  "scripts/driver-test-manifest.mjs",
-  "scripts/migration-test-manifest.mjs",
-  "scripts/query-engine-test-manifest.mjs",
-];
-
 async function readManifests() {
   const lists = {};
   const counts = {};
@@ -256,14 +264,141 @@ const runtime = {
   packageManager: manifestJson.packageManager,
 };
 
+/**
+ * The complete Git TREE identities, and the config digests beside them.
+ *
+ * The manifest digest above covers the paths the manifests name; it does not
+ * reach a native entry file or an imported fixture. A Git tree id does reach
+ * every byte under its path, so "the squash carries the same `src`" is stated
+ * here as the object identity it is — and named as a Git object id (SHA-1 over
+ * the tree object), which is NOT the same algorithm as the sha256 digests in
+ * the rest of this index. Different algorithms are never printed as one
+ * harness identity.
+ */
+const TREE_SCOPES = ["src", "tests", "scripts", "benchmarks"];
+const CONFIG_FILES = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "tsconfig.json",
+  "tsdown.config.ts",
+  "biome.jsonc",
+  "vitest.config.ts",
+  "vitest.workspace.ts",
+  "vitest.d1.config.ts",
+];
+
 const source = {
   commit: git("rev-parse", "HEAD"),
   describe: git("log", "-1", "--format=%H %cI %s"),
   workingTree: git("status", "--porcelain"),
   identity: calibrationSourceIdentity(root).sha256,
+  identityAlgorithm: "sha256 over the calibration owner's named file set",
   identityScope:
     "src/, benchmarks/, scripts/, package.json, pnpm-lock.yaml, tsconfig.json, tsdown.config.ts, biome.jsonc — the existing calibration owner",
+  trees: {
+    algorithm: "git object id (SHA-1 tree object)",
+    scope: "every byte under the named path at this commit",
+    commit: git("rev-parse", "HEAD^{tree}"),
+    ...Object.fromEntries(
+      TREE_SCOPES.map((scope) => [scope, git("rev-parse", `HEAD:${scope}`)])
+    ),
+  },
+  configDigests: {
+    algorithm: "sha256 over the file's bytes in the working tree",
+    files: Object.fromEntries(
+      CONFIG_FILES.filter((file) => existsSync(resolve(root, file))).map(
+        (file) => [file, sha256(readFileSync(resolve(root, file)))]
+      )
+    ),
+  },
 };
+
+/**
+ * The retained review the checkpoint answers, by its own identity.
+ *
+ * A review directory is evidence like any log: it is named, counted and
+ * hashed here so a later reader can tell WHICH review's witnesses this
+ * checkpoint converted. Directories are discovered by the `closure-review`
+ * prefix the reviewer already uses, which covers both the bare directory of
+ * the review a checkpoint answers and the `closure-review-<sha>` spelling a
+ * later round retains beside it, so no list of them is kept anywhere. A
+ * trailing hyphen in the prefix excluded the bare directory and printed "No
+ * retained review directory sits beside this checkpoint" over a tracked one.
+ */
+const REVIEW_PARENT = "docs/architecture/raptor3-evidence/g4/release";
+const REVIEW_PREFIX = "closure-review";
+
+function directoryIdentity(directory) {
+  const entries = [];
+  const walk = (current) => {
+    for (const entry of readdirSync(current, { withFileTypes: true }).sort(
+      (left, right) => left.name.localeCompare(right.name)
+    )) {
+      const path = resolve(current, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile()) {
+        entries.push({
+          file: relative(directory, path).replaceAll("\\", "/"),
+          sha256: sha256(readFileSync(path)),
+        });
+      }
+    }
+  };
+  walk(directory);
+  const digest = createHash("sha256");
+  for (const entry of entries) {
+    digest.update(entry.file).update("\0").update(entry.sha256).update("\0");
+  }
+  return { files: entries.length, sha256: digest.digest("hex") };
+}
+
+const reviewParent = resolve(root, REVIEW_PARENT);
+const retainedReviews = existsSync(reviewParent)
+  ? readdirSync(reviewParent, { withFileTypes: true })
+      .filter(
+        (entry) => entry.isDirectory() && entry.name.startsWith(REVIEW_PREFIX)
+      )
+      .map((entry) => ({
+        review: `${REVIEW_PARENT}/${entry.name}`,
+        algorithm:
+          "sha256 over the directory's sorted (path, file sha256) pairs",
+        ...directoryIdentity(resolve(reviewParent, entry.name)),
+      }))
+      .sort((left, right) => left.review.localeCompare(right.review))
+  : [];
+
+/* ---------------------------------------------------- registered inventory */
+
+/**
+ * Which files each workspace project registers, derived from the workspace's
+ * own include patterns by `closure-final-inventory.mjs`.
+ *
+ * The manifest lists below state how many paths a manifest NAMES. This states
+ * how many files a PROJECT registers, and the two are not the same number: the
+ * gate that produced the previous checkpoint enumerated `provider-mysql2` by a
+ * shell glob and ran eleven of its thirteen registered files. A stage's test
+ * total is executed cells across project executions — a file registered in two
+ * projects executes twice — so executions and declared cells are reported as
+ * separate columns rather than one total.
+ */
+const registered = await inventory(root);
+const projects = registered.projects.map((project) => ({
+  project: project.project,
+  source: project.source,
+  files: project.files.length,
+  credentialEnvironment: project.credentialEnvironment,
+  declaredCells: project.declaredCells,
+  filesWithDeclaredCells: project.declaredCellsKnownFor,
+  registeredButAbsent: project.registeredButAbsent,
+}));
+const plan = gatePlan(registered).map((stage) => ({
+  stage: stage.name,
+  kind: stage.kind,
+  command: stage.command,
+  credentialEnvironment: stage.credentialEnvironment,
+  files: stage.files,
+  totals: stage.totals,
+}));
 
 /* ------------------------------------------------------- measured readings */
 
@@ -317,14 +452,25 @@ const index = {
     ? relative(root, gateDirectory)
     : gateDirectory,
   source,
+  retainedReviews,
   runtime,
   harness: {
     sha256: harnessHash.digest("hex"),
+    algorithm:
+      "sha256 over the sorted (path, file sha256) pairs of every path a manifest names",
     registeredFiles: harnessFiles.length,
     missingFiles: missingHarnessFiles,
     manifestModules: manifests.modules,
     lists: manifests.lists,
     declaredCells: manifests.declaredCells,
+  },
+  registered: {
+    derivedFrom:
+      "vitest.workspace.ts and vitest.d1.config.ts include patterns, expanded by scripts/closure-final-inventory.mjs",
+    projects,
+    plan,
+    unregisteredTestFiles: registered.unregistered,
+    unresolvedIncludeSpreads: registered.unresolvedSpreads,
   },
   stages,
   stagesWithoutLog,
@@ -349,14 +495,48 @@ const markdown = [
   "",
   `- commit: \`${source.commit}\``,
   `- head: ${source.describe}`,
-  `- calibration source identity: \`${source.identity}\``,
+  `- calibration source identity: \`${source.identity}\` (${source.identityAlgorithm})`,
   `- scope: ${source.identityScope}`,
   `- working tree at assembly: ${source.workingTree === "" ? "clean" : `\n\n\`\`\`\n${source.workingTree}\n\`\`\`\n`}`,
   "",
+  `Git TREE identities — ${source.trees.algorithm}, ${source.trees.scope}. These are`,
+  "complete: unlike the manifest digest, they reach native entry files and",
+  "imported fixtures. A squash that reports the same ids carries the same bytes.",
+  "",
+  "| scope | git object id |",
+  "| --- | --- |",
+  `| commit tree | \`${source.trees.commit}\` |`,
+  ...TREE_SCOPES.map(
+    (scope) => `| \`${scope}/\` | \`${source.trees[scope]}\` |`
+  ),
+  "",
+  `Config and lockfile digests — ${source.configDigests.algorithm}. A sha256 of a`,
+  "file's bytes and a Git tree id are different algorithms over different",
+  "scopes; neither stands in for the other.",
+  "",
+  "| file | sha256 |",
+  "| --- | --- |",
+  ...Object.entries(source.configDigests.files).map(
+    ([file, digest]) => `| \`${file}\` | \`${digest}\` |`
+  ),
+  "",
+  ...(retainedReviews.length === 0
+    ? ["No retained review directory sits beside this checkpoint."]
+    : [
+        "Retained review evidence this checkpoint answers:",
+        "",
+        "| review | files | identity |",
+        "| --- | --- | --- |",
+        ...retainedReviews.map(
+          (review) =>
+            `| \`${review.review}\` | ${review.files} | \`${review.sha256}\` (${review.algorithm}) |`
+        ),
+      ]),
+  "",
   "## 2. Harness identity",
   "",
-  `- registered test files: ${index.harness.registeredFiles}`,
-  `- harness identity: \`${index.harness.sha256}\``,
+  `- test files a manifest names: ${index.harness.registeredFiles}`,
+  `- harness identity: \`${index.harness.sha256}\` (${index.harness.algorithm})`,
   ...(missingHarnessFiles.length === 0
     ? []
     : [
@@ -403,6 +583,53 @@ const markdown = [
   "",
   "## 5. Registered inventory",
   "",
+  `Derived from ${index.registered.derivedFrom}. A gate stage must run a`,
+  "project's whole registered list; a hand-written glob over the same directory",
+  "is what omitted two `provider-mysql2` files from the previous checkpoint.",
+  "",
+  "**Executions are not cases.** A file registered in two projects executes",
+  "twice, so a stage's reported `Tests` total is executed cells across project",
+  "executions, not that many distinct declared cases. Both columns are below.",
+  "",
+  "| project | source | files | project needs | declared cells (files declaring) |",
+  "| --- | --- | --- | --- | --- |",
+  ...projects.map(
+    (project) =>
+      `| \`${project.project}\` | \`${project.source}\` | ${project.files} | ${project.credentialEnvironment ? `\`${project.credentialEnvironment}\`` : "no credentials"} | ${project.declaredCells} (${project.filesWithDeclaredCells} of ${project.files}) |`
+  ),
+  "",
+  ...(projects.every((project) => project.registeredButAbsent.length === 0)
+    ? []
+    : [
+        "Registered by a project and absent from the tree:",
+        "",
+        ...projects
+          .filter((project) => project.registeredButAbsent.length > 0)
+          .map(
+            (project) =>
+              `- \`${project.project}\`: ${project.registeredButAbsent.join(", ")}`
+          ),
+        "",
+      ]),
+  "### The gate plan this inventory implies",
+  "",
+  "| stage | kind | files | project executions | declared cells |",
+  "| --- | --- | --- | --- | --- |",
+  ...plan.map(
+    (stage) =>
+      `| \`${stage.stage}\` | ${stage.kind} | ${stage.totals ? stage.totals.files : "—"} | ${stage.totals ? stage.totals.projectExecutions : "—"} | ${stage.totals ? `${stage.totals.declaredCells} (${stage.totals.filesWithDeclaredCells} of ${stage.totals.files})` : "—"} |`
+  ),
+  "",
+  "A `runner-mode` stage's files belong to `scripts/run-raptor3.mjs`'s own mode",
+  "table, which asserts its declared counts, so none is restated here.",
+  "Full lists: `node scripts/closure-final-inventory.mjs plan`.",
+  "",
+  ...(index.registered.unregisteredTestFiles.length === 0
+    ? []
+    : [
+        `${index.registered.unregisteredTestFiles.length} test file(s) in the tree are in no workspace project (listed in \`index.json\`); a new witness placed outside every include pattern would appear here rather than pass unnoticed.`,
+        "",
+      ]),
   "| list | files |",
   "| --- | --- |",
   ...Object.entries(manifests.lists)

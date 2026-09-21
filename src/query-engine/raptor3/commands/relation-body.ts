@@ -934,38 +934,31 @@ export class RelationBody {
         : undefined;
     if (conditionalParentBinding && !conditionalParentBinding.target.found) {
       const { lookup } = conditionalParentBinding.target;
-      const binding = this.commands.update(lookup, {}, {}, true);
-      // This arm exists only to write the child's foreign key, so it asks the
-      // provider for nothing back — and an UPDATE that asks for nothing never
-      // learns whether it addressed a row. That costs nothing while the probe
-      // that chose the arm HOLDS the row it found; a probe whose other arm
-      // inserts the key it looked for does not hold it
-      // (`Selection.insertsWhenAbsent`), so the row can leave between the
-      // probe and this statement and a connection that wrote nothing would be
-      // reported as made. Demanding the target's own keys is what makes
-      // `OperationContext.update` issue the read that answers "which row did
-      // this UPDATE write?" — the CURRENT read where the provider has no
-      // RETURNING — and raise `UPDATE did not produce the required record`
-      // when there is none. The arms whose probe still locks are untouched.
-      if (lookup.insertsWhenAbsent)
-        binding.fields.select(this.commands.context.schema.keys(edge.target));
       conditionalParentBinding.target.found = this.commands.occurrence(
-        binding,
+        this.commands.update(lookup, {}, {}, true),
         "after"
       );
     }
-    // The same rule at the arm that already HAS a found command: a nested
-    // to-one `upsert`. Its create arm makes the probe let go of what it found
-    // (`Selection.insertsWhenAbsent`), and it carries no `where`, so no found
-    // membership confirmation is built for it and the locking
-    // `Selection.inspectMembership` read that states the CORRELATED arm's
-    // target is never issued. Its found arm is an ordinary `update` of the
-    // probed row whose payload demands nothing back, so `OperationContext`
-    // takes the effect path and never asks which row the UPDATE wrote: a
-    // target deleted in that window would leave the nested update lost under a
-    // reported success. Demanding the target's own keys is the same answer as
-    // above — the CURRENT stored-row read, and `UPDATE did not produce the
-    // required record` when there is none.
+    // ONE rule, for every found arm whose probe did not keep its lock. Such an
+    // arm's UPDATE can address a row that is no longer there
+    // (`Selection.insertsWhenAbsent`), and an UPDATE that asks the provider for
+    // nothing back never learns whether it addressed one — so on a provider
+    // without RETURNING the loss is invisible. Two arms reach it and both are
+    // built here: the binding an inverse-reference `connect`/`connectOrCreate`
+    // constructs above, which exists only to write the child's foreign key and
+    // therefore demands nothing at all, and a nested to-ONE `upsert`, whose
+    // found arm does carry the caller's payload but carries no `where`, so no
+    // found membership confirmation is built for it (`Choose.foundRequirement`)
+    // and the locking `Selection.confirm` read that states the CORRELATED arm's
+    // target proves nothing about this one. Demanding the target's own keys is
+    // what makes `OperationContext.update` issue the read that answers "which
+    // row did this UPDATE write?" — the CURRENT stored-row read where the
+    // provider has no RETURNING — and raise `UPDATE did not produce the
+    // required record` when there is none. It is the reader of LAST resort: the
+    // shared confirmation (`CommandExecution.confirmFound`) holds the row under
+    // lock through the effect wherever the provider has one to take, and this
+    // is what answers on a provider whose select assembly omits `FOR UPDATE`
+    // (SQLite). The arms whose probe still locks are untouched.
     if (
       target.kind === "choose" &&
       target.found &&

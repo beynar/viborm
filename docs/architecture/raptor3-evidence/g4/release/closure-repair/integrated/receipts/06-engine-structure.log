@@ -1,0 +1,13 @@
+=== node scripts/query-engine-structure.mjs — the engine's token-bearing line count on the final tree of the integrated repair round ===
+files: 38
+lines: 20917
+tokenLines: 16185
+functions: 1104
+parameters: 1672
+highParameterFunctions: 35
+branchNodes: 2583
+runtimeImportCycleComponents: 1
+runtimeFilesInCycles: 3
+filesOver300Lines: 13
+filesOver600Lines: 7
+EXIT=0 (reference denominator at bc18b4e23: 16,098 engine token lines; unmoved by this round — no production source changed)

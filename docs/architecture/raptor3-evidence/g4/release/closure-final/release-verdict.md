@@ -20,6 +20,20 @@
 
 **Cost.** Engine 16,040 → **16,098** token-bearing LOC (+58 over this closure: R1 +0, R3 and R2c's demanded-keys arms and the selector composition), like-for-like 19,898 → 19,956, charged perimeter 23,833 → 23,891 (the MySQL introspector repair is charged-integration). Ratios against the recorded old-engine denominators: engine **0.3498** of 46,021, **0.40** with the same integration files, physical 0.35, bytes 0.37 — plan §7's ≤ 0.60 / ≤ 0.70 met. Per-unit table: [`recount/recount.md`](recount/recount.md).
 
+**Correction to the Cost parenthetical (2026-09-21, after the review of
+`bc18b4e23`).** "the MySQL introspector repair is charged-integration" is
+wrong. `receipts/source-size-final.json`'s classification map records
+`src/migrations/drivers/mysql/introspect.ts` as **`excluded-shared-boundary`**
+(371 token lines, reason: "Unchanged external schema/validation/SQL/provider/
+extension/cache/public-type or unrelated migration/CLI owner"), and
+`recount/recount.json` puts R2a's diff in that same bucket. Its cost stays
+visible on its own terms rather than inside a charged total: **+110 / −49
+lines** over `61c745f49..50ad4fac4` (`git diff --numstat`), in the 202/89 the
+recount reports for that unit's six excluded-shared-boundary files. The
+engine, like-for-like and charged totals — 16,098 / 19,956 / 23,891 — are the
+measurement file's own and are unchanged by this correction: the parenthetical
+mis-named a classification, it did not enter any sum.
+
 **Remaining approved restrictions.** D-55, D-56, D-59 (output identity, rounding, the two MySQL sentences), D-54 (the private recursive fit), D-9 (borrowed `createMany` `skipDuplicates`), D-60 (preparation cost) and D-62 (the bulk write cell) stand as accepted. The behavioural inventory's dated addendum names every row this closure moved.
 
 ## Validation
@@ -43,6 +57,44 @@ One frozen local gate on `b5fde8c1e` (`gate/summary.log`, raw logs in `logs/`), 
 **Performance, source-bound, on the committed `b5fde8c1e` through the protocol's own comparator** ([`perf/table.md`](perf/table.md), every report `measurementProtocolValid: true`, statement counts equal on both arms): `nested-conditional-found/full` **0.795 / 0.818** CPU, `nested-conditional-missing/full` **0.798 / 0.784**, `key-transition-cascade/full` **0.907 / 0.908**, `bulk-update-returning-100/full` **0.935 / 0.942** (D-62 had accepted 0.963), `fixed-collection-rowref-1000/parse` **0.709 / 0.709** (P1's attestation read 0.669; the read path took R2b's ordering owner — still 0.34 under the 1.05 budget), `bulk-update-returning-100/prepare` **1.558 / 1.610** at the statement seam the frozen series brackets (the perf unit read 1.556 / 1.432 there; D-60's restated budget is stated at D-9's package-seam bracket, 1.33, where this cell last read 1.325 — the preparation cost is the accepted D-60 cost, not a new movement).
 
 **Bundles and source, re-measured on the final source** (`receipts/source-size-final.json`): engine gzip **101,533 B = 0.648** of the frozen 156,771 (≤ 0.75), `pg-simple` **193,224 B = 0.736** and `pg-relations` **193,352 B = 0.736** of 262,658 / 262,788 (≤ 1.00). The earlier 0.646 / 0.735 are historical readings; these are the release numbers.
+
+**Corrections to this validation (2026-09-21, after the review of
+`bc18b4e23`).**
+
+1. **The native MySQL lane was the executed files, not the registered
+   project.** The gate enumerated that lane with a shell glob
+   (`tests/providers/docker/mysql2*.test.ts` plus
+   `tests/unit/migrations/mysql*docker*.test.ts`). The `provider-mysql2`
+   project registers **13** files; that glob reaches **11**. **735 passed / 1
+   skipped is accurate for the eleven files it executed and is not the whole
+   registered project.** The two it never ran are
+   `tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts` and
+   `tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts`, whose
+   green receipts date from R2b's earlier source; the review counts 35 and 1
+   cells in them. No total is restated here: the next gate derives its own
+   inventory from `node scripts/closure-final-inventory.mjs plan`, which reads
+   the project's include patterns out of `vitest.workspace.ts` instead of a
+   hand-written glob, and reports what that run actually executed.
+2. **"parity 527 / 527" is executed cells across project executions, not 527
+   declared cases.** The stage runs **31** files from `tests/raptor3/g4/parity/`;
+   24 of them are registered in two projects (`raptor3` and `coverage-raptor3`)
+   and 7 in one, so the three thirds performed **55 project executions**. The
+   distinct declared cases behind that number are **300** — the 227 the
+   manifests declare for the 24 files `G4_PARITY_COUNTS` names, plus 73 in the
+   7 files no declared-cell map covers. Both readings come from the retained
+   logs (`logs/parity-1.log`, `-2`, `-3`) and the inventory command's
+   independent count of the same 31 files and 55 executions; nothing was rerun.
+   The same distinction applies wherever a stage total is quoted: a file
+   registered in two projects contributes its cells twice.
+3. **The index's harness digest is narrower than Git tree equality, and they
+   are different algorithms.** The manifest digest covers the paths the
+   manifests name; it reaches no native entry file and no imported fixture.
+   The index now also records the Git TREE object ids of the commit and of
+   `src`, `tests`, `scripts` and `benchmarks`, the sha256 of the config and
+   lockfiles, and the identity of the retained review directory, each labelled
+   with its own scope and algorithm — a SHA-1 Git object id and a sha256 over
+   file bytes are not one "harness identity". Tree equality is what supports
+   the claim that the squash changed nothing under those paths.
 
 ## Risks
 

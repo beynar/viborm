@@ -1,0 +1,38 @@
+# The kept guard's witness, falsified twice (repair round, 2026-09-21)
+#
+# Cell: "a target lost AFTER the confirmation is caught by the reader of last
+# resort" (tests/providers/local/sqlite3-found-consumption.test.ts). Each
+# falsification is applied to a backup copy of the production file in $TMPDIR
+# and restored by cp; `git checkout` is never used and nothing is staged.
+
+## A — relation-body.ts:962-970 (the kept key demand) removed
+     → expected { id: 'o1', name: 'renamed' } to be undefined
+     → expected { id: 'o1', name: 'renamed' } to be undefined
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort
+AssertionError: expected { id: 'o1', name: 'renamed' } to be undefined
+  "name": "renamed",
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort
+AssertionError: expected { id: 'o1', name: 'renamed' } to be undefined
+  "name": "renamed",
+ Test Files  2 failed (2)
+      Tests  2 failed | 8 passed (10)
+
+## B — the required-record check in OperationContext.update removed
+     → expected { id: 'o1', name: 'renamed' } to be undefined
+     → expected { id: 'o1', name: 'renamed' } to be undefined
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort
+AssertionError: expected { id: 'o1', name: 'renamed' } to be undefined
+  "name": "renamed",
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort
+AssertionError: expected { id: 'o1', name: 'renamed' } to be undefined
+  "name": "renamed",
+ Test Files  2 failed (2)
+      Tests  2 failed | 8 passed (10)
+
+## Restored tree
+ M src/query-engine/raptor3/AGENTS.md
+ M src/query-engine/raptor3/commands/execution.ts
+ M src/query-engine/raptor3/commands/relation-body.ts
+ M src/query-engine/raptor3/commands/selection.ts

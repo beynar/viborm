@@ -1,0 +1,46 @@
+{
+  "reviewedCommit": "bc18b4e2325a5f7dce1165e05a28482f78a83d72",
+  "runtime": "Node 24.21.0",
+  "productionEdits": false,
+  "executedControlCases": 1,
+  "executedDistinctFailingCases": 6,
+  "fullGateRerun": false,
+  "transportNotes": {
+    "mysql": "Native MySQL2 interactive route",
+    "postgres": "Native PostgreSQL using existing capability-forced batch fixture"
+  },
+  "files": {
+    "README.md": {
+      "bytes": 5201,
+      "sha256": "2b6cae1e5fd9d9da92e0b15c15ea76af9c1689a3ec3895f263317f81e7616dcd"
+    },
+    "mysql-found-red.log": {
+      "bytes": 4317,
+      "sha256": "5e871428fe694f29959c546f1be2bbf50520bb9f6c5c234b5c716207c3e8d153"
+    },
+    "mysql-witness.txt": {
+      "bytes": 3528,
+      "sha256": "68d48d8c26b4d0baea2962b6427530ddce445109ad89040b8684c10a5c610d9b"
+    },
+    "mysql.workspace.mjs": {
+      "bytes": 1412,
+      "sha256": "351d68898aff77fda8f9cc2531e470ad286146406c0d24159c3256272bb0ab0a"
+    },
+    "pg-control.log": {
+      "bytes": 1004,
+      "sha256": "33549c9f862b5f549873c50085b252c9d86f23e3e5b1feb7e3a5707adcd65bae"
+    },
+    "pg-membership-red.log": {
+      "bytes": 5798,
+      "sha256": "4586e43241795ffc7f0cd03969bdd7b629e6253a56b8f4d1e3dc95f41b83d175"
+    },
+    "pg-outcome-red.log": {
+      "bytes": 9049,
+      "sha256": "e85cf6d5c93f2952528f5ae89b857459b55a183b58ac9b33695a52b6ca545583"
+    },
+    "pg.workspace.mjs": {
+      "bytes": 2808,
+      "sha256": "b6d32922dddf72242eb3881999890538184f85bd6e6a7f158ade0019d53f3666"
+    }
+  }
+}

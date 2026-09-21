@@ -1,0 +1,440 @@
+{
+  "version": 1,
+  "producedAt": "2026-09-21T20:18:17.143Z",
+  "measurement": {
+    "file": "docs/architecture/raptor3-evidence/g4/release/closure-repair/receipts/source-size-repair.json",
+    "status": "measured-source-and-bundles",
+    "commit": "392dfd30c0c7226b8fba0ebd4f8d1366d8bbecbd",
+    "clean": false,
+    "sourceIdentity": "e45da2f73f919c98777343f98dd50ca49c79cb6982b4d00fafc34f8dbf03ce0d",
+    "censusOwner": "scripts/query-engine-structure.mjs",
+    "censusFunctionSha256": "15889231a22297fcf001ae22ca01e6e8c9cd7489dd635c60529dfdc0ac06461e",
+    "definition": "Distinct lines containing parser-owned TypeScript token starts; exact existing census function, comments/JSDoc/EOF excluded"
+  },
+  "totals": {
+    "charged-engine": {
+      "files": 38,
+      "tokenLines": 16182,
+      "physical": 20931,
+      "bytes": 790729
+    },
+    "charged-integration": {
+      "files": 12,
+      "tokenLines": 3757,
+      "physical": 4502,
+      "bytes": 148971
+    },
+    "charged-adapter-integration": {
+      "files": 2,
+      "tokenLines": 101,
+      "physical": 165,
+      "bytes": 6631
+    },
+    "likeForLike": {
+      "files": 52,
+      "tokenLines": 20040,
+      "physical": 25598,
+      "bytes": 946331
+    },
+    "charged-g3-prep-shared": {
+      "files": 11,
+      "tokenLines": 3935,
+      "physical": 6098,
+      "bytes": 223511
+    },
+    "charged": {
+      "files": 63,
+      "tokenLines": 23975,
+      "physical": 31696,
+      "bytes": 1169842
+    }
+  },
+  "ratios": [
+    {
+      "name": "frozen 146-file census",
+      "provenance": "docs/architecture/raptor3-evidence/g4.md, \"Census corrected\", 16:40 2026-09-16",
+      "engineTokenLines": 46021,
+      "withIntegrationTokenLines": 49887,
+      "engineTokenRatio": 0.3516,
+      "withIntegrationTokenRatio": 0.4017
+    },
+    {
+      "name": "ff5e77ca5 charged-engine",
+      "provenance": "docs/architecture/raptor3-evidence/g4/qualified/support/source-cost.json (the tool's own classification while the old engine shipped)",
+      "engineTokenLines": 45570,
+      "physical": 59815,
+      "bytes": 2121028,
+      "engineTokenRatio": 0.3551,
+      "enginePhysicalRatio": 0.3499,
+      "engineByteRatio": 0.3728
+    },
+    {
+      "name": "3a291a59 src/query-engine minus the retired pattern/ experiment",
+      "provenance": "the plan's provisional navigation denominator",
+      "engineTokenLines": 47625,
+      "physical": 62149,
+      "bytes": 2197061,
+      "engineTokenRatio": 0.3398,
+      "enginePhysicalRatio": 0.3368,
+      "engineByteRatio": 0.3599
+    }
+  ],
+  "frozenTargets": {
+    "productionTokenRatio": 0.6,
+    "productionPhysicalRatio": 0.7,
+    "engineGzipRatio": 0.75,
+    "everyPublicPostgresGzipRatio": 1,
+    "qualification": "Size targets require review on a miss, not automatic abandonment"
+  },
+  "units": [
+    {
+      "name": "U4",
+      "range": "bc18b4e23..68bb0bd17",
+      "resolved": {
+        "base": "bc18b4e2325a5f7dce1165e05a28482f78a83d72",
+        "tip": "68bb0bd173a9466ef4c46f6356551db53c2024a8"
+      },
+      "files": 44,
+      "buckets": {
+        "non-production:docs": {
+          "files": 33,
+          "added": 1383,
+          "deleted": 0,
+          "paths": [
+            "docs/architecture/raptor3-evidence/g4.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/note.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/architecture-census.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/core-pins.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/ddl-core-pins.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/deparse-measurements.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/falsification/f1-escape-value.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/falsification/f2-inverse-table.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/falsification/f3-now-precision.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/green-defaults.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/mysql-core-pins.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/mysql-strict-mode.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/mysql2-relations-ddl.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/mysql2-scalars.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/mysql2-schema-attestation.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/omitted-decimal-list-defaults.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/omitted-decimal-wide-arithmetic.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/probe-deparse.mjs",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/probe-unicode.mjs",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/red-before-backslash-parse.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/red-before-final.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/biome.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/census.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/extended-local-walk.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/mysql-defaults-docker.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/probe-enum-default.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/probe-enum-default.mjs",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/probe-no-backslash-escapes.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/probe-no-backslash-escapes.mjs",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/typecheck.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/repair-round/walk-probe.mjs",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/typecheck.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u4/receipts/unicode-finding-probe.log"
+          ]
+        },
+        "non-production:scripts": {
+          "files": 1,
+          "added": 1,
+          "deleted": 0,
+          "paths": [
+            "scripts/credential-free-test-manifest.mjs"
+          ]
+        },
+        "removed-or-unclassified-production": {
+          "files": 1,
+          "added": 62,
+          "deleted": 0,
+          "paths": [
+            "src/migrations/AGENTS.md"
+          ]
+        },
+        "excluded-shared-boundary": {
+          "files": 3,
+          "added": 126,
+          "deleted": 34,
+          "paths": [
+            "src/migrations/drivers/mysql/index.ts",
+            "src/migrations/drivers/mysql/introspect.ts",
+            "src/migrations/drivers/type-mapping.ts"
+          ]
+        },
+        "non-production:tests": {
+          "files": 5,
+          "added": 447,
+          "deleted": 30,
+          "paths": [
+            "tests/providers/docker/mysql2-schema-attestation.test.ts",
+            "tests/unit/migrations/mysql-defaults-docker.test.ts",
+            "tests/unit/migrations/mysql-provider-free-catalog.core.test.ts",
+            "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
+            "tests/unit/migrations/provider-driver-entrypoints-coverage.core.test.ts"
+          ]
+        },
+        "non-production:other": {
+          "files": 1,
+          "added": 1,
+          "deleted": 0,
+          "paths": [
+            "vitest.workspace.ts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "U1-U3",
+      "range": "68bb0bd17..05169b273",
+      "resolved": {
+        "base": "68bb0bd173a9466ef4c46f6356551db53c2024a8",
+        "tip": "05169b273f50d10a36121e3cd4b5b09010fd5247"
+      },
+      "files": 57,
+      "buckets": {
+        "non-production:docs": {
+          "files": 47,
+          "added": 4242,
+          "deleted": 0,
+          "paths": [
+            "docs/architecture/raptor3-evidence/g4.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/note.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/01-mysql-found-red-at-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/02-mysql-found-consumption-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/03-mysql-concurrency-policy-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/04-sqlite-found-consumption-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/05-transport-and-conditional-upsert.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/06-sqlite3-nested-write.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/07-pglite-nested-writes.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/08-write-contract-neighbours.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/09-typecheck.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/10-refusal-census.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/11-biome-check-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/12-biome-check-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/receipts/13-last-resort-falsification.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/note.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/01-pg-captured-set-red-at-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/02-pg-captured-set-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/03-neighbours.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/04-pglite-nested-writes.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/05-sqlite3-nested-write.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/06-nested-write-conformance-membership.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/07-nested-write-conformance-m2m.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/08-typecheck.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/09-refusal-census.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/10-biome-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/11-biome-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/12-mysql-premise-shape.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/13-substrate-probe.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/13-substrate-probe.mjs",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u2/receipts/14-falsification.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/note.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/01-pg-outcome-red-at-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/02-pg-outcome-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/03-settlement-consumers.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/04-captured-mutation-pins.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/05-interactive-captured-arm.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/06-falsification.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/07-typecheck.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/08-refusal-census.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/09-biome-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/10-biome-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/11-sqlite3-captured-answer-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/12-falsification-c-interactive-answer.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/13-falsification-d-late-answer.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/14-biome-new-file.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u3/receipts/15-typecheck-repair-round.log"
+          ]
+        },
+        "removed-or-unclassified-production": {
+          "files": 1,
+          "added": 144,
+          "deleted": 3,
+          "paths": [
+            "src/query-engine/raptor3/AGENTS.md"
+          ]
+        },
+        "charged-engine": {
+          "files": 4,
+          "added": 281,
+          "deleted": 64,
+          "paths": [
+            "src/query-engine/raptor3/commands/execution.ts",
+            "src/query-engine/raptor3/commands/relation-body.ts",
+            "src/query-engine/raptor3/commands/selection.ts",
+            "src/query-engine/raptor3/shared/operation-context.ts"
+          ]
+        },
+        "non-production:tests": {
+          "files": 5,
+          "added": 2758,
+          "deleted": 78,
+          "paths": [
+            "tests/providers/docker/mysql2-concurrency-policy.test.ts",
+            "tests/providers/docker/mysql2-found-consumption.test.ts",
+            "tests/providers/docker/pg-captured-set-concurrency.test.ts",
+            "tests/providers/local/sqlite3-captured-answer-settlement.test.ts",
+            "tests/providers/local/sqlite3-found-consumption.test.ts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "U5",
+      "range": "05169b273..27e6d609a",
+      "resolved": {
+        "base": "05169b273f50d10a36121e3cd4b5b09010fd5247",
+        "tip": "27e6d609a08975aa150167e5055f3be8ca7822aa"
+      },
+      "files": 32,
+      "buckets": {
+        "non-production:other": {
+          "files": 1,
+          "added": 21,
+          "deleted": 0,
+          "paths": [
+            "AGENTS.md"
+          ]
+        },
+        "non-production:docs": {
+          "files": 27,
+          "added": 1564,
+          "deleted": 0,
+          "paths": [
+            "docs/architecture/raptor3-evidence/g4.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-final/README.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-final/release-verdict.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/note.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/biome-after.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/biome-repair-round.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/coverage-policy-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/coverage-policy-repair-round.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/engine-token-lines-after.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/engine-token-lines-repair-round.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/falsifications.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/index-dry-run-section-1-2.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/index-dry-run-section-5.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/index-dry-run.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/introspector-classification.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/inventory-credential-free.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/inventory-plan.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/inventory-providers.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/numstat.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/parity-execution-derivation.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/plan-stage-coverage.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/repair-round-cells.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/repair-round-falsifications.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/repair-round-retained-review.txt",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/typecheck-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/typecheck-repair-round.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u5/receipts/witness-gate-glob-vs-project.txt"
+          ]
+        },
+        "non-production:scripts": {
+          "files": 3,
+          "added": 897,
+          "deleted": 13,
+          "paths": [
+            "scripts/closure-final-index.mjs",
+            "scripts/closure-final-inventory.mjs",
+            "scripts/query-engine-test-manifest.mjs"
+          ]
+        },
+        "non-production:tests": {
+          "files": 1,
+          "added": 66,
+          "deleted": 0,
+          "paths": [
+            "tests/contracts/architecture/gate-inventory-census.core.test.ts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "integrated",
+      "range": "27e6d609a..392dfd30c",
+      "resolved": {
+        "base": "27e6d609a08975aa150167e5055f3be8ca7822aa",
+        "tip": "392dfd30c0c7226b8fba0ebd4f8d1366d8bbecbd"
+      },
+      "files": 39,
+      "buckets": {
+        "non-production:other": {
+          "files": 1,
+          "added": 1,
+          "deleted": 1,
+          "paths": [
+            "AGENTS.md"
+          ]
+        },
+        "non-production:docs": {
+          "files": 31,
+          "added": 2514,
+          "deleted": 10,
+          "paths": [
+            "docs/architecture/raptor3-evidence/g4.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/note.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/01-red1-at-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/02-confirmation-statements.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/03-schedule-probe.mjs",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/04-mysql2-writes-raw-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/05-schedule-after-control.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/06-falsification-engine-hunk.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/07-falsification-confirmation-lock.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/08-sqlite3-found-consumption.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/09-post-prep-family.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/10-conditional-upsert-transitions.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/11-mysql2-found-consumption.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/12-mysql2-concurrency-policy.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/13-nested-write-conformance-fk.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/14-typecheck.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/15-refusal-census.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/16-biome-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/17-biome-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/18-engine-structure-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/19-engine-structure-base.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/20-sqlite3-nested-write.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/g1/receipts/21-red2-at-base-schedule.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/integrated/note.md",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/integrated/receipts/01-materialize-falsification.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/integrated/receipts/02-mysql-found-consumption-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/integrated/receipts/03-pg-captured-set-green.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/integrated/receipts/04-typecheck.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/integrated/receipts/05-biome-after.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/integrated/receipts/06-engine-structure.log",
+            "docs/architecture/raptor3-evidence/g4/release/closure-repair/u1/note.md"
+          ]
+        },
+        "removed-or-unclassified-production": {
+          "files": 1,
+          "added": 32,
+          "deleted": 6,
+          "paths": [
+            "src/query-engine/raptor3/AGENTS.md"
+          ]
+        },
+        "charged-engine": {
+          "files": 2,
+          "added": 52,
+          "deleted": 38,
+          "paths": [
+            "src/query-engine/raptor3/commands/execution.ts",
+            "src/query-engine/raptor3/commands/selection.ts"
+          ]
+        },
+        "non-production:tests": {
+          "files": 4,
+          "added": 197,
+          "deleted": 11,
+          "paths": [
+            "tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts",
+            "tests/providers/docker/mysql2-found-consumption.test.ts",
+            "tests/providers/docker/pg-captured-set-concurrency.test.ts",
+            "tests/raptor3/post-prep/selector-preparation.test.ts"
+          ]
+        }
+      }
+    }
+  ]
+}

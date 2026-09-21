@@ -211,16 +211,32 @@ export class Selection {
     );
   }
   /**
-   * The membership confirmation of a found arm, which is a read whose answer is
-   * a row this operation is about to UPDATE: it keeps its lock whatever the
-   * PROBE of the same selection does ({@link insertsWhenAbsent} reaches
-   * {@link query} alone).
+   * The CURRENT, protected confirmation of a row this selection FOUND: a read
+   * whose answer is the row this operation is about to consume, so it keeps its
+   * lock whatever the PROBE of the same selection does ({@link insertsWhenAbsent}
+   * reaches {@link query} alone).
+   *
+   * It is the membership confirmation a correlated nested `upsert` already
+   * issued, with the two facts that were that arm's own turned into arguments —
+   * the MEMBERSHIP it proves, and the CONDITION it proves (this selection's own
+   * selector, the narrowing selector of a probe taken over it, or the
+   * conjunction of every such probe's, which is why the argument is prepared
+   * MEANING and not another selection). The three facts that make it a
+   * confirmation rather than a second lookup are fixed: it addresses the
+   * located row by IDENTITY, so it can adopt no replacement record; it keeps
+   * `forUpdate`, so the requirement it proves survives into the effect that
+   * spends it; and it returns the whole stored row, which is the authoritative
+   * binding of every value that row supplies
+   * ({@link CommandExecution.confirmFound}).
    */
-  inspectMembership(membership: BoundMembership) {
+  confirm(
+    membership: BoundMembership | undefined,
+    condition: PreparedSelector = this.selector
+  ) {
     return this.rowQuery(
-      this.selector,
+      condition,
       membership,
-      this.execution.identity(this.fields),
+      this.execution.identity(this.fields)
     );
   }
   /**
@@ -249,10 +265,24 @@ export class Selection {
       this.insertsWhenAbsent,
     );
   }
+  /**
+   * The premise that states a requirement this operation still owns: the
+   * located row, addressed by its IDENTITY, under the membership it is
+   * consumed through and the condition it matched.
+   *
+   * `held` is what makes it PROTECT that requirement rather than merely
+   * observe it. A premise and the effect it stands in front of are two
+   * statements, and a batch is one transaction, not one statement: under READ
+   * COMMITTED every statement takes its own snapshot, so a commit landing
+   * between them is visible to the second and the first has already answered.
+   * A held read keeps the row for the rest of the transaction, which is where
+   * the consuming effect is ({@link CommandExecution.holdMember}).
+   */
   captured(
     condition: Selection = this,
     membership: BoundMembership | undefined = condition.membership(),
-    take?: 1
+    take?: 1,
+    held = false
   ) {
     const ctx = this.execution.context;
     return ctx.queries.select(
@@ -262,6 +292,7 @@ export class Selection {
       },
       this.bindMembership(membership),
       {
+        forUpdate: held,
         identity: this.execution.identity(this.fields),
         projection: this.identityProjection,
         selector: condition.selector,

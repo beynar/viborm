@@ -30,22 +30,28 @@
  *
  * A fourth section states what the withdrawal COSTS, because a statement is
  * chosen before its own answer is known: the probe reads unlocked in BOTH
- * outcomes, so a row it FINDS is no longer held for the update arm either. What
- * answers that is the read the write already issues of the row it has just
- * written, now a current read (`OperationContext.update`) — measured before
- * that, this schedule returned the probe's row, update NOT applied, as a
- * success. That section has THREE rows, because the
- * shapes pay the cost through different statements: a root `upsert`'s found
- * arm, whose UPDATE already demands its own result; a CHILD-HELD nested
- * `connectOrCreate`, whose found arm exists only to write the child's foreign
- * key and therefore demanded nothing back at all; and a nested to-ONE
- * `upsert`, whose found arm does carry the caller's payload but carries no
- * `where`, so the found membership confirmation that states the correlated
- * to-many arm's target is never built for it and its UPDATE demanded nothing
- * back either. The last two are answered by the same rule — the arm whose
- * probe does not lock is given the target's keys to demand (`RelationBody`) —
- * and before it these schedules reported a connection that was never written
- * and a nested update that was never applied.
+ * outcomes, so a row it FINDS is not held BY THAT PROBE for the arm that
+ * follows. That section has THREE rows, one per shape that pays it: a root
+ * `upsert`'s found arm; a CHILD-HELD nested `connectOrCreate`, whose found arm
+ * exists only to write the child's foreign key and demands nothing back at
+ * all; and a nested to-ONE `upsert`, whose found arm carries the caller's
+ * payload but no `where`, so no found membership confirmation is built for it
+ * from its own payload.
+ *
+ * What answers all three is the shared FOUND-consumption rule (the repair
+ * prompt §1, `CommandExecution.confirmFound`): ONE locked confirmation of the
+ * found row, addressed by identity and taken between the observation and every
+ * arm, carrying the requirement the operation already owns. So these three
+ * schedules plant where that window now is — before the confirmation, which is
+ * exactly where the effect used to be — and the loss is reported there, with
+ * each arm's own sentence and nothing written. The readers those rows used to
+ * name stay behind it: the CURRENT stored-row read `OperationContext.update`
+ * issues of the row it has just written, and the target keys `RelationBody`
+ * gives an arm whose probe did not lock, which are what answer where a
+ * provider's select assembly takes no lock at all. What that rule must NOT
+ * disturb is the whole of the first three sections, and it does not: a probe
+ * that MISSES still locks nothing, which is the deadlock those sections are
+ * about.
  *
  * NOTE: These tests require a running MySQL database (e.g. docker).
  * Set MYSQL_TEST_CONNECTION_STRING to enable.
@@ -239,6 +245,23 @@ const planTimeReads = (
       (statement) => statement.startsWith("SELECT") && table.test(statement)
     );
 };
+
+/**
+ * The window the shared FOUND-consumption rule leaves open (the repair prompt
+ * §1): the first statement this operation sends to that table which is not an
+ * unlocked read of it. Before the rule that statement was the EFFECT, and these
+ * three schedules planted their DELETE in front of it. The rule takes a locked
+ * confirmation of the found row first (`Selection.confirm`), so the effect's
+ * window is now held and a plant in front of it would wait on a lock this code
+ * correctly takes; the same predicate names the confirmation instead, which is
+ * where the loss is now discovered. The price the section states is unchanged
+ * in kind — a found row is still not held by its PROBE — and smaller in extent.
+ */
+const beforeConsumption =
+  (table: RegExp) =>
+  (statement: string): boolean =>
+    table.test(statement) &&
+    !(statement.startsWith("SELECT") && !FOR_UPDATE.test(statement));
 
 /** What a statement filters by, so a projection's columns cannot be mistaken for it. */
 const whereOf = (statement: string): string =>
@@ -737,30 +760,31 @@ describeIf("MySQL2 concurrency policy", () => {
     test("a row deleted before the update arm fails visibly and commits nothing", async () => {
       // The withdrawal is not confined to a miss: a statement is chosen before
       // its own answer is known, so the probe reads unlocked in BOTH outcomes,
-      // on every provider. A row it FINDS is therefore no longer held for the
-      // update arm that follows, and a committed DELETE in that window — which
-      // `FOR UPDATE` used to block — is now reachable.
+      // on every provider. A row it FINDS is therefore no longer held BY THAT
+      // PROBE for the arm that follows, and a committed DELETE in that window —
+      // which the probe's own `FOR UPDATE` used to block — is reachable.
       //
-      // What answers it is the read the write already issues of the row it has
-      // just written, now a CURRENT read (`OperationContext.update`). It has
-      // to be: under REPEATABLE READ a consistent read answers from the
-      // snapshot this transaction opened plus its own changes, so an UPDATE
-      // that affected NO row leaves the snapshot's copy standing — measured
-      // before that repair, this very schedule returned the probe's row, with
-      // the update NOT applied, as a SUCCESS. So the whole cost is here: the
-      // operation fails VISIBLY and commits nothing. It is not silent success,
-      // it is not a deadlock, and it is not a constraint rejection the update
-      // arm may adopt.
+      // What answers it is the shared FOUND-consumption rule (repair prompt
+      // §1): one locked confirmation of the found row, taken between the
+      // observation and the arm, whose absence is the operation's own
+      // not-found sentence. `beforeConsumption` is where that read now stands,
+      // and the price the section states is paid here in full: the operation
+      // fails VISIBLY and commits nothing. It is not silent success, it is not
+      // a deadlock, and it is not a constraint rejection the update arm may
+      // adopt. (Before the rule this schedule planted in front of the UPDATE
+      // instead, and the answer was the CURRENT stored-row read
+      // `OperationContext.update` still issues afterwards — the reader of last
+      // resort, which is what answers where a provider takes no lock at all.)
       const planter = boot(new RecordingMySQL2Driver());
       await planter.tag.create({
         data: { id: "present", name: "contested", slug: "present-slug" },
       });
 
       let deleted = false;
+      const consumes = beforeConsumption(TAG_TABLE);
       const loserDriver = new RecordingMySQL2Driver({
         beforeStatement: async (statement) => {
-          if (deleted || !statement.startsWith("UPDATE")) return;
-          if (!TAG_TABLE.test(statement)) return;
+          if (deleted || !consumes(statement)) return;
           deleted = true;
           await planter.tag.delete({ where: { id: "present" } });
         },
@@ -778,15 +802,17 @@ describeIf("MySQL2 concurrency policy", () => {
           (failure: unknown) => ({ failure, value: undefined })
         );
 
-      // The schedule really happened: the update arm was taken and its
-      // statement is the one the delete was planted in front of.
+      // The schedule really happened: the update arm was taken and the delete
+      // was planted in front of the statement that consumes the found row.
       expect(deleted).toBe(true);
-      expect(matching(loserDriver, "UPDATE", TAG_TABLE)).toHaveLength(1);
-      // No row is reported, and the failure names the write whose row was not
-      // there — not a race the update arm may adopt and not a deadlock.
+      // No row is reported, and the failure names the requirement that was
+      // lost — not a race the update arm may adopt and not a deadlock. The
+      // arm's effect never went out, because the confirmation that precedes it
+      // is where the loss is discovered.
+      expect(matching(loserDriver, "UPDATE", TAG_TABLE)).toEqual([]);
       expect(outcome.value).toBeUndefined();
       expect((outcome.failure as Error).message).toBe(
-        "UPDATE did not produce the required record"
+        "No tag record found for update"
       );
       expect(
         composed(outcome.failure).some(
@@ -822,18 +848,20 @@ describeIf("MySQL2 concurrency policy", () => {
       // row. With the probe no longer holding that row, "connected" would be
       // reported for a row that is not there.
       //
-      // So the arm whose probe does not lock demands the target's own keys,
-      // which is what makes `OperationContext.update` issue the read that asks
-      // which row this UPDATE wrote (the CURRENT read on a provider without
-      // RETURNING) and refuse when there is none.
+      // The shared FOUND-consumption rule answers it where it answers every
+      // other found consumption (repair prompt §1): one locked confirmation of
+      // the probed row, taken before the arm, carrying this arm's own
+      // replacement-race requirement. The key demand this arm also makes stays
+      // where it was — it is the reader of last resort, for a provider whose
+      // select assembly takes no lock at all.
       const planter = boot(new RecordingMySQL2Driver());
       await planter.post.create({ data: { id: "orphan", title: "Unowned" } });
 
       let removed = false;
+      const consumes = beforeConsumption(POST_TABLE);
       const loserDriver = new RecordingMySQL2Driver({
         beforeStatement: async (statement) => {
-          if (removed || !statement.startsWith("UPDATE")) return;
-          if (!POST_TABLE.test(statement)) return;
+          if (removed || !consumes(statement)) return;
           removed = true;
           await planter.post.delete({ where: { id: "orphan" } });
         },
@@ -858,19 +886,20 @@ describeIf("MySQL2 concurrency policy", () => {
           (failure: unknown) => ({ failure, value: undefined })
         );
 
-      // The schedule really happened: the found arm's UPDATE was sent, and the
-      // delete was planted in front of it.
+      // The schedule really happened: the delete was planted in front of the
+      // statement that consumes the found row, and the arm's own UPDATE never
+      // went out because the confirmation that precedes it found nothing.
       expect(removed).toBe(true);
-      expect(matching(loserDriver, "UPDATE", POST_TABLE)).toHaveLength(1);
+      expect(matching(loserDriver, "UPDATE", POST_TABLE)).toEqual([]);
       // The probe that chose the found arm took no lock — the fact this cell
       // is the price of.
       expect(FOR_UPDATE.test(probeOf(loserDriver, POST_TABLE))).toBe(false);
 
-      // Nothing is reported as connected, and the failure names the write
-      // whose row was not there.
+      // Nothing is reported as connected, and the failure names the
+      // requirement this arm lost.
       expect(outcome.value).toBeUndefined();
       expect((outcome.failure as Error).message).toBe(
-        "UPDATE did not produce the required record"
+        "Record was replaced by another transaction during nested connectOrCreate"
       );
       expect(
         composed(outcome.failure).some(
@@ -893,19 +922,21 @@ describeIf("MySQL2 concurrency policy", () => {
     });
 
     test("a nested to-ONE upsert whose found target is deleted before the update arm loses nothing silently", async () => {
-      // The third arm the withdrawal reaches, and the one no other reader
-      // covers. A to-ONE nested `upsert` carries no `where`, so the found
-      // membership confirmation that states the CORRELATED to-many arm's
-      // target — the locking `Selection.inspectMembership` read whose answer IS
-      // the row the found arm updates — is never built for it and never
-      // issued. Its found arm is an ordinary UPDATE of the probed row carrying
-      // the caller's payload, and that payload demands nothing back, so
-      // `OperationContext.update` took the effect path and never asked which
-      // row it wrote: measured before this repair, the operation RESOLVED,
-      // returning the renamed parent, while the profile it was asked to update
-      // had been deleted and nothing was written. The same rule answers it as
-      // the row above — the arm whose probe did NOT lock its answer demands the
-      // target's own keys — and the price is paid visibly here too.
+      // The third arm the withdrawal reaches. A to-ONE nested `upsert` carries
+      // no `where`, so no found membership confirmation is built for it from
+      // its own payload (`Choose.foundRequirement`); its found arm is an
+      // ordinary UPDATE of the probed row carrying the caller's payload, and
+      // that payload demands nothing back, so `OperationContext.update` took
+      // the effect path and never asked which row it wrote: measured before
+      // the key-demand repair, the operation RESOLVED, returning the renamed
+      // parent, while the profile it was asked to update had been deleted and
+      // nothing was written.
+      //
+      // The shared FOUND-consumption rule now answers it FIRST, with the same
+      // read every other placement takes (repair prompt §1): the membership
+      // this probe read the row through is the requirement, and its loss is
+      // the arm's own not-found sentence, discovered before the effect. The
+      // key demand stays behind it as the reader of last resort.
       const planter = boot(new RecordingMySQL2Driver());
       await planter.owner.create({
         data: {
@@ -916,10 +947,10 @@ describeIf("MySQL2 concurrency policy", () => {
       });
 
       let deleted = false;
+      const consumes = beforeConsumption(PROFILE_TABLE);
       const loserDriver = new RecordingMySQL2Driver({
         beforeStatement: async (statement) => {
-          if (deleted || !statement.startsWith("UPDATE")) return;
-          if (!PROFILE_TABLE.test(statement)) return;
+          if (deleted || !consumes(statement)) return;
           deleted = true;
           await planter.profile.delete({ where: { id: "pr1" } });
         },
@@ -944,20 +975,20 @@ describeIf("MySQL2 concurrency policy", () => {
           (failure: unknown) => ({ failure, value: undefined })
         );
 
-      // The schedule really happened: the found arm's UPDATE was sent, and the
-      // delete was planted in front of it.
+      // The schedule really happened: the delete was planted in front of the
+      // statement that consumes the found row, and the arm's own UPDATE never
+      // went out because the confirmation that precedes it found nothing.
       expect(deleted).toBe(true);
-      expect(matching(loserDriver, "UPDATE", PROFILE_TABLE)).toHaveLength(1);
+      expect(matching(loserDriver, "UPDATE", PROFILE_TABLE)).toEqual([]);
       // The probe that chose the found arm took no lock — the fact this cell
       // is the price of.
       expect(FOR_UPDATE.test(probeOf(loserDriver, PROFILE_TABLE))).toBe(false);
 
-      // Nothing is reported as updated, and the failure names the write whose
-      // row was not there — not a race the create arm may adopt, not a
-      // deadlock.
+      // Nothing is reported as updated, and the failure names the requirement
+      // that was lost — not a race the create arm may adopt, not a deadlock.
       expect(outcome.value).toBeUndefined();
       expect((outcome.failure as Error).message).toBe(
-        "UPDATE did not produce the required record"
+        "No profile record found for update"
       );
       expect(
         composed(outcome.failure).some(

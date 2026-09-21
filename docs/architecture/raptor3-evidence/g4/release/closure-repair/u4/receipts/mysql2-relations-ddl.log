@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts (106 tests) 17739ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate connects existing and creates missing  326ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > writes from the side without junction config resolve the same junction  301ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > rows participating in a many-to-many can be deleted directly  301ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested update modifies a connected record only  301ms
+
+ Test Files  1 passed (1)
+      Tests  106 passed (106)
+   Start at  16:47:00
+   Duration  19.44s (transform 1.01s, setup 9ms, collect 1.55s, tests 17.74s, environment 0ms, prepare 36ms)
+
+Vitest resources: 21.24s wall, 653.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

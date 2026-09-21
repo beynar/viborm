@@ -1,0 +1,184 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+(node:51332) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (25 tests | 7 failed) 3231ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > default native route: nothing is captured, and the statement removes exactly the rows it still matches 192ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted 165ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route, lock held: the captured row that stopped matching survives the write, and the shortfall is the cardinality sentence 167ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported 120ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back 100ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: an undisturbed captured UPDATE succeeds, publishing the rows its non-RETURNING read-back produced 109ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts 133ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a LIMITED capture claims no complement, and a newly eligible row outside its slice is not mutated 101ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a COMPOUND captured identity is carried completely, and only the row that still matches is deleted 115ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing 90ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing 111ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges 134ms
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added after that boundary stays outside the captured worklist 130ms
+     → expected [ 7, 6 ] to deeply equal [ 9, 8 ]
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: the initial filter selected the worklist and is not re-asked at each member's own write 109ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member whose required membership was reassigned is not deleted for the parent that no longer holds it 130ms
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member reassigned between the last premise and its OWN write is not deleted, and the segment that committed is reported 104ms
+     → expected [ 'm3' ] to deeply equal [ 'm2', 'm3' ]
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member reassigned between the last premise and its OWN write is not UPDATED for the parent that no longer holds it 116ms
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a reassignment the member's own requirement waits behind is observed, and the retry converges 170ms
+     → expected [ 'm3' ] to deeply equal [ 'm1', 'm3' ]
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a captured UPDATE member's own requirement waits behind the reassignment it must observe 163ms
+     → expected 'undefined' to be 'Cannot update relation \'members\': t…' // Object.is equality
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a LATER member reassigned before the unit's premises aborts it before any write, and the retry converges 113ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a REFERENCE member reassigned in the window is not written as this parent's, and the series it carries never runs 119ms
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a REFERENCE member's own requirement waits behind the reassignment it must observe 176ms
+     → expected 'undefined' to be 'Cannot update relation \'teams\': tar…' // Object.is equality
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: the capture's FOR UPDATE holds the member ROW, and the junction it is consumed through is held too 151ms
+     → expected 'undefined' to be 'Cannot delete relation \'members\': a…' // Object.is equality
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: an earlier member's own write does not invalidate the worklist a sibling was selected into 95ms
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing 104ms
+     → expected [ 7, 6 ] to deeply equal [ 9, 8 ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added after that boundary stays outside the captured worklist
+AssertionError: expected [ 7, 6 ] to deeply equal [ 9, 8 ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   9,[39m
+[32m-   8,[39m
+[31m+   7,[39m
+[31m+   6,[39m
+[2m  ][22m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1180:30
+    1178|         // front of the first write — the first member's own held requ…
+    1179|         // and the junction row that stores it.
+    1180|         expect(driver.shape).toEqual([9, 8]);
+       |                              ^
+    1181|       }
+    1182|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member reassigned between the last premise and its OWN write is not deleted, and the segment that committed is reported
+AssertionError: expected [ 'm3' ] to deeply equal [ 'm2', 'm3' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "m2",[39m
+[2m    "m3",[22m
+[2m  ][22m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1326:41
+    1324|         // gone; m2 moved to t2 inside it and is not deleted for t1. W…
+    1325|         // unit already acknowledged stands, and the failure says so.
+    1326|         expect(await memberIds(seeder)).toEqual(["m2", "m3"]);
+       |                                         ^
+    1327|         expect(
+    1328|           (
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a reassignment the member's own requirement waits behind is observed, and the retry converges
+AssertionError: expected [ 'm3' ] to deeply equal [ 'm1', 'm3' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "m1",[39m
+[2m    "m3",[22m
+[2m  ][22m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1459:41
+    1457|         // member t1 still holds. m1 belongs to t2 and is untouched.
+    1458|         expect(result.error).toBeUndefined();
+    1459|         expect(await memberIds(seeder)).toEqual(["m1", "m3"]);
+       |                                         ^
+    1460|         expect(
+    1461|           (
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a captured UPDATE member's own requirement waits behind the reassignment it must observe
+AssertionError: expected 'undefined' to be 'Cannot update relation \'members\': t…' // Object.is equality
+
+Expected: [32m"Cannot update relation 'members': target record was not found for this parent."[39m
+Received: [31m"undefined"[39m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1530:41
+    1528|         // it, so its loss is the identity sentence and NOT the raceab…
+    1529|         // a re-plan would act on whatever that selector answers now (…
+    1530|         expect(messageOf(result.error)).toBe(
+       |                                         ^
+    1531|           "Cannot update relation 'members': target record was not fou…
+    1532|         );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a REFERENCE member's own requirement waits behind the reassignment it must observe
+AssertionError: expected 'undefined' to be 'Cannot update relation \'teams\': tar…' // Object.is equality
+
+Expected: [32m"Cannot update relation 'teams': target record was not found for this parent."[39m
+Received: [31m"undefined"[39m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1709:41
+    1707|         // target row, and the row it waited for no longer names o1.
+    1708|         expect(blocked).toBe(true);
+    1709|         expect(messageOf(result.error)).toBe(
+       |                                         ^
+    1710|           "Cannot update relation 'teams': target record was not found…
+    1711|         );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: the capture's FOR UPDATE holds the member ROW, and the junction it is consumed through is held too
+AssertionError: expected 'undefined' to be 'Cannot delete relation \'members\': a…' // Object.is equality
+
+Expected: [32m"Cannot delete relation 'members': a member was removed after the plan-time read; retry to converge."[39m
+Received: [31m"undefined"[39m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1759:41
+    1757|         // nothing is deleted, m1 keeps the membership the race left i…
+    1758|         // the failure is the raceable one its caller may retry on.
+    1759|         expect(messageOf(result.error)).toBe(
+       |                                         ^
+    1760|           "Cannot delete relation 'members': a member was removed afte…
+    1761|         );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing
+AssertionError: expected [ 7, 6 ] to deeply equal [ 9, 8 ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   9,[39m
+[32m-   8,[39m
+[31m+   7,[39m
+[31m+   6,[39m
+[2m  ][22m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1833:30
+    1831|         // its siblings, and the unit's shape is the repaired one (§2)…
+    1832|         // first member's held requirement and its junction row.
+    1833|         expect(driver.shape).toEqual([9, 8]);
+       |                              ^
+    1834|         expect(driver.schedule).toEqual([
+    1835|           "A: the atomic unit began",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 18 passed (25)
+   Start at  18:26:33
+   Duration  4.97s (transform 1.04s, setup 9ms, collect 1.59s, tests 3.23s, environment 0ms, prepare 39ms)
+
+Vitest resources: 7.03s wall, 538.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

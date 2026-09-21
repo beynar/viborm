@@ -1,0 +1,4 @@
+[held identity-only] A waited=true outcome=deleted m1 members=m2
+[held exists-predicate] A waited=true outcome=deleted m1 members=m2
+[held junction-forupdate] A waited=true outcome=REQUIREMENT LOST — nothing written members=m1,m2
+[A first, junction-forupdate] B waited=true members=m2

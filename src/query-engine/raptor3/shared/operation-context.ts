@@ -2332,12 +2332,14 @@ export class OperationContext {
         limit,
         changed
       );
-      const response = await this.capturedMutation(
+      await this.capturedMutation(
         statement,
-        this.statementContext(model, this.operation)
+        this.statementContext(model, this.operation),
+        (response) => {
+          if (response.rowCount !== identities.length)
+            throw this.failure(changed(), "result");
+        }
       );
-      if (response.rowCount !== identities.length)
-        throw this.failure(changed(), "result");
       return this.finishTerminals(
         this.seriesQueries(
           projection,
@@ -2418,15 +2420,17 @@ export class OperationContext {
         limit,
         changed
       );
-      const response = await this.capturedMutation(
+      await this.capturedMutation(
         adapter.mutations.delete(
           q.table(model),
           this.capturedTarget(model, selector, identities)
         ),
-        this.statementContext(model, this.operation)
+        this.statementContext(model, this.operation),
+        (response) => {
+          if (response.rowCount !== identities.length)
+            throw this.failure(changed(), "result");
+        }
       );
-      if (response.rowCount !== identities.length)
-        throw this.failure(changed(), "result");
       return this.published(rows, single);
     }
     this.packagedPresence(model, selector, single);
@@ -2549,7 +2553,7 @@ export class OperationContext {
    * selector ({@link capturedTarget}) says it AT THE EFFECT (D-65). A captured
    * row this statement did not match is a row the operation was asked to
    * change and did not — the registered cardinality sentence its caller
-   * throws, never a silent success publishing the captured rows.
+   * supplies (`changed`), never a silent success publishing the captured rows.
    *
    * Failure and commit stay separate facts there. On an operation-owned
    * interactive transaction the owner rolls back; on a batch that already
@@ -2557,15 +2561,33 @@ export class OperationContext {
    * failure that says so ({@link failure}: `atomicity: "segment"` with this
    * operation's committed segments). It replays nothing and erases no
    * progress, because a check after dispatch cannot undo the batch it judges.
+   *
+   * The caller states that count as `answered`, and it is stated HERE, INSIDE
+   * {@link settleSubmitted}, because this is the boundary at which the
+   * operation's answer to its batch is known. Read one statement later it would
+   * be read after the hold was already released: the batch acknowledged, a
+   * write-outcome listener that failed while it did is HELD, and a settlement
+   * that saw only the decoded response would call that an answer that SUCCEEDED
+   * and publish the listener's failure alone — losing both the operation's own
+   * failure and the progress attached to it. Transport success is not result
+   * success, and a settlement region holds every judgement that can still turn
+   * this operation's answer into a failure (repair prompt §3). The verb keeps
+   * its own sentence, which it also owes {@link requireCapturedSet}; what this
+   * owns is the POSITION at which the answer is stated.
    */
   private async capturedMutation(
     statement: Sql,
-    context: QueryExecutionContext
-  ): Promise<QueryResult<unknown>> {
-    if (!this.usesBatch)
-      return await this.dispatch(1, false, () =>
-        this.transport._execute(statement, context)
+    context: QueryExecutionContext,
+    answered: (response: QueryResult<unknown>) => void
+  ): Promise<void> {
+    if (!this.usesBatch) {
+      answered(
+        await this.dispatch(1, false, () =>
+          this.transport._execute(statement, context)
+        )
       );
+      return;
+    }
     // Its own answer, by its own position: the batch also carries this
     // mutation's premises ahead of it, {@link submit} answers the queued
     // statements alone (its guards are sliced off), and the row count this
@@ -2577,14 +2599,14 @@ export class OperationContext {
     this.setWindow = member;
     this.queue(statement, context, member);
     const responses = await this.submit(true, member);
-    return this.settleSubmitted(() => {
+    await this.settleSubmitted(() => {
       const response = responses[index];
       if (!response)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
           { meta: this.errorMeta }
         );
-      return response;
+      answered(response);
     });
   }
   /**

@@ -28,11 +28,17 @@ import type {
   Command,
   CommandOccurrence,
   Commands,
+  MembershipRequirement,
   RecordCommand,
   SelectedSeriesMember,
   SeriesOccurrence,
 } from "./commands";
-import { membershipFields, type Selection } from "./selection";
+import {
+  type BoundMembership,
+  type DeferredFailure,
+  membershipFields,
+  type Selection,
+} from "./selection";
 
 /** What a captured series prepared, as its owner (`CommandAttempt`) states it. */
 type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
@@ -452,6 +458,109 @@ export class CommandExecution {
       this.context.requirePresent(selection.captured(), selection.retained());
   }
   /**
+   * The shared FOUND-consumption rule: an unlocked positive observation is
+   * re-taken under lock, over the requirements this operation ALREADY owns,
+   * before anything consumes it — and the row that read answers is the
+   * authoritative binding every consumer then spends.
+   *
+   * A probe whose other arm inserts the key it looked for reads without locking
+   * ({@link Selection.insertsWhenAbsent}), because a lock cannot protect an
+   * absence and asking for one costs the operation its convergence. What that
+   * withdrawal also gives up is the POSITIVE answer: the row it found is held
+   * for nothing that follows. A read taken AFTER the effect cannot restore it —
+   * it proves the row still exists, not that the identity, the membership, the
+   * matched condition and the reference the effect spent were still the ones
+   * the operation was promised. Three native MySQL schedules measured each of
+   * those losses separately (the repair prompt §1): a holder connected to a row
+   * that acquired the referenced key after the probe read it, a conditional
+   * upsert that wrote after its matched condition changed, and a nested upsert
+   * that wrote a record reparented out of the membership it was found in.
+   *
+   * So the confirmation is taken HERE, between the observation and every arm:
+   * one locked read ({@link Selection.confirm}) addressed by the located
+   * IDENTITY — never a public selector rerun, which could adopt a replacement
+   * record — carrying the requirement the operation owns, whose lock then lasts
+   * through the consuming effect under the transaction this operation is
+   * already in. Its answer replaces the probe's bytes as this row's binding, so
+   * the reference a holder's own INSERT spends is the CURRENT one and never a
+   * captured value another row has since acquired; values this operation itself
+   * produced are unaffected, because they are read where they are spent
+   * ({@link CommandAttempt.read}) and nothing here compares against them.
+   *
+   * Where the requirement has been lost the operation raises the failure it
+   * already owns for that loss — the found membership's, the replacement race
+   * of a `connectOrCreate`, the identity sentence of a located target, the
+   * conditional premise's own match failure — and nothing reselects, switches
+   * an arm or replays.
+   *
+   * Two routes need no read here. The batch route states the IDENTITY, the MEMBERSHIP and the matched
+   * CONDITION as PREMISES of the atomic unit that consumes it — the
+   * selection's retained requirement above, the found record's own
+   * `requirePresent` ({@link run}) and the condition premises beside this call —
+   * which is the same fact proved atomically and aborts before any write —
+   * which is the unit's OUTCOME, not the window between a premise and the
+   * statement it protects; where a requirement must hold THROUGH its effect
+   * the member is held ({@link holdMember}). And a
+   * probe that KEPT its lock is already holding its own answer.
+   */
+  private async confirmFound(
+    command: Choose,
+    requirement: MembershipRequirement | undefined,
+    captured: Input
+  ): Promise<Input> {
+    const ctx = this.context;
+    const lookup = command.lookup;
+    if (ctx.usesBatch || !(requirement || lookup.insertsWhenAbsent))
+      return captured;
+    const membership = requirement?.membership ?? lookup.membership();
+    // A MATCHED condition is the narrowest requirement the operation owns here,
+    // and its probe's selector is the locator's own narrowed by the condition,
+    // so confirming it confirms the located row with it. That is exactly how
+    // the batch route states the same pair — condition premises only, with the
+    // locator marked as already stated (`attempt.retained`).
+    //
+    // EVERY matched condition is such a requirement, and they are ONE premise
+    // of this consumption, not one premise each: the row is re-taken once,
+    // under the CONJUNCTION of the probes that matched it
+    // (`Queries.andSelectors`, over the prepared selectors those probes already
+    // carry — the locator's own base among them, reused, not prepared again).
+    // The alternative, a confirmation per condition, asks the same row the same
+    // question twice and pays a round trip for the answer it is already
+    // holding under lock. What one statement cannot do is name WHICH of two
+    // matched conditions a concurrent commit took away — a miss is the loss of
+    // the premise, not of a field — so the failure is the first condition's,
+    // the same ordering `case "choose"` already speaks with when it reports one
+    // unmatched probe for the skip. Exact per-field attribution would need the
+    // conditions evaluated over the confirmed row rather than in its `WHERE`,
+    // which no adapter can project today (the note's §1 cost).
+    const conditions = command.conditions?.probes ?? [];
+    const first = conditions[0];
+    const failure: DeferredFailure = first
+      ? () => first.match
+      : (requirement?.failure ??
+        lookup.retained ??
+        lookup.required ??
+        (() => new NotFoundError(command.model["~"].names.ts!, "update")));
+    const selector = first
+      ? conditions.length === 1
+        ? first.lookup.selector
+        : ctx.queries.andSelectors(
+            lookup.model,
+            conditions.map((condition) => condition.lookup.selector)
+          )
+      : lookup.selector;
+    const rows = await ctx.read(
+      lookup.confirm(membership, selector),
+      true,
+      false,
+      lookup.model
+    );
+    const row = rows[0];
+    if (!row) throw failure();
+    this.attempt.materialize(lookup.fields, row);
+    return row;
+  }
+  /**
    * This occurrence's execution has begun: {@link run} entered it and its
    * children are the schedule it is dispatching. The dependency pass asks
    * before it moves a child to its execution point (`Commands.depend`): a
@@ -688,28 +797,24 @@ export class CommandExecution {
               attempt.retained.add(command.lookup);
             }
           }
-          if (requirement && !premised) {
-            const rows = await ctx.read(
-              requirement.selection.inspectMembership(requirement.membership),
-              true,
-              false,
-              requirement.selection.model
-            );
-            if (!rows[0]) throw requirement.failure();
-          }
+          const current = await this.confirmFound(
+            command,
+            requirement,
+            captured
+          );
           if (found) {
             if (ctx.usesBatch && supplied) {
               ctx.prepareMembers(() => [found.command], member);
               await ctx.executeMember(() => this.run(found), found.command);
             } else await this.run(found, member);
             attempt.bind(command.fields, {
-              ...captured,
+              ...current,
               ...attempt.select(found.command.fields, command.fields.demands),
             });
           } else
             attempt.bind(
               command.fields,
-              this.folded(command, occurrence.parent?.command, captured)
+              this.folded(command, occurrence.parent?.command, current)
             );
         } else if (missing) {
           attempt.missingChoices.set(missing.command.fields, command);
@@ -1259,6 +1364,84 @@ export class CommandExecution {
     }
     return undefined;
   }
+  /**
+   * The membership a captured member is CONSUMED through, HELD through the
+   * write that consumes it.
+   *
+   * D-65 bounds the worklist at the capture and says what survives that bound:
+   * "what each member owes AT THE POSITION IT IS CONSUMED — its identity, its
+   * parent's, and its relation membership — is unchanged and still enforced".
+   * The premises that enforced it only OBSERVED it. A batch is one
+   * transaction, not one statement: under READ COMMITTED each statement takes
+   * its own snapshot, so a membership change committed after a premise
+   * answered is visible to the write behind it, and the review measured
+   * exactly that — a member moved to another parent between the unit's last
+   * premise and its own ID-addressed DELETE was still deleted for the parent
+   * that no longer held it (the repair prompt §2).
+   *
+   * So the requirement is re-taken HERE, where the member is consumed and
+   * beside the parent requirement this site already restates, as a read that
+   * HOLDS what it proves for the rest of the transaction — which is where the
+   * effect is. It is taken on the row that STORES the membership, because that
+   * is the row a race has to change:
+   *
+   * - a REFERENCE membership is a column of the member's own row, so the held
+   *   premise over that row proves the membership, holds it, and proves the
+   *   row is still there in the same statement;
+   * - a JUNCTION membership is a row of its own, which no lock on the member
+   *   reaches. A locking read of the member alone would answer from a
+   *   cross-table snapshot the substrate is free to re-use after it waits
+   *   (PostgreSQL re-evaluates a blocked write's qualification against the
+   *   updated target row, but subqueries over OTHER tables keep the original
+   *   snapshot), so the junction row is taken under its own lock through the
+   *   read owner the singular junction capture already uses
+   *   ({@link Queries.junction}).
+   *
+   * Nothing reselects, retries or replays: a lost requirement raises the
+   * failure that member already owned — the captured series' membership race
+   * for a deletion, the located target's own sentence for an update — and the
+   * unit aborts where it stands, with whatever earlier segment it acknowledged
+   * standing and reported (D-51).
+   *
+   * The interactive route holds the member ROWS already: its capture reads
+   * `FOR UPDATE` ({@link captureSeries}), so a reference membership and the
+   * row's presence cannot move underneath it, and only the junction row is
+   * left to take.
+   */
+  private async holdMember(
+    member: SelectedSeriesMember,
+    located: Selection,
+    membership: BoundMembership | undefined
+  ): Promise<void> {
+    if (!membership) return;
+    const ctx = this.context;
+    const edge = membership.edge;
+    const failure: DeferredFailure =
+      member.kind === "delete"
+        ? () => membershipRaceFailure("delete", edge.name, "removed")
+        : (member.requirement?.failure ?? located.required!);
+    if (ctx.usesBatch) {
+      ctx.requirePresent(
+        located.captured(undefined, membership, 1, true),
+        failure()
+      );
+      // Stated: the located record's own premise (`run`'s `case "record"`) is
+      // this same query without the hold, so it does not state it twice.
+      this.attempt.retained.add(located);
+    }
+    if (edge.kind !== "junction") return;
+    const junction = ctx.queries.junction(
+      edge,
+      this.linkValues(edge, membership.parent, located.fields),
+      true
+    );
+    if (ctx.usesBatch) {
+      ctx.requirePresent(junction, failure());
+      return;
+    }
+    const rows = await ctx.read(junction, true);
+    if (!rows[0]) throw failure();
+  }
   private async executeSeries(
     occurrence: CommandOccurrence<SeriesOccurrence>
   ): Promise<number> {
@@ -1269,6 +1452,7 @@ export class CommandExecution {
     // recovery replaces the attempt AND the command tree together.
     assertInvariant(prepared, "this series was captured in this attempt");
     const { members, parentRequirement } = prepared;
+    const membership = occurrence.command.series.selection.membership();
     for (const child of members) {
       const command = child.command;
       const located = command.located;
@@ -1290,6 +1474,7 @@ export class CommandExecution {
             parentRequirement.query,
             parentRequirement.failure
           );
+        await this.holdMember(command, located, membership);
         await this.run(child);
       }, command);
     }

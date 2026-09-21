@@ -1,0 +1,13 @@
+# U4 repair round — what the base and repaired spellings store on a STRICT session
+# that also carries NO_BACKSLASH_ESCAPES. The mode is set with SET SESSION on the
+# probe's OWN connection; the server's global sql_mode is never changed. Table
+# created and dropped by the probe. Script: probe-no-backslash-escapes.mjs
+# Hex is codepoints: 61=a, 5c=backslash, 62=b, 8=BACKSPACE.
+default session       | strict=true no_backslash_escapes=false
+default session       | catalog base=61 8
+default session       | catalog repaired=61 5c 62
+default session       | raw-insert base=61 8 repaired=61 5c 62
+NO_BACKSLASH_ESCAPES  | strict=true no_backslash_escapes=true
+NO_BACKSLASH_ESCAPES  | catalog base=61 5c 62
+NO_BACKSLASH_ESCAPES  | catalog repaired=61 5c 5c 62
+NO_BACKSLASH_ESCAPES  | raw-insert base=61 5c 62 repaired=61 5c 5c 62

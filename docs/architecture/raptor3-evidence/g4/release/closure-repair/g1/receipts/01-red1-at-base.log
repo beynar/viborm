@@ -1,0 +1,125 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sfix
+
+ ❯ |coverage-raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests | 1 failed) 32ms
+   ✓ post-G3 selector preparation > prepares mixed compound and relation facts without SQL or alias allocation 4ms
+   ✓ post-G3 selector preparation > executes admitted mapped-int FieldRef equality and comparison predicates 20ms
+   ✓ post-G3 selector preparation > refuses a cross-model FieldRef before provider execution 1ms
+   × post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'SELECT',
+    'SELECT',
+    'SELECT',
++   'SELECT',
++   'SELECT',
+    'UPDATE',
+    'SELECT'
+  ]
+
+ ❯ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests | 1 failed) 17ms
+   ✓ post-G3 selector preparation > prepares mixed compound and relation facts without SQL or alias allocation 4ms
+   ✓ post-G3 selector preparation > executes admitted mapped-int FieldRef equality and comparison predicates 5ms
+   ✓ post-G3 selector preparation > refuses a cross-model FieldRef before provider execution 1ms
+   × post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'SELECT',
+    'SELECT',
+    'SELECT',
++   'SELECT',
++   'SELECT',
+    'UPDATE',
+    'SELECT'
+  ]
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/selector-preparation.test.ts > post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'SELECT',
+    'SELECT',
+    'SELECT',
++   'SELECT',
++   'SELECT',
+    'UPDATE',
+    'SELECT'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "SELECT",[22m
+[2m    "SELECT",[22m
+[2m    "SELECT",[22m
+[31m+   "SELECT",[39m
+[31m+   "SELECT",[39m
+[2m    "UPDATE",[22m
+[2m    "SELECT",[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/post-prep/selector-preparation.test.ts:323:14
+    321|       );
+    322| 
+    323|       assert.deepEqual(
+       |              ^
+    324|         driver.statements.map((statement) => statement.match(/^\w+/)?.…
+    325|         ["SELECT", "SELECT", "SELECT", "UPDATE", "SELECT"]
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts > post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'SELECT',
+    'SELECT',
+    'SELECT',
++   'SELECT',
++   'SELECT',
+    'UPDATE',
+    'SELECT'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "SELECT",[22m
+[2m    "SELECT",[22m
+[2m    "SELECT",[22m
+[31m+   "SELECT",[39m
+[31m+   "SELECT",[39m
+[2m    "UPDATE",[22m
+[2m    "SELECT",[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/post-prep/selector-preparation.test.ts:323:14
+    321|       );
+    322| 
+    323|       assert.deepEqual(
+       |              ^
+    324|         driver.statements.map((statement) => statement.match(/^\w+/)?.…
+    325|         ["SELECT", "SELECT", "SELECT", "UPDATE", "SELECT"]
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 6 passed (8)
+   Start at  21:23:35
+   Duration  1.83s (transform 989ms, setup 12ms, collect 1.41s, tests 49ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 4.13s wall, 530.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

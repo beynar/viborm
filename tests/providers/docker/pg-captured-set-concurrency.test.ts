@@ -24,6 +24,10 @@
  *    ACKNOWLEDGED, the rows it committed stand and the failure says so:
  *    `atomicity: "segment"`, `phase: "result"`, `committedSegments`. A check
  *    after dispatch cannot undo the batch it judges, and nothing is replayed.
+ *    That answer is settled BEFORE the write-outcome hold is released, so a
+ *    client listener that failed while this batch acknowledged is retained
+ *    beside the operation's own failure rather than published in its place
+ *    (`retainWriteOutcomeFailure`; repair prompt §3).
  *  - CONSUMER 2, a nested captured series under a membership: a BOUNDED
  *    WORKLIST. The initial filter SELECTS the members this series writes; it is
  *    not a permanent per-member predicate, so an earlier member may legally
@@ -97,10 +101,27 @@ const note = s
   })
   .map("fcpg_notes");
 
+/** A REFERENCE membership, and one depth above the junction one: the member
+ *  row holds its parent's key, so its membership and its identity are the same
+ *  row, and its own body carries a second captured series. */
+const org = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    teams: s.toMany(() => team),
+  })
+  .map("fcpg_orgs");
+
 const team = s
   .model({
     id: s.string().id(),
     name: s.string(),
+    active: s.boolean().default(true),
+    orgId: s.string().nullable(),
+    org: s
+      .toOne(() => org)
+      .fields("orgId")
+      .references("id"),
     members: s
       .toMany(() => member)
       .through("fcpg_team_members")
@@ -128,13 +149,14 @@ const ticket = s
   .id(["tenant", "code"])
   .map("fcpg_tickets");
 
-const schema = { note, team, member, ticket };
+const schema = { note, org, team, member, ticket };
 
 type FcpgClient = VibORMClient<VibORMConfig<typeof schema>>;
 
 const OWN_TABLES = [
   "fcpg_team_members",
   "fcpg_teams",
+  "fcpg_orgs",
   "fcpg_members",
   "fcpg_notes",
   "fcpg_tickets",
@@ -356,6 +378,94 @@ const progressOf = (error: unknown): Progress | undefined =>
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+// --------------------------------------- the write-outcome rail that FAILS
+
+/** What the client's listener throws when this batch acknowledges. */
+const OUTCOME_THREW = "closure-repair write-outcome listener failed";
+/** The publication owner's own sentence for it (`@extensions/query`). */
+const LISTENER_FAILED =
+  'Extension "failing-outcome" write-outcome listener failed after committed.';
+/** The one composition of a primary with a retained listener failure
+ *  (`retainWriteOutcomeFailure`, `@errors`). */
+const COMPOSED = "Query execution and write-outcome publication both failed.";
+
+/**
+ * A listener on the write-outcome rail that fails exactly where the batch
+ * transport HOLDS it: it is registered before the operation proceeds and throws
+ * when the batch acknowledges its committed segment, which on this route
+ * happens BEFORE the operation has answered for that batch.
+ */
+const withFailingOutcome = (client: FcpgClient) =>
+  client.$extends({
+    name: "failing-outcome",
+    query: {
+      note: {
+        deleteMany({ onWriteOutcome, proceed }) {
+          onWriteOutcome(() => {
+            throw new Error(OUTCOME_THREW);
+          });
+          return proceed();
+        },
+        updateMany({ onWriteOutcome, proceed }) {
+          onWriteOutcome(() => {
+            throw new Error(OUTCOME_THREW);
+          });
+          return proceed();
+        },
+      },
+    },
+  });
+
+/**
+ * The composition, read as the estate's ONE composition states it
+ * (`retainWriteOutcomeFailure`, `@errors`): one aggregate whose primary is the
+ * OPERATION's own failure BY IDENTITY — `cause` and `errors[0]` are the same
+ * object — with the listener's failure retained beside it, never discarded,
+ * never re-wrapped into the operation's and never primary itself.
+ */
+const composition = (raised: unknown) => {
+  const aggregate = raised instanceof AggregateError ? raised : undefined;
+  return {
+    message: aggregate?.message,
+    errorCount: aggregate?.errors.length,
+    primaryIsCause:
+      aggregate !== undefined && aggregate.cause === aggregate.errors[0],
+    primary: aggregate?.errors[0],
+    retained: aggregate?.errors[1],
+  };
+};
+
+/**
+ * The listener's failure as the EXISTING error model carries it: the
+ * publication owner's own `QueryError`, naming the extension, the method and
+ * the certainty, with the value the listener threw kept as its cause — whose
+ * message this estate's diagnostics redact by design (`sanitizeErrorCause`),
+ * which is why the identifying facts are the class and the meta.
+ */
+const listenerFailure = (failure: unknown) => ({
+  name: failure instanceof Error ? failure.name : undefined,
+  message: messageOf(failure),
+  meta: (failure as { meta?: unknown } | undefined)?.meta,
+  keepsCause:
+    (failure as { originalCause?: unknown } | undefined)
+      ?.originalCause instanceof Error,
+});
+
+/** What every combined failure of this file must say about its composition. */
+const COMPOSITION = {
+  message: COMPOSED,
+  errorCount: 2,
+  primaryIsCause: true,
+};
+
+/** What every retained listener failure of this file must say about itself. */
+const RETAINED_LISTENER = {
+  name: "QueryError",
+  message: LISTENER_FAILED,
+  meta: { method: "onWriteOutcome", commitCertainty: "committed" },
+  keepsCause: true,
+};
+
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 describeIf("pg Driver captured-set consumption-time contract", () => {
@@ -431,6 +541,40 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
     await client.team.update({
       where: { id: "t1" },
       data: { members: { connect: [{ id: "m1" }, { id: "m2" }] } },
+    });
+  }
+
+  /** Two teams of one org, each with its own junction members: the outer
+   *  captured series is a REFERENCE membership and each of its members carries
+   *  a captured series of its own. */
+  async function seedOrg(client: FcpgClient): Promise<void> {
+    await client.org.createMany({
+      data: [
+        { id: "o1", name: "One" },
+        { id: "o2", name: "Two" },
+      ],
+    });
+    await client.member.createMany({
+      data: [
+        { id: "m1", label: "one", active: true },
+        { id: "m2", label: "two", active: true },
+        { id: "m3", label: "three", active: true },
+        { id: "m4", label: "four", active: true },
+      ],
+    });
+    await client.team.createMany({
+      data: [
+        { id: "t1", name: "Team", active: true, orgId: "o1" },
+        { id: "t2", name: "Other", active: true, orgId: "o1" },
+      ],
+    });
+    await client.team.update({
+      where: { id: "t1" },
+      data: { members: { connect: [{ id: "m1" }, { id: "m2" }] } },
+    });
+    await client.team.update({
+      where: { id: "t2" },
+      data: { members: { connect: [{ id: "m3" }, { id: "m4" }] } },
     });
   }
 
@@ -771,6 +915,168 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
           phase: "result",
           committedSegments: 1,
         });
+      }
+    );
+
+    test(
+      "batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedNotes(seeder);
+        const other = interactive();
+
+        const driver = new PgWindowedBatchDriver(
+          {
+            placement: "between-premises-and-writes",
+            returning: false,
+            interleave: async () => {
+              await other.note.update({
+                where: { id: "n1" },
+                data: { active: false },
+              });
+            },
+          },
+          { databaseUrl }
+        );
+        // The same schedule as the cell above, with the client's write-outcome
+        // rail failing on the acknowledgement this batch makes BEFORE it has
+        // answered. Both failures are real and neither may eat the other.
+        const client = withFailingOutcome(boot(driver));
+
+        const raised = await client.note
+          .deleteMany({
+            where: { active: true },
+            select: { id: true, label: true },
+          })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+
+        expect(driver.schedule).toEqual([
+          "A: the atomic unit began",
+          "A: every premise of the unit has answered",
+          "B: committed BETWEEN the unit's last premise and its first write",
+          "A: the unit's writes executed",
+        ]);
+        expect(driver.shape).toEqual([4, 3]);
+        // The OPERATION's own answer is settled before the hold is released,
+        // so the cardinality failure is the primary and the listener's is
+        // retained beside it — not the other way round, and neither is lost.
+        expect(raised).toBeInstanceOf(AggregateError);
+        const composed = composition(raised);
+        expect(composed).toMatchObject(COMPOSITION);
+        expect(messageOf(composed.primary)).toContain(CHANGED("deleteMany"));
+        expect(listenerFailure(composed.retained)).toMatchObject(
+          RETAINED_LISTENER
+        );
+        // And the primary still carries what the batch committed: the answer
+        // that failed is a RESULT-phase failure over an acknowledged segment.
+        expect(progressOf(composed.primary)).toMatchObject({
+          atomicity: "segment",
+          phase: "result",
+          committedSegments: 1,
+        });
+        // Exact committed state, and the proof that nothing was retried: a
+        // re-planned second pass would capture `active: true` again — n1 is
+        // inactive and n2 is gone, so it would capture nothing and publish an
+        // empty success. The caller was handed a failure instead, and n2 alone
+        // is missing, so the acknowledged work was neither replayed nor undone.
+        expect(await noteIds(seeder)).toEqual(["n1", "n3"]);
+        expect(
+          (await seeder.note.findUnique({ where: { id: "n1" } }))?.active
+        ).toBe(false);
+      }
+    );
+
+    test(
+      "batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedNotes(seeder);
+        const other = interactive();
+
+        const driver = new PgWindowedBatchDriver(
+          {
+            placement: "between-premises-and-writes",
+            returning: false,
+            interleave: async () => {
+              await other.note.update({
+                where: { id: "n1" },
+                data: { active: false },
+              });
+            },
+          },
+          { databaseUrl }
+        );
+        const client = withFailingOutcome(boot(driver));
+
+        const raised = await client.note
+          .updateMany({
+            where: { active: true },
+            data: { label: "renamed" },
+            select: { id: true, label: true },
+          })
+          .then(
+            () => undefined,
+            (error: unknown) => error
+          );
+
+        expect(driver.shape).toEqual([4, 3]);
+        expect(raised).toBeInstanceOf(AggregateError);
+        const composed = composition(raised);
+        expect(composed).toMatchObject(COMPOSITION);
+        expect(messageOf(composed.primary)).toContain(CHANGED("updateMany"));
+        expect(listenerFailure(composed.retained)).toMatchObject(
+          RETAINED_LISTENER
+        );
+        expect(progressOf(composed.primary)).toMatchObject({
+          atomicity: "segment",
+          phase: "result",
+          committedSegments: 1,
+        });
+        // The same exact state the undisturbed schedule leaves: n1 untouched,
+        // n2 written once. The non-RETURNING read-back is behind the answer and
+        // still did not run, so no result was published for either row.
+        const rows = await seeder.note.findMany({ orderBy: { id: "asc" } });
+        expect(rows.map((row) => [row.id, row.label])).toEqual([
+          ["n1", "one"],
+          ["n2", "renamed"],
+          ["n3", "three"],
+        ]);
+      }
+    );
+
+    test(
+      "batch route: a listener that fails beside a captured answer that SUCCEEDED is still published alone",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedNotes(seeder);
+        // No racer: every captured row still matches at the effect, so the
+        // operation's own answer is a success and the only failure in the
+        // window is the listener's.
+        const client = withFailingOutcome(capturingBatch());
+
+        const result = await settle(() =>
+          client.note.deleteMany({
+            where: { active: true },
+            select: { id: true, label: true },
+          })
+        )();
+
+        // Published alone, in its own class: no aggregate, and above all no
+        // cardinality sentence invented for an answer that did not fail.
+        expect(result.value).toBeUndefined();
+        expect(result.error).not.toBeInstanceOf(AggregateError);
+        expect(listenerFailure(result.error)).toMatchObject(RETAINED_LISTENER);
+        // A listener failure beside a successful answer is not the operation's
+        // own record-series failure, so it carries no progress — unchanged.
+        expect(progressOf(result.error)).toBeUndefined();
+        // The write is durable and complete: the failure is the listener's.
+        expect(await noteIds(seeder)).toEqual(["n3"]);
       }
     );
 
@@ -1122,7 +1428,10 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
           "B: committed BETWEEN the unit's last premise and its first write",
           "A: the unit's writes executed",
         ]);
-        expect(driver.shape).toEqual([7, 6]);
+        // Repair prompt §2: two statements more than the reviewed source in
+        // front of the first write — the first member's own held requirement
+        // and the junction row that stores it.
+        expect(driver.shape).toEqual([9, 8]);
       }
     );
 
@@ -1140,7 +1449,7 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
             returning: true,
             interleave: async () => {
               await other.member.update({
-                where: { id: "m1" },
+                where: { id: "m2" },
                 data: { active: false },
               });
             },
@@ -1156,10 +1465,18 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
 
         // D-65, the nested bound: the member is located by the key the capture
         // named and by the membership it is consumed through; the arbitrary
-        // filter that SELECTED it is not a lasting per-member predicate, so m1
+        // filter that SELECTED it is not a lasting per-member predicate, so m2
         // is deleted. This is the decided difference from consumer 1, whose ONE
         // set statement carries its own selector to its own effect.
-        expect(driver.shape).toEqual([7, 6]);
+        //
+        // The filter change lands on the member whose own write is still
+        // AHEAD (repair prompt §2): m1's row and membership are held for m1's
+        // write by the time this window opens, so a concurrent change to m1
+        // would now wait for this unit rather than interleave with it — the
+        // guarantee the interactive route's `FOR UPDATE` capture always gave.
+        // m2 is where the claim is still measurable, and it is the position
+        // that matters: the filter is not re-asked at the member's OWN write.
+        expect(driver.shape).toEqual([9, 8]);
         expect(await memberIds(seeder)).toEqual(["m3"]);
         expect(await connectedIds(seeder)).toEqual([]);
       }
@@ -1215,6 +1532,493 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
           ).map((row) => row.id)
         ).toEqual(["m1"]);
         expect(await connectedIds(seeder)).toEqual([]);
+      }
+    );
+
+    test(
+      "batch route: a member reassigned between the last premise and its OWN write is not deleted, and the segment that committed is reported",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedTeam(seeder);
+        await seeder.team.create({ data: { id: "t2", name: "Other" } });
+        const other = interactive();
+
+        // The window the review measured, moved to the member the unit has not
+        // reached yet: when it opens, m1's membership is already held for m1's
+        // own write, and m2's is not yet taken — so the reassignment commits
+        // there, exactly as it did on the reviewed source.
+        const driver = new PgWindowedBatchDriver(
+          {
+            placement: "between-premises-and-writes",
+            returning: true,
+            interleave: async () => {
+              await other.team.update({
+                where: { id: "t1" },
+                data: { members: { disconnect: { id: "m2" } } },
+              });
+              await other.team.update({
+                where: { id: "t2" },
+                data: { members: { connect: { id: "m2" } } },
+              });
+            },
+          },
+          { databaseUrl }
+        );
+        const client = boot(driver);
+
+        const raised = await settle(() =>
+          client.team.update({
+            where: { id: "t1" },
+            data: { members: { deleteMany: { active: true } } },
+          })
+        )();
+
+        // The repair prompt §2: the membership a member is CONSUMED through is
+        // held through its own write. m1 was consumed before the window and is
+        // gone; m2 moved to t2 inside it and is not deleted for t1. What the
+        // unit already acknowledged stands, and the failure says so.
+        expect(await memberIds(seeder)).toEqual(["m2", "m3"]);
+        expect(
+          (
+            (
+              await seeder.team.findUnique({
+                where: { id: "t2" },
+                include: { members: true },
+              })
+            )?.members ?? []
+          ).map((row) => row.id)
+        ).toEqual(["m2"]);
+        expect(await connectedIds(seeder)).toEqual([]);
+        expect(messageOf(raised.error)).toBe(
+          "Cannot delete relation 'members': a member was removed after the plan-time read; retry to converge."
+        );
+        expect(progressOf(raised.error)).toMatchObject({
+          atomicity: "segment",
+          phase: "member",
+          committedSegments: 1,
+        });
+      }
+    );
+
+    test(
+      "batch route: a member reassigned between the last premise and its OWN write is not UPDATED for the parent that no longer holds it",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedTeam(seeder);
+        await seeder.team.create({ data: { id: "t2", name: "Other" } });
+        const other = interactive();
+
+        const driver = new PgWindowedBatchDriver(
+          {
+            placement: "between-premises-and-writes",
+            returning: true,
+            interleave: async () => {
+              await other.team.update({
+                where: { id: "t1" },
+                data: { members: { disconnect: { id: "m2" } } },
+              });
+              await other.team.update({
+                where: { id: "t2" },
+                data: { members: { connect: { id: "m2" } } },
+              });
+            },
+          },
+          { databaseUrl }
+        );
+        const client = boot(driver);
+
+        const raised = await settle(() =>
+          client.team.update({
+            where: { id: "t1" },
+            data: {
+              members: {
+                updateMany: {
+                  where: { active: true },
+                  data: { label: "renamed" },
+                },
+              },
+            },
+          })
+        )();
+
+        // The same requirement, the other verb: a captured UPDATE member owes
+        // its membership at the position it is consumed (repair prompt §2).
+        const rows = await seeder.member.findMany({ orderBy: { id: "asc" } });
+        expect(rows.map((row) => [row.id, row.label])).toEqual([
+          ["m1", "renamed"],
+          ["m2", "two"],
+          ["m3", "three"],
+        ]);
+        expect(messageOf(raised.error)).toBe(
+          "Cannot update relation 'members': target record was not found for this parent."
+        );
+        expect(progressOf(raised.error)).toMatchObject({
+          atomicity: "segment",
+          phase: "member",
+          committedSegments: 1,
+        });
+      }
+    );
+
+    test(
+      "batch route, lock held: a reassignment the member's own requirement waits behind is observed, and the retry converges",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedTeam(seeder);
+        await seeder.team.create({ data: { id: "t2", name: "Other" } });
+        // The batch route with its ordinary RETURNING profile, and a hook that
+        // does nothing: the schedule here is B's own held row lock, not an
+        // interleaving the driver plants.
+        const client = boot(
+          new PgWindowedBatchDriver(
+            {
+              placement: "before-premises",
+              returning: true,
+              interleave: async () => {
+                // nothing: B's uncommitted lock is the whole schedule
+              },
+            },
+            { databaseUrl }
+          )
+        );
+
+        // B holds the reassignment UNCOMMITTED while A runs, so
+        // A's capture and its plan-time premises read the OLD committed
+        // membership and A's own requirement is what waits behind B's commit.
+        // A stale cross-table snapshot would answer "still a member" here.
+        const { result, blocked } = await heldRowLockSchedule({
+          probe: seeder,
+          hold: async (tx) => {
+            await tx.team.update({
+              where: { id: "t1" },
+              data: { members: { disconnect: { id: "m1" } } },
+            });
+            await tx.team.update({
+              where: { id: "t2" },
+              data: { members: { connect: { id: "m1" } } },
+            });
+          },
+          operation: settle(() =>
+            client.team.update({
+              where: { id: "t1" },
+              data: { members: { deleteMany: { active: true } } },
+            })
+          ),
+        });
+
+        expect(blocked).toBe(true);
+        // Nothing was acknowledged, so the raceable loss is recoverable: the
+        // one re-plan reads the membership the race produced and deletes the
+        // member t1 still holds. m1 belongs to t2 and is untouched.
+        expect(result.error).toBeUndefined();
+        expect(await memberIds(seeder)).toEqual(["m1", "m3"]);
+        expect(
+          (
+            (
+              await seeder.team.findUnique({
+                where: { id: "t2" },
+                include: { members: true },
+              })
+            )?.members ?? []
+          ).map((row) => row.id)
+        ).toEqual(["m1"]);
+        expect(await connectedIds(seeder)).toEqual([]);
+      }
+    );
+
+    test(
+      "batch route, lock held: a captured UPDATE member's own requirement waits behind the reassignment it must observe",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedTeam(seeder);
+        await seeder.team.create({ data: { id: "t2", name: "Other" } });
+        const client = boot(
+          new PgWindowedBatchDriver(
+            {
+              placement: "before-premises",
+              returning: true,
+              interleave: async () => {
+                // nothing: B's uncommitted lock is the whole schedule
+              },
+            },
+            { databaseUrl }
+          )
+        );
+
+        const { result, blocked } = await heldRowLockSchedule({
+          probe: seeder,
+          hold: async (tx) => {
+            await tx.team.update({
+              where: { id: "t1" },
+              data: { members: { disconnect: { id: "m1" } } },
+            });
+            await tx.team.update({
+              where: { id: "t2" },
+              data: { members: { connect: { id: "m1" } } },
+            });
+          },
+          operation: settle(() =>
+            client.team.update({
+              where: { id: "t1" },
+              data: {
+                members: {
+                  updateMany: {
+                    where: { active: true },
+                    data: { label: "renamed" },
+                  },
+                },
+              },
+            })
+          ),
+        });
+
+        // The UPDATE member's requirement already stood at its consumption
+        // position; what it lacked was the HOLD, so it read the old committed
+        // membership and the write behind it waited on B and then wrote m1 as
+        // t1's member anyway (repair prompt §2).
+        expect(blocked).toBe(true);
+        // Its own failure and attribution, unchanged (repair prompt §1.4): a
+        // captured UPDATE member names its row by the selector that located
+        // it, so its loss is the identity sentence and NOT the raceable one —
+        // a re-plan would act on whatever that selector answers now (D-34).
+        expect(messageOf(result.error)).toBe(
+          "Cannot update relation 'members': target record was not found for this parent."
+        );
+        expect(result.value).toBeUndefined();
+        // Truthful progress: the requirement is lost in front of the FIRST
+        // write of the unit, so nothing was acknowledged and there is no
+        // record-series progress to report.
+        expect(progressOf(result.error)).toBeUndefined();
+        const rows = await seeder.member.findMany({ orderBy: { id: "asc" } });
+        expect(rows.map((row) => [row.id, row.label])).toEqual([
+          ["m1", "one"],
+          ["m2", "two"],
+          ["m3", "three"],
+        ]);
+      }
+    );
+
+    test(
+      "batch route: a LATER member reassigned before the unit's premises aborts it before any write, and the retry converges",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedTeam(seeder);
+        await seeder.team.create({ data: { id: "t2", name: "Other" } });
+        const other = interactive();
+
+        const driver = new PgWindowedBatchDriver(
+          {
+            placement: "before-premises",
+            returning: true,
+            interleave: async () => {
+              await other.team.update({
+                where: { id: "t1" },
+                data: { members: { disconnect: { id: "m2" } } },
+              });
+              await other.team.update({
+                where: { id: "t2" },
+                data: { members: { connect: { id: "m2" } } },
+              });
+            },
+          },
+          { databaseUrl }
+        );
+        const client = boot(driver);
+
+        await client.team.update({
+          where: { id: "t1" },
+          data: { members: { deleteMany: { active: true } } },
+        });
+
+        // The capture-position premise keeps its own coverage: a member already
+        // lost when the unit begins aborts the WHOLE unit before any write, so
+        // the one re-plan still converges instead of reporting a committed
+        // segment. Deleting it would delete m1 first and refuse m2 afterwards.
+        expect(await memberIds(seeder)).toEqual(["m2", "m3"]);
+        expect(
+          (
+            (
+              await seeder.team.findUnique({
+                where: { id: "t2" },
+                include: { members: true },
+              })
+            )?.members ?? []
+          ).map((row) => row.id)
+        ).toEqual(["m2"]);
+        expect(await connectedIds(seeder)).toEqual([]);
+      }
+    );
+
+    test(
+      "batch route: a REFERENCE member reassigned in the window is not written as this parent's, and the series it carries never runs",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedOrg(seeder);
+        const other = interactive();
+
+        // The same requirement one depth up, where the substrate stores it
+        // differently: an org's team holds its own membership in its own row,
+        // so the held premise over that row proves it, holds it and proves the
+        // row is there in ONE statement — no junction row to take.
+        const driver = new PgWindowedBatchDriver(
+          {
+            placement: "between-premises-and-writes",
+            returning: true,
+            interleave: async () => {
+              await other.team.update({
+                where: { id: "t2" },
+                data: { orgId: "o2" },
+              });
+            },
+          },
+          { databaseUrl }
+        );
+        const client = boot(driver);
+
+        const raised = await settle(() =>
+          client.org.update({
+            where: { id: "o1" },
+            data: {
+              teams: {
+                updateMany: {
+                  where: { active: true },
+                  data: { members: { deleteMany: { active: true } } },
+                },
+              },
+            },
+          })
+        )();
+
+        // t1 was consumed before the window: its own captured series ran and
+        // its members are gone. t2 left o1 inside it, so it is not written as
+        // o1's team AND the second-depth series it carries never runs.
+        expect(await memberIds(seeder)).toEqual(["m3", "m4"]);
+        expect(
+          (await seeder.team.findUnique({ where: { id: "t2" } }))?.orgId
+        ).toBe("o2");
+        expect(messageOf(raised.error)).toBe(
+          "Cannot update relation 'teams': target record was not found for this parent."
+        );
+        // Two segments acknowledged (t1's two member deletions), and the
+        // failure says so rather than erasing them (D-51).
+        expect(progressOf(raised.error)).toMatchObject({
+          atomicity: "segment",
+          committedSegments: 2,
+        });
+      }
+    );
+
+    test(
+      "batch route, lock held: a REFERENCE member's own requirement waits behind the reassignment it must observe",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedOrg(seeder);
+        const client = boot(
+          new PgWindowedBatchDriver(
+            {
+              placement: "before-premises",
+              returning: true,
+              interleave: async () => {
+                // nothing: B's uncommitted lock is the whole schedule
+              },
+            },
+            { databaseUrl }
+          )
+        );
+
+        const { result, blocked } = await heldRowLockSchedule({
+          probe: seeder,
+          hold: async (tx) => {
+            await tx.team.update({
+              where: { id: "t1" },
+              data: { orgId: "o2" },
+            });
+          },
+          operation: settle(() =>
+            client.org.update({
+              where: { id: "o1" },
+              data: {
+                teams: {
+                  updateMany: {
+                    where: { active: true },
+                    data: {
+                      name: "renamed",
+                      members: { deleteMany: { active: true } },
+                    },
+                  },
+                },
+              },
+            })
+          ),
+        });
+
+        // A reference membership is a column of the member's OWN row, so the
+        // held premise over that row is the whole protection: the substrate
+        // re-evaluates a blocked read's qualification against the updated
+        // target row, and the row it waited for no longer names o1.
+        expect(blocked).toBe(true);
+        expect(messageOf(result.error)).toBe(
+          "Cannot update relation 'teams': target record was not found for this parent."
+        );
+        // In front of the FIRST write of the unit: nothing is renamed, no
+        // member of either team is deleted, and there is no progress to report.
+        expect(progressOf(result.error)).toBeUndefined();
+        expect(await memberIds(seeder)).toEqual(["m1", "m2", "m3", "m4"]);
+        const t1 = await seeder.team.findUnique({ where: { id: "t1" } });
+        expect([t1?.name, t1?.orgId]).toEqual(["Team", "o2"]);
+      }
+    );
+
+    test(
+      "default native route: the capture's FOR UPDATE holds the member ROW, and the junction it is consumed through is held too",
+      { timeout: 90_000 },
+      async () => {
+        const seeder = interactive();
+        await seedTeam(seeder);
+        await seeder.team.create({ data: { id: "t2", name: "Other" } });
+        const client = interactive();
+
+        // The interactive route's capture takes `FOR UPDATE`, which holds the
+        // member ROWS it read — and nothing else. A junction membership lives
+        // in a row of its own that no lock on the member reaches, so B can
+        // disconnect m1 while A holds m1 (repair prompt §2). B holds that
+        // disconnect uncommitted; A's own requirement is what waits behind it.
+        const { result, blocked } = await heldRowLockSchedule({
+          probe: seeder,
+          hold: async (tx) => {
+            // The junction ROW alone, and nothing else: an ordinary
+            // `disconnect` locates the member first, so its own lock would
+            // make the capture wait and re-read. This is the change a lock on
+            // the member row cannot see.
+            await tx.$executeRawUnsafe(
+              "DELETE FROM fcpg_team_members WHERE team_ref = 't1' AND member_ref = 'm1'"
+            );
+          },
+          operation: settle(() =>
+            client.team.update({
+              where: { id: "t1" },
+              data: { members: { deleteMany: { active: true } } },
+            })
+          ),
+        });
+
+        expect(blocked).toBe(true);
+        // The requirement is lost in front of every write of an
+        // operation-owned interactive transaction, so its owner rolls back:
+        // nothing is deleted, m1 keeps the membership the race left it, and
+        // the failure is the raceable one its caller may retry on.
+        expect(messageOf(result.error)).toBe(
+          "Cannot delete relation 'members': a member was removed after the plan-time read; retry to converge."
+        );
+        expect(await memberIds(seeder)).toEqual(["m1", "m2", "m3"]);
+        expect(await connectedIds(seeder)).toEqual(["m2"]);
       }
     );
 
@@ -1282,8 +2086,9 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
           (await seeder.member.findUnique({ where: { id: "m3" } }))?.label
         ).toBe("renamed");
         // The irrelevant change landed IN the premise -> write window, like
-        // its siblings, and the unit's shape did not move.
-        expect(driver.shape).toEqual([7, 6]);
+        // its siblings, and the unit's shape is the repaired one (§2): the
+        // first member's held requirement and its junction row.
+        expect(driver.shape).toEqual([9, 8]);
         expect(driver.schedule).toEqual([
           "A: the atomic unit began",
           "A: every premise of the unit has answered",

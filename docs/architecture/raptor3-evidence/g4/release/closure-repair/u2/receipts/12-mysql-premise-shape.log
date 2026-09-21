@@ -1,0 +1,15 @@
+# The batch route's premise wrapper on native MySQL (PlanetScale's profile)
+#
+# Ran, on mysql-g3, against its own `se_u2_*` tables (created and dropped by
+# the script, nothing else touched): the two premise shapes this unit issues,
+# wrapped exactly as `MySqlAdapter.assertions.exists` wraps them
+# (`SELECT CASE WHEN EXISTS (<query>) THEN 1 ELSE JSON_EXTRACT('x','$') END`),
+# and then the junction premise's lock, proved by a second session whose
+# DELETE of that junction row hits `innodb_lock_wait_timeout = 2`.
+#
+# SQLite and D1 omit FOR UPDATE at the adapter (`sqlite-adapter.ts:703-705`),
+# so the same premise is issued there without a locking clause.
+
+[junction premise] ok [{"__viborm_assert__":"1"}]
+[member premise] ok [{"__viborm_assert__":"1"}]
+[junction premise holds the row] true

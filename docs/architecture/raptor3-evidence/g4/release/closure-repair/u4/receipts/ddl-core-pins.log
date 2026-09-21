@@ -1,0 +1,18 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sm
+
+ ✓ |layer-migrations| tests/unit/migrations/ddl-drivers.core.test.ts (165 tests) 13ms
+ ✓ |layer-migrations| tests/unit/migrations/serializer.core.test.ts (57 tests) 13ms
+ ✓ |layer-migrations| tests/unit/migrations/ddl.core.test.ts (45 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/format-and-type-mapping.core.test.ts (51 tests) 1ms
+ ✓ |coverage-migrations| tests/unit/migrations/ddl-drivers.core.test.ts (165 tests) 14ms
+ ✓ |coverage-migrations| tests/unit/migrations/serializer.core.test.ts (57 tests) 14ms
+ ✓ |coverage-migrations| tests/unit/migrations/ddl.core.test.ts (45 tests) 2ms
+ ✓ |coverage-migrations| tests/unit/migrations/format-and-type-mapping.core.test.ts (51 tests) 2ms
+
+ Test Files  8 passed (8)
+      Tests  636 passed (636)
+   Start at  16:46:01
+   Duration  1.96s (transform 921ms, setup 21ms, collect 1.48s, tests 61ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 3.84s wall, 526.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

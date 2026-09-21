@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests) 375ms
+ ✓ |coverage-drivers| tests/providers/local/sqlite3-nested-write.test.ts (85 tests) 377ms
+
+ Test Files  2 passed (2)
+      Tests  170 passed (170)
+   Start at  18:29:21
+   Duration  4.02s (transform 1.89s, setup 15ms, collect 2.84s, tests 752ms, environment 0ms, prepare 61ms)
+
+Vitest resources: 5.88s wall, 602.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

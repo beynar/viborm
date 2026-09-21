@@ -1,0 +1,31 @@
+# The MySQL introspector's classification, from the measurement file the verdict cites.
+
+{
+  "file": "src/migrations/drivers/mysql/introspect.ts",
+  "classification": "excluded-shared-boundary",
+  "reason": "Unchanged external schema/validation/SQL/provider/extension/cache/public-type or unrelated migration/CLI owner; moving or rewriting engine semantics here must be charged to the candidate",
+  "tokenLines": 371,
+  "physicalLines": 644,
+  "sha256": "c516cc9fcaca0c42971f7275ba08052862ac48128e22ece092e99bfb70cf934c"
+}
+
+charged-integration files (the class the verdict named):
+  src/client/array-transaction-failures.ts  30
+  src/client/array-transaction-legacy.ts  369
+  src/client/array-transaction-native-batch.ts  87
+  src/client/array-transaction-native.ts  270
+  src/client/array-transaction.ts  387
+  src/client/client.ts  1030
+  src/client/decimal-provider-limits.ts  17
+  src/client/geo-point-provider-limit.ts  19
+  src/client/omit.ts  286
+  src/client/raw.ts  602
+  src/client/schema-introspection.ts  195
+  src/client/typescript-type-renderer.ts  465
+
+the recount puts R2a's diff of that file in the same class:
+  R2ab  61c745f49..50ad4fac4  excluded-shared-boundary  +202 / -89 over 6 file(s)
+  postwave  5499cbed3..b5fde8c1e  excluded-shared-boundary  +3 / -3 over 1 file(s)
+
+# git diff --numstat 61c745f49..50ad4fac4 -- src/migrations/drivers/mysql/introspect.ts
+  110	49	src/migrations/drivers/mysql/introspect.ts

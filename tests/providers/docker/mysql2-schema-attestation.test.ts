@@ -28,7 +28,6 @@
  */
 
 import { createClient } from "@client/client";
-import { VibORMErrorCode } from "@errors";
 import { introspect } from "@migrations/push/planner";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -76,7 +75,7 @@ const quoted = s
   })
   .map("attest_quoted");
 
-/** A backslash, which the estate's own DDL spelling cannot carry to MySQL. */
+/** A backslash: the character MySQL's DDL reads as an escape introducer. */
 const backslashed = s
   .model({
     id: s.string().id(),
@@ -223,29 +222,45 @@ describeIf("MySQL2 schema attestation", () => {
     await client.$disconnect();
   });
 
-  test("a default MySQL's DDL does not read back is refused, not accepted", async () => {
+  test("a backslash in a declared default reaches the database intact", async () => {
     const client = createClient({
       schema: { backslashed },
       driver: createMySQL2Driver(),
     });
 
-    // The SECOND of the two fail-closed mechanisms, and the one only a live
-    // server can show. `escapeValue` doubles `'` and leaves `\` alone, and
-    // MySQL's DDL reads a backslash as an escape introducer, so the column
-    // MySQL creates carries `a<BS>` and not the declared `a\b`: the backslash
-    // never reaches the catalog as an escape at all. The inverse therefore
-    // SUCCEEDS on that body and reconstructs a value that is not the declared
-    // one, the column keeps reading as a difference, and the push FAILS at the
-    // final attestation rather than reporting a schema the database does not
-    // hold. (The FIRST mechanism is a body carrying an escape the inverse does
-    // not own — `\n` — which keeps the catalog's own printed text; that one is
-    // pinned provider-free by `mysql-provider-free-catalog.core`'s `multiline`
-    // column.) Both are named in `docs/.../closure-final/r2a/note.md` §6; this
-    // cell is what would go red if the spelling were ever repaired, or if the
-    // refusal were dropped.
-    await expect(syncLiveSchema(client)).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_DRIFT,
-    });
+    // Re-expressed for the repaired DDL spelling (repair prompt §4.1). This
+    // cell pinned the fail-closed OUTCOME of a defect: `escapeValue` doubled
+    // `'` and left `\` alone, MySQL's DDL read the backslash as an escape
+    // introducer, and the column it created carried `a<BS>` — so the inverse
+    // succeeded on that body, reconstructed a value that is not the declared
+    // one, and the push failed at the final attestation with MIGRATION_DRIFT.
+    // The spelling is now MySQL's own (`mysqlStringLiteral`), so the
+    // attestation the push makes is the ordinary one, and what it attests is
+    // the DECLARED value. The wider matrix — a newline, a CRLF, a trailing
+    // backslash, the literal-default half, a declared change — is
+    // `tests/unit/migrations/mysql-defaults-docker.test.ts`.
+    expect((await syncLiveSchema(client)).applied).toBe(true);
+    const second = await syncLiveSchema(client);
+    expect(second.operations).toEqual([]);
+    expect(second.sql).toEqual([]);
+
+    const snapshot = await introspect(client);
+    const byName = new Map(
+      snapshot.tables
+        .find((t) => t.name === "attest_backslashed")
+        ?.columns.map((c) => [c.name, c])
+    );
+    expect(byName.get("note")?.default).toBe(String.raw`('a\\b')`);
+
+    // The VALUE is the database's: raw SQL, so no admission-time default can
+    // supply it.
+    await client.$executeRawUnsafe(
+      "INSERT INTO `attest_backslashed` (`id`) VALUES ('b1')"
+    );
+    const rows = await client.$queryRawUnsafe<{ note: string }>(
+      "SELECT `note` FROM `attest_backslashed` WHERE `id` = 'b1'"
+    );
+    expect(rows[0]?.note).toBe(String.raw`a\b`);
 
     await client.$disconnect();
   });

@@ -22,7 +22,11 @@ import type {
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
-import { mysqlEnumType } from "../type-mapping";
+import {
+  MYSQL_LITERAL_ESCAPES,
+  mysqlEnumType,
+  mysqlStringLiteral,
+} from "../type-mapping";
 import { groupBy, groupByNested } from "../utils";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import type {
@@ -338,19 +342,33 @@ const MYSQL_STRING_EXPRESSION_DEFAULT = /^_[A-Za-z0-9_]+\\'([\s\S]*)\\'$/;
 /** One backslash escape, with the character it escapes. */
 const MYSQL_ESCAPE_SEQUENCE = /\\([\s\S]?)/g;
 
-/** A string value spelled the way `escapeValue` writes it into DDL. */
-function quotedLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
+/**
+ * What MySQL's printer writes, read backwards: the WRITE table
+ * (`mysqlStringLiteral`) inverted, plus the apostrophe, which MySQL prints as
+ * `\'` although the DDL spelling doubles it instead. Every other character —
+ * tab, backspace, `"` — is printed raw (measured on 8.4.11), so an escape
+ * outside this table is one this inverse does not own.
+ */
+const MYSQL_PRINTED_CHARACTERS: ReadonlyMap<string, string> = new Map([
+  ["'", "'"],
+  ...[...MYSQL_LITERAL_ESCAPES].map(
+    ([character, sequence]) =>
+      [sequence.slice(1), character] as [string, string]
+  ),
+]);
 
-/** `undefined` for a body carrying an escape other than `\'` or `\\`. */
+/** `undefined` for a body carrying an escape MySQL's printer does not write. */
 function unescapeOneLayer(body: string): string | undefined {
   let owned = true;
   const unescaped = body.replace(
     MYSQL_ESCAPE_SEQUENCE,
     (_match: string, escaped: string) => {
-      if (escaped !== "\\" && escaped !== "'") owned = false;
-      return escaped;
+      const character = MYSQL_PRINTED_CHARACTERS.get(escaped);
+      if (character === undefined) {
+        owned = false;
+        return escaped;
+      }
+      return character;
     }
   );
   return owned ? unescaped : undefined;
@@ -363,12 +381,10 @@ function unescapeOneLayer(body: string): string | undefined {
  * The text is escaped TWICE — once by MySQL printing the string literal inside
  * the expression, once by `information_schema` printing that expression — so a
  * declared `it's` arrives as the characters `_utf8mb4\'it\\\'s\'` (measured on
- * MySQL 8.4.11). Each pass undoes one layer. Only `\'` and `\\` are undone:
- * every other escape MySQL prints (`\n` for a newline, measured) stands for a
- * value whose own DDL spelling `escapeValue` could not have written — it leaves
- * a backslash alone, which MySQL's DDL reads as an escape introducer — so
- * inverting it would be a guess, and a wrong guess calls two different defaults
- * equal.
+ * MySQL 8.4.11). Each pass undoes one layer, through the table MySQL's printer
+ * writes (`MYSQL_PRINTED_CHARACTERS`). An escape outside that table is not one
+ * this server printed for a value the estate spelled, so inverting it would be
+ * a guess, and a wrong guess calls two different defaults equal.
  */
 function deparsedStringValue(columnDefault: string): string | undefined {
   const printed = MYSQL_STRING_EXPRESSION_DEFAULT.exec(columnDefault)?.[1];
@@ -401,11 +417,13 @@ function cleanDefault(col: MySQLColumn): string | undefined {
   if (columnDefault === null) return undefined;
   if (col.EXTRA.toUpperCase().includes("DEFAULT_GENERATED")) {
     const value = deparsedStringValue(columnDefault);
-    return value === undefined ? columnDefault : `(${quotedLiteral(value)})`;
+    return value === undefined
+      ? columnDefault
+      : `(${mysqlStringLiteral(value)})`;
   }
   return MYSQL_NUMERIC_DATA_TYPES.has(col.DATA_TYPE.toLowerCase())
     ? columnDefault
-    : quotedLiteral(columnDefault);
+    : mysqlStringLiteral(columnDefault);
 }
 
 /**

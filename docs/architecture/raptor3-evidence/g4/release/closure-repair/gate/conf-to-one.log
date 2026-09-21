@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-to-one.test.ts (19 tests) 1089ms
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  22:01:37
+   Duration  2.53s (transform 855ms, setup 9ms, collect 1.28s, tests 1.09s, environment 0ms, prepare 25ms)
+
+Vitest resources: 4.24s wall, 1580.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

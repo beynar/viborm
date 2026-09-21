@@ -1,0 +1,137 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |provider-pglite| tests/providers/local/pglite-nested-writes.test.ts (126 tests) 65398ms
+   ✓ PGlite Driver > PGlite nested write behavior > declares an atomic strategy for nested writes  838ms
+   ✓ PGlite Driver > PGlite nested write behavior > rejects default-only createMany duplicate skipping before writing  568ms
+   ✓ PGlite Driver > PGlite nested write behavior > rejects nested default-only duplicate skipping before the parent write  578ms
+   ✓ PGlite Driver > PGlite nested write behavior > create derives to-one and to-many foreign keys  522ms
+   ✓ PGlite Driver > PGlite nested write behavior > create connects and connect-or-creates nullable children  522ms
+   ✓ PGlite Driver > PGlite nested write behavior > update creates, createManys, and connects children  510ms
+   ✓ PGlite Driver > PGlite nested write behavior > update disconnects and sets nullable children  505ms
+   ✓ PGlite Driver > PGlite nested write behavior > update and updateMany keep child mutations parent-correlated  494ms
+   ✓ PGlite Driver > PGlite nested write behavior > delete and deleteMany keep child mutations parent-correlated  493ms
+   ✓ PGlite Driver > PGlite nested write behavior > to-many upsert creates and updates the current parent's child  481ms
+   ✓ PGlite Driver > PGlite nested write behavior > to-one upsert creates and updates the current target  488ms
+   ✓ PGlite Driver > PGlite nested write behavior > to-one nested update modifies the connected author  493ms
+   ✓ PGlite Driver > PGlite nested write behavior > to-one disconnect true nulls the foreign key, both rows survive  573ms
+   ✓ PGlite Driver > PGlite nested write behavior > to-one delete true deletes the related row  484ms
+   ✓ PGlite Driver > PGlite nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author  511ms
+   ✓ PGlite Driver > PGlite nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives  484ms
+   ✓ PGlite Driver > PGlite nested write behavior > explicit join rows work as a practical many-to-many case  505ms
+   ✓ PGlite Driver > PGlite nested write behavior > unsupported nested create keys reject before parent mutation  499ms
+   ✓ PGlite Driver > PGlite nested write behavior > nested child failures roll back parent and prior children  609ms
+   ✓ PGlite Driver > PGlite nested write behavior > to-many updates cannot target another parent's child  542ms
+   ✓ PGlite Driver > PGlite nested write behavior > non-nullable child foreign keys reject disconnect atomically  557ms
+   ✓ PGlite Driver > PGlite nested write behavior > nested create propagates foreign keys through mapped columns  588ms
+   ✓ PGlite Driver > PGlite nested write behavior > nested create derives mapped foreign keys for createMany and connect  577ms
+   ✓ PGlite Driver > PGlite nested write behavior > set keeping all required-FK children is a no-op and succeeds  536ms
+   ✓ PGlite Driver > PGlite nested write behavior > set on required-FK children rejects only when rows would be orphaned  498ms
+   ✓ PGlite Driver > PGlite nested write behavior > set disconnects only nullable-FK children leaving the set  553ms
+   ✓ PGlite Driver > PGlite nested write behavior > connect with a list of targets reparents every one of them  547ms
+   ✓ PGlite Driver > PGlite nested write behavior > a connect list with one absent target writes nothing  509ms
+   ✓ PGlite Driver > PGlite nested write behavior > disconnect with a list nulls every one of them  506ms
+   ✓ PGlite Driver > PGlite nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing  508ms
+   ✓ PGlite Driver > PGlite nested write behavior > a create tree's connect list reparents every one of them  491ms
+   ✓ PGlite Driver > PGlite nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone  500ms
+   ✓ PGlite Driver > PGlite nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone  504ms
+   ✓ PGlite Driver > PGlite nested write behavior > delete with a relation projection > the `include` spelling is unaffected  521ms
+   ✓ PGlite Driver > PGlite compound key behavior > push enforces the compound primary key  509ms
+   ✓ PGlite Driver > PGlite compound key behavior > push enforces the compound unique constraint  483ms
+   ✓ PGlite Driver > PGlite compound key behavior > findUnique resolves compound id and compound unique selectors  475ms
+   ✓ PGlite Driver > PGlite compound key behavior > nested create from a compound-id parent populates all FK columns  462ms
+   ✓ PGlite Driver > PGlite compound key behavior > connect from a compound-id parent populates all FK columns  464ms
+   ✓ PGlite Driver > PGlite compound key behavior > include correlates on every compound FK column, not just one  463ms
+   ✓ PGlite Driver > PGlite compound key behavior > is null treats a partially-null compound FK as no relation  478ms
+   ✓ PGlite Driver > PGlite compound key behavior > update and delete by compound id target only that row  507ms
+   ✓ PGlite Driver > PGlite compound key behavior > upsert on a compound-id model takes both branches  503ms
+   ✓ PGlite Driver > PGlite advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes  514ms
+   ✓ PGlite Driver > PGlite advanced nested write behavior > top-level upsert guards gate nested update branch  497ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > the delegation seam stores the JSON document, not the ORM's envelope  476ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > a JSON document that LOOKS like the update envelope round-trips verbatim  481ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > a depth-2 to-one chain writes both JSON columns exactly  474ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > a depth-3 to-one chain writes all three JSON columns exactly  857ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > a delegated TO-MANY update target stores its JSON document exactly  499ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > the documented `data`-column escape stores the document at the delegation seam  518ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > JsonNull writes the JSON null document through the delegation seam  517ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > DbNull writes the database NULL through the delegation seam  552ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > a sentinel at depth 2 writes the same two nulls  504ms
+   ✓ PGlite Driver > PGlite (tx) delegated nested update — JSON write envelope > the non-delegated depth-1 target is unchanged by all of this  485ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > the delegation seam stores the JSON document, not the ORM's envelope  504ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > a JSON document that LOOKS like the update envelope round-trips verbatim  473ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > a depth-2 to-one chain writes both JSON columns exactly  459ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > a depth-3 to-one chain writes all three JSON columns exactly  503ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > a delegated TO-MANY update target stores its JSON document exactly  500ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > the documented `data`-column escape stores the document at the delegation seam  531ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > JsonNull writes the JSON null document through the delegation seam  477ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > DbNull writes the database NULL through the delegation seam  484ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > a sentinel at depth 2 writes the same two nulls  499ms
+   ✓ PGlite Driver > PGlite (batch) delegated nested update — JSON write envelope > the non-delegated depth-1 target is unchanged by all of this  477ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > updateMany with some relation filter affects only matching rows  471ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > updateMany with every relation filter affects only matching rows  466ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > updateMany with none relation filter affects only matching rows  468ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > deleteMany with some relation filter deletes only matching rows  483ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > deleteMany with every relation filter deletes only matching rows  450ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > deleteMany with none relation filter deletes only matching rows  466ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and none filters  459ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and every filters  449ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > updateMany applies same-object every and none filters  473ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > updateMany applies same-object some, every, and none filters  470ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > updateMany applies same-object is and isNot filters  467ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and some filters  483ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object every and some filters  455ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and every filters  454ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none, every, and some filters  468ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object isNot and is filters  496ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > combined relation operators > rolls back a combined-filter mutation when a later operation fails  469ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > updateMany with to-many self-relation filter affects only matching rows  462ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > updateMany with to-one self-relation filter affects only matching rows  468ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > deleteMany with self-relation filter deletes only matching rows  460ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-many self-relation filter  469ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-one self-relation filter  454ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > an excluding self-relation filter takes the create arm instead  486ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > update by a self-relation-filtered unique where locates or declines  483ms
+   ✓ PGlite Driver > PGlite relation-filter mutation behavior > self-relation filters > delete by a self-relation-filtered unique where removes one row  494ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > declares an atomic strategy for nested writes  521ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > rejects default-only createMany duplicate skipping before writing  502ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > rejects nested default-only duplicate skipping before the parent write  498ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > create derives to-one and to-many foreign keys  495ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > create connects and connect-or-creates nullable children  550ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > update creates, createManys, and connects children  645ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > update disconnects and sets nullable children  867ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > update and updateMany keep child mutations parent-correlated  1041ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > delete and deleteMany keep child mutations parent-correlated  582ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > to-many upsert creates and updates the current parent's child  705ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > to-one upsert creates and updates the current target  554ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > to-one nested update modifies the connected author  539ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > to-one disconnect true nulls the foreign key, both rows survive  539ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > to-one delete true deletes the related row  502ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author  521ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives  479ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > explicit join rows work as a practical many-to-many case  478ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > unsupported nested create keys reject before parent mutation  482ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > nested child failures roll back parent and prior children  461ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > to-many updates cannot target another parent's child  475ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > non-nullable child foreign keys reject disconnect atomically  468ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > nested create propagates foreign keys through mapped columns  470ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > nested create derives mapped foreign keys for createMany and connect  467ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > set keeping all required-FK children is a no-op and succeeds  468ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > set on required-FK children rejects only when rows would be orphaned  463ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > set disconnects only nullable-FK children leaving the set  466ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > connect with a list of targets reparents every one of them  456ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > a connect list with one absent target writes nothing  463ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > disconnect with a list nulls every one of them  470ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing  751ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > a create tree's connect list reparents every one of them  615ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone  807ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone  628ms
+   ✓ PGlite Driver > PGlite batch-only nested write behavior > delete with a relation projection > the `include` spelling is unaffected  501ms
+   ✓ PGlite Driver > PGlite batch-only advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes  548ms
+   ✓ PGlite Driver > PGlite batch-only advanced nested write behavior > top-level upsert guards gate nested update branch  474ms
+
+ Test Files  1 passed (1)
+      Tests  126 passed (126)
+   Start at  18:28:04
+   Duration  67.15s (transform 1.08s, setup 9ms, collect 1.59s, tests 65.40s, environment 0ms, prepare 35ms)
+
+Vitest resources: 68.93s wall, 1587.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

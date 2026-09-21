@@ -78,6 +78,7 @@ import {
   getMySQLType,
   MYSQL_TYPE_DEFAULTS,
   mysqlEnumType,
+  mysqlStringLiteral,
 } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
@@ -122,6 +123,34 @@ function mysqlRefusesLiteralDefault(columnType: string): boolean {
     upper.includes("JSON") ||
     SPATIAL_TYPE_PATTERNS.some((pattern) => pattern.test(upper))
   );
+}
+
+/**
+ * A MySQL temporal type, with the fractional-seconds precision it declares.
+ */
+const MYSQL_TIMESTAMP_TYPE = /^(?:DATETIME|TIMESTAMP)\s*(?:\((\d+)\))?$/i;
+
+/**
+ * `CURRENT_TIMESTAMP` as the RESOLVED column type takes it, or `undefined` for
+ * a type that takes no such default at all.
+ *
+ * MySQL requires the expression's precision to AGREE with the column's:
+ * `DATETIME(3) DEFAULT CURRENT_TIMESTAMP` is errno 1067, ER_INVALID_DEFAULT
+ * (measured on 8.4.11), and `DATETIME(3)` is what `.dateTime()` resolves to
+ * unless a native type says otherwise — so a declared `.now()` could not be
+ * pushed to MySQL at all. The precision is READ OFF the type this driver just
+ * mapped instead of being restated as a constant here, which is the same
+ * reason a resolved DATE or TIME carries no database default rather than an
+ * expression MySQL refuses.
+ */
+function mysqlNowExpression(columnType: string): string | undefined {
+  const precision = MYSQL_TIMESTAMP_TYPE.exec(columnType.trim());
+  if (precision === null) {
+    return undefined;
+  }
+  return precision[1] === undefined
+    ? "CURRENT_TIMESTAMP"
+    : `CURRENT_TIMESTAMP(${precision[1]})`;
 }
 
 /**
@@ -213,6 +242,19 @@ export class MySQLMigrationDriver
   // IDENTIFIER ESCAPING (MySQL uses backticks)
   // ===========================================================================
 
+  /**
+   * A string value, spelled the way MySQL reads it back.
+   *
+   * The base doubles `'` and leaves everything else alone, which is right
+   * where a backslash is an ordinary character. MySQL reads it as an escape
+   * introducer, so that spelling silently changed the value it carried —
+   * `DEFAULT ('a\b')` created a column holding a BACKSPACE, measured. One
+   * spelling serves both snapshot producers (`mysqlStringLiteral`).
+   */
+  override escapeValue(value: string | null | undefined): string {
+    return value == null ? "NULL" : mysqlStringLiteral(String(value));
+  }
+
   override escapeIdentifier(name: string): string {
     if (name == null) {
       throw new MigrationError(
@@ -280,6 +322,14 @@ export class MySQLMigrationDriver
     // instead of manufacturing an alterColumn on every later push.
     if (scalarState.hasDefault && scalarState.default === null) {
       return undefined;
+    }
+    // `now` is the one generator MySQL spells natively, and it is spelled from
+    // the RESOLVED column type, so it is answered here — where that type is —
+    // rather than by the generator hook, which is handed the declaration only.
+    // (`uuid` stays application-level: MySQL 8 has `UUID()`, but not as a
+    // column default.)
+    if (scalarState.autoGenerate?.kind === "now") {
+      return mysqlNowExpression(this.mapScalarType(scalar, scalarState));
     }
     return super.getDefaultExpression(scalar, scalarState);
   }
@@ -349,24 +399,6 @@ export class MySQLMigrationDriver
    */
   protected override formatBooleanDefault(value: boolean): string {
     return value ? "1" : "0";
-  }
-
-  /**
-   * MySQL supports native auto-generation for certain values.
-   */
-  protected override getAutoGenerateExpression(
-    autoGenerate: ScalarState["autoGenerate"]
-  ): string | undefined {
-    switch (autoGenerate?.kind) {
-      case "now":
-        return "CURRENT_TIMESTAMP";
-      case "uuid":
-        // MySQL 8.0+ has UUID() function, but it's not suitable for DEFAULT
-        // Use application-level generation instead
-        return undefined;
-      default:
-        return undefined;
-    }
   }
 
   /**

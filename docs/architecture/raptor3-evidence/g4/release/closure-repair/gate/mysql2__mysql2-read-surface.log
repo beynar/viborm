@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-read-surface.test.ts (122 tests) 12400ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > _count: true shorthand > select _count: true counts every to-many relation  564ms
+
+ Test Files  1 passed (1)
+      Tests  122 passed (122)
+   Start at  22:02:52
+   Duration  13.79s (transform 858ms, setup 9ms, collect 1.26s, tests 12.40s, environment 0ms, prepare 25ms)
+
+Vitest resources: 15.49s wall, 650.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

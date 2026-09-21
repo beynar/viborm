@@ -202,6 +202,68 @@ conversion interrupted after its MODIFY leaves the column already carrying the
 target domain, so the differ sees no change and the remnant CHECK — which no
 snapshot vocabulary describes — would otherwise survive every later push.
 
+**Addendum (repair prompt §4, 2026-09-21).** The two mechanisms the paragraph
+above calls fail-closed were two DEFECTS, and both are repaired at their
+owners. The DDL spelling of a string value is now `mysqlStringLiteral`
+(`drivers/type-mapping.ts`), beside `mysqlEnumType` and for the same reason:
+ONE spelling, both snapshot producers. It escapes `\` — MySQL reads a
+backslash inside a string literal as an escape introducer, so doubling `'`
+alone silently changed the value (`DEFAULT ('a\b')` stored a BACKSPACE) and
+could not spell a trailing one at all (`('end\')` did not parse) — and `\n`,
+`\r`, `\0`, `\Z`, because a generated statement is also the review blob,
+which is UTF-8/LF without carriage returns (`sql-blob.ts`). `cleanDefault`
+undoes that SAME table (`MYSQL_PRINTED_CHARACTERS`, the write table inverted
+plus the `\'` MySQL prints), so a default carrying any of them round-trips
+into the spelling the desired side wrote. The fail-closed direction is
+unchanged for what remains outside the table: an escape MySQL's printer does
+not write, and an expression that is not a string literal at all, keep the
+catalog's own text, read as a difference, and fail the final attestation with
+`MIGRATION_DRIFT` rather than being called equal. The SQL-mode assumption the
+spelling makes is that `NO_BACKSLASH_ESCAPES` is NOT set, and that assumption
+is asserted, not enforced: the session owner (`checkPinnedMySQLSession`,
+`pinned-session.ts`) refuses a session carrying neither `STRICT_TRANS_TABLES`
+nor `STRICT_ALL_TABLES` and ADMITS a strict session that also carries
+`NO_BACKSLASH_ESCAPES`, and nothing else under `src/migrations/` reads the
+mode. On such a server this repair is a measured REGRESSION rather than a
+no-op: the base spelling `'a\b'` stored the declared `a\b` there, so the
+column CONVERGED, while the repaired spelling `'a\\b'` stores TWO characters
+(measured on a probe's own `SET SESSION sql_mode`; the global mode is never
+changed), the inverse then re-spells the live value as `'a\\\\b'`, and the
+push fails at the final attestation with an unattributed `MIGRATION_DRIFT`
+after the DDL has already committed. The assumption is stated beside the mode
+the pinned session does prove, in
+`tests/unit/migrations/mysql-strict-mode-docker.test.ts` — a measurement of
+the container that lane runs against, not a guard. Separately,
+`.dateTime().now()` is spelled from the RESOLVED column type
+(`mysqlNowExpression`): MySQL requires the expression's fractional-seconds
+precision to agree with the column's, so `DATETIME(3) DEFAULT
+CURRENT_TIMESTAMP` is errno 1067 and the generator hook — which is handed the
+declaration only — cannot answer it; a resolved type that takes no
+`CURRENT_TIMESTAMP` (DATE, TIME) carries no database default instead. The live
+matrix for both is
+`tests/unit/migrations/mysql-defaults-docker.test.ts` (initial push,
+unchanged repush, a declared change, and a RAW INSERT omitting the column as
+the oracle). TWO neighbours are NOT covered by this repair and stay
+fail-closed, and for the first of them the refusal MOVED.
+`mysqlEnumType` still spells its values with quote doubling only while the
+default beside them now goes through `mysqlStringLiteral`, so the two no
+longer agree: a backslash-bearing enum value that is ALSO the column's default
+is refused by MySQL at the CREATE/MODIFY statement itself, errno 1067
+ER_INVALID_DEFAULT (measured: the member of `ENUM('a\b')` is the BACKSPACE
+MySQL's DDL makes of it, and `DEFAULT 'a\\b'` is the literal backslash, which
+is not that member) — mid-push, as a driver error rather than as the
+attestation's `MIGRATION_DRIFT`. Only such a value WITHOUT a default still
+reaches the attestation, and is refused there as this paragraph's predecessor
+describes; the spelling itself is pinned provider-free
+(`mysql-provider-free-catalog.core`'s `back\slash` enum member), the refusal
+point is measured, not pinned. The second neighbour, which IS pinned:
+`information_schema` hands an EXPRESSION default's UTF-8 bytes back one
+codepoint per byte (measured), so a non-ASCII default on TEXT, BLOB, JSON or
+GEOMETRY is refused while the same value in a LITERAL default (`VARCHAR(191)`,
+the keyed rewrite) round-trips. Re-decoding those bytes would
+be a guess on a read path other MySQL transports share, so it is reported, not
+repaired here.
+
 ### Closed parsing
 
 Hostile estate and control bytes become trusted V1 values only through the
