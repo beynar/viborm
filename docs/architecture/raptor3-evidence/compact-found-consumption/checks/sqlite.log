@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts (15 tests) 87ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3.test.ts (39 tests) 70ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts (22 tests) 91ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-captured-answer-settlement.test.ts (4 tests) 13ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts (150 tests | 1 skipped) 291ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-index-ddl.test.ts (126 tests) 873ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-scalar-roundtrip.test.ts (180 tests) 304ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests) 285ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-returning-json.test.ts (177 tests) 223ms
+
+ Test Files  9 passed (9)
+      Tests  797 passed | 1 skipped (798)
+   Start at  11:17:31
+   Duration  4.61s (transform 1.12s, setup 15ms, collect 2.20s, tests 2.24s, environment 0ms, prepare 29ms)
+
+Vitest resources: 6.36s wall, 734.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

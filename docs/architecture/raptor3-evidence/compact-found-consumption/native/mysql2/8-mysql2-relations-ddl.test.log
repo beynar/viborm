@@ -1,0 +1,13 @@
+BEGIN provider=provider-mysql2 ordinal=8/15 file=tests/providers/docker/mysql2-relations-ddl.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts (106 tests) 12695ms
+
+ Test Files  1 passed (1)
+      Tests  106 passed (106)
+   Start at  11:05:05
+   Duration  14.35s (transform 983ms, setup 12ms, collect 1.50s, tests 12.69s, environment 0ms, prepare 31ms)
+
+Vitest resources: 16.09s wall, 596.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-mysql2 ordinal=8/15 file=tests/providers/docker/mysql2-relations-ddl.test.ts exit=0

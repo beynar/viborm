@@ -22,6 +22,7 @@ import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { NativeType } from "@schema/scalars/native-types";
+import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
 import {
   CURSOR_CARRIER_PREFIX,
   EMPTY_ROW_RESULT_KEY,
@@ -289,6 +290,15 @@ export interface SelectorRead {
   readonly fields: Set<string>;
   readonly equals: Map<string, unknown>;
   readonly exact: boolean;
+}
+function newSelectorFacts(exact = true): SelectorFacts {
+  return {
+    fields: new Set(),
+    equals: new Map(),
+    keys: new Map(),
+    exact,
+    reads: [],
+  };
 }
 type PreparedScalar = {
   readonly model: AnyModel;
@@ -1002,6 +1012,27 @@ export class Queries {
       ),
     );
   }
+  junctionSideConditions(
+    side: ResolvedJunctionSide,
+    junctionAlias: string | undefined,
+    endpoint: string | Input,
+  ): Sql[] {
+    const a = this.adapter;
+    return side.members.map((pair) =>
+      a.operators.eq(
+        junctionAlias
+          ? a.identifiers.column(junctionAlias, pair.junctionField)
+          : a.identifiers.escape(pair.junctionField),
+        typeof endpoint === "string"
+          ? this.column(side.model, pair.referencedField, endpoint)
+          : this.fieldValue(
+              side.model,
+              pair.referencedField,
+              endpoint[pair.referencedField],
+            ),
+      ),
+    );
+  }
   junction(
     edge: Extract<Membership, { kind: "junction" }>,
     values: Input,
@@ -1202,13 +1233,7 @@ export class Queries {
     where?: Input,
     unique = false,
   ): PreparedSelector {
-    const facts: SelectorFacts = {
-      fields: new Set(),
-      equals: new Map(),
-      keys: new Map(),
-      exact: true,
-      reads: [],
-    };
+    const facts = newSelectorFacts();
     const keys = Object.keys(where ?? {});
     const uniqueKey =
       keys.length === 1 ? findAddressableKey(model, keys[0]!) : undefined;
@@ -1235,13 +1260,7 @@ export class Queries {
     return selector.facts;
   }
   identitySelector(model: AnyModel, identity: Input): PreparedSelector {
-    const facts: SelectorFacts = {
-      fields: new Set(),
-      equals: new Map(),
-      keys: new Map(),
-      exact: true,
-      reads: [],
-    };
+    const facts = newSelectorFacts();
     return Object.freeze({
       model,
       facts,
@@ -1285,13 +1304,7 @@ export class Queries {
     model: AnyModel,
     identities: readonly Input[],
   ): PreparedSelector {
-    const facts: SelectorFacts = {
-      fields: new Set(),
-      equals: new Map(),
-      keys: new Map(),
-      exact: true,
-      reads: [],
-    };
+    const facts = newSelectorFacts();
     const captured = this.capturedSet(model, identities, facts);
     return Object.freeze({
       model,
@@ -1318,13 +1331,7 @@ export class Queries {
     model: AnyModel,
     identities: readonly Input[],
   ): PreparedSelector {
-    const facts: SelectorFacts = {
-      fields: new Set(),
-      equals: new Map(),
-      keys: new Map(),
-      exact: true,
-      reads: [],
-    };
+    const facts = newSelectorFacts();
     return Object.freeze({
       model,
       facts,
@@ -1349,13 +1356,7 @@ export class Queries {
     model: AnyModel,
     selectors: readonly PreparedSelector[],
   ): PreparedSelector {
-    const facts: SelectorFacts = {
-      fields: new Set(),
-      equals: new Map(),
-      keys: new Map(),
-      exact: true,
-      reads: [],
-    };
+    const facts = newSelectorFacts();
     const predicates: PreparedPredicate[] = [];
     for (const selector of selectors) {
       for (const field of selector.facts.fields) facts.fields.add(field);
@@ -1991,13 +1992,7 @@ export class Queries {
     positive = true,
   ): PreparedPredicate | undefined {
     const scope = [...path, edge];
-    const nestedFacts: SelectorFacts = {
-      fields: new Set(),
-      equals: new Map(),
-      keys: new Map(),
-      exact: !inexact,
-      reads: [],
-    };
+    const nestedFacts = newSelectorFacts(!inexact);
     const predicate = where
       ? this.prepareWhere(
           edge.target,
@@ -2624,24 +2619,8 @@ export class Queries {
     }
     const junction = this.alias();
     const conditions = [
-      ...edge.sourceSide.members.map((pair) =>
-        a.operators.eq(
-          a.identifiers.column(junction, pair.junctionField),
-          typeof source === "string"
-            ? this.column(edge.source, pair.referencedField, source)
-            : this.fieldValue(
-                edge.source,
-                pair.referencedField,
-                source[pair.referencedField],
-              ),
-        ),
-      ),
-      ...edge.targetSide.members.map((pair) =>
-        a.operators.eq(
-          a.identifiers.column(junction, pair.junctionField),
-          this.column(edge.target, pair.referencedField, target),
-        ),
-      ),
+      ...this.junctionSideConditions(edge.sourceSide, junction, source),
+      ...this.junctionSideConditions(edge.targetSide, junction, target),
     ];
     return a.filters.some(
       a.subqueries.existsCheck(
@@ -3157,49 +3136,38 @@ export class Queries {
       case "count":
       case "exist": {
         const selected = args.select ? record(args.select) : undefined;
-        const fields = selected
-          ? Object.keys(selected).filter(
-              (field) => field !== "_all" && selected[field],
-            )
-          : [];
+        const outputs: { name: string; field?: string }[] = selected
+          ? [
+              ...(selected._all ? [{ name: "_all" }] : []),
+              ...Object.keys(selected)
+                .filter((field) => field !== "_all" && selected[field])
+                .map((field) => ({ name: field, field })),
+            ]
+          : [{ name: "_count" }];
+        const fields = outputs.flatMap(({ field }) =>
+          field === undefined ? [] : [field],
+        );
         const query = this.aggregated(
           model,
           args,
           fields,
           (alias) =>
-            selected
-              ? [
-                  ...(selected._all
-                    ? ([["_all", this.adapter.aggregates.count()]] as [
-                        string,
-                        Sql,
-                      ][])
-                    : []),
-                  ...fields.map(
-                    (field) =>
-                      [
-                        field,
-                        this.adapter.aggregates.count(
-                          this.column(model, field, alias),
-                        ),
-                      ] as [string, Sql],
-                  ),
-                ]
-              : [["_count", this.adapter.aggregates.count()]],
-          (alias) =>
-            selected
-              ? {
-                  kind: "object",
-                  fields: Object.fromEntries([
-                    ...(selected._all
-                      ? [["_all", COUNT_LEAF] as [string, Leaf]]
-                      : []),
-                    ...fields.map(
-                      (field) => [field, COUNT_LEAF] as [string, Leaf],
-                    ),
-                  ]),
-                }
-              : { kind: "object", fields: { _count: COUNT_LEAF } },
+            outputs.map(
+              ({ name, field }): [string, Sql] => [
+                name,
+                this.adapter.aggregates.count(
+                  field === undefined
+                    ? undefined
+                    : this.column(model, field, alias),
+                ),
+              ],
+            ),
+          () => ({
+            kind: "object",
+            fields: Object.fromEntries(
+              outputs.map(({ name }) => [name, COUNT_LEAF]),
+            ),
+          }),
         );
         return {
           query,
@@ -4150,11 +4118,10 @@ export class Queries {
         columns: a.aggregates.count(),
         from: a.identifiers.table(edge.table, junction),
         where: a.operators.and(
-          ...edge.sourceSide.members.map((pair) =>
-            a.operators.eq(
-              a.identifiers.column(junction, pair.junctionField),
-              this.column(edge.source, pair.referencedField, parentAlias),
-            ),
+          ...this.junctionSideConditions(
+            edge.sourceSide,
+            junction,
+            parentAlias,
           ),
         ),
       }),
@@ -4185,21 +4152,19 @@ export class Queries {
         columns: a.aggregates.count(),
         from: a.identifiers.table(edge.table, junction),
         where: a.operators.and(
-          ...edge.sourceSide.members.map((pair) =>
-            a.operators.eq(
-              a.identifiers.column(junction, pair.junctionField),
-              this.column(edge.source, pair.referencedField, parentAlias),
-            ),
+          ...this.junctionSideConditions(
+            edge.sourceSide,
+            junction,
+            parentAlias,
           ),
           a.filters.none(
             a.subqueries.existsCheck(
               this.table(edge.target, target),
               a.operators.and(
-                ...edge.targetSide.members.map((pair) =>
-                  a.operators.eq(
-                    a.identifiers.column(junction, pair.junctionField),
-                    this.column(edge.target, pair.referencedField, target),
-                  ),
+                ...this.junctionSideConditions(
+                  edge.targetSide,
+                  junction,
+                  target,
                 ),
               ),
             ),

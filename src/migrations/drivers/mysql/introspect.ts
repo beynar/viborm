@@ -449,22 +449,14 @@ const MYSQL_INTRODUCER_DECODERS: ReadonlyMap<
  * ({@link MYSQL_INTRODUCER_DECODERS}) rather than re-decoded by a rule of this
  * module's invention.
  *
- * Three facts must hold, and each covers a body the others admit: the
- * introducer names a charset that table reads; every codepoint is a BYTE, so
- * the text is a byte sequence at all (a transport that already decoded it hands
- * back `2615`, which no byte can be); and the bytes are VALID in that charset.
- * A body failing any of them keeps the catalog's own text.
- *
- * Keeping it is a CHANGE of outcome, not the previous one narrowed, and the
- * change is in both directions. This boundary used to return the body UNREAD,
- * which was the right value for a single-byte charset and the wrong one for
- * every other (`_cp1251` read as latin1, silently), so two bodies now stop
- * converging instead of converting: one under a charset outside the table, and
- * — on a transport that returns COLUMN_DEFAULT already decoded rather than
- * expanded — every non-ASCII expression default. Both are values nothing
- * proved, and this boundary keeps the catalog's text for those: it never equals
- * the desired side, so the column is re-planned and the push fails at the final
- * attestation rather than reporting a schema the database may not hold.
+ * An unknown charset, an out-of-byte-range codepoint, or an invalid byte
+ * sequence keeps the catalog's own text. These checks do not prove provenance:
+ * the measured mysql2 byte-expanded spelling of `é` and already-decoded text
+ * whose literal characters are `Ã©` both present `c3 a9`, a valid UTF-8
+ * sequence. Content alone cannot distinguish them. This decoder therefore
+ * describes the measured mysql2 catalog representation; other transport
+ * representations are unverified, and valid UTF-8-shaped already-decoded text
+ * can be transformed rather than fail closed.
  */
 function decodeIntroducedLiteral(
   introducer: string,

@@ -200,7 +200,7 @@ export const POST_G3_PROJECTION_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_PROJECTION_PREPARATION_COUNTS)
 );
 export const POST_G3_SELECTOR_PREPARATION_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/selector-preparation.test.ts": 4,
+  "tests/raptor3/post-prep/selector-preparation.test.ts": 5,
 });
 export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_SELECTOR_PREPARATION_COUNTS)
@@ -506,6 +506,7 @@ export const G4_READ_TESTS = Object.freeze(Object.keys(G4_READ_COUNTS));
 // other stream can run them. Counts are derived from the landed files.
 export const G4_UNIT01_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit01/codec-roundtrip.test.ts": 5,
+  "tests/raptor3/g4/unit01/count-output-slots.test.ts": 1,
   "tests/raptor3/g4/unit01/filters.test.ts": 8,
   "tests/raptor3/g4/unit01/geo-capability.test.ts": 2,
   "tests/raptor3/g4/unit01/order-projection.test.ts": 6,

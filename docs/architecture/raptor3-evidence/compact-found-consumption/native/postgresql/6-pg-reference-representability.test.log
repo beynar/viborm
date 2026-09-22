@@ -1,0 +1,13 @@
+BEGIN provider=provider-pg ordinal=6/7 file=tests/providers/docker/pg-reference-representability.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-pg| tests/providers/docker/pg-reference-representability.test.ts (5 tests) 270ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  11:00:10
+   Duration  1.77s (transform 912ms, setup 8ms, collect 1.36s, tests 270ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.56s wall, 476.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-pg ordinal=6/7 file=tests/providers/docker/pg-reference-representability.test.ts exit=0

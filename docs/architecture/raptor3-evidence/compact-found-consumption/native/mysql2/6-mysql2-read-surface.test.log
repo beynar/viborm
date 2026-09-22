@@ -1,0 +1,13 @@
+BEGIN provider=provider-mysql2 ordinal=6/15 file=tests/providers/docker/mysql2-read-surface.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-read-surface.test.ts (122 tests) 10069ms
+
+ Test Files  1 passed (1)
+      Tests  122 passed (122)
+   Start at  11:04:47
+   Duration  11.68s (transform 977ms, setup 11ms, collect 1.47s, tests 10.07s, environment 0ms, prepare 27ms)
+
+Vitest resources: 13.42s wall, 658.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-mysql2 ordinal=6/15 file=tests/providers/docker/mysql2-read-surface.test.ts exit=0

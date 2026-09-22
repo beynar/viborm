@@ -1,4 +1,4 @@
-import type { AnyModel } from "@schema/model";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import type {
   PreparedProjection,
   PreparedSelector,
@@ -177,6 +177,15 @@ export class Selection {
   }
   membership() {
     return this.source.kind === "query" ? this.source.membership : undefined;
+  }
+  /** Whether this selector states only the captured row's complete identity. */
+  identityOnly(): boolean {
+    const selected = this.selector.uniqueKey;
+    return (
+      selected !== undefined &&
+      selected === getModelKeyCatalog(this.model).rowKey &&
+      this.facts.keys.size === selected.fields.length
+    );
   }
   private bindMembership(membership: BoundMembership | undefined) {
     return (

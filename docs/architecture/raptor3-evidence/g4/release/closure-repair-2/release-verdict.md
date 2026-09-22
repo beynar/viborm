@@ -2,6 +2,16 @@
 
 **Source identity.** Integration branch `closure-t` at `afaf711e41ce93705f9f7883b584efdd42dd8e36`, squashed onto `pattern-engine` as one commit (hash in the ledger's final record); the frozen gate, the performance attestation, the footprint and the recount ran on `afaf711e4`, whose `src/`, `tests/`, `scripts/` and `benchmarks/` trees the squash carries byte for byte ([`index.md`](index.md) states the Git tree ids beside the sha256 digests, each scoped). Node 24.21.0, the pinned lockfile. Raw gate logs, exit codes and identities: [`gate/`](gate/). Hosted Neon / D1 qualification stays **deferred**.
 
+**Editorial correction (2026-09-22; no receipt was relabelled).** The preserved
+`gate/mysql2__*.log` files sum to **793 passed / 0 failed / 1 skipped across 15
+files**; the earlier 758 subtotal omitted the 35 passing cells in
+`mysql2__decimal-wide-arithmetic-docker.log`. The preserved `gate/pg__*.log`
+files sum to **490 passed / 0 failed / 7 skipped**, not 525. The generated index
+and per-file inventory were already correct. The performance sentence below
+also overstated the witness: `nested-conditional-found/full` is 4 baseline
+statements/round trips versus 5 candidate statements/round trips in both
+passes. The raw logs and performance JSON remain unchanged.
+
 ## Outcome
 
 **Locally ready; the three gaps the previous verdict recorded are closed at their existing owners.**
@@ -30,8 +40,8 @@ One frozen local gate on `afaf711e4`, every stage exit 0 ([`gate/summary.log`](g
 | Transport smoke, transaction-array | 1 / 1, 4 / 4 |
 | Live PGlite pins | **7 / 7** |
 | Census, package build, campaign receipts, coverage-policy self-tests | exit 0 each |
-| Native MySQL 8.4, every file the `provider-mysql2` project registers (14) | **758 passed / 0 failed / 1 skipped** |
-| Native PostgreSQL 16, every `provider-pg` file (7) | **525 passed / 0 failed / 7 skipped** |
+| Native MySQL 8.4, every file the `provider-mysql2` project registers (15) | **793 passed / 0 failed / 1 skipped** |
+| Native PostgreSQL 16, every `provider-pg` file (7) | **490 passed / 0 failed / 7 skipped** |
 
 Native MySQL per file:
 
@@ -48,6 +58,7 @@ Native MySQL per file:
 | `mysql2.test.ts` | 84 passed | 1 skipped (85) |
 | `mysql-strict-mode-docker.test.ts` | 9 passed (9) |
 | `decimal-list-defaults-mysql-docker.test.ts` | 1 passed (1) |
+| `decimal-wide-arithmetic-docker.test.ts` | 35 passed (35) |
 | `mysql-defaults-docker.test.ts` | 4 passed (4) |
 
 Native PostgreSQL per file:
@@ -60,7 +71,7 @@ Native PostgreSQL per file:
 | `pg-reference-representability.test.ts` | 5 passed (5) |
 | `pg.test.ts` | 220 passed | 7 skipped (227) |
 
-**Performance, source-bound on the committed `afaf711e4`** ([`perf/table.md`](perf/table.md), every report protocol-valid, statement counts equal on both arms, machine load 8–12 from the owner's desktop apps during the run): `nested-conditional-missing/full` **0.801 / 0.780** CPU, `key-transition-cascade/full` **0.906 / 0.905**, `bulk-update-returning-100/full` **0.940 / 0.930**, `fixed-collection-rowref-1000/parse` **0.681 / 0.681**, `bulk-update-returning-100/prepare` 1.534 / 1.528 at the statement seam (the accepted D-60 cost). **One measured regression, reported, not budgeted away**: `nested-conditional-found/full` reads **0.927 / 0.975 CPU but 1.057 / 1.145 WALL** — over plan §7's 5 % wall budget. The cell was 0.795 CPU / 0.895 wall before U1 and 0.960 / 1.119 at `88fe2814b`: the wall growth is U1's locked confirmation of a FOUND row, one extra round trip per found consumption on the interactive route, which this checkpoint keeps (it is the correctness the review demanded) and does not touch. Disposition for Arnaud: accept it as the price of the FOUND rule, or fund a bounded unit that folds the confirmation into the consuming statement where the provider allows it.
+**Performance, source-bound on the committed `afaf711e4`** ([`perf/table.md`](perf/table.md), every report protocol-valid; statement counts are equal except for `nested-conditional-found/full`, whose per-checkout witnesses are 4 baseline versus 5 candidate; machine load 8–12 from the owner's desktop apps during the run): `nested-conditional-missing/full` **0.801 / 0.780** CPU, `key-transition-cascade/full` **0.906 / 0.905**, `bulk-update-returning-100/full` **0.940 / 0.930**, `fixed-collection-rowref-1000/parse` **0.681 / 0.681**, `bulk-update-returning-100/prepare` 1.534 / 1.528 at the statement seam (the accepted D-60 cost). **One measured regression, reported, not budgeted away**: `nested-conditional-found/full` reads **0.927 / 0.975 CPU but 1.057 / 1.145 WALL** — over plan §7's 5 % wall budget. The cell was 0.795 CPU / 0.895 wall before U1 and 0.960 / 1.119 at `88fe2814b`: the wall growth is U1's locked confirmation of a FOUND row, one extra round trip per found consumption on the interactive route, which this checkpoint keeps (it is the correctness the review demanded) and does not touch. Disposition for Arnaud: accept it as the price of the FOUND rule, or fund a bounded unit that folds the confirmation into the consuming statement where the provider allows it.
 
 **Bundles and source, re-measured on the final source** (`receipts/source-size-repair-2.json`): engine gzip **102,017 B = 0.651** of 156,771 (≤ 0.75), `pg-simple` **193,708 B = 0.737**, `pg-relations` **193,836 B = 0.738** of 262,658 / 262,788 (≤ 1.00).
 

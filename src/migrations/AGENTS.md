@@ -304,19 +304,19 @@ read it. Nothing global was re-decoded: the bytes go through ONE table of
 charset → how that charset's bytes are read (the UTF-8 family decodes, and
 `ascii` and `binary` ARE their bytes — each the codepoint of the same number —
 and `latin1` is MySQL's Windows-1252, where 0x93 is U+201C and the five bytes
-cp1252 leaves undefined map to the same-numbered control), and three named
-bodies keep the catalog's own text, each pinned
-provider-free: a charset outside that table (`cp1251`, where those same bytes
-are two Cyrillic letters), a text that is not a byte sequence at all (a
-transport that already decoded it hands back `2615`, whose low byte is itself a
-valid character), and bytes that are not valid in their charset. Two of those
-are a CHANGE of outcome and not a narrowing of the old one, because this
-boundary used to return the body UNREAD — the right value for a single-byte
-charset, a silent guess for every other. So a schema whose defaults were
-written under a charset this table does not name, and ANY transport that
-returns `COLUMN_DEFAULT` already decoded (there, every non-ASCII expression
-default), now fail the final attestation with `MIGRATION_DRIFT` where they
-converged before. The first path needs no caller-supplied `charset`: MySQL
+cp1252 leaves undefined map to the same-numbered control). A charset outside
+that table (`cp1251`, where those same bytes are two Cyrillic letters), an
+out-of-byte-range codepoint (the provider-free `2615` pin), or bytes invalid in
+their charset keep the catalog's own text and fail closed. That is not a proof
+for every already-decoded transport value: the measured mysql2 byte-expanded
+spelling of `é` and already-decoded text whose literal characters are `Ã©`
+both present `c3 a9`, a valid UTF-8 sequence, so content alone cannot distinguish
+them. The measured mysql2 representation remains supported; other transport
+representations are unverified, and valid UTF-8-shaped already-decoded text can
+be transformed rather than fail closed. No heuristic is added to guess missing
+provenance. A schema whose defaults were written under a charset this table does
+not name now fails the final attestation with `MIGRATION_DRIFT` where it could
+converge before. That path needs no caller-supplied `charset`: MySQL
 freezes the introducer in the stored expression at CREATE time, so a column
 another session created under `latin1` reports `_latin1` — pure-ASCII defaults
 included — to an ordinary utf8mb4 connection (measured,

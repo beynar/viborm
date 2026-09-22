@@ -3,26 +3,23 @@
  *
  * A probe whose other arm inserts the key it looked for reads without locking
  * (`Selection.insertsWhenAbsent`), so the row it FINDS is not held by that
- * probe for the arm that follows. The rule is one read taken between the
- * observation and every arm (`CommandExecution.confirmFound` →
- * `Selection.confirm`): the located row, addressed by IDENTITY, carrying the
- * requirement the operation already owns, and answering with the row every
- * consumer then spends. The repair prompt §1 states it; the native measurements
- * are `tests/providers/docker/mysql2-found-consumption.test.ts`.
+ * probe for the arm that follows. The usual rule is one read taken between the
+ * observation and the arm (`CommandExecution.confirmFound` →
+ * `Selection.confirm`). A child-free UPDATE addressed only by the complete row
+ * key may instead consume the same premise through `UPDATE … RETURNING`: its
+ * returned row supplies every binding, and no returned row raises the arm's
+ * existing failure. The repair prompt §1 states the general rule; the native
+ * measurements are `tests/providers/docker/mysql2-found-consumption.test.ts`.
  *
  * This file is the part of that rule which needs no credentials, and it is
  * deliberately NOT a concurrency suite. SQLite's select assembly omits
  * `FOR UPDATE` (`sqlite-adapter.ts`), so there is no lock here to prove and no
  * second writer to prove it against; what IS expressible — and what these cells
- * pin — is that the confirmation exists, that it is taken before the effect,
- * that its answer replaces the probe's bytes as the binding, and that each lost
- * requirement raises the failure its own arm already owns. The drift is applied
- * on the operation's own connection from a statement hook, which is exactly the
- * state the confirmation is there to discover.
- *
- * On the reviewed source the confirmation does not exist at all, so each cell's
- * `drifted` assertion is what makes it red there: the read it plants in front
- * of is never sent.
+ * pin — is that either the confirmation precedes the effect or the returned
+ * update is itself the exact consumer, that its answer replaces the probe's
+ * bytes as the binding, and that each lost requirement raises the failure its
+ * own arm already owns. The drift is applied on the operation's own connection
+ * from a statement hook, exactly where the selected consumer must discover it.
  */
 
 import {
@@ -33,7 +30,12 @@ import {
 import type { QueryExecutionContext } from "@drivers/driver";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
-import { NotFoundError, TransactionError, VibORMErrorCode } from "@errors";
+import {
+  NestedWriteError,
+  NotFoundError,
+  TransactionError,
+  VibORMErrorCode,
+} from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
@@ -88,7 +90,51 @@ const schema = (() => {
     })
     .map("sfc_profiles");
 
-  return { badge, holder, tag, owner, profile };
+  const generatedParent = s
+    .model({
+      id: s.int().id().increment(),
+      label: s.string(),
+      children: s.toMany(() => generatedChild),
+      compoundChildren: s.toMany(() => compoundGeneratedChild),
+    })
+    .map("sfc_generated_parents");
+
+  const generatedChild = s
+    .model({
+      id: s.string().id(),
+      parentId: s.int(),
+      label: s.string().unique(),
+      parent: s
+        .toOne(() => generatedParent)
+        .fields("parentId")
+        .references("id"),
+    })
+    .map("sfc_generated_children");
+
+  const compoundGeneratedChild = s
+    .model({
+      tenant: s.string().map("tenant_key"),
+      localId: s.string().map("local_key"),
+      parentId: s.int().map("parent_key"),
+      label: s.string().unique(),
+      parent: s
+        .toOne(() => generatedParent)
+        .fields("parentId")
+        .references("id"),
+    })
+    .id(["tenant", "localId"])
+    .map("sfc_compound_generated_children");
+
+  return {
+    badge,
+    holder,
+    tag,
+    owner,
+    profile,
+    generatedParent,
+    generatedChild,
+    compoundGeneratedChild,
+  };
 })();
 
 type FoundConfig = VibORMConfig<typeof schema>;
@@ -185,6 +231,8 @@ const BADGE_TABLE = /sfc_badges/;
 const HOLDER_TABLE = /sfc_holders/;
 const TAG_TABLE = /sfc_tags/;
 const PROFILE_TABLE = /sfc_profiles/;
+const GENERATED_CHILD_TABLE = /sfc_generated_children/;
+const COMPOUND_GENERATED_CHILD_TABLE = /sfc_compound_generated_children/;
 
 const matching = (
   driver: DriftingSQLite3Driver,
@@ -249,6 +297,250 @@ describe("the shared FOUND-consumption rule on the recording SQLite transport", 
     client = createClient({ schema, driver }) as FoundClient;
     await syncLiveSchema(client);
     driver.statements.length = 0;
+  });
+
+  test("returns a child-held found connection within four statements", async () => {
+    await client.generatedParent.create({
+      data: { id: 5000, label: "existing-parent" },
+    });
+    await client.generatedChild.create({
+      data: {
+        id: "conditional_found",
+        parentId: 5000,
+        label: "existing-child",
+      },
+    });
+    driver.statements.length = 0;
+
+    const created = await client.generatedParent.create({
+      data: {
+        label: "conditional-0",
+        children: {
+          connectOrCreate: {
+            where: { id: "conditional_found" },
+            create: {
+              id: "unselected-0",
+              label: "created-child",
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        label: true,
+        children: { select: { id: true, parentId: true, label: true } },
+      },
+    });
+    const operationStatements = driver.statements.length;
+
+    expect(created).toEqual({
+      id: 5001,
+      label: "conditional-0",
+      children: [
+        {
+          id: "conditional_found",
+          parentId: 5001,
+          label: "existing-child",
+        },
+      ],
+    });
+    expect(operationStatements).toBeLessThanOrEqual(4);
+    expect(
+      await client.generatedChild.findUnique({
+        where: { id: "conditional_found" },
+      })
+    ).toMatchObject({ parentId: 5001, label: "existing-child" });
+    expect(
+      await client.generatedChild.findUnique({ where: { id: "unselected-0" } })
+    ).toBeNull();
+  });
+
+  test("returns a mapped compound row key after an alternate unique within four statements", async () => {
+    await client.generatedParent.create({
+      data: { id: 5000, label: "existing-parent" },
+    });
+    await client.compoundGeneratedChild.create({
+      data: {
+        tenant: "tenant-0",
+        localId: "child-0",
+        parentId: 5000,
+        label: "existing-compound-child",
+      },
+    });
+    driver.statements.length = 0;
+
+    const created = await client.generatedParent.create({
+      data: {
+        label: "conditional-0",
+        compoundChildren: {
+          connectOrCreate: {
+            where: {
+              tenant_localId: { tenant: "tenant-0", localId: "child-0" },
+            },
+            create: {
+              tenant: "unselected",
+              localId: "unselected",
+              label: "created-compound-child",
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        compoundChildren: {
+          select: {
+            tenant: true,
+            localId: true,
+            parentId: true,
+            label: true,
+          },
+        },
+      },
+    });
+
+    expect(created).toEqual({
+      id: 5001,
+      compoundChildren: [
+        {
+          tenant: "tenant-0",
+          localId: "child-0",
+          parentId: 5001,
+          label: "existing-compound-child",
+        },
+      ],
+    });
+    expect(driver.statements).toHaveLength(4);
+    expect(matching(driver, "UPDATE", COMPOUND_GENERATED_CHILD_TABLE)).toHaveLength(
+      1,
+    );
+  });
+
+  test("keeps the confirmation for a child-held mutable unique selector", async () => {
+    await client.generatedParent.create({
+      data: { id: 5000, label: "existing-parent" },
+    });
+    await client.generatedChild.create({
+      data: {
+        id: "conditional_found",
+        parentId: 5000,
+        label: "existing-child",
+      },
+    });
+    driver.statements.length = 0;
+
+    const created = await client.generatedParent.create({
+      data: {
+        label: "conditional-0",
+        children: {
+          connectOrCreate: {
+            where: { label: "existing-child" },
+            create: { id: "unselected-0", label: "existing-child" },
+          },
+        },
+      },
+      select: {
+        id: true,
+        children: { select: { id: true, parentId: true, label: true } },
+      },
+    });
+
+    expect(created.children).toEqual([
+      {
+        id: "conditional_found",
+        parentId: 5001,
+        label: "existing-child",
+      },
+    ]);
+    expect(planTimeReads(driver, GENERATED_CHILD_TABLE)).toHaveLength(2);
+    expect(driver.statements).toHaveLength(5);
+  });
+
+  test("keeps the confirmation for a row key with an extended predicate", async () => {
+    await client.generatedParent.create({
+      data: { id: 5000, label: "existing-parent" },
+    });
+    await client.generatedChild.create({
+      data: {
+        id: "conditional_found",
+        parentId: 5000,
+        label: "existing-child",
+      },
+    });
+    driver.statements.length = 0;
+
+    const created = await client.generatedParent.create({
+      data: {
+        label: "conditional-0",
+        children: {
+          connectOrCreate: {
+            where: { id: "conditional_found", label: "existing-child" },
+            create: { id: "unselected-0", label: "created-child" },
+          },
+        },
+      },
+      select: {
+        id: true,
+        children: { select: { id: true, parentId: true, label: true } },
+      },
+    });
+
+    expect(created.children).toEqual([
+      {
+        id: "conditional_found",
+        parentId: 5001,
+        label: "existing-child",
+      },
+    ]);
+    expect(planTimeReads(driver, GENERATED_CHILD_TABLE)).toHaveLength(2);
+    expect(driver.statements).toHaveLength(5);
+  });
+
+  test("the returned child update keeps the found arm's missing failure", async () => {
+    await client.generatedParent.create({
+      data: { id: 5000, label: "existing-parent" },
+    });
+    await client.generatedChild.create({
+      data: {
+        id: "conditional_found",
+        parentId: 5000,
+        label: "existing-child",
+      },
+    });
+    driver.statements.length = 0;
+    driver.driftBeforeMutation(GENERATED_CHILD_TABLE, (database) => {
+      database
+        .prepare(
+          "DELETE FROM sfc_generated_children WHERE id = 'conditional_found'",
+        )
+        .run();
+    });
+
+    const outcome = await outcomeOf(
+      client.generatedParent.create({
+        data: {
+          label: "conditional-0",
+          children: {
+            connectOrCreate: {
+              where: { id: "conditional_found" },
+              create: { id: "unselected-0", label: "created-child" },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(driver.drifted).toBe(true);
+    expect(outcome.value).toBeUndefined();
+    expect(outcome.failure).toBeInstanceOf(NestedWriteError);
+    expect((outcome.failure as Error).message).toBe(
+      "Record was replaced by another transaction during nested connectOrCreate",
+    );
+    expect(matching(driver, "UPDATE", GENERATED_CHILD_TABLE)).toHaveLength(1);
+    expect(
+      await client.generatedChild.findUnique({
+        where: { id: "conditional_found" },
+      }),
+    ).toMatchObject({ parentId: 5000, label: "existing-child" });
   });
 
   test("the located row's reference is spent at the value the confirmation read", async () => {

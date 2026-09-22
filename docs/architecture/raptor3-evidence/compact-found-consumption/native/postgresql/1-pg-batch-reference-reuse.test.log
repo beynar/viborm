@@ -1,0 +1,21 @@
+BEGIN provider=provider-pg ordinal=1/7 file=tests/providers/docker/pg-batch-reference-reuse.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+(node:16038) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-batch-reference-reuse.test.ts (6 tests) 11298ms
+   ✓ pg Driver batch reference reuse > a key recycled onto another row before the unit cannot move the connection  2765ms
+   ✓ pg Driver batch reference reuse > a COMPOUND key recycled before the unit cannot move the connection, in either member  1361ms
+   ✓ pg Driver batch reference reuse > the unit's premise HOLDS the located row through the statement that spends it  2097ms
+   ✓ pg Driver batch reference reuse > a located target that disappears before the unit aborts it with the arm's own failure  2037ms
+   ✓ pg Driver batch reference reuse > a reference nulled before the unit is refused by the relation's own sentence, and the NULL is never written  1461ms
+   ✓ pg Driver batch reference reuse > an uncontended found consumption commits its ordinary result on the forced batch profile  1074ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:53:33
+   Duration  13.83s (transform 1.53s, setup 11ms, collect 2.31s, tests 11.30s, environment 0ms, prepare 48ms)
+
+Vitest resources: 16.77s wall, 471.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-pg ordinal=1/7 file=tests/providers/docker/pg-batch-reference-reuse.test.ts exit=0

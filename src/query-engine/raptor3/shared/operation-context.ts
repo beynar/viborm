@@ -2037,6 +2037,59 @@ export class OperationContext {
       (this.answeredFailureSet ??= new WeakSet()).add(failure);
     return failure;
   }
+  /** Lower one INSERT shape; callers own grouping, chunking, and output. */
+  private insertStatement(
+    model: AnyModel,
+    columns: readonly string[],
+    rows: readonly Input[],
+    skipDuplicates = false,
+  ): Sql {
+    const q = this.queries;
+    const mutations = this.driver.adapter.mutations;
+    if (columns.length === 0) return mutations.insertDefault(q.table(model));
+    const duplicate = skipDuplicates
+      ? mutations.skipDuplicates(q.columnName(model, columns[0]!))
+      : undefined;
+    const statement = mutations.insert(
+      q.table(model),
+      columns.map((field) => q.columnName(model, field)),
+      rows.map((row) =>
+        columns.map((field) => q.fieldValue(model, field, row[field])),
+      ),
+      duplicate?.prefix,
+    );
+    return duplicate?.suffix
+      ? sql`${statement} ${duplicate.suffix}`
+      : statement;
+  }
+  /** Complete one set mutation through its single count/projection tail. */
+  private completeSetMutation(
+    model: AnyModel,
+    statement: Sql,
+    projection?: PreparedProjection,
+    single?: () => Error,
+  ): Promise<unknown> {
+    const q = this.queries;
+    const output = projection
+      ? sql`${statement} ${this.driver.adapter.mutations.returning(
+          sql.join(q.lowerProjection(projection).columns, ", "),
+        )}`
+      : statement;
+    return this.setMutation(
+      output,
+      this.statementContext(model, this.operation),
+      (result) =>
+        projection
+          ? this.published(
+              this.publishedProjection(
+                projection.shape,
+                result.rows.map(record),
+              ),
+              single,
+            )
+          : { count: result.rowCount },
+    );
+  }
   async createMany(
     model: AnyModel,
     rows: Input[],
@@ -2058,28 +2111,6 @@ export class OperationContext {
     }
     const q = this.queries;
     const adapter = this.driver.adapter;
-    const buildInsert = (
-      columns: readonly string[],
-      members: readonly Input[],
-      applySqlSkip: boolean
-    ) => {
-      if (columns.length === 0)
-        return adapter.mutations.insertDefault(q.table(model));
-      const duplicate = applySqlSkip
-        ? adapter.mutations.skipDuplicates(q.columnName(model, columns[0]!))
-        : undefined;
-      const mutation = adapter.mutations.insert(
-        q.table(model),
-        columns.map((field) => q.columnName(model, field)),
-        members.map((row) =>
-          columns.map((field) => q.fieldValue(model, field, row[field]))
-        ),
-        duplicate?.prefix
-      );
-      return duplicate?.suffix
-        ? sql`${mutation} ${duplicate.suffix}`
-        : mutation;
-    };
     const recoverableSkip =
       skipDuplicates &&
       adapter.mutations.skipDuplicatesStrategy === "recoverableUniqueError";
@@ -2108,7 +2139,7 @@ export class OperationContext {
       let count = 0;
       for (const [index, row] of members.entries()) {
         const columns = Object.keys(row);
-        const statement = buildInsert(columns, [row], false);
+        const statement = this.insertStatement(model, columns, [row]);
         const context = this.statementContext(model, this.operation);
         let response: QueryResult<unknown> | undefined;
         if (recoverableSkip) {
@@ -2177,7 +2208,7 @@ export class OperationContext {
     for (const group of groups) {
       if (group.columns.length === 0) {
         for (const _row of group.rows) {
-          let statement = adapter.mutations.insertDefault(q.table(model));
+          let statement = this.insertStatement(model, [], [_row]);
           if (returning) statement = sql`${statement} ${returning}`;
           statements.push({
             sql: statement,
@@ -2190,10 +2221,11 @@ export class OperationContext {
         group.rows.length,
         limit,
         (start, end) => {
-          const mutation = buildInsert(
+          const mutation = this.insertStatement(
+            model,
             group.columns,
             group.rows.slice(start, end),
-            skipDuplicates
+            skipDuplicates,
           );
           return returning ? sql`${mutation} ${returning}` : mutation;
         }
@@ -2258,14 +2290,7 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const columns = Object.keys(row);
-    const insert =
-      columns.length === 0
-        ? adapter.mutations.insertDefault(q.table(model))
-        : adapter.mutations.insert(
-            q.table(model),
-            columns.map((field) => q.columnName(model, field)),
-            [columns.map((field) => q.fieldValue(model, field, row[field]))]
-          );
+    const insert = this.insertStatement(model, columns, [row]);
     const conflict = adapter.mutations.onConflict(
       sql.join(
         target.map((field) =>
@@ -2277,24 +2302,11 @@ export class OperationContext {
         sql.join(this.updateAssignments(model, updates), ", ")
       )
     );
-    let statement = sql`${insert} ${conflict}`;
-    if (projection)
-      statement = sql`${statement} ${adapter.mutations.returning(
-        sql.join(q.lowerProjection(projection).columns, ", ")
-      )}`;
-    return this.setMutation(
-      statement,
-      this.statementContext(model, this.operation),
-      (result) =>
-        projection
-          ? this.published(
-              this.publishedProjection(
-                projection.shape,
-                result.rows.map(record)
-              ),
-              single
-            )
-          : { count: result.rowCount }
+    return this.completeSetMutation(
+      model,
+      sql`${insert} ${conflict}`,
+      projection,
+      single,
     );
   }
   async updateMany(
@@ -2358,27 +2370,10 @@ export class OperationContext {
       sql.join(assignments, ", "),
       limited.where
     );
-    let statement = limited.suffix
+    const statement = limited.suffix
       ? sql`${mutation} ${limited.suffix}`
       : mutation;
-    if (projection)
-      statement = sql`${statement} ${adapter.mutations.returning(
-        sql.join(q.lowerProjection(projection).columns, ", ")
-      )}`;
-    return this.setMutation(
-      statement,
-      this.statementContext(model, this.operation),
-      (result) =>
-        projection
-          ? this.published(
-              this.publishedProjection(
-                projection.shape,
-                result.rows.map(record)
-              ),
-              single
-            )
-          : { count: result.rowCount }
-    );
+    return this.completeSetMutation(model, statement, projection, single);
   }
   async deleteMany(
     model: AnyModel,
@@ -2439,27 +2434,10 @@ export class OperationContext {
       q.table(model),
       limited.where
     );
-    let statement = limited.suffix
+    const statement = limited.suffix
       ? sql`${mutation} ${limited.suffix}`
       : mutation;
-    if (projection)
-      statement = sql`${statement} ${adapter.mutations.returning(
-        sql.join(q.lowerProjection(projection).columns, ", ")
-      )}`;
-    return this.setMutation(
-      statement,
-      this.statementContext(model, this.operation),
-      (result) =>
-        projection
-          ? this.published(
-              this.publishedProjection(
-                projection.shape,
-                result.rows.map(record)
-              ),
-              single
-            )
-          : { count: result.rowCount }
-    );
+    return this.completeSetMutation(model, statement, projection, single);
   }
   private async captureMutationIdentities(
     model: AnyModel,
@@ -2770,13 +2748,7 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const fields = Object.keys(values);
-    let statement = fields.length
-      ? adapter.mutations.insert(
-          q.table(model),
-          fields.map((field) => q.columnName(model, field)),
-          [fields.map((field) => q.fieldValue(model, field, values[field]))]
-        )
-      : adapter.mutations.insertDefault(q.table(model));
+    let statement = this.insertStatement(model, fields, [values]);
     const produced = [...demanded].filter(
       (field) => values[field] === undefined
     );
@@ -2978,7 +2950,8 @@ export class OperationContext {
     values: Input,
     member: Member,
     operation = "update",
-    demanded: ReadonlySet<string> = new Set()
+    demanded: ReadonlySet<string> = new Set(),
+    missing?: () => Error,
   ): Promise<Input> {
     if (Object.keys(values).length === 0) return {};
     const q = this.queries;
@@ -3087,7 +3060,10 @@ export class OperationContext {
           true
         );
         if (!rows[0])
-          throw new TypeError("UPDATE did not produce the required record");
+          throw (
+            missing?.() ??
+            new TypeError("UPDATE did not produce the required record")
+          );
         return { ...published, ...rows[0] };
       }
       const response = await this.dispatch(1, false, () =>
@@ -3100,8 +3076,9 @@ export class OperationContext {
       );
       const rows = q.decodeProjection(projection.shape, response.rows, true);
       if (!rows[0])
-        throw new TypeError(
-          "UPDATE RETURNING did not produce the required record"
+        throw (
+          missing?.() ??
+          new TypeError("UPDATE RETURNING did not produce the required record")
         );
       return { ...published, ...rows[0] };
     }
@@ -3361,31 +3338,19 @@ export class OperationContext {
         [edge.targetSide, target]
       ] as const) {
         if (!values) continue;
-        for (const pair of side.members)
-          conditions.push(
-            a.operators.eq(
-              a.identifiers.escape(pair.junctionField),
-              q.fieldValue(
-                side.model,
-                pair.referencedField,
-                values[pair.referencedField]
-              )
-            )
-          );
+        conditions.push(...q.junctionSideConditions(side, undefined, values));
       }
       if (keep.length)
         conditions.push(
           a.operators.not(
             a.operators.or(
               ...keep.map((row) =>
-                q.junctionWhere(
-                  edge,
-                  Object.fromEntries(
-                    edge.targetSide.members.map((pair) => [
-                      pair.junctionField,
-                      row[pair.referencedField]
-                    ])
-                  )
+                a.operators.and(
+                  ...q.junctionSideConditions(
+                    edge.targetSide,
+                    undefined,
+                    row,
+                  ),
                 )
               )
             )

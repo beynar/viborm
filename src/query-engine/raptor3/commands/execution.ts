@@ -618,10 +618,65 @@ export class CommandExecution {
    * value ({@link folded}'s batch arm), so there too the reference is the
    * intended row's own and never a captured key another row has acquired.
    */
+  private foundFailure(
+    command: Choose,
+    requirement: MembershipRequirement | undefined,
+  ): DeferredFailure {
+    const conditional = command.conditions;
+    return conditional
+      ? () => conditional.matched
+      : (requirement?.failure ??
+          command.lookup.retained ??
+          command.lookup.required ??
+          (() =>
+            new NotFoundError(command.model["~"].names.ts!, "update")));
+  }
+  /**
+   * The narrow FOUND shape whose consuming UPDATE proves its own premise.
+   *
+   * The selector is exactly the complete row identity: no mutable unique,
+   * extended filter, membership, relation read, or matched condition remains
+   * to confirm. The found arm has no earlier child effect and writes that same
+   * row. Its demanded values are all returned by the UPDATE, so no byte from
+   * the unlocked probe survives as a published binding. On a RETURNING
+   * provider the statement therefore proves the identity at the point it
+   * consumes it; an empty result raises the confirmation's original failure.
+   */
+  private mutationConfirmationFailure(
+    command: Choose,
+    requirement: MembershipRequirement | undefined,
+    found: CommandOccurrence<RecordCommand> | undefined,
+  ): DeferredFailure | undefined {
+    const update = found?.command;
+    const lookup = command.lookup;
+    if (
+      this.context.usesBatch ||
+      !this.context.driver.adapter.capabilities.supportsReturning ||
+      requirement ||
+      command.conditions ||
+      lookup.membership() ||
+      !lookup.identityOnly() ||
+      !update ||
+      update.located !== lookup ||
+      update.transitions.length > 0 ||
+      found.children.length > 0 ||
+      update.fields.writtenFields().length === 0 ||
+      update.fields.demands.size === 0 ||
+      update.fields.consumes(lookup.fields) ||
+      [...lookup.fields.demands].some(
+        (field) => !update.fields.demands.has(field),
+      ) ||
+      [...command.fields.demands].some(
+        (field) => !update.fields.demands.has(field),
+      )
+    )
+      return undefined;
+    return this.foundFailure(command, requirement);
+  }
   private async confirmFound(
     command: Choose,
     requirement: MembershipRequirement | undefined,
-    captured: Input
+    captured: Input,
   ): Promise<Input> {
     const ctx = this.context;
     const lookup = command.lookup;
@@ -651,15 +706,9 @@ export class CommandExecution {
     // row rather than in its `WHERE`, which no adapter can project today, or
     // the round trip per condition this one statement removed (repair prompt 2
     // §2).
-    const conditional = command.conditions;
-    const conditions = conditional?.probes ?? [];
+    const conditions = command.conditions?.probes ?? [];
     const first = conditions[0];
-    const failure: DeferredFailure = conditional
-      ? () => conditional.matched
-      : (requirement?.failure ??
-        lookup.retained ??
-        lookup.required ??
-        (() => new NotFoundError(command.model["~"].names.ts!, "update")));
+    const failure = this.foundFailure(command, requirement);
     const selector = first
       ? conditions.length === 1
         ? first.lookup.selector
@@ -693,7 +742,8 @@ export class CommandExecution {
   }
   async run(
     occurrence: CommandOccurrence,
-    member: Member = occurrence.command
+    member: Member = occurrence.command,
+    confirmationFailure?: DeferredFailure,
   ): Promise<void> {
     const ctx = this.context;
     const attempt = this.attempt;
@@ -760,7 +810,8 @@ export class CommandExecution {
                 values,
                 member,
                 command.operation,
-                command.fields.demands
+                command.fields.demands,
+                confirmationFailure,
               )
             : await ctx.insert(
                 command.model,
@@ -916,16 +967,27 @@ export class CommandExecution {
               attempt.retained.add(command.lookup);
             }
           }
-          const current = await this.confirmFound(
+          const confirmationFailure = this.mutationConfirmationFailure(
             command,
             requirement,
-            captured
+            found,
           );
+          const current = confirmationFailure
+            ? captured
+            : await this.confirmFound(command, requirement, captured);
           if (found) {
             if (ctx.usesBatch && supplied) {
               ctx.prepareMembers(() => [found.command], member);
               await ctx.executeMember(() => this.run(found), found.command);
-            } else await this.run(found, member);
+            } else await this.run(found, member, confirmationFailure);
+            if (confirmationFailure)
+              attempt.materialize(
+                command.lookup.fields,
+                attempt.select(
+                  found.command.fields,
+                  command.lookup.fields.demands,
+                ),
+              );
             attempt.bind(command.fields, {
               ...current,
               ...attempt.select(found.command.fields, command.fields.demands),

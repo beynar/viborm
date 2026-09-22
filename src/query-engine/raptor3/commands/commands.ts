@@ -575,19 +575,17 @@ export class Commands {
       contribution,
     });
   }
-  analyze(root: RecordCommand): CommandOccurrence<RecordCommand> {
-    const occurrence = this.occurrence(root);
+  analyze<C extends RecordCommand | SeriesOccurrence | Choose>(
+    command: C,
+  ): CommandOccurrence<C> {
+    const occurrence = this.occurrence(command);
     this.materializePlacement(occurrence);
     this.bindTree(occurrence);
     this.analyzeOccurrence(occurrence);
     return occurrence;
   }
   analyzeSeries(series: SelectedSeries): CommandOccurrence<SeriesOccurrence> {
-    const occurrence = this.occurrence(this.selectedSeries(series));
-    this.materializePlacement(occurrence);
-    this.bindTree(occurrence);
-    this.analyzeOccurrence(occurrence);
-    return occurrence;
+    return this.analyze(this.selectedSeries(series));
   }
   selectedSeries(series: SelectedSeries): SeriesOccurrence {
     return {
@@ -1239,23 +1237,31 @@ export class Commands {
       visit({ write, branch });
     }
   }
+  private childBranch(
+    parent: CommandOccurrence,
+    child: CommandOccurrence,
+    branch: BranchPath | undefined,
+  ): BranchPath | undefined {
+    return parent.command.kind === "choose"
+      ? {
+          parent: branch,
+          choice: parent,
+          arm: child.role === "found" ? "found" : "missing",
+        }
+      : branch;
+  }
   private visitWrites(
     occurrence: CommandOccurrence,
     visit: (write: WriteVisit) => void,
     branch: BranchPath | undefined
   ): void {
     this.visitDirectWrites(occurrence, visit, branch);
-    for (const child of occurrence.children) {
-      const childBranch: BranchPath | undefined =
-        occurrence.command.kind === "choose"
-          ? {
-              parent: branch,
-              choice: occurrence,
-              arm: child.role === "found" ? "found" : "missing",
-            }
-          : branch;
-      this.visitWrites(child, visit, childBranch);
-    }
+    for (const child of occurrence.children)
+      this.visitWrites(
+        child,
+        visit,
+        this.childBranch(occurrence, child, branch),
+      );
   }
   private visitReads(
     occurrence: CommandOccurrence,
@@ -1267,17 +1273,15 @@ export class Commands {
       const readVisit = { read, branch };
       if (visit(readVisit) === "stop") return true;
     }
-    for (const child of occurrence.children) {
-      const childBranch: BranchPath | undefined =
-        occurrence.command.kind === "choose"
-          ? {
-              parent: branch,
-              choice: occurrence,
-              arm: child.role === "found" ? "found" : "missing",
-            }
-          : branch;
-      if (this.visitReads(child, visit, childBranch)) return true;
-    }
+    for (const child of occurrence.children)
+      if (
+        this.visitReads(
+          child,
+          visit,
+          this.childBranch(occurrence, child, branch),
+        )
+      )
+        return true;
     return false;
   }
   private visitPrecedingWrites(
@@ -1352,8 +1356,7 @@ export class Commands {
       // A snapshot: `depend` moves a dependent child within this array while
       // the walk is on it, and a sibling that shifts into the vacated slot
       // must still be analysed (N1).
-      for (const child of [...occurrence.children])
-        this.analyzeOccurrence(child);
+      this.analyzeChildren(occurrence);
       for (const child of occurrence.children) {
         const childCommand = child.command;
         if (childCommand.kind === "record")
@@ -1375,14 +1378,8 @@ export class Commands {
       }
       return;
     }
-    if (command.kind === "choose") {
-      for (const child of [...occurrence.children])
-        this.analyzeOccurrence(child);
-      return;
-    }
-    if (command.kind === "series") {
-      for (const record of [...occurrence.children])
-        this.analyzeOccurrence(record);
+    if (command.kind === "choose" || command.kind === "series") {
+      this.analyzeChildren(occurrence);
       return;
     }
     if (command.kind === "selectedSeries") {
@@ -1392,16 +1389,15 @@ export class Commands {
       if (template) this.analyzeOccurrence(template);
     }
   }
+  /** Recurse over a stable sibling snapshot while dependency moves may occur. */
+  private analyzeChildren(occurrence: CommandOccurrence): void {
+    for (const child of [...occurrence.children])
+      this.analyzeOccurrence(child);
+  }
   private branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
     const parent = occurrence.parent;
     if (!parent) return undefined;
-    const branch = this.branchOf(parent);
-    if (parent.command.kind !== "choose") return branch;
-    return {
-      parent: branch,
-      choice: parent,
-      arm: occurrence.role === "found" ? "found" : "missing",
-    };
+    return this.childBranch(parent, occurrence, this.branchOf(parent));
   }
   private isSeriesMember(
     parent: CommandOccurrence,
@@ -1426,15 +1422,11 @@ export class Commands {
       if (!this.isSeriesMember(parent, current)) {
         for (const sibling of parent.children) {
           if (follows) {
-            const siblingBranch: BranchPath | undefined =
-              parent.command.kind === "choose"
-                ? {
-                    parent: parentBranch,
-                    choice: parent,
-                    arm: sibling.role === "found" ? "found" : "missing",
-                  }
-                : parentBranch;
-            const stopped = this.visitReads(sibling, visit, siblingBranch);
+            const stopped = this.visitReads(
+              sibling,
+              visit,
+              this.childBranch(parent, sibling, parentBranch),
+            );
             if (stopped) return true;
           } else if (sibling === current) follows = true;
         }
@@ -1884,10 +1876,7 @@ export class Commands {
       found.command.operation = "upsert";
       choice.fields.forward(found.command.fields);
       for (const field of ctx.schema.keys(model)) choice.fields.field(field);
-      const occurrence = this.occurrence(choice);
-      this.materializePlacement(occurrence);
-      this.bindTree(occurrence);
-      this.analyzeOccurrence(occurrence);
+      const occurrence = this.analyze(choice);
       // The row key's portability contract, carried where the shipped engine
       // carries it for an upsert: on the FOUND arm (`UpsertOperation.compileFoundArm`
       // runs `updateLegality` only once that arm is selected, so a create still

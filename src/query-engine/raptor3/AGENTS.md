@@ -1824,8 +1824,8 @@ a nested to-one upsert that wrote a profile after it had been reparented. An
 observation is not a lasting requirement (ELEGANCE §6) — and neither is a later
 observation of the same row.
 
-So the answer is ONE read, taken between the observation and every arm rather
-than after the effect: `CommandExecution.confirmFound` issues
+So the usual answer is ONE read, taken between the observation and every arm
+rather than after the effect: `CommandExecution.confirmFound` issues
 `Selection.confirm` — the membership confirmation the correlated to-many arm
 already had, with the membership and the condition it proves turned into
 arguments. It addresses the located row by IDENTITY, so it can adopt no
@@ -1841,6 +1841,15 @@ failure it ALREADY owns for that loss — the found membership's sentence, a
 `connectOrCreate`'s replacement race, a located target's identity sentence, a
 conditional premise's own match failure — and nothing reselects, switches a
 selected arm or replays.
+
+One narrow RETURNING path needs no separate read. When the admitted selector is
+exactly the complete row key and the immediate FOUND arm is a child-free update
+with no membership, condition, transition or assignment input from that
+unlocked lookup, the update itself consumes the premise. It returns every
+demanded value that survives;
+an empty result raises the same deferred found failure. Batch and non-RETURNING
+execution, mutable alternate uniques, extended filters and every richer arm
+keep the confirmation above.
 
 Three facts this does not change. A probe that may answer ABSENT still locks
 nothing, and neither does the confirmation lock an absence: it is issued only
@@ -1870,8 +1879,9 @@ lost AFTER the confirmation is caught by the reader of last resort"
 (`tests/providers/local/sqlite3-found-consumption.test.ts`), which plants its
 delete before the first MUTATION of the table rather than before a read: remove
 either half and the operation resolves, returning the renamed parent, having
-written nothing. What the rule costs on the INTERACTIVE found path of an arm
-whose probe withdrew its lock is one extra round trip per MATCHED condition
+written nothing. Outside that narrow returned-update path, what the rule costs
+on the INTERACTIVE found path of an arm whose probe withdrew its lock is one
+extra round trip per MATCHED condition
 probe — one where the locator is the only requirement, two for an upsert that
 carries both `targetWhere` and `setWhere` (`confirmFound` confirms the located
 row once per condition probe, each through that probe's own narrowed selector).
@@ -1884,8 +1894,9 @@ deleted-target rows now plant in front of the confirmation because a plant in
 front of the effect would wait on a lock this code correctly takes.
 
 **Addendum (the repair prompt §1, 2026-09-21, correcting the cost sentence and
-the latch above).** The cost is **ONE** extra round trip, whatever the arm's
-requirement is — not one per matched condition probe. Every matched condition is
+the latch above).** Outside the returned-update exception, the cost is **ONE**
+extra round trip, whatever the arm's requirement is — not one per matched
+condition probe. Every matched condition is
 a requirement of the SAME consumption of the SAME row, so they are one premise
 and one statement: `confirmFound` conjoins the probes that matched
 (`Queries.andSelectors` over the prepared selectors those probes already carry,

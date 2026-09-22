@@ -74,6 +74,42 @@ async function captureFailure(run: () => Promise<unknown>): Promise<unknown> {
 }
 
 describe("post-G3 selector preparation", () => {
+  it("keeps every selector fact scope mutable and isolated", () => {
+    const schema = selectorSchema();
+    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+    const prepared = queries.prepareSelector(schema.row, { id: 1 });
+    const identity = queries.identitySelector(schema.row, { id: 1 });
+    const excluded = queries.excludeIdentities(schema.row, [{ id: 1 }]);
+    const included = queries.includeIdentities(schema.row, [{ id: 1 }]);
+    const conjoined = queries.andSelectors(schema.row, [prepared, included]);
+    const scopes = [prepared, identity, excluded, included, conjoined];
+
+    for (const [index, selector] of scopes.entries()) {
+      for (const other of scopes.slice(index + 1)) {
+        assert.notEqual(selector.facts.fields, other.facts.fields);
+        assert.notEqual(selector.facts.equals, other.facts.equals);
+        assert.notEqual(selector.facts.keys, other.facts.keys);
+        assert.notEqual(selector.facts.reads, other.facts.reads);
+      }
+    }
+
+    prepared.facts.fields.add("leaked");
+    assert.equal(identity.facts.fields.has("leaked"), false);
+
+    const firstRelation = queries.prepareSelector(schema.row, {
+      tenant: { is: { id: "t1" } },
+    }).facts.reads[0];
+    const secondRelation = queries.prepareSelector(schema.row, {
+      tenant: { is: { id: "t1" } },
+    }).facts.reads[0];
+    assert(firstRelation);
+    assert(secondRelation);
+    assert.notEqual(firstRelation.fields, secondRelation.fields);
+    assert.notEqual(firstRelation.equals, secondRelation.equals);
+    firstRelation.fields.add("leaked");
+    assert.equal(secondRelation.fields.has("leaked"), false);
+  });
+
   it("prepares mixed compound and relation facts without SQL or alias allocation", () => {
     const schema = selectorSchema();
     const adapter = new SQLiteAdapter();
