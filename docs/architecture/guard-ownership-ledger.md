@@ -2194,3 +2194,9 @@ longitude and latitude limits, `GEO_BOUNDS_KEYS` and
 constants from the codecs, loading `object.ts` first re-entered it through
 `json-schema/factory` → `converters` → codec and threw a temporal-dead-zone
 `ReferenceError`. Reading the constants from the leaf removes that edge.
+Falsifier: `tests/unit/validation/point.core.test.ts` ("loads when object is
+the first module of a fresh graph", one case per entry module: object,
+helpers, json-schema factory, json-schema converters); importing
+`GEO_POINT_KEYS` in the converters from `geo-point-codec` again fails the
+object case with that `ReferenceError`, while every other geo suite stays
+green.

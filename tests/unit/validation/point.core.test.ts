@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v, { type GeoPoint, parse } from "@validation";
-import { describe, expect, expectTypeOf, test } from "vitest";
+import { describe, expect, expectTypeOf, test, vi } from "vitest";
 
 describe("GeoPoint validation boundary", () => {
   const schema = v.point();
@@ -171,5 +171,39 @@ describe("GeoPoint validation boundary", () => {
         { longitude: 3, latitude: 4 },
       ]).issues
     ).toBeUndefined();
+  });
+});
+
+/**
+ * The geo codecs build their records with object() at module load, and
+ * object.ts reaches the JSON Schema converters (object → json-schema/factory →
+ * converters). The converters therefore read the coordinate constants from the
+ * import-free geo-values.ts; an edge from the converters back into a codec
+ * makes loading object.ts first throw a temporal-dead-zone ReferenceError.
+ */
+describe("GeoPoint codec module load order", () => {
+  test.each([
+    ["object", () => import("@validation/primitives/object")],
+    ["helpers", () => import("@validation/primitives/helpers")],
+    ["json-schema factory", () => import("@validation/json-schema/factory")],
+    [
+      "json-schema converters",
+      () => import("@validation/json-schema/converters"),
+    ],
+  ])("loads when %s is the first module of a fresh graph", async (_, first) => {
+    vi.resetModules();
+    try {
+      await first();
+      const { object } = await import("@validation/primitives/object");
+      const { validateGeoPoint } = await import(
+        "@validation/primitives/geo-point-codec"
+      );
+      expect(object({}).type).toBe("object");
+      expect(validateGeoPoint({ longitude: 1, latitude: 2 })).toEqual({
+        value: { longitude: 1, latitude: 2 },
+      });
+    } finally {
+      vi.resetModules();
+    }
   });
 });
