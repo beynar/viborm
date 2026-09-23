@@ -66,7 +66,9 @@ describe("G4-01 review — whole-value scalar operands", () => {
     const created = world();
     try {
       assert.deepEqual(
-        await ids(created, { joinedAt: { gt: new Date("2025-01-01T00:00:00.000Z") } }),
+        await ids(created, {
+          joinedAt: { gt: new Date("2025-01-01T00:00:00.000Z") },
+        }),
         [2]
       );
     } finally {
