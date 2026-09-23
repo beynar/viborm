@@ -1,9 +1,18 @@
 import type { ScalarState } from "@schema/scalars/common";
 import { idDomainOfState } from "@schema/scalars/string/id-domain";
-import { lazyScalarSchemas } from "../lazy";
 import { type IdDomain, isCompactIdFormat } from "../primitives/id-codec";
 import v, { type V } from "../primitives/v";
-import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildSetUpdate,
+  createScalarInterners,
+  internedScalarSchemas,
+  type ListFilterSchema,
+  type ListUpdateSchema,
+  listFilterFamily,
+  listUpdateFamily,
+  type SetUpdateSchema,
+} from "./family";
+import { scalarInternKey } from "./intern";
 import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
@@ -168,77 +177,13 @@ const buildCompactIdFilterSchema = <
   >(filter, operand);
 };
 
-type StringListFilterBaseSchema<S extends V.Schema> = {
-  equals: S;
-  has: V.String;
-  hasEvery: V.String<{ array: true }>;
-  hasSome: V.String<{ array: true }>;
-  isEmpty: V.Boolean;
-};
-
-type StringListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
-  StringListFilterBaseSchema<S>
->;
-
-const stringListFilterBase = v.object({
-  has: stringBase,
-  hasEvery: stringList,
-  hasSome: stringList,
-  isEmpty: v.boolean(),
-});
-
-const buildStringListFilterSchema = <S extends V.Schema>(
-  schema: S
-): StringListFilterSchema<S> => {
-  const filter = stringListFilterBase.extend({
-    equals: schema,
-  });
-  return buildNegatableFilterSchema<S, StringListFilterBaseSchema<S>>(
-    filter,
-    schema
-  );
-};
-
-type StringUpdateSchema<S extends V.Schema> = V.Union<
-  readonly [V.ShorthandUpdate<S>, V.Object<{ set: S }, { partial: false }>]
->;
-
-const buildStringUpdateSchema = <S extends V.Schema>(
-  schema: S
-): StringUpdateSchema<S> =>
-  v.union([
-    v.shorthandUpdate(schema),
-    v.object({ set: schema }, { partial: false }),
-  ]);
-
-type StringListUpdateSchema<S extends V.Schema> = V.Union<
-  [
-    V.ShorthandUpdate<S>,
-    V.Object<{
-      set: S;
-      push: V.Union<
-        readonly [V.ShorthandArray<V.String>, V.String<{ array: true }>]
-      >;
-      unshift: V.Union<
-        readonly [V.ShorthandArray<V.String>, V.String<{ array: true }>]
-      >;
-    }>,
-  ]
->;
-
-const buildStringListUpdateSchema = <S extends V.Schema>(
-  schema: S
-): StringListUpdateSchema<S> => {
-  return v.union([
-    v.shorthandUpdate(schema),
-    v.object({
-      set: schema,
-      push: v.union([v.shorthandArray(stringBase), stringList]),
-      unshift: v.union([v.shorthandArray(stringBase), stringList]),
-    }),
-  ]);
-};
+/**
+ * A string LIST has no identifier domain — `idDomainOfState` answers `undefined`
+ * for an array field — so its three variants are the shared family with no
+ * narrowing and no second base.
+ */
+const buildStringListFilterSchema = listFilterFamily(stringBase, stringList);
+const buildStringListUpdateSchema = listUpdateFamily(stringBase, stringList);
 
 export interface StringSchemas<
   F extends ScalarState<"string">,
@@ -247,17 +192,16 @@ export interface StringSchemas<
   base: F["base"];
   create: V.String<F>;
   update: F["array"] extends true
-    ? StringListUpdateSchema<F["base"]>
-    : StringUpdateSchema<F["base"]>;
+    ? ListUpdateSchema<F["base"], V.String, V.String<{ array: true }>>
+    : SetUpdateSchema<F["base"]>;
   filter: F["array"] extends true
-    ? StringListFilterSchema<F["base"]>
+    ? ListFilterSchema<F["base"], V.String, V.String<{ array: true }>>
     : DeclaresCompactId<F> extends true
       ? CompactIdFilterSchema<F["base"], C>
       : StringFilterSchema<F["base"], C>;
 }
 
-const internFilter = createScalarInterner<unknown>();
-const internUpdate = createScalarInterner<unknown>();
+const interners = createScalarInterners();
 
 /**
  * The field's base schema, with its identifier domain admitted.
@@ -325,24 +269,21 @@ export const buildStringSchema = <
 ): StringSchemas<F, C> => {
   const idDomain =
     state.array === true ? undefined : (idDomainOfState(state) ?? derived);
-  const key = scalarInternKey(state, idDomain);
   const base = domainBaseOf(state, idDomain);
-  return lazyScalarSchemas<StringSchemas<F, C>>({
-    base,
-    create: () => v.string(domainStateOf(state, idDomain)),
-    update: () =>
-      internUpdate(key, () =>
-        state.array
-          ? buildStringListUpdateSchema(base)
-          : buildStringUpdateSchema(base)
-      ) as never,
-    filter: () =>
-      internFilter(key, () =>
+  return internedScalarSchemas<StringSchemas<F, C>>(
+    interners,
+    scalarInternKey(state, idDomain),
+    {
+      base,
+      create: () => v.string(domainStateOf(state, idDomain)),
+      update: () =>
+        state.array ? buildStringListUpdateSchema(base) : buildSetUpdate(base),
+      filter: () =>
         state.array
           ? buildStringListFilterSchema(base)
           : idDomain !== undefined && isCompactIdFormat(idDomain.format)
             ? buildCompactIdFilterSchema(base, domainMembersOf(idDomain))
-            : buildStringFilterSchema(base, domainMembersOf(idDomain))
-      ) as never,
-  });
+            : buildStringFilterSchema(base, domainMembersOf(idDomain)),
+    }
+  );
 };

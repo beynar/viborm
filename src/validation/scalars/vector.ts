@@ -1,6 +1,7 @@
 import type { ScalarState } from "@schema/scalars/common";
 import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
+import { buildSetUpdate, type SetUpdateSchema } from "./family";
 import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
@@ -23,14 +24,6 @@ type VectorFilterSchema<S extends V.Schema> = NegatableFilterSchema<
 >;
 
 // =============================================================================
-// UPDATE TYPES
-// =============================================================================
-
-type VectorUpdateSchema<S extends V.Schema> = V.Union<
-  readonly [V.ShorthandUpdate<S>, V.Object<{ set: S }, { partial: false }>]
->;
-
-// =============================================================================
 // SCHEMA BUILDERS
 // =============================================================================
 
@@ -43,19 +36,6 @@ const buildVectorFilterSchema = <S extends V.Schema>(
   return buildNegatableFilterSchema<S, VectorFilterBase<S>>(filter, schema);
 };
 
-const buildVectorUpdateSchema = <S extends V.Schema>(
-  schema: S
-): VectorUpdateSchema<S> =>
-  v.union([
-    v.shorthandUpdate(schema),
-    v.object(
-      {
-        set: schema,
-      },
-      { partial: false }
-    ),
-  ]);
-
 // =============================================================================
 // VECTOR SCHEMA BUILDER
 // =============================================================================
@@ -63,7 +43,7 @@ const buildVectorUpdateSchema = <S extends V.Schema>(
 export interface VectorSchemas<F extends ScalarState<"vector">> {
   base: F["base"];
   create: V.Vector<F>;
-  update: VectorUpdateSchema<F["base"]>;
+  update: SetUpdateSchema<F["base"]>;
   filter: VectorFilterSchema<F["base"]>;
 }
 
@@ -73,7 +53,7 @@ export const buildVectorSchema = <F extends ScalarState<"vector">>(
   return lazyScalarSchemas<VectorSchemas<F>>({
     base: state.base,
     create: () => v.vector(undefined, state),
-    update: () => buildVectorUpdateSchema<F["base"]>(state.base),
+    update: () => buildSetUpdate<F["base"]>(state.base),
     filter: () => buildVectorFilterSchema<F["base"]>(state.base),
   });
 };
