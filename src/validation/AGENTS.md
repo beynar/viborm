@@ -234,8 +234,9 @@ redeclare their record shapes at a consumer boundary. `geo-point-codec.ts`
 alone owns point interpretation (an ordinary `object()` record over the one
 coordinate schema), canonical meridians/zero, provider decode, and cache
 materialization. `geo-area-codec.ts` alone
-owns bounds and canonical simple-polygon interpretation, including holes and
-conservative distance-cap bounds.
+owns bounds and polygon shape (ordinary records; rings of at least three
+vertices, holes included) and conservative distance-cap bounds. It does not
+judge polygon geometry: validity is the database's execution fact.
 
 Point operation schemas expose only exact equality, recursive `not`,
 `within: GeoArea`, numeric distance comparisons, and `_distance`. They consume

@@ -191,18 +191,23 @@ describe("GeoArea validation boundary", () => {
 
   test("requires the polygon outer ring and contains hostile inspection", () => {
     expect(validateGeoPolygon(null).issues).toBeDefined();
-    expect(validateGeoPolygon({ holes: [] }).issues?.[0]?.message).toBe(
-      "Expected GeoPolygon with outer and optional holes"
-    );
+    expect(validateGeoPolygon({ holes: [] }).issues).toEqual([
+      { message: "Missing required field: outer", path: ["outer"] },
+    ]);
 
     const inspectionTrap = new Proxy<GeoPoint[]>([], {
       ownKeys() {
         throw new Error("ownKeys trap");
       },
     });
-    expect(
-      validateGeoPolygon({ outer: inspectionTrap }).issues?.[0]?.message
-    ).toBe("Could not inspect outer ring");
+    // An array read by index never lists its keys: the trap is not reached,
+    // so the ring reads as empty and fails the vertex minimum.
+    expect(validateGeoPolygon({ outer: inspectionTrap }).issues).toEqual([
+      {
+        message: "A GeoPolygon ring needs at least 3 vertices",
+        path: ["outer"],
+      },
+    ]);
   });
 
   test("normalizes winding and keeps open rings", () => {
@@ -258,75 +263,33 @@ describe("GeoArea validation boundary", () => {
     }
   });
 
-  test("refuses a ring that winds around a pole", () => {
-    expect(
-      validateGeoPolygon({
-        outer: [point(-120, 80), point(0, 80), point(120, 80)],
-      }).issues?.[0]?.message
-    ).toBe("A GeoPolygon cannot contain a pole");
-  });
+  test("owns the ring shape and leaves geometry to the database", () => {
+    const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
+    const vertices = "A GeoPolygon ring needs at least 3 vertices";
 
-  test("refuses a simple pole-free polygon that covers at least half the globe", () => {
-    const result = validateGeoPolygon({
-      outer: [
-        point(-170, -80),
-        point(0, -80),
-        point(170, -80),
-        point(170, 80),
-        point(0, 80),
-        point(-170, 80),
+    expect(validateGeoPolygon({ outer: [point(0, 0), point(1, 0)] })).toEqual({
+      issues: [{ message: vertices, path: ["outer"] }],
+    });
+    expect(
+      validateGeoPolygon({ outer: square, holes: [[point(1, 1), point(2, 1)]] })
+    ).toEqual({ issues: [{ message: vertices, path: ["holes", 0] }] });
+    expect(
+      validateGeoPolygon({ outer: [point(0, 0), point(1, 0), point(1, 91)] })
+    ).toEqual({
+      issues: [
+        {
+          message: "Latitude must be between -90 and 90",
+          path: ["outer", 2, "latitude"],
+        },
       ],
     });
-
-    expect(result.issues?.[0]?.message).toBe(
-      "A GeoPolygon must cover less than half the globe"
-    );
-  });
-
-  test.each([
-    { outer: [point(0, 0), point(1, 0)] },
-    { outer: [point(0, 0), point(1, 0), point(0, 0)] },
-    { outer: [point(0, 0), point(1, 0), point(1, 1), point(1, 0)] },
-    { outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 0)] },
-    { outer: [point(0, 0), point(1, 0), point(2, 0)] },
-    { outer: [point(0, 0), point(180, 0), point(1, 1)] },
-    { outer: [point(-10, 80), point(0, 90), point(10, 80)] },
-    { outer: [point(-10, -80), point(0, -90), point(10, -80)] },
-    {
-      outer: [point(0, 0), point(4, 0), point(4, 4), point(0, 4)],
-      holes: [[point(5, 5), point(6, 5), point(6, 6)]],
-    },
-    {
-      outer: [point(0, 0), point(4, 0), point(4, 4), point(0, 4)],
-      holes: [[point(0, 1), point(1, 1), point(1, 2)]],
-    },
-    {
-      outer: [point(0, 0), point(6, 0), point(6, 6), point(0, 6)],
-      holes: [
-        [point(1, 1), point(4, 1), point(4, 4), point(1, 4)],
-        [point(3, 3), point(5, 3), point(5, 5), point(3, 5)],
-      ],
-    },
-    {
-      outer: [point(0, 0), point(10, 0), point(10, 10), point(0, 10)],
-      holes: [
-        [point(2, 2), point(5, 2), point(5, 5), point(2, 5)],
-        [point(3, 3), point(4, 3), point(4, 4), point(3, 4)],
-      ],
-    },
-    {
-      outer: [point(0, 0), point(10, 0), point(10, 10), point(0, 10)],
-      holes: [
-        [point(3, 3), point(4, 3), point(4, 4), point(3, 4)],
-        [point(2, 2), point(5, 2), point(5, 5), point(2, 5)],
-      ],
-    },
-    {
-      outer: [point(0, 0), point(4, 0), point(4, 4), point(0, 4)],
-      holes: [[point(1, 1), point(2, 1)]],
-    },
-  ])("refuses invalid polygon topology %#", (polygon) => {
-    expect(validateGeoPolygon(polygon).issues).toBeDefined();
+    // A self-intersecting ring is shape-valid; PostGIS and MySQL decide it.
+    // The former refusals reach SQL in geopoint-sql.core.test.ts.
+    expect(
+      validateGeoPolygon({
+        outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 0)],
+      }).issues
+    ).toBeUndefined();
   });
 
   test("contains hostile ring and property access", () => {
@@ -370,7 +333,7 @@ describe("GeoArea validation boundary", () => {
     }
   });
 
-  test("does not read an inherited member deleted after the dense-array snapshot", () => {
+  test("reads a ring by index, as every array operand is read", () => {
     let inheritedReads = 0;
     const inherited = Object.create(Array.prototype, {
       1: {
@@ -391,7 +354,9 @@ describe("GeoArea validation boundary", () => {
       },
     });
 
-    expect(validateGeoPolygon({ outer: ring }).issues).toBeDefined();
-    expect(inheritedReads).toBe(0);
+    expect(validateGeoPolygon({ outer: ring })).toEqual({
+      value: { outer: [point(0, 0), point(1, 0), point(1, 1)] },
+    });
+    expect(inheritedReads).toBe(1);
   });
 });

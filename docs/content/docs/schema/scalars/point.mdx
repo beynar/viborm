@@ -111,7 +111,7 @@ spatial index.
 
 ## Polygons and holes
 
-Full-tier providers accept a simple polygon with optional holes:
+Full-tier providers accept a polygon with optional holes:
 
 ```ts
 import type { GeoPolygon } from "viborm";
@@ -136,15 +136,18 @@ const places = await db.place.findMany({
 });
 ```
 
-Rings are open: do not repeat the first vertex at the end. VibORM validates and
-closes them once. Input winding does not matter. Membership includes the outer
-boundary and every hole boundary; a point strictly inside a hole does not
-match.
+Rings are open: do not repeat the first vertex at the end. VibORM closes each
+ring once, so a repeated closing vertex is sent as written and closed again.
+Input winding does not matter. Membership includes the outer boundary and every
+hole boundary; a point strictly inside a hole does not match.
 
-Each ring needs at least three distinct vertices. VibORM refuses repeated
-edges, self-intersections, zero-area rings, touching or overlapping holes, an
-exactly 180-degree edge, either pole, and a polygon covering half the globe or
-more. Use ordinary `OR` for disjoint polygons.
+VibORM checks the polygon's shape: exactly `outer` and optional `holes`, finite
+in-range vertices, and at least three vertices per ring. Geometric validity is
+the database's to decide — self-intersections, repeated vertices, zero-area
+rings, holes that touch, overlap, or leave the outer ring, poles, and polygons
+covering half the globe or more reach PostgreSQL or MySQL as written, and the
+outcome is that database's error or answer, not a VibORM validation error. Use
+ordinary `OR` for disjoint polygons.
 
 SQLite-family providers refuse polygon compilation before cache lookup or
 provider execution.

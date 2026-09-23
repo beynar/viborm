@@ -2133,6 +2133,45 @@ and an area with neither would reach `geoPolygonJson(undefined)` and throw a
 area record carries no `requiresOneOf`. Falsifier: removing the `!polygon` arm
 fails "discriminates GeoArea exactly".
 
+**Retired: every polygon geometry pre-check** (`geo-area-codec.ts` before
+D2). The open-ring check (closing vertex repeated), the repeated-vertex check,
+ring self-intersection (`segmentsIntersect`, `ringSelfIntersects`,
+`orientation`, `between`, `onSegment`), the zero-area check, the 180-degree
+edge and pole checks inside `unwrapRing`, the pole-vertex check, the spherical
+half-globe test (`sphericalArea`), and hole placement (`shiftRingNear`,
+`locatePoint`, `ringsIntersect`: outside, touching, overlapping, nested).
+Invariant: polygon validity is the database's execution fact; VibORM owns the
+shape, not the geometry. Successor: PostgreSQL (`ST_GeomFromGeoJSON` cast to
+`geography`) and MySQL (`ST_GeomFromGeoJSON(…, 1, 4326)`), which either raise
+or answer; SQLite refuses polygon filtering outright. Reachability witnesses:
+`tests/contracts/engine/query/geopoint-sql.core.test.ts` ("admits … and lets
+PostgreSQL and MySQL decide it", fourteen former refusals, each asserting the
+emitted statement and GeoJSON on PostgreSQL and MySQL and the SQLite
+`FeatureNotSupportedError`); against the pre-D2 codec all fourteen fail.
+`snapshotDenseArray` goes with them: rings are read by `validateArray`, the one
+array reader, which contains throwing `length` and member reads. End-to-end
+falsifiers (Docker lanes): `tests/contracts/drivers/behaviors/geopoint-behavior.ts`
+("includes polygon boundaries and excludes holes") on pg, postgres and mysql2,
+and `tests/providers/docker/mysql2.test.ts`.
+
+**Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
+(`validateRing`). Unique coverage: `closedRing` in
+`src/adapters/shared/geo-point.ts` reads the first vertex of every ring, so an
+empty ring would throw a `TypeError` there rather than reach the database, and
+the JSON Schema projection states the same minimum as `minItems`. Falsifier:
+removing it fails "still refuses a ring shorter than three vertices before any
+SQL" (`geopoint-sql.core.test.ts`).
+
+**Winding normalization (outer counterclockwise, holes clockwise).** Kept at
+this step as output normalization, computed by `signedArea` over longitudes
+unwrapped across the antimeridian; it is not a refusal and judges nothing. Its
+retirement is the next, separately revertible step.
+
+**Kept output normalization: `holes: []` is omitted** (`validateGeoPolygon`).
+An empty and an absent hole list emit the same GeoJSON; one spelling keeps them
+one validated argument and so one cache key. Witness: "emits an empty hole list
+as no hole and a hole list in input order".
+
 **Moved, not added: the coordinate domain constants.** `GEO_POINT_KEYS`, the
 longitude and latitude limits, `GEO_BOUNDS_KEYS` and
 `GEO_POLYGON_MIN_RING_POINTS` now live in the import-free
