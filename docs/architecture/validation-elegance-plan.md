@@ -143,7 +143,10 @@ Not deleted, and why:
 - **D2** Geo polygons drop the ring-intersection and open-ring pre-checks. A
   malformed polygon becomes a database error instead of a VibORM validation
   error. Holes stay.
-- **D3** Decided (2026-09-20, "whichever is simplest"): no scalar base class.
+- **D3** DEFERRED (2026-09-23): the owner is not comfortable changing the
+  scalar classes yet; V5 does not run this round. The shape recorded here is
+  the one to take when it does. Chosen 2026-09-20 ("whichever is simplest"):
+  no scalar base class.
   `base` leaves `ScalarState` and becomes a derived view, `scalar["~"].base`,
   computed by one `baseOf` table keyed on `state.type`; the enum's values move
   into state (`values`), since today they are read back off `base.values`.
@@ -212,9 +215,9 @@ Non-overlapping by file. Forks from a branch carrying WS1 and WS2.
 | V2 | kinds: decimal (D1), temporal, geo (D2), identifiers comments | `kinds/**`, `schema/scalars/decimal/descriptor.ts`, the datetime and point families | D1, D2 |
 | V3 | families rows for string, enum, json, decimal; JSON-Schema table | `families.ts`, `json-schema/**` | V1 (uses the factory) |
 | V4 | comments pass on survivors | everything above | V1–V3 |
-| V5 | schema layer (D3): `baseOf` tables, six modifier functions, twelve classes on `with()`, `~.base` readers | `schema/scalars/**`, the five readers above | — (its `baseOf` rows are the same kind rows V3 puts in `families.ts`; whichever lands second reuses the first) |
+| V5 (deferred) | schema layer (D3): `baseOf` tables, six modifier functions, twelve classes on `with()`, `~.base` readers | `schema/scalars/**`, the five readers above | — (its `baseOf` rows are the same kind rows V3 puts in `families.ts`; whichever lands second reuses the first) |
 
-V1, V2 and V5 run in parallel. Nothing waits for Raptor 3. Under the no-lock rule
+V1 and V2 run in parallel; V5 waits for the owner. Nothing waits for Raptor 3. Under the no-lock rule
 the round is implementation plus static review; the test round follows with
 the runner lists each workstream leaves behind.
 
