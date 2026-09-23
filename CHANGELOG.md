@@ -7,7 +7,7 @@ Versioning.
 
 - Prepare the V1 release and publication system.
 
-### Geo: a geographic value is validated as the record VibORM returns
+### Geo: a geographic value is validated as the record VibORM returns (breaking for refusal wording and polygon admission)
 
 A `GeoPoint`, `GeoBounds` or `GeoArea` argument is now read by the same record
 walker as every other object operand, not by a bespoke reader. For points and
@@ -21,7 +21,10 @@ checked for their shape only, and the database judges their geometry.
   `Missing required field: latitude`, a non-object with `Expected object`
   (was `Expected GeoPoint object`), and a non-finite coordinate with
   `Expected finite number` (was `Expected finite longitude`). Range messages
-  and every path are unchanged.
+  are unchanged. Unknown-key and missing-key refusals now point at the key:
+  `data.location.extra` and `data.location.longitude` where the path was
+  `data.location`; an object without the coordinates, such as a `Date` or a
+  `Map`, also fails at `data.location.longitude`.
 - Bounds and areas follow the same rule: `{ bounds: { …, nort: 49 } }` fails
   with `Unknown key: nort` at `bounds.nort` (was `Expected GeoBounds with
   exactly south and west and north and east`), `{ bounds, extra }` with
@@ -29,7 +32,10 @@ checked for their shape only, and the database judges their geometry.
   `Latitude must be between -90 and 90` or `Longitude must be between -180 and
   180` (was `south must be between -90 and 90`, and so on; paths unchanged).
   `GeoBounds south must be less than or equal to north` and `Expected GeoArea
-  with exactly one of bounds or polygon` are kept word for word.
+  with exactly one of bounds or polygon` are kept word for word, but an area
+  carrying both variants where one is itself invalid now reports that
+  variant's refusal (for example the `south`/`north` message at
+  `bounds.south`) instead of the exactly-one message.
 - An area spelled `{ bounds: undefined, polygon }` is now the polygon area: an
   explicit `undefined` is an absent key, as everywhere else.
 - Newly accepted: an inherited enumerable coordinate, a class instance, and an
@@ -37,7 +43,13 @@ checked for their shape only, and the database judges their geometry.
   enumerable string keys only, as it does for every other argument.
 - A getter or proxy trap that throws while a point is read surfaces as a
   validation issue carrying the thrown cause (through `parse` and every
-  operation boundary) instead of the former `Could not read …` message.
+  operation boundary) instead of the former `Could not read …` message; in an
+  operation it is reported at `root` as `Schema validation failed
+  unexpectedly` where the path named the coordinate. A direct call of a geo
+  validator, and `v.point()["~standard"].validate`, now let the throw
+  propagate, as every other `v.object` schema already did, and so does `s.point().default(…)`, whose value is the
+  developer's own declaration: a throwing getter there is that raw error at
+  declaration time instead of a `ValidationError`.
 - A `GeoPolygon` is checked for its shape only: exactly `outer` and optional
   `holes`, finite in-range vertices, at least three vertices per ring
   (`A GeoPolygon ring needs at least 3 vertices`, kept). Geometric validity is

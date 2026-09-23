@@ -2094,9 +2094,16 @@ inherited) in schema order, refuses unknown keys before reading any value, and
 reports a key removed mid-read as `Missing required field`. A throwing getter
 or trap is contained by `parse` (`src/validation/index.ts`) and by the
 operation boundary, which turn it into an issue with the thrown cause; a direct
-call to `validateGeoPoint` now propagates it. The one direct caller outside a
-boundary, `parsePointValue` (`src/query-engine/result/scalar-structured-parser.ts`),
-reads provider rows, which are plain values decoded from JSON. Witnesses:
+call to `validateGeoPoint` now propagates it. Three callers sit outside
+`parse` and the operation boundary, and none sees a caller-built object:
+`parsePointValue` (`src/query-engine/result/scalar-structured-parser.ts`)
+reads provider rows, plain values decoded from JSON; `pointCodec` snapshot and
+materialize (`src/query-engine/result/cache-value-codecs.ts`) read values
+VibORM itself produced; `normalizePointDefault`
+(`src/schema/scalars/point/scalar.ts`, through `validateSchema`) reads the
+developer's own `s.point().default(…)` declaration, trusted code, so a throwing
+getter there now surfaces as that raw error at declaration time instead of a
+`ValidationError`. Witnesses:
 `tests/unit/validation/point.core.test.ts` ("reads the point as an ordinary
 record", "names the offending key", "refuses a coordinate removed while the point
 is read").
