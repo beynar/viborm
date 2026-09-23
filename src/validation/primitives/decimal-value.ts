@@ -1,43 +1,23 @@
 /**
- * The ONE exact decimal VALUE type, and the spelling it is written in.
+ * The exact decimal VALUE type, its accepted spelling, and the text-level
+ * arithmetic the field codec needs.
  *
  * A `Decimal` is an immutable signed `BigInt` coefficient and a non-negative
- * scale: the number is `coefficient x 10^-scale`. There is no NaN, no infinity,
- * no exponent notation, and no configuration of any kind — no statics, nothing
- * an application can set, so nothing an application does can move an answer
- * this module produced in either direction. `div` takes its decimal places and
- * its rounding as arguments because those are the only two decisions an exact
- * quotient needs.
+ * scale, `coefficient x 10^-scale`: no NaN, no infinity, no exponent, no
+ * statics and no configuration. The constructor and every result strip
+ * insignificant fraction zeros and zero is `(0n, 0)`, so `toString()` IS the
+ * canonical private text every identity owner keys on.
  *
- * The invariant that makes everything else free: the constructor and every
- * result strip insignificant FRACTION zeros, and zero is `(0n, 0)`. So
- * `toString()` is not derived from the value, it IS the value — the canonical
- * private text every identity owner keys on, with `"1.10"` and `"1.1"` the
- * same instance and the same key. Nothing renders a decimal a second way.
+ * `admitDecimal` is the one admission rule (a string through the grammar,
+ * anything else through the brand). The brand is the `#c` private field only
+ * the constructor installs, so `canonicalDecimalText` answers `undefined` for
+ * `Object.create(Decimal.prototype)`, a look-alike object or a `Proxy`, and no
+ * boundary above has to snapshot a foreign representation.
  *
- * This module owns the ACCEPTED SPELLING too, so the codec beside it imports
- * the grammar rather than the other way round and there is no cycle: one
- * literal grammar and one canonicalization, used by the constructor and by the
- * codec's string admission alike. A JavaScript number is not a spelling: it is
- * a double, and neither boundary admits one.
- *
- * A `Decimal` VibORM constructs is trusted BY CONSTRUCTION. Its state is two
- * `#private` fields the constructor alone installs, so `#c in value` is an
- * unforgeable witness that a value belongs to this family —
- * `canonicalDecimalText` answers `undefined` for
- * `Object.create(Decimal.prototype)`, for a plain object carrying
- * the same keys, for a `Proxy` around a real one, and for every other value
- * there is. No boundary above this one has to read, snapshot, or bound a
- * foreign numerical representation, and an instance carries no own property for
- * anyone to read or overwrite.
- *
- * The published TYPE is an interface and the published VALUE is a const holding
- * the class, which is how a private-field class can be a result leaf at all: a
- * private field is part of a class's instance type, the client's result types
- * map every leaf through `Prettify`, and a mapped type drops private fields —
- * so a selected decimal would stop being assignable to `Decimal`. The interface
- * describes what a caller can do; the class is what actually runs; the const's
- * declared type is what checks that they still agree.
+ * The published TYPE is an interface and the published VALUE a const holding
+ * the class: result types map every leaf through `Prettify`, a mapped type
+ * drops private fields, and a class type would stop being assignable to
+ * `Decimal`. The const's declared type keeps the two in step.
  */
 
 /**

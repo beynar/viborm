@@ -1,22 +1,10 @@
 /**
- * The ONE field-aware decimal codec.
- *
- * Everything decimal FIELD-shaped lives here: the descriptor type, the two
- * physical vocabularies a column can cross through, the provider decode
- * grammars and their domain limits, the two DDL renderings, the widened-sum
- * decode, and the JSON list container. The arithmetic behind them — the
- * domain check, the coefficient at a scale, the fixed rendering — is the
- * value module's, so nothing here moves a decimal point in a string.
- *
- * The VALUE it carries is owned next door, by `decimal-value.ts`: the accepted
- * `Decimal | string` grammar, canonical private text, and the
- * construction seam this module decodes into. That module's `Decimal` has a
- * private field installed by its constructor and by nothing else, so a value
- * whose `canonicalDecimalText` answers at all was BUILT by it — it has no
- * mutable statics, no
- * second constructor, and no rendering an application can reach, so there is
- * nothing here to snapshot, bound, or defend against. Reading the canonical
- * text of a Decimal is reading the Decimal.
+ * The field-aware decimal codec: the descriptor type, the two physical
+ * vocabularies a column crosses through, the provider decode grammars and
+ * their domain limits, the two DDL renderings, the widened-sum decode and the
+ * JSON list container. The value and its arithmetic are `decimal-value.ts`'s;
+ * a value whose `canonicalDecimalText` answers was built by its constructor,
+ * so there is nothing here to snapshot or defend against.
  */
 
 import { isString } from "../value-guards";
@@ -35,12 +23,9 @@ import {
 // =============================================================================
 
 /**
- * The one immutable fixed-decimal domain: values are multiples of `10^-scale`
- * whose unscaled coefficient has at most `precision` digits.
- *
- * Its trusted instances are frozen by the definition boundary
- * (`@schema/scalars/decimal/descriptor`) and carried by reference through every
- * modifier. Nothing copies it into a query scope, driver, or result shape.
+ * The fixed-decimal domain: multiples of `10^-scale` whose unscaled coefficient
+ * has at most `precision` digits. Frozen once by `s.decimal` and carried by
+ * reference through every modifier.
  */
 export interface DecimalDescriptor {
   readonly precision: number;
@@ -64,24 +49,6 @@ export function sameDecimalDescriptor(
  * decimal text and logical 1.2 as a scale-2 coefficient.
  */
 export type DecimalPhysicalRepresentation = "text" | "coefficient";
-
-// =============================================================================
-// THE VALUE BOUNDARY
-// =============================================================================
-
-/**
- * The DECIMAL TEXT a provider hands back for a `NUMERIC(p,s)` / `DECIMAL(p,s)`
- * column: an optional minus, an integer part with no leading zero, and — when
- * the column has a scale — a fractional part padded to it. `scanProviderText`
- * below is its one reader.
- *
- * Narrower than the accepted literal grammar in `decimal-value.ts` on purpose.
- * That one is the grammar an APPLICATION may write, where `+1.2`, `.5` and `1.`
- * are forgiving spellings of a value the caller meant. This one is a DECODE
- * vocabulary: it names the exact physical representation the active adapter
- * promised, so a spelling no adapter emits is a malformed row rather than a
- * number to guess at.
- */
 
 /**
  * The codec's names for four value-module seams, kept because the engine's
@@ -142,13 +109,15 @@ function isDecimalDigit(code: number): boolean {
 }
 
 /**
- * Validate and locate canonical physical decimal TEXT in one scan.
+ * Validate and locate canonical physical decimal TEXT in one scan: an optional
+ * minus, an integer part with no leading zero, and a fraction padded to the
+ * column's scale — the spelling an adapter emits for `NUMERIC(p,s)` /
+ * `DECIMAL(p,s)`. Narrower than the application grammar on purpose: a
+ * spelling no adapter emits is a malformed row, not a number to guess at.
  *
- * This is deliberately not {@link canonicalizeDecimal}: provider decode
- * accepts only the adapter vocabulary, never a caller Decimal. The
- * returned number is the canonical end offset, with zero reserved for
- * normalized zero. The scan also owns scale and optional precision admission,
- * so field and SUM decoders do not reinterpret the spelling afterward.
+ * Returns the canonical end offset (zero for normalized zero). The scan owns
+ * scale and optional precision admission, so the field and SUM decoders never
+ * reinterpret the spelling afterward.
  */
 function scanProviderText(
   value: string,
@@ -464,12 +433,10 @@ const PROVIDER_LIMITS: Record<
 };
 
 /**
- * Why this provider cannot store this descriptor, or `undefined` when it can.
- *
- * One sentence per failing bound, naming the descriptor, the provider and the
- * limit — the caller adds the field. It is a lookup, not a policy: the numbers
- * live here beside every other decimal fact, and the ONE caller is the schema
- * bind boundary, which asks once per decimal field before any provider I/O.
+ * Why this provider cannot store this descriptor, or `undefined` when it can:
+ * one sentence per failing bound, naming the descriptor, the provider and the
+ * limit — the caller adds the field. Read by the schema bind boundary
+ * (`provider-limits.ts`) before any provider I/O, and by the migration layer.
  */
 export function describeProviderLimitRefusal(
   dialect: DecimalDialect,
@@ -512,14 +479,11 @@ export function decimalColumnType(
 }
 
 /**
- * The DDL literal for a default, which is a DIFFERENT rendering from canonical
- * text and the reason both belong to one owner.
- *
- * PostgreSQL and MySQL take the logical value at EXACTLY `scale` fractional
- * digits, because that is what MySQL reads back from `information_schema` for a
- * `DECIMAL(p,s)` column default: emitting canonical `1.2` for a scale-5 column
- * and then reading `1.20000` would make the differ see a change on every push.
- * SQLite takes the coefficient, the same integer the column stores.
+ * The DDL literal for a default. PostgreSQL and MySQL take the value at EXACTLY
+ * `scale` fraction digits, because that is what MySQL reads back from
+ * `information_schema`: canonical `1.2` on a scale-5 column would read back as
+ * `1.20000` and the differ would see a change on every push. SQLite takes the
+ * coefficient, the same integer the column stores.
  */
 export function decimalDefaultText(
   dialect: DecimalDialect,
