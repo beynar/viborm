@@ -274,6 +274,9 @@ because a default bypasses validation everywhere downstream — an `int` field
 with `"default": "seven"` would otherwise survive all the way to the database.
 That includes an untagged value on a tagged domain: `"default": "42"` on a
 `bigint` field is the string `"42"`, and the field's domain refuses it.
+A `decimal` default is a string, `"default": "1.5"`: a JSON number is a double,
+and the decimal domain refuses `"default": 1.5` the same way it refuses one in
+a query.
 
 ## What the format refuses
 
