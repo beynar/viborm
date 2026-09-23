@@ -2153,3 +2153,133 @@ refuses an extra key, fresh or held); a list default is copied by the field's
 own list schema, which reads each index, owns a revoked proxy or a throwing
 member read as an issue, and drops shadow properties; a custom schema is the
 developer's code, so what it throws reaches the developer unchanged.
+
+## Addendum — geographic values as ordinary records (decision D2, 2026-09-23)
+
+Decision D2: the public input for a geographic value is exactly the value
+VibORM returns, validated as an ordinary record. The record walker
+(`createObjectValidator` in `src/validation/primitives/object.ts`) owns key
+reading, unknown and missing keys, and issue paths for every object operand;
+the geographic codecs keep only the facts no generic schema can state.
+
+**Retired: the bespoke geographic record reader.** `snapshotGeoRecord` and
+`readExactGeoRecord` refused a non-plain prototype, a symbol key, an inherited
+key, and a key deleted between listing and reading, and caught every throwing
+reflection trap. Successor: the walker. It reads enumerable string keys (own or
+inherited) in schema order, refuses unknown keys before reading any value, and
+reports a key removed mid-read as `Missing required field`. A throwing getter
+or trap is contained by `parse` (`src/validation/index.ts`) and by the
+operation boundary, which turn it into an issue with the thrown cause; a direct
+call to `validateGeoPoint` now propagates it. Three callers sit outside
+`parse` and the operation boundary, and none sees a caller-built object:
+`parsePointValue` (`src/query-engine/result/scalar-structured-parser.ts`)
+reads provider rows, plain values decoded from JSON; `pointCodec` snapshot and
+materialize (`src/query-engine/result/cache-value-codecs.ts`) read values
+VibORM itself produced; `normalizePointDefault`
+(`src/schema/scalars/point/scalar.ts`, through `validateSchema`) reads the
+developer's own `s.point().default(…)` declaration, trusted code, so a throwing
+getter there now surfaces as that raw error at declaration time instead of a
+`ValidationError`. Witnesses:
+`tests/unit/validation/point.core.test.ts` ("reads the point as an ordinary
+record", "names the offending key", "refuses a coordinate removed while the point
+is read").
+
+**Kept normalization: longitude `-180` becomes `180`** (`validateGeoPoint`).
+Consumers: the SQLite CHECK in `src/migrations/drivers/sqlite/geo-point.ts`
+(`longitude > -180`, so the physical `-180` spelling is refused by the
+database) and the meridian arms of `src/adapters/shared/geo-point.ts`, which
+assume the `+180` spelling.
+
+**Kept normalization: `-0` becomes `0`** (`geoCoordinate`, the one coordinate
+schema). Consumer: the returned-value contract. The same codec decodes provider
+rows and cache snapshots, and the type VibORM returns has no `-0`.
+
+**Retired: `finiteBound` and `readGeoVariantRecord`.** Successors: the bounds
+record (the one coordinate schema per key, walker-owned keys) and the area
+record (fully partial, strict), both in `geo-area-codec.ts`. A bounds
+coordinate now reports the coordinate's range sentence (`Latitude must be …`)
+at the bound's own path. Witnesses: `tests/unit/validation/geo-area.core.test.ts`
+("reads bounds and areas as ordinary records") and
+`tests/unit/operation-schemas/args/geopoint-known-negatives.core.test.ts`.
+
+**Kept guard: `south <= north`** (`validateGeoBounds`). Unique coverage: an
+inverted rectangle is no database error; the latitude arm of `withinBounds` in
+`src/adapters/shared/geo-point.ts` would compile to a predicate that silently
+matches nothing. Falsifier: removing it fails "refuses invalid bounds 0" and
+"reads bounds and areas as ordinary records".
+
+**Kept guard: exactly one of `bounds` or `polygon`** (`validateGeoArea`). Unique
+coverage: `buildGeoPointWithin` (`src/query-engine/builders/geo-point-builder.ts`)
+branches on `"bounds" in area`, so a second variant would be dropped silently,
+and an area with neither would reach `geoPolygonJson(undefined)` and throw a
+`TypeError` rather than a database error. One guard covers both cases, so the
+area record carries no `requiresOneOf`. Falsifier: removing the `!polygon` arm
+fails "discriminates GeoArea exactly".
+
+**Retired: every polygon geometry pre-check** (`geo-area-codec.ts` before
+D2). The open-ring check (closing vertex repeated), the repeated-vertex check,
+ring self-intersection (`segmentsIntersect`, `ringSelfIntersects`,
+`orientation`, `between`, `onSegment`), the zero-area check, the 180-degree
+edge and pole checks inside `unwrapRing`, the pole-vertex check, the spherical
+half-globe test (`sphericalArea`), and hole placement (`shiftRingNear`,
+`locatePoint`, `ringsIntersect`: outside, touching, overlapping, nested).
+Invariant: polygon validity is the database's execution fact; VibORM owns the
+shape, not the geometry. Successor: PostgreSQL (`ST_GeomFromGeoJSON` cast to
+`geography`) and MySQL (`ST_GeomFromGeoJSON(…, 1, 4326)`), which either raise
+or answer; SQLite refuses polygon filtering outright. Reachability witnesses:
+`tests/contracts/engine/query/geopoint-sql.core.test.ts` ("admits … and lets
+PostgreSQL and MySQL decide it", fourteen former refusals, each asserting the
+emitted statement and GeoJSON on PostgreSQL and MySQL and the SQLite
+`FeatureNotSupportedError`); against the pre-D2 codec all fourteen fail.
+`snapshotDenseArray` goes with them: rings are read by `validateArray`, the one
+array reader, which contains throwing `length` and member reads. End-to-end
+falsifiers (Docker lanes): `tests/contracts/drivers/behaviors/geopoint-behavior.ts`
+("includes polygon boundaries and excludes holes") on pg, postgres and mysql2,
+and `tests/providers/docker/mysql2.test.ts`.
+
+**Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
+(`validateRing`). Unique coverage: `closedRing` in
+`src/adapters/shared/geo-point.ts` reads the first vertex of every ring, so an
+empty ring would throw a `TypeError` there rather than reach the database, and
+the JSON Schema projection states the same minimum as `minItems`. Falsifier:
+removing it fails "still refuses a ring shorter than three vertices before any
+SQL" (`geopoint-sql.core.test.ts`).
+
+**Kept output normalization: winding (outer counterclockwise, holes
+clockwise)** (`wound` in `validateGeoPolygon`, computed by `signedArea` over
+longitudes unwrapped across the antimeridian). It is not a refusal and judges
+nothing, so decision D2 does not retire it. Consumer: the GeoJSON bound by
+`withinPolygon` in `src/adapters/databases/postgres/postgres-adapter.ts` and
+`src/adapters/databases/mysql/mysql-adapter.ts`; that PostGIS `geography` and
+MySQL SRID 4326 read the interior the same way for either orientation is
+unproven (`docs/architecture/v1-public-api-geopoint-plan.md`), so VibORM keeps
+sending one orientation. Retiring it needs the Docker falsifiers
+(`tests/contracts/drivers/behaviors/geopoint-behavior.ts` reversed rings on
+pg, postgres and mysql2; `tests/providers/docker/mysql2.test.ts`) green
+against un-rewound rings and an owner decision. Witnesses: "normalizes winding
+and keeps open rings" (`geo-area.core.test.ts`) and "binds canonical polygons
+and never concatenates caller geometry" (`geopoint-sql.core.test.ts`).
+
+**Kept output normalization: `holes: []` is omitted** (`validateGeoPolygon`).
+An empty and an absent hole list emit the same GeoJSON; one spelling keeps them
+one validated argument and so one cache key. Falsifier: "spells an empty and
+an absent hole list as one validated polygon" (`geo-area.core.test.ts`, strict
+equality, so a `holes: []` or `holes: undefined` key left in the value fails
+it). "emits an empty hole list as no hole and a hole list in input order"
+(`geopoint-sql.core.test.ts`) pins the emitted GeoJSON only; `closedRing`
+emits the same text either way, so it cannot falsify this normalization.
+
+**Moved, not added: the coordinate domain constants.** `GEO_POINT_KEYS`, the
+longitude and latitude limits, `GEO_BOUNDS_KEYS` and
+`GEO_POLYGON_MIN_RING_POINTS` now live in the import-free
+`src/validation/primitives/geo-values.ts`. The codecs now build records with
+`object()` at module load; while the JSON Schema converter imported its
+constants from the codecs, loading `object.ts` first re-entered it through
+`json-schema/factory` → `converters` → codec and threw a temporal-dead-zone
+`ReferenceError`. Reading the constants from the leaf removes that edge.
+Falsifier: `tests/unit/validation/point.core.test.ts` ("loads when object is
+the first module of a fresh graph", one case per entry module: object,
+helpers, json-schema factory, json-schema converters); importing
+`GEO_POINT_KEYS` in the converters from `geo-point-codec` again fails the
+object case with that `ReferenceError`, while every other geo suite stays
+green.

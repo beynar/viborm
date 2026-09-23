@@ -41,5 +41,3 @@ export function point<
     ComputeOutput<GeoPoint, Opts>
   >;
 }
-
-export { type GeoPoint, validateGeoPoint } from "./geo-point-codec";

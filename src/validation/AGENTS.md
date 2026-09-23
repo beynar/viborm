@@ -235,13 +235,16 @@ The query engine trusts that decision and must not add a second precedence guard
 ### GeoPoint and GeoArea boundaries
 
 `primitives/geo-values.ts` is the import-free owner of the exact `GeoPoint`,
-`GeoBounds`, `GeoPolygon`, and `GeoArea` value vocabulary. The point and area
-codecs import and re-export those same symbols; do not redeclare their record
-shapes at a consumer boundary. `geo-point-codec.ts` alone owns hostile-safe
-point interpretation, canonical meridians/zero, provider decode, cache
-materialization, and JSON Schema coordinate facts. `geo-area-codec.ts` alone
-owns bounds and canonical simple-polygon interpretation, including holes and
-conservative distance-cap bounds.
+`GeoBounds`, `GeoPolygon`, and `GeoArea` value vocabulary and of the coordinate
+domain constants the codecs, the JSON Schema projection, and the SQLite CHECK
+read. The point and area codecs import and re-export those same types; do not
+redeclare their record shapes at a consumer boundary. `geo-point-codec.ts`
+alone owns point interpretation (an ordinary `object()` record over the one
+coordinate schema), canonical meridians/zero, provider decode, and cache
+materialization. `geo-area-codec.ts` alone
+owns bounds and polygon shape (ordinary records; rings of at least three
+vertices, holes included) and conservative distance-cap bounds. It does not
+judge polygon geometry: validity is the database's execution fact.
 
 Point operation schemas expose only exact equality, recursive `not`,
 `within: GeoArea`, numeric distance comparisons, and `_distance`. They consume

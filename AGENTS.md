@@ -333,7 +333,8 @@ physical and receives no DateTime conversion.
 value vocabulary owned by `src/validation/primitives/geo-values.ts`. The
 import-free leaf also owns the query-only `GeoBounds`, `GeoPolygon`, and
 `GeoArea` shapes. `geo-point-codec.ts` alone interprets point values, while
-`geo-area-codec.ts` alone interprets bounds and polygon topology. Do not
+`geo-area-codec.ts` alone interprets bounds and the polygon's shape; polygon
+geometry is the database's execution fact. Do not
 add `x`/`y`, `lat`/`lng`, GeoJSON, configurable SRID, native point overrides,
 ORM point arrays, generic geometry operations, or a second validator.
 

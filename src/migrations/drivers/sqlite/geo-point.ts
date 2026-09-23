@@ -4,7 +4,7 @@ import {
   GEO_LATITUDE_MIN,
   GEO_LONGITUDE_MAX,
   GEO_LONGITUDE_MIN,
-} from "../../../validation/primitives/geo-point-codec";
+} from "../../../validation/primitives/geo-values";
 import type { ColumnDef } from "../../types";
 import {
   sqliteConstraintClauses,

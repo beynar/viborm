@@ -609,6 +609,194 @@ describe("GeoPoint query lowering", () => {
     expect(statement).toContain("DESC NULLS LAST");
   });
 
+  /**
+   * Polygon validity is the database's execution fact. Each input below was
+   * refused by a VibORM geometry pre-check before decision D2; it now passes
+   * admission and reaches the adapter emission unchanged, rings closed once.
+   * Holes are written clockwise and outers counterclockwise, so the emitted
+   * order is the input order.
+   */
+  const g = (longitude: number, latitude: number) => ({ longitude, latitude });
+  const square = [g(0, 0), g(4, 0), g(4, 4), g(0, 4)];
+  const wide = [g(0, 0), g(10, 0), g(10, 10), g(0, 10)];
+  const formerRefusals: readonly {
+    readonly name: string;
+    readonly polygon: {
+      readonly outer: readonly { longitude: number; latitude: number }[];
+      readonly holes?: readonly (readonly {
+        longitude: number;
+        latitude: number;
+      }[])[];
+    };
+  }[] = [
+    {
+      name: "a closed ring",
+      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(0, 0)] },
+    },
+    {
+      name: "a repeated vertex",
+      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(1, 0)] },
+    },
+    {
+      name: "a bowtie",
+      polygon: { outer: [g(0, 0), g(1, 1), g(0, 1), g(1, 0)] },
+    },
+    {
+      name: "a zero-area ring",
+      polygon: { outer: [g(0, 0), g(1, 0), g(2, 0)] },
+    },
+    {
+      name: "a 180-degree edge",
+      polygon: { outer: [g(0, 0), g(180, 0), g(1, 1)] },
+    },
+    {
+      name: "a north pole vertex",
+      polygon: { outer: [g(10, 80), g(0, 90), g(-10, 80)] },
+    },
+    {
+      name: "a south pole vertex",
+      polygon: { outer: [g(-10, -80), g(0, -90), g(10, -80)] },
+    },
+    {
+      name: "a ring winding around a pole",
+      polygon: { outer: [g(-120, 80), g(0, 80), g(120, 80)] },
+    },
+    {
+      name: "half the globe",
+      polygon: {
+        outer: [
+          g(-170, -80),
+          g(0, -80),
+          g(170, -80),
+          g(170, 80),
+          g(0, 80),
+          g(-170, 80),
+        ],
+      },
+    },
+    {
+      name: "a hole outside",
+      polygon: { outer: square, holes: [[g(5, 5), g(6, 6), g(6, 5)]] },
+    },
+    {
+      name: "a hole touching",
+      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+    },
+    {
+      name: "overlapping holes",
+      polygon: {
+        outer: [g(0, 0), g(6, 0), g(6, 6), g(0, 6)],
+        holes: [
+          [g(1, 1), g(1, 4), g(4, 4), g(4, 1)],
+          [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
+        ],
+      },
+    },
+    {
+      name: "a hole nested in a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [g(2, 2), g(2, 5), g(5, 5), g(5, 2)],
+          [g(3, 3), g(3, 4), g(4, 4), g(4, 3)],
+        ],
+      },
+    },
+    {
+      name: "a hole enclosing a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [g(3, 3), g(3, 4), g(4, 4), g(4, 3)],
+          [g(2, 2), g(2, 5), g(5, 5), g(5, 2)],
+        ],
+      },
+    },
+  ];
+  const emittedGeoJson = (
+    polygon: (typeof formerRefusals)[number]["polygon"]
+  ) =>
+    JSON.stringify({
+      type: "Polygon",
+      coordinates: [polygon.outer, ...(polygon.holes ?? [])].map((ring) =>
+        [...ring, ...ring.slice(0, 1)].map(({ longitude, latitude }) => [
+          longitude,
+          latitude,
+        ])
+      ),
+    });
+  const withinPolygon = (
+    engine: QueryEngine,
+    polygon: (typeof formerRefusals)[number]["polygon"]
+  ) =>
+    engine.build(place, "findMany", {
+      where: { location: { within: { polygon } } },
+      select: { id: true },
+    });
+
+  test.each(
+    formerRefusals
+  )("admits $name and lets PostgreSQL and MySQL decide it", ({ polygon }) => {
+    const postgres = withinPolygon(
+      createEngine(new PostgresAdapter("public", true), "postgresql"),
+      polygon
+    );
+    expect(postgres.toStatement("$n")).toContain(
+      "ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)::geography, "
+    );
+    expect(postgres.values).toEqual([emittedGeoJson(polygon)]);
+
+    const mysql = withinPolygon(
+      createEngine(new MySQLAdapter(), "mysql"),
+      polygon
+    );
+    expect(mysql.toStatement("$n")).toContain(
+      "ST_Intersects(ST_GeomFromGeoJSON($1, 1, 4326), "
+    );
+    expect(mysql.values).toEqual([emittedGeoJson(polygon)]);
+
+    // Admission passed: SQLite refuses the operation, not the value.
+    expect(() =>
+      withinPolygon(createEngine(new SQLiteAdapter(), "sqlite"), polygon)
+    ).toThrow(FeatureNotSupportedError);
+  });
+
+  test("emits an empty hole list as no hole and a hole list in input order", () => {
+    const engine = createEngine(
+      new PostgresAdapter("public", true),
+      "postgresql"
+    );
+    const holes = [
+      [g(1, 1), g(1, 2), g(2, 2), g(2, 1)],
+      [g(3, 3), g(3, 3.5), g(3.5, 3.5), g(3.5, 3)],
+    ];
+    expect(withinPolygon(engine, { outer: square, holes: [] }).values).toEqual([
+      emittedGeoJson({ outer: square }),
+    ]);
+    expect(withinPolygon(engine, { outer: square, holes }).values).toEqual([
+      emittedGeoJson({ outer: square, holes }),
+    ]);
+  });
+
+  test("still refuses a ring shorter than three vertices before any SQL", () => {
+    const engine = createEngine(
+      new PostgresAdapter("public", true),
+      "postgresql"
+    );
+    for (const [polygon, path] of [
+      [{ outer: [] }, ["outer"]],
+      [{ outer: [g(0, 0), g(1, 0)] }, ["outer"]],
+      [{ outer: square, holes: [[g(1, 1), g(2, 1)]] }, ["holes", 0]],
+    ] as const) {
+      expect(() => withinPolygon(engine, polygon)).toThrow(
+        "A GeoPolygon ring needs at least 3 vertices"
+      );
+      expect(validateGeoPolygon(polygon).issues).toEqual([
+        { message: "A GeoPolygon ring needs at least 3 vertices", path },
+      ]);
+    }
+  });
+
   test("refuses unsupported SQLite work while keeping bounds portable", () => {
     const engine = createEngine(new SQLiteAdapter(), "sqlite");
     expect(() =>
