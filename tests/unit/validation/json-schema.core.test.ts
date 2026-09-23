@@ -61,10 +61,8 @@ describe("JSON Schema conversion", () => {
         pattern: "^(?:0|-?(?:[1-9]\\d*(?:\\.\\d*[1-9])?|0\\.\\d*[1-9]))$",
       };
 
-      expect(input).toMatchObject({
-        description,
-        anyOf: [inputStringValue, { type: "number" }],
-      });
+      expect(input).toMatchObject({ description, ...inputStringValue });
+      expect(input).not.toHaveProperty("anyOf");
       expect(toJsonSchema(schema)).toEqual(input);
       expect(output).toMatchObject({ description, ...outputStringValue });
       expect(output).not.toHaveProperty("anyOf");
@@ -96,9 +94,7 @@ describe("JSON Schema conversion", () => {
         anyOf: [
           {
             type: "array",
-            items: {
-              anyOf: [{ type: "string" }, { type: "number" }],
-            },
+            items: { type: "string" },
           },
           { type: "null" },
         ],
@@ -147,13 +143,8 @@ describe("JSON Schema conversion", () => {
       const inputDecimal = {
         description:
           "Exact decimal with at most 10 total digits and at most 2 fractional digits",
-        anyOf: [
-          {
-            type: "string",
-            pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
-          },
-          { type: "number" },
-        ],
+        type: "string",
+        pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
       };
       const outputDecimal = {
         description:
@@ -1100,10 +1091,10 @@ describe("JSON Schema conversion", () => {
     /**
      * A decimal's JSON-expressible half, and the half that is only SAID.
      *
-     * The value family is `Decimal | string | number`; a class instance has no
-     * JSON Schema at all, so what the document describes is the string arm (the
-     * exact one, and what `Decimal#toJSON()` produces) beside the lossy number
-     * arm. The DECLARED DOMAIN is not expressible: `precision` and `scale`
+     * The value family is `Decimal | string`; a class instance has no JSON
+     * Schema at all, so what the document describes is the string (the exact
+     * spelling, and what `Decimal#toJSON()` produces). A JSON number is a
+     * double and is refused, so it has no arm. The DECLARED DOMAIN is not expressible: `precision` and `scale`
      * count SIGNIFICANT digits, counted after canonicalization, so `"1.500"`
      * fits a scale-2 field — a `pattern` counting raw digits would refuse
      * values this schema accepts. It is stated in `description` rather than
@@ -1113,10 +1104,9 @@ describe("JSON Schema conversion", () => {
       const document = toJsonSchema(filterOf("dec"));
       const operand = document.anyOf?.[0] as JsonSchema;
 
-      expect(operand.anyOf).toEqual([
-        { type: "string", pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$" },
-        { type: "number" },
-      ]);
+      expect(operand.type).toBe("string");
+      expect(operand.pattern).toBe("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$");
+      expect(operand).not.toHaveProperty("anyOf");
       expect(operand.description).toBe(
         "Exact decimal with at most 10 total digits and at most 2 fractional digits"
       );
@@ -1130,7 +1120,7 @@ describe("JSON Schema conversion", () => {
       // built on. With no declared domain there is nothing to state.
       const bare = toJsonSchema(v.decimal());
       expect(bare.description).toBeUndefined();
-      expect(bare.anyOf).toEqual(operand.anyOf);
+      expect(bare.pattern).toBe(operand.pattern);
 
       // Reach the decimal-only comparison wrapper itself. Its validator closes
       // generic SQL fragments while `createSchema` owns the Standard Schema
@@ -1141,7 +1131,7 @@ describe("JSON Schema conversion", () => {
       expect(
         directOperand["~standard"].jsonSchema.input({ target: "draft-07" })
       ).toMatchObject({
-        anyOf: operand.anyOf,
+        pattern: operand.pattern,
         description: operand.description,
       });
     });
