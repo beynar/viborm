@@ -219,6 +219,19 @@ function observeBatchSizes(
   });
 }
 
+function observeD1Calls(database: D1Database, calls: string[]): D1Database {
+  return new Proxy(database, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        calls.push(String(property));
+        return Reflect.apply(value, target, args);
+      };
+    },
+  });
+}
+
 function movePostAfterNestedMemberLocate(database: D1Database): D1Database {
   let postReadCount = 0;
   let moved = false;
@@ -1037,16 +1050,18 @@ describe("D1 binding provider", () => {
     ]);
   });
 
-  it("refuses a relation-bearing createMany with skipDuplicates before any write", async () => {
+  it("refuses a relation-bearing createMany with skipDuplicates before any D1 call", async () => {
     // Skipping a member needs a rollback region the batch-only D1 transport
     // does not have, so the refusal comes before the first D1 call.
+    const calls: string[] = [];
     const client = createClient({
       schema: progressiveSchema,
-      database: env.DB,
+      database: observeD1Calls(env.DB, calls),
     });
     await client.post.deleteMany({});
     await client.author.deleteMany({});
     await client.category.deleteMany({});
+    calls.length = 0;
 
     const refusal = await client.post
       .createMany({
@@ -1072,6 +1087,7 @@ describe("D1 binding provider", () => {
       model: "post",
       operation: "createMany",
     });
+    expect(calls).toEqual([]);
     await expect(client.post.findMany()).resolves.toEqual([]);
     await expect(client.author.findMany()).resolves.toEqual([]);
   });
