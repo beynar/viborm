@@ -2135,7 +2135,14 @@ export class Queries {
     const a = this.adapter;
     const { operator, target, operand } = predicate;
     const scalar = target.scalar;
-    const state = scalar?.physical.scalar["~"].state;
+    // A `_count` compares with `COUNT(col)`, a row count on every storage, and
+    // admission types its operand as a number (`numericFilterOps`). It has no
+    // column domain: no JSON document class, no text collation, no identifier
+    // or decimal binding — every domain dispatch below reads `state`, so the
+    // fact is stated once, here.
+    const counted =
+      target.kind === "aggregate" && target.aggregate === "_count";
+    const state = counted ? undefined : scalar?.physical.scalar["~"].state;
     const column = this.lowerTarget(target, alias);
     if (state?.type === "json" && state.array !== true)
       return this.lowerJsonOperation(predicate, column);
@@ -2192,9 +2199,10 @@ export class Queries {
             )
           : exact(comparable);
       }
-      const literal = scalar
-        ? this.targetValue(target, scalar, member.value, id)
-        : this.value(member.value);
+      const literal =
+        scalar && !counted
+          ? this.targetValue(target, scalar, member.value, id)
+          : this.value(member.value);
       return fold ? a.expressions.asciiCaseFold(literal) : literal;
     };
     const members = () => predicate.operands ?? [];
@@ -2352,23 +2360,11 @@ export class Queries {
     }
   }
   /**
-   * THE JSON NULL TRUTH TABLE and the document operator set. A JSON column's
-   * operands are documents rather than scalars, which is a storage difference,
-   * not a second semantic interpretation of the same operator.
-   *
-   * The target always names a scalar here: `lowerOperation` reaches this only
-   * when that scalar's own state is a JSON document, which is why the refusal
-   * below can name the field.
-   */
-  /**
    * One operand, bound in the domain of the expression it is COMPARED WITH.
+   * A `_count` never reaches here: `lowerOperation` binds its row-count
+   * operand as a plain value.
    *
-   * A `_count` compares with `COUNT(col)`, a row count, on every storage: its
-   * operand is an integer (admission's `numericFilterOps`), never a value of
-   * the column — binding it as the field would spell `2` as a `DECIMAL(p,s)`
-   * (refused as a JavaScript number), a JSON document or a point.
-   *
-   * Everything else compares inside the field's own domain except a `_sum` over an
+   * Everything compares inside the field's own domain except a `_sum` over an
    * exact decimal: the compared expression is `SUM(col)`, whose value is wider
    * than one column can hold, so the operand's cast widens the PRECISION while
    * keeping the field's SCALE — every summed row carries that scale, and an
@@ -2382,8 +2378,6 @@ export class Queries {
     value: unknown,
     id: IdentifierColumn | undefined
   ): Sql {
-    if (target.kind === "aggregate" && target.aggregate === "_count")
-      return this.value(value);
     const state = scalar.physical.scalar["~"].state;
     const domain =
       target.kind === "aggregate" && target.aggregate === "_sum"
@@ -2410,6 +2404,15 @@ export class Queries {
       scale: domain.scale,
     });
   }
+  /**
+   * THE JSON NULL TRUTH TABLE and the document operator set. A JSON column's
+   * operands are documents rather than scalars, which is a storage difference,
+   * not a second semantic interpretation of the same operator.
+   *
+   * The target always names a scalar here: `lowerOperation` reaches this only
+   * when that scalar's own state is a JSON document — never for a `_count`,
+   * which has no column domain — so the refusal below can name the field.
+   */
   private lowerJsonOperation(
     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
     column: Sql
