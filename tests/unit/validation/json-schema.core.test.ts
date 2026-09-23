@@ -1422,3 +1422,104 @@ describe("JSON Schema conversion", () => {
     });
   });
 });
+
+/**
+ * The geographic projections, pinned whole. The value codecs behind `point` and
+ * `geo_area` may change owner; the documents a JSON Schema consumer reads may
+ * not, so these are `toEqual` pins rather than partial matches.
+ */
+describe("GeoPoint and GeoArea JSON Schema projection", () => {
+  const pointDocument = {
+    type: "object",
+    properties: {
+      longitude: { type: "number", minimum: -180, maximum: 180 },
+      latitude: { type: "number", minimum: -90, maximum: 90 },
+    },
+    required: ["longitude", "latitude"],
+    additionalProperties: false,
+  };
+  const ringDocument = { type: "array", items: pointDocument, minItems: 3 };
+  const areaDocument = {
+    oneOf: [
+      {
+        type: "object",
+        properties: {
+          bounds: {
+            type: "object",
+            properties: {
+              south: { type: "number", minimum: -90, maximum: 90 },
+              west: { type: "number", minimum: -180, maximum: 180 },
+              north: { type: "number", minimum: -90, maximum: 90 },
+              east: { type: "number", minimum: -180, maximum: 180 },
+            },
+            required: ["south", "west", "north", "east"],
+            additionalProperties: false,
+          },
+        },
+        required: ["bounds"],
+        additionalProperties: false,
+      },
+      {
+        type: "object",
+        properties: {
+          polygon: {
+            type: "object",
+            properties: {
+              outer: ringDocument,
+              holes: { type: "array", items: ringDocument },
+            },
+            required: ["outer"],
+            additionalProperties: false,
+          },
+        },
+        required: ["polygon"],
+        additionalProperties: false,
+      },
+    ],
+  };
+  const draft07 = "http://json-schema.org/draft-07/schema#";
+
+  test("the point value projects to the exact record document", () => {
+    const converter = v.point()["~standard"].jsonSchema;
+    for (const document of [
+      converter.input({ target: "draft-07" }),
+      converter.output({ target: "draft-07" }),
+    ]) {
+      expect(document).toEqual({ ...pointDocument, $schema: draft07 });
+    }
+  });
+
+  test("the point filter projects equals, distance, within, and not unchanged", () => {
+    const place = s.model({ id: s.string().id(), spot: s.point() });
+    const filter = getSchemas({ place }).place.scalars.spot?.filter;
+    if (!filter) throw new Error("no point filter schema");
+    const operators = {
+      type: "object",
+      properties: {
+        equals: pointDocument,
+        distance: {
+          type: "object",
+          properties: {
+            to: pointDocument,
+            lt: { type: "number" },
+            lte: { type: "number" },
+            gt: { type: "number" },
+            gte: { type: "number" },
+          },
+          additionalProperties: false,
+        },
+        within: areaDocument,
+        not: {
+          anyOf: [pointDocument, { $ref: "#/$defs/Recursive1" }],
+        },
+      },
+      additionalProperties: false,
+    };
+
+    expect(toJsonSchema(filter)).toEqual({
+      anyOf: [pointDocument, { $ref: "#/$defs/Recursive1" }],
+      $schema: draft07,
+      $defs: { Recursive1: operators },
+    });
+  });
+});
