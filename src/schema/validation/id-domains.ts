@@ -207,6 +207,42 @@ export function deriveIdDomains(
     for (const field of byField.keys()) resolve(model, field);
   }
 
+  // The same question asked of the COLUMN rather than the values: a foreign
+  // key holds its key's values, so it must hold them in the key's physical
+  // form too. Storage is read off each column's OWN native type (`idStorageOf`),
+  // so a key kept text by an override beside a foreign key that declares no
+  // override is a `uuid`/byte column referencing a text one — PostgreSQL and
+  // MySQL refuse the constraint, SQLite accepts it and the engine binds a
+  // payload the key never holds. Only a dialect one of the two overrides NAMES
+  // can disagree: with neither, both take the same automatic column.
+  for (const [model, byField] of graph) {
+    for (const [field, targets] of byField) {
+      const domain = resolve(model, field);
+      if (domain === undefined) continue;
+      const own = model["~"].state.scalars[field]?.["~"].nativeType;
+      for (const target of targets) {
+        const theirs =
+          target.model["~"].state.scalars[target.field]?.["~"].nativeType;
+        const split = storageDisagreement(domain, own, theirs);
+        if (split === undefined) continue;
+        const marker = `${nameOf(ctx, model)}.${field}`;
+        const targetMarker = `${nameOf(ctx, target.model)}.${target.field}`;
+        issues.push({
+          code: "FK012",
+          message:
+            `'${marker}' would store ${describeIdDomain(domain)} as ${split.own} on ${split.dialect} ` +
+            `and the key it references, '${targetMarker}', as ${split.theirs}. ` +
+            "A foreign key stores its key's values in the key's own physical form.",
+          severity: "error",
+          model: nameOf(ctx, model),
+          field,
+          candidates: [marker, targetMarker],
+          repair: `Give '${marker}' the same ${split.dialect} native type as '${targetMarker}' (${split.theirs})`,
+        });
+      }
+    }
+  }
+
   // The polymorphic row carrier's ONE private id column stores every variant's
   // key, so every variant's key must hold one domain — the same DISAGREEMENT
   // rule the shared-foreign-key case above states, over a column that is not a
@@ -300,6 +336,37 @@ function refuseUnusableNativeType(
     field,
     repair: `Declare '${marker}' with one of: ${describeIdNativeTypes(domain.format, nativeType.db)} — or drop the native type and take the automatic column.`,
   });
+}
+
+/**
+ * The first dialect on which two columns holding one domain store it
+ * differently, with each column's spelling there; `undefined` when they agree.
+ *
+ * Compared by REPRESENTATION, the one physical fact the engine binds by: two
+ * text spellings (`varchar(40)` beside `text`) hold the same public strings.
+ * An override this domain cannot live in answers nothing here — `F013` refuses
+ * it by name.
+ */
+function storageDisagreement(
+  domain: IdDomain,
+  own: NativeType | undefined,
+  theirs: NativeType | undefined
+):
+  | { readonly dialect: string; readonly own: string; readonly theirs: string }
+  | undefined {
+  for (const dialect of [own?.db, theirs?.db]) {
+    if (dialect === undefined) continue;
+    const ownStorage = idStorageOf(domain, own, dialect);
+    const theirStorage = idStorageOf(domain, theirs, dialect);
+    if (ownStorage === undefined || theirStorage === undefined) continue;
+    if (ownStorage.representation === theirStorage.representation) continue;
+    return {
+      dialect,
+      own: ownStorage.columnType,
+      theirs: theirStorage.columnType,
+    };
+  }
+  return undefined;
 }
 
 /** `describeIdDomain`, extended to the absence of one. */

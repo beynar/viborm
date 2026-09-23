@@ -235,6 +235,10 @@ to "what does this column hold":
   (`authorId: s.string().ulid()` against a `uuid` key);
 - one column reached through several references whose keys disagree — a shared
   foreign key, a compound member, or a set of polymorphic variants.
+- a foreign key that would store its key's values differently from the key
+  itself — a key kept as text by a native type override (`varchar(40)`) beside
+  a foreign key with no override, which would get the compact column. Give the
+  foreign key the same override.
 
 Both are schema errors with the code `FK012`, and both name the two references
 that disagreed and what each of them holds.

@@ -236,6 +236,11 @@ keeps **text storage** with the domain still validated (this is the opt-out for
 existing text columns); a binary override of the right width (`bytea`,
 `BINARY(16|20)`, `BLOB`) or `uuid` for uuid formats is accepted; anything else
 is refused at the schema boundary and by the schema-document reader.
+A foreign key holds its key's values in the key's own physical form: storage is
+read off each column's own override, so a foreign key whose storage differs from
+its key's on a dialect either override names (a key kept text by `varchar(40)`
+beside a foreign key with no override, which would be `uuid`) is refused as
+`FK012` rather than created as a `uuid` column referencing a text one.
 
 ### Engine seams (no format switch in the execution tree)
 

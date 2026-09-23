@@ -1857,6 +1857,21 @@ second `FK003`: that one compares scalar TYPE, array shape, decimal domain and
 SQLite datetime form; two `string` columns that pass it can still hold different
 identifier domains.
 
+**`FK012` widened — two answers to how a foreign key column stores its key's
+values (same file, same gate; added by the Raptor 3 port review).** Unique
+coverage: a foreign key and the key it references that hold ONE domain but that
+`idStorageOf`, asked of each column's OWN native type, stores in different
+representations on a dialect one of the two overrides names — a key kept text by
+`varchar(40)` beside a foreign key with no override, which is `uuid`/`bytea`/
+`BINARY(n)`. Without it PostgreSQL (42804) and MySQL (3780) refuse the push and
+SQLite creates a BLOB foreign key beside a TEXT key, where the engine then binds
+the payload the key never holds. It compares REPRESENTATION only, the one fact
+the engine binds by; `varchar(40)` beside `text` holds the same strings and is
+accepted. It is not `F013` (an override the domain cannot live in: that one
+answers `undefined` here and is skipped) and not `FK003` (declared scalar type,
+never a derived domain). Pins: `tests/unit/schema-validation/id-domain-derivation.core.test.ts`,
+"a foreign key stores its key's values the way the key does".
+
 **`F013` — a native type the domain cannot live in (same file, same gate).**
 Unique coverage: a declared or derived identifier field whose native type
 override is, for its own dialect, neither a text-family column nor a binary one

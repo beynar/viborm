@@ -547,6 +547,62 @@ describe("a native type the domain cannot live in", () => {
   });
 });
 
+/**
+ * A foreign key holds its key's values, so it holds them in the key's own
+ * physical form. Storage is read off each column's OWN native type, so a key
+ * kept text by an override beside a foreign key that declares none would be a
+ * `uuid` / byte column referencing a text one.
+ */
+describe("a foreign key stores its key's values the way the key does", () => {
+  const referencing = (
+    keyType: Parameters<typeof s.string>[0],
+    foreignType: Parameters<typeof s.string>[0]
+  ) => {
+    const user = s.model({
+      id: s.string(keyType).id().uuid("usr"),
+      posts: s.toMany(() => post),
+    });
+    const post = s.model({
+      id: s.string().id(),
+      authorId: s.string(foreignType),
+      author: s
+        .toOne(() => user)
+        .fields("authorId")
+        .references("id"),
+    });
+    return { user, post };
+  };
+
+  test("a foreign key with no override beside a text-kept key is refused", () => {
+    const issue = refusal(referencing(PG.STRING.VARCHAR(40), undefined)).find(
+      (entry) => entry.code === "FK012"
+    );
+    expect(issue?.field).toBe("authorId");
+    expect(issue?.candidates).toEqual(["post.authorId", "user.id"]);
+    expect(issue?.message).toContain("as uuid on pg");
+    expect(issue?.message).toContain("'user.id', as varchar(40)");
+    expect(issue?.repair).toContain("the same pg native type");
+  });
+
+  test("a text-kept foreign key beside a compact key is refused", () => {
+    expect(
+      refusal(referencing(undefined, MYSQL.STRING.VARCHAR(40))).some(
+        (entry) => entry.code === "FK012"
+      )
+    ).toBe(true);
+  });
+
+  test("two text spellings hold the same strings and are accepted", () => {
+    expect(refusal(referencing(PG.STRING.TEXT, PG.STRING.VARCHAR(40)))).toEqual(
+      []
+    );
+  });
+
+  test("an override that names the automatic storage is accepted", () => {
+    expect(refusal(referencing(MYSQL.BLOB.BINARY(16), undefined))).toEqual([]);
+  });
+});
+
 describe("without a schema context", () => {
   test("an issue still names the field it is about", () => {
     // `idDomainsOf` derives from an index alone — it drops issues, so it needs
