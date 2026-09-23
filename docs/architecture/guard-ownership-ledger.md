@@ -2046,12 +2046,18 @@ constructor also takes a whole `bigint` coefficient, which a field does not —
 so there are two sentences, `DECIMAL_INPUT_REFUSAL` (the field's, which
 `DECIMAL_ERROR` is built from) and `DECIMAL_CONSTRUCTOR_REFUSAL`, and they
 share one spelling clause declared once in `decimal-value.ts`. The STRING
-grammar has one owner, `canonicalizeDecimalInput`: the constructor and the
-field both refuse a string exactly where it answers `undefined`, and
-`decimal-value.core.test.ts` pins that they agree on every spelling.
+grammar has one owner, `admitDecimal` (the admission rule for every
+value: a string through the grammar, anything else through the brand): the
+constructor and the field both refuse exactly where it answers `undefined`,
+and `decimal-value.core.test.ts` pins that they agree on every input. The
+codec's `canonicalizeDecimalValue` and the string-only
+`canonicalizeDecimalInput` were two more readers of the same two answers and
+are gone; the custom-schema return position reads `canonicalDecimalText`
+directly, and the codec's `canonicalizeDecimal` is `admitDecimal` itself under
+the name the engine binders import.
 
 **A JavaScript number at a decimal position (2026-09-23, decision D1).** No
-guard of its own: the number arm of `canonicalizeDecimalInput` and the
+guard of its own: the number arm of the admission rule and the
 `String(n)` exponent expansion behind it are deleted, so a number reaches the
 same `undefined` every other non-decimal value reaches and the field returns
 `DECIMAL_INPUT_REFUSAL`, the constructor `DECIMAL_CONSTRUCTOR_REFUSAL`. The

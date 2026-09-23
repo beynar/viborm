@@ -161,8 +161,9 @@ canonicalization, and the one canonical rendering. It admits a `Decimal`, a
 string, or a whole `bigint`; a JavaScript number is a double and is refused. It has
 no statics and no configuration, its state is a private field the constructor
 alone installs, and it imports nothing. Three seams are exported for the codec
-beside it and for nothing else: the input canonicaliser
-`canonicalizeDecimalInput`, the canonical-text reader `canonicalDecimalText` —
+beside it and for nothing else: the admission rule `admitDecimal`
+(a string through the grammar, anything else through the brand), the
+canonical-text reader `canonicalDecimalText` —
 which IS the brand answer, because the module-private `owns` is the only thing
 that can answer and it returns `undefined` for anything the constructor never
 built — and the grammar-skipping `fromCanonical`. `DECIMAL_INPUT_REFUSAL`, the

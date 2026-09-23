@@ -21,8 +21,8 @@
 
 import { isString } from "../value-guards";
 import {
+  admitDecimal,
   canonicalDecimalText,
-  canonicalizeDecimalInput,
   type Decimal,
   fromCanonical,
 } from "./decimal-value";
@@ -84,58 +84,15 @@ export type DecimalPhysicalRepresentation = "text" | "coefficient";
 const LEADING_ZEROS_REGEX = /^0+/;
 
 /**
- * The canonical decimal spelling of a `Decimal | string`, or `undefined` when
- * the value does not name an exact decimal. A JavaScript number is a double,
- * not a spelling, and answers `undefined` like every other type.
- *
- * This is the encode half of the cache/identity boundary too: a `Decimal` in,
- * canonical text out.
+ * The codec's names for three value-module seams, kept because the engine's
+ * binders and result cache reach them by these names: the admission rule
+ * (`admitDecimal`), the brand reader (`canonicalDecimalText`) and the
+ * grammar-skipping decode seam (`fromCanonical`). Each is the same function,
+ * not a wrapper around it.
  */
-export function canonicalizeDecimal(value: unknown): string | undefined {
-  return isString(value)
-    ? canonicalizeDecimalInput(value)
-    : canonicalDecimalText(value);
-}
-
-/**
- * The canonical spelling of a value that must BE a Decimal, or `undefined`.
- *
- * The custom-schema return position (plan 2.3): a schema handed a `Decimal` may
- * refine it or brand it, but a string, a number, and a decimal-shaped object
- * the constructor never built are a different value family and fail there — so
- * unlike {@link canonicalizeDecimal}, this entry admits no other spelling.
- */
-export function canonicalizeDecimalValue(value: unknown): string | undefined {
-  return canonicalDecimalText(value);
-}
-
-/**
- * Canonicalize one Decimal that the result parser just materialized, without
- * building a second Decimal for the cache snapshot.
- *
- * This is deliberately narrower than {@link canonicalizeDecimal}: callers may
- * use it only while they still exclusively own the fresh value produced by
- * {@link toDecimal}. The cache has that lexical guarantee before it publishes
- * the result. It deliberately delegates to the same family witness and the same
- * canonical text as every other Decimal candidate.
- */
-export function canonicalizeMaterializedDecimal(
-  value: unknown
-): string | undefined {
-  return canonicalDecimalText(value);
-}
-
-/**
- * Construct one public Decimal value for a validated canonical string.
- *
- * The decode half of every result, cache, and default boundary. It builds one
- * direct instance of the `Decimal` exported from `viborm`, through the seam
- * that skips the accepted grammar: this codec has already established the
- * spelling, and re-testing it would make that grammar two owners deep.
- */
-export function toDecimal(canonical: string): Decimal {
-  return fromCanonical(canonical);
-}
+export const canonicalizeDecimal = admitDecimal;
+export const canonicalizeMaterializedDecimal = canonicalDecimalText;
+export const toDecimal = fromCanonical;
 
 // =============================================================================
 // DESCRIPTOR VALIDATION
@@ -554,7 +511,7 @@ export function encodePhysicalDecimalListMembers(
 ): string[] | undefined {
   const members = new Array<string>(values.length);
   for (const [index, value] of values.entries()) {
-    const canonical = canonicalizeDecimal(value);
+    const canonical = admitDecimal(value);
     if (canonical === undefined) return undefined;
     members[index] = encodePhysicalDecimalAtScale(
       canonical,

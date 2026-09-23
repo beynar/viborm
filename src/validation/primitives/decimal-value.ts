@@ -77,14 +77,16 @@ function canonicalizeLiteral(literal: string): string {
 }
 
 /**
- * The canonical text of one decimal STRING, or `undefined` when it is outside
- * the accepted grammar.
+ * The canonical text of a `Decimal | string`, or `undefined` when the value
+ * names no exact decimal: THE admission rule.
  *
- * The one admission rule for a spelling, used by the constructor and by the
- * field codec's encode boundary alike, so what `s.decimal()` accepts and what
- * `new Decimal()` accepts cannot drift apart.
+ * The constructor reads a string through it, and the field (`v.decimal()`),
+ * the engine binders and the cache encoder read every value through it, so
+ * what `s.decimal()` accepts and what `new Decimal()` accepts cannot drift
+ * apart. A `Decimal` answers through the brand, never through its shape.
  */
-export function canonicalizeDecimalInput(value: string): string | undefined {
+export function admitDecimal(value: unknown): string | undefined {
+  if (typeof value !== "string") return canonicalDecimalText(value);
   return DECIMAL_LITERAL_REGEX.test(value)
     ? canonicalizeLiteral(value)
     : undefined;
@@ -140,9 +142,8 @@ const DECIMAL_SPELLING =
   "a string like '-12.345' (sign, digits, at most one dot, no exponent); a JavaScript number is a double and is not accepted";
 
 /**
- * The FIELD boundary's refusal: `v.decimal()` returns it as its issue message.
- * A field admits a `Decimal` or a string; `canonicalizeDecimalInput` owns the
- * string grammar, so the field refuses where that function answers `undefined`.
+ * The FIELD boundary's refusal: `v.decimal()` returns it as its issue message
+ * wherever `admitDecimal` answers `undefined`.
  */
 export const DECIMAL_INPUT_REFUSAL = `Expected an exact decimal: a Decimal or ${DECIMAL_SPELLING}`;
 
@@ -315,7 +316,7 @@ class ExactDecimal implements Decimal {
       return;
     }
     const canonical =
-      typeof value === "string" ? canonicalizeDecimalInput(value) : undefined;
+      typeof value === "string" ? admitDecimal(value) : undefined;
     if (canonical === undefined) {
       throw new TypeError(DECIMAL_CONSTRUCTOR_REFUSAL);
     }

@@ -1,7 +1,7 @@
 import { Decimal } from "@src/index";
 import {
+  admitDecimal,
   canonicalDecimalText,
-  canonicalizeDecimalInput,
   DECIMAL_CONSTRUCTOR_REFUSAL,
   fromCanonical,
 } from "@validation/primitives/decimal-value";
@@ -123,17 +123,32 @@ describe("decimal value: what it accepts", () => {
     );
   });
 
-  test("admits the same strings the codec's encode boundary does", () => {
+  test("admits the same values the field boundary does", () => {
     // One admission rule, two readers: the constructor throws where
-    // `canonicalizeDecimalInput` answers `undefined`, and they never disagree
+    // `admitDecimal` answers `undefined`, and they never disagree
     // about which spellings are in.
-    for (const input of ["1.50", ".5", "1.", "+2", "-0", "0.0000001"]) {
-      expect(canonicalizeDecimalInput(input)).toBe(
-        new Decimal(input).toString()
-      );
+    for (const input of [
+      "1.50",
+      ".5",
+      "1.",
+      "+2",
+      "-0",
+      "0.0000001",
+      new Decimal("-3.50"),
+    ]) {
+      expect(admitDecimal(input)).toBe(new Decimal(input).toString());
     }
-    for (const input of ["1e3", "abc", "", "NaN"]) {
-      expect(canonicalizeDecimalInput(input)).toBeUndefined();
+    for (const input of [
+      "1e3",
+      "abc",
+      "",
+      "NaN",
+      1.5,
+      Object.create(Decimal.prototype),
+      new Proxy(new Decimal("1"), {}),
+      { s: 1, e: 0, c: [1] },
+    ]) {
+      expect(admitDecimal(input)).toBeUndefined();
       expect(() => new Decimal(input)).toThrow(DECIMAL_CONSTRUCTOR_REFUSAL);
     }
   });

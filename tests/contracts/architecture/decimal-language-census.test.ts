@@ -596,8 +596,8 @@ export const zero = new Decimal(0);
 
     // The grammar and the canonical-text reader are not construction: a module
     // that imports one of those cannot produce a value.
-    const grammar = `import { canonicalizeDecimalInput } from "@validation/primitives/decimal-value";
-export const one = canonicalizeDecimalInput("1");
+    const grammar = `import { admitDecimal } from "@validation/primitives/decimal-value";
+export const one = admitDecimal("1");
 `;
     expect(
       ormOwnedDecimalWrapperEntries("src/client/money.ts", grammar)

@@ -6,7 +6,6 @@ import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { parse as parseSchema } from "@validation";
 import {
   canonicalizeDecimal,
-  canonicalizeDecimalValue,
   canonicalizeMaterializedDecimal,
   coefficientToLogical,
   decimalColumnType,
@@ -30,6 +29,7 @@ import {
   toDecimal,
 } from "@validation/primitives/decimal-codec";
 import {
+  canonicalDecimalText,
   DECIMAL_CONSTRUCTOR_REFUSAL,
   DECIMAL_INPUT_REFUSAL,
 } from "@validation/primitives/decimal-value";
@@ -129,7 +129,7 @@ describe("decimal validation", () => {
   test("refuses in the value module's words, one grammar for both boundaries", () => {
     // Two boundaries over one string grammar: `v.decimal()` returns issues and
     // `new Decimal()` throws, and both refuse exactly where
-    // `canonicalizeDecimalInput` answers `undefined`. The field's sentence is
+    // `admitDecimal` answers `undefined`. The field's sentence is
     // the value module's, imported rather than copied; the constructor's names
     // one more member (a whole bigint) and the same spelling.
     const result = parse("1e3");
@@ -240,14 +240,14 @@ describe("decimal value boundary", () => {
     const empty = Object.create(Decimal.prototype);
     expect(empty).toBeInstanceOf(Decimal);
     expect(refused(empty)).toBe(true);
-    expect(canonicalizeDecimalValue(empty)).toBeUndefined();
+    expect(canonicalDecimalText(empty)).toBeUndefined();
 
     // An ordinary object carrying the internals a decimal might have is not a
     // candidate either, in either direction.
     const ordinary = { s: 1, e: 0, c: [1] };
     expect(ordinary).not.toBeInstanceOf(Decimal);
     expect(refused(ordinary)).toBe(true);
-    expect(canonicalizeDecimalValue(ordinary)).toBeUndefined();
+    expect(canonicalDecimalText(ordinary)).toBeUndefined();
 
     // A SUBCLASS is admitted: the constructor ran, so the value is exact, and
     // branding the value type is what a custom schema is allowed to do.
@@ -265,7 +265,7 @@ describe("decimal value boundary", () => {
     const revocable = Proxy.revocable(value, {});
     revocable.revoke();
     expect(refused(revocable.proxy)).toBe(true);
-    expect(canonicalizeDecimalValue(revocable.proxy)).toBeUndefined();
+    expect(canonicalDecimalText(revocable.proxy)).toBeUndefined();
     const hostile = new Proxy(value, {
       get() {
         throw new Error("get trap");
@@ -298,7 +298,7 @@ describe("decimal value boundary", () => {
     expect(
       schemas.filter["~standard"].validate({ equals: forged })
     ).toHaveProperty("issues");
-    expect(canonicalizeDecimalValue(forged)).toBeUndefined();
+    expect(canonicalDecimalText(forged)).toBeUndefined();
     expect(decodeWidenedSum(forged, 2)).toBeUndefined();
     // The descriptor cannot be the net: it reads "NaN" as three coefficient
     // digits and no fractional digit, so it finds nothing to refuse.
@@ -383,14 +383,14 @@ describe("decimal value boundary", () => {
     expect(value.toString()).toBe("1.234");
   });
 
-  test("canonicalizeDecimalValue admits only the Decimal family", () => {
+  test("canonicalDecimalText admits only the Decimal family", () => {
     // The custom-schema RETURN position: a string or a number there is a
     // different value family, not a spelling of the same one.
-    expect(canonicalizeDecimalValue(new Decimal("1.20"))).toBe("1.2");
-    expect(canonicalizeDecimalValue("1.2")).toBeUndefined();
-    expect(canonicalizeDecimalValue(1.2)).toBeUndefined();
+    expect(canonicalDecimalText(new Decimal("1.20"))).toBe("1.2");
+    expect(canonicalDecimalText("1.2")).toBeUndefined();
+    expect(canonicalDecimalText(1.2)).toBeUndefined();
     expect(
-      canonicalizeDecimalValue(Object.create(Decimal.prototype))
+      canonicalDecimalText(Object.create(Decimal.prototype))
     ).toBeUndefined();
   });
 
@@ -423,7 +423,7 @@ describe("decimal value boundary", () => {
       expect(canonicalizeDecimal(new Decimal("-1"))).toBe("-1");
       expect(canonicalizeMaterializedDecimal(toDecimal("1"))).toBe("1");
       expect(canonicalizeMaterializedDecimal(toDecimal("-1"))).toBe("-1");
-      expect(canonicalizeDecimalValue(new Decimal("1.20"))).toBe("1.2");
+      expect(canonicalDecimalText(new Decimal("1.20"))).toBe("1.2");
     } finally {
       for (const [name, descriptor] of descriptors) {
         if (descriptor) {

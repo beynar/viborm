@@ -5,7 +5,7 @@
 
 import type { Sql } from "@sql";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { canonicalizeDecimalValue } from "../validation/primitives/decimal-codec";
+import { canonicalDecimalText } from "../validation/primitives/decimal-value";
 import { decodeCanonicalBase64, encodeBase64 } from "./base64";
 import {
   type CatalogProbe,
@@ -485,7 +485,7 @@ export function encodeParameter(value: unknown): MigrationParameterV1 {
   if (value instanceof Uint8Array) {
     return { kind: "bytes", value: encodeBase64(value) };
   }
-  const decimal = canonicalizeDecimalValue(value);
+  const decimal = canonicalDecimalText(value);
   if (decimal !== undefined) return { kind: "decimal", value: decimal };
   if (typeof value === "function" || typeof value === "symbol") {
     throw new MigrationError(

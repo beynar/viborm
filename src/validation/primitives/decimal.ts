@@ -7,13 +7,16 @@ import type {
   VibSchema,
 } from "../types";
 import {
-  canonicalizeDecimal,
-  canonicalizeDecimalValue,
   type DecimalDescriptor,
   describeDescriptorRefusal,
   toDecimal,
 } from "./decimal-codec";
-import { DECIMAL_INPUT_REFUSAL, type Decimal } from "./decimal-value";
+import {
+  admitDecimal,
+  canonicalDecimalText,
+  DECIMAL_INPUT_REFUSAL,
+  type Decimal,
+} from "./decimal-value";
 import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
 
 // =============================================================================
@@ -95,7 +98,7 @@ const DECIMAL_VALUE_ERROR =
  * spelling.
  */
 function validateDecimal(value: unknown): ValidationResult<string> {
-  const canonical = canonicalizeDecimal(value);
+  const canonical = admitDecimal(value);
   return canonical === undefined ? DECIMAL_ERROR : ok(canonical);
 }
 
@@ -132,7 +135,10 @@ function buildDecimalValueValidator(
       if (refined.issues) {
         return standardSchemaFailure(refined.issues);
       }
-      const canonical = canonicalizeDecimalValue(refined.value);
+      // The return position admits only a Decimal: a string, a number or a
+      // decimal-shaped object the constructor never built is a different
+      // value family, so the brand reader alone answers here.
+      const canonical = canonicalDecimalText(refined.value);
       return canonical === undefined
         ? fail(DECIMAL_VALUE_ERROR)
         : ok(canonical);
