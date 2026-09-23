@@ -2099,3 +2099,57 @@ own small integer argument instead, and is deliberately unguarded:
 `"0".repeat(20000)` does, it is unreachable from VibORM (no call site in `src/`
 divides or fixes a Decimal), and a ceiling there would be a guard on a caller's
 own arithmetic with no VibORM coverage to name.
+
+## Decimal descriptor and default (2026-09-23)
+
+`src/schema/scalars/decimal/descriptor.ts` read `{ precision, scale }` as a
+hostile object and its default as a hostile list. A `ScalarState` is built only
+by VibORM's factories from the developer's own arguments, and the one untrusted
+source that reaches the factory — a schema document — hands over two plain
+numbers, so the reflection posture had no untrusted input to face. Two guards
+survive, each with one owner and one message.
+
+**The descriptor bound check (`readDecimalDescriptor`).** `precision` is an
+integer from 1 to `Number.MAX_SAFE_INTEGER`; `scale` is an integer from 0 to
+`precision` and is not `-0`. One sentence per key —
+`'precision' must be an integer between 1 and the maximum safe integer`,
+`'scale' must be an integer between 0 and precision` — as a `ValidationError`
+from `s.decimal` at `descriptor.<key>`. Unique coverage: the schema document,
+whose reader (`src/schema/json/read.ts`, `readRequiredDomainBound`) checks
+presence and number type only and delegates integrality, range and
+`scale <= precision` here — `10.5`, `1e300` and `-0` (which `JSON.parse` keeps
+and `JSON.stringify` loses) reach this check and nothing earlier — and an
+untyped JavaScript caller. The public type already refuses everything else.
+Witnesses: `decimal-descriptor.core.test.ts` (the refusal table, with path and
+sentence) and `hostile.core.test.ts` (`10.5`, `-0` and `scale > precision`
+from JSON text, as `J010` at the field). Provider limits stay a separate
+bind-time owner (`provider-limits.ts`).
+
+**The default canonicalization (`normalizeDecimalDefault`).** A literal
+`.default()` — re-run by `.array()` and `.schema()` — crosses the field's
+complete base schema once, at the call that writes it, and `state.default`
+keeps the canonical output. One sentence: `The decimal default did not satisfy
+its field schema`, at `default`. Unique coverage: `state.default` is canonical
+text, which three readers trust without re-validating — the DDL default
+renderers in `src/migrations/drivers/base.ts` (`decimalDefaultText`,
+`decimalListDefaultText`), the schema-document serializer, and the create
+schema's `v.optional(state.base, state.default)`, which emits a literal
+default unchecked. F004 (`rules/model.ts`) does not cover it: it skips
+decimals, runs only at push, the CLI and document `validate`, and stores
+nothing. Witnesses: `.default("1.005")` refused, `.default("+001.20")` stored as
+`"1.2"`, sparse and revoked list defaults refused with the sentence.
+
+**Removed, and the invariant that retires each.** `readOnce` (read-once
+snapshot under a `try`), `ownKeys` and `nameUnknownKey` (every own key,
+symbols and non-enumerable ones included, refused by name),
+`isDescriptorObject` (a revoked-proxy descriptor owned as a refusal), the
+five-message `readBound`, `snapshotDecimalDefaultList` (dense-array snapshot
+with no shadow properties) and `validateDecimalDefault` (a hostile
+Standard-Schema result read property by property). The invariant: the
+descriptor and the default are the developer's own arguments, and the schema
+the default crosses is VibORM's own base schema. An inherited descriptor or an
+extra key is read as an ordinary argument (the public `ExactDomain` type still
+refuses an extra key, fresh or held); a list default is copied by the field's
+own list schema, which reads each index, owns a revoked proxy or a throwing
+member read as an issue, and drops shadow properties; a custom schema is the
+developer's code, so what it throws reaches the developer unchanged.

@@ -450,6 +450,33 @@ describe("relation arms", () => {
     expect(error.originalCause).toBeInstanceOf(Error);
   });
 
+  it("hands a decimal domain to s.decimal, which owns whether it is one", () => {
+    // JSON TEXT, so `-0` arrives as the negative zero `JSON.parse` keeps and
+    // `JSON.stringify` would lose. `read.ts` checks presence and number type
+    // only; integrality, range and `scale <= precision` are the builder's, and
+    // this is the one untrusted source its check has.
+    for (const [field, sentence] of [
+      [
+        '{ "type": "decimal", "precision": 10.5, "scale": 2 }',
+        "'precision' must be an integer between 1 and the maximum safe integer",
+      ],
+      [
+        '{ "type": "decimal", "precision": 10, "scale": -0 }',
+        "'scale' must be an integer between 0 and precision",
+      ],
+      [
+        '{ "type": "decimal", "precision": 4, "scale": 5 }',
+        "'scale' must be an integer between 0 and precision",
+      ],
+    ] as const) {
+      const error = refusal(
+        `{ "version": 1, "models": { "user": { "fields": { "id": { "type": "string", "id": true }, "probe": ${field} } } } }`
+      );
+      expect(issues(error)).toEqual(["[J010] /models/user/fields/probe"]);
+      expect(error.issues[0]?.message).toContain(sentence);
+    }
+  });
+
   it("hands an incomplete foreign key to the model boundary", () => {
     const error = refusal(
       withUserField({ type: "toOne", target: "user", fields: ["id"] })
