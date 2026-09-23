@@ -1157,6 +1157,39 @@ describe("D1 binding provider", () => {
     });
   });
 
+  it("keeps the batch reference scratch an ordinary table in main, emptied by the batch that used it", async () => {
+    // D1 refuses temporary objects, so the scratch a generated parent key
+    // crosses is an ordinary table: it persists, and every batch deletes its
+    // own rows before it ends. SQLite migration introspection leaves it out
+    // (tests/unit/migrations/sqlite-batch-refs-introspection.test.ts).
+    const client = createClient({
+      schema: generatedProgressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+
+    const created = await client.author.create({
+      data: {
+        name: "scratch parent",
+        posts: { create: { id: "scratch-post", title: "nested" } },
+      },
+    });
+    await expect(
+      client.post.findUnique({ where: { id: "scratch-post" } })
+    ).resolves.toMatchObject({ authorId: created.id });
+
+    const scratch = await env.DB.prepare(
+      "SELECT type FROM sqlite_master WHERE name = '__viborm_batch_refs'"
+    ).all();
+    expect(scratch.results).toEqual([{ type: "table" }]);
+    const leftover = await env.DB.prepare(
+      'SELECT COUNT(*) AS rows FROM "__viborm_batch_refs"'
+    ).all();
+    expect(leftover.results).toEqual([{ rows: 0 }]);
+  });
+
   it("executes guarded nested relation-bearing updateMany members", async () => {
     const client = createClient({
       schema: progressiveSchema,
