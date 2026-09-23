@@ -202,6 +202,19 @@ const POST_3 = "2Hg5JeMVxLVfDLdDLZJMYPRGrqp";
  * a different KSUID and every byte comparison must say so. */
 const POST_1_CASE_VARIANT = "0UJTSyCGVstL8paUaDQwysmNlov";
 
+/**
+ * The canonical text of the largest value 20 bytes hold, and three 27-character
+ * base62 texts above it. Each is in the GRAMMAR — the regex and GLOB admit it —
+ * and names no KSUID, because it names a number of 2^160 or more.
+ * `KSUID_ABOVE_MAX_LOWER` differs from the maximum only in a last digit whose
+ * case decides the order: `a` sorts after `V` in ASCII and before it in any
+ * collation that folds case, so only a byte comparison refuses it.
+ */
+const KSUID_MAX = "aWgEPTl1tmebfsQzFP4bxwgy80V";
+const KSUID_ABOVE_MAX = "aWgEPTl1tmebfsQzFP4bxwgy80W";
+const KSUID_ABOVE_MAX_LOWER = "aWgEPTl1tmebfsQzFP4bxwgy80a";
+const KSUID_ALL_Z = "z".repeat(27);
+
 /** Three ULIDs in ascending canonical-text order. */
 const TAG_1 = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const TAG_2 = "01BX5ZZKBKACTAV9WEVGEMMVRZ";
@@ -1220,6 +1233,27 @@ export function runIdentifierStorageBehavior(options: {
 
         expect(await answers()).toEqual([true, true, false]);
       });
+
+      test("the largest value twenty bytes hold is a value of the domain", async () => {
+        await seed(KSUID_MAX, KSUID_MAX);
+
+        expect(await answers()).toEqual([true, true, true]);
+      });
+
+      for (const text of [
+        KSUID_ABOVE_MAX,
+        KSUID_ABOVE_MAX_LOWER,
+        KSUID_ALL_Z,
+      ]) {
+        test(`a base62 text above 2^160 is outside the domain (${text})`, async () => {
+          // In the grammar, and no KSUID: the codec refuses it, so the key
+          // check and the foreign-key check must too. The child still names
+          // its parent — the same text — so the agreement check stays true.
+          await seed(text, text);
+
+          expect(await answers()).toEqual([false, false, true]);
+        });
+      }
     });
   });
 }

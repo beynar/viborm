@@ -2033,6 +2033,21 @@ the conversion proceeds. It is not `F013` (a native type the domain cannot live
 in) and not `FK012` (two answers to what a column holds): both of those are
 schema facts decided at resolution, and this one is a fact about the call.
 
+Its first check — every row is a value of the domain — asks a KSUID payload one
+more question than its grammar: `<= KSUID_MAX_TEXT`. It is not a new guard but
+the same check made true to its promise. Unique coverage: a 27-character base62
+text above 2^160 (`"z".repeat(27)`, or `aWgEPTl1tmebfsQzFP4bxwgy80W`), which the
+regex and the GLOB admit and `ksuidToBytes` refuses; without the bound the check
+certified an estate the conversion cannot carry. The bound is read from
+`validation/primitives/id-formats.ts`, which owns it beside
+`KSUID_EXCLUSIVE_MAX`, never spelled here. The comparison is byte order on every
+dialect because base62's alphabet (`0-9A-Za-z`) is in ASCII order and a
+case-folding collation is not: `CAST(… AS BINARY)` on MySQL, `CAST(… AS text)
+COLLATE "C"` on PostgreSQL (the cast because `citext` lowercases before any
+collation applies), SQLite's default `BINARY`. The pin's own coverage is
+`…80a`, above the maximum yet below it under `en_US.utf8` and
+`utf8mb4_0900_ai_ci`. A ULID needs no such bound: its leading `[0-7]` is one.
+
 **`assertComparableIdStorage` (`query-engine/builders/where-builder.ts`,
 reached from `fieldRefColumn`; since the Raptor 3 port,
 `raptor3/shared/query.ts` `Queries.prepareOperand`, beside the decimal-domain

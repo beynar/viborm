@@ -87,8 +87,10 @@ Each is a `trusted-read` `MigrationCheckInput`: one row, one boolean column,
 an estate that has drifted.
 
 1. **No row is outside the domain.** The prefix is matched whole and the payload
-   against the format's own grammar and width. A row that is not a value of the
-   domain is a row no route can carry.
+   against the format's own grammar and width. A KSUID payload is also compared,
+   byte-wise, against `aWgEPTl1tmebfsQzFP4bxwgy80V`, the largest value its 20
+   bytes hold: 27 base62 characters can spell more, and such a text is no KSUID.
+   A row that is not a value of the domain is a row no route can carry.
 2. **No two rows fold together.** `uuid` accepts uppercase and `ulid` accepts
    lowercase as *aliases*: a text column can hold two spellings of one
    identifier, and compact storage holds one. Those rows become one value —

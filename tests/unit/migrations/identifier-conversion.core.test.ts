@@ -152,10 +152,28 @@ describe("identifier conversion pre-checks", () => {
     // Not just no collision check: the foreign-key agreement compares the
     // columns THEMSELVES, because for this format one value has one spelling.
     expect(checksFor(ticket, "id", "postgresql")).toEqual([
-      `SELECT NOT EXISTS (SELECT 1 FROM "ticket" AS p WHERE p."id" IS NOT NULL AND NOT (length(p."id") = 27 AND p."id" ~ '^[0-9A-Za-z]{27}$')) AS ok`,
-      `SELECT NOT EXISTS (SELECT 1 FROM "bookings" AS c WHERE c."ticketId" IS NOT NULL AND NOT (length(c."ticketId") = 27 AND c."ticketId" ~ '^[0-9A-Za-z]{27}$')) AS ok`,
+      `SELECT NOT EXISTS (SELECT 1 FROM "ticket" AS p WHERE p."id" IS NOT NULL AND NOT (length(p."id") = 27 AND p."id" ~ '^[0-9A-Za-z]{27}$' AND CAST(p."id" AS text) COLLATE "C" <= 'aWgEPTl1tmebfsQzFP4bxwgy80V')) AS ok`,
+      `SELECT NOT EXISTS (SELECT 1 FROM "bookings" AS c WHERE c."ticketId" IS NOT NULL AND NOT (length(c."ticketId") = 27 AND c."ticketId" ~ '^[0-9A-Za-z]{27}$' AND CAST(c."ticketId" AS text) COLLATE "C" <= 'aWgEPTl1tmebfsQzFP4bxwgy80V')) AS ok`,
       `SELECT NOT EXISTS (SELECT 1 FROM "bookings" AS c WHERE c."ticketId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "ticket" AS p WHERE p."id" = c."ticketId")) AS ok`,
     ]);
+  });
+
+  test("a ksuid payload is bounded by the largest value twenty bytes hold, compared as bytes", () => {
+    // Twenty-seven base62 characters express more than 2^160 values, so the
+    // grammar alone certifies texts the codec refuses. The bound is compared
+    // byte-wise on every dialect: under a case-folding collation `a` sorts
+    // before `V`, and `...80a` — above the maximum — would pass.
+    const max = "'aWgEPTl1tmebfsQzFP4bxwgy80V'";
+    expect(checksFor(ticket, "id", "mysql")[0]).toContain(
+      `AND CAST(p.\`id\` AS BINARY) <= ${max}`
+    );
+    expect(checksFor(ticket, "id", "sqlite")[0]).toContain(
+      `GLOB '${"[0-9A-Za-z]".repeat(27)}' AND p."id" <= ${max}`
+    );
+    // The bound belongs to KSUID alone: a ULID's leading [0-7] carries its own.
+    for (const dialect of ["postgresql", "mysql", "sqlite"] as const) {
+      expect(checksFor(post, "id", dialect)[0]).not.toContain("<=");
+    }
   });
 
   test("a compound reference contributes only the member that names this key", () => {
