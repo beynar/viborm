@@ -1263,19 +1263,21 @@ function classOwnsDecimalValue(
 }
 
 /**
- * The value module's two ways OUT to a new instance.
+ * The value module's three ways OUT to a new instance.
  *
  * The class is module-private, so a `Decimal` can only be reached through the
- * exported constructor or through `fromCanonical`, the decode seam that skips
- * the grammar. A module that imports either one at runtime can build the value
+ * exported constructor or through the two decode seams that skip the grammar:
+ * `fromCanonical` for canonical text and `fromCoefficient` for an unscaled
+ * integer. A module that imports any of them at runtime can build the value
  * type; a module that imports the grammar or the canonical-text reader cannot.
  */
 const DECIMAL_CONSTRUCTION_BINDINGS: ReadonlySet<string> = new Set([
   "Decimal",
   "fromCanonical",
+  "fromCoefficient",
 ]);
 
-/** Whether an import declaration binds one of those two. */
+/** Whether an import declaration binds one of those three. */
 function importsDecimalBinding(node: ts.ImportDeclaration): boolean {
   const bindings = node.importClause?.namedBindings;
   if (bindings === undefined || !ts.isNamedImports(bindings)) return false;

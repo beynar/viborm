@@ -1,12 +1,12 @@
 /**
  * The ONE field-aware decimal codec.
  *
- * Everything decimal FIELD-shaped lives here: descriptor validation, the
- * logical <-> unscaled-coefficient conversion, the two physical vocabularies a
- * column can cross through, the provider decode grammars and their domain
- * limits, the two DDL renderings, the widened-sum decode, and the JSON list
- * container. Nothing above it owns a second precision, scale, spelling, or
- * conversion.
+ * Everything decimal FIELD-shaped lives here: the descriptor type, the two
+ * physical vocabularies a column can cross through, the provider decode
+ * grammars and their domain limits, the two DDL renderings, the widened-sum
+ * decode, and the JSON list container. The arithmetic behind them — the
+ * domain check, the coefficient at a scale, the fixed rendering — is the
+ * value module's, so nothing here moves a decimal point in a string.
  *
  * The VALUE it carries is owned next door, by `decimal-value.ts`: the accepted
  * `Decimal | string` grammar, canonical private text, and the
@@ -24,7 +24,10 @@ import {
   admitDecimal,
   canonicalDecimalText,
   type Decimal,
+  fixedText,
   fromCanonical,
+  fromCoefficient,
+  toCoefficient,
 } from "./decimal-value";
 
 // =============================================================================
@@ -80,200 +83,63 @@ export type DecimalPhysicalRepresentation = "text" | "coefficient";
  * number to guess at.
  */
 
-/** The insignificant zeros an unscaled coefficient is rendered without. */
-const LEADING_ZEROS_REGEX = /^0+/;
-
 /**
- * The codec's names for three value-module seams, kept because the engine's
+ * The codec's names for four value-module seams, kept because the engine's
  * binders and result cache reach them by these names: the admission rule
- * (`admitDecimal`), the brand reader (`canonicalDecimalText`) and the
- * grammar-skipping decode seam (`fromCanonical`). Each is the same function,
- * not a wrapper around it.
+ * (`admitDecimal`), the brand reader (`canonicalDecimalText`), the
+ * grammar-skipping decode seam (`fromCanonical`) and the coefficient at a
+ * scale (`toCoefficient`). Each is the same function, not a wrapper around it.
  */
 export const canonicalizeDecimal = admitDecimal;
 export const canonicalizeMaterializedDecimal = canonicalDecimalText;
 export const toDecimal = fromCanonical;
+export const logicalToCoefficient = toCoefficient;
 
 // =============================================================================
-// DESCRIPTOR VALIDATION
+// THE COEFFICIENT VOCABULARY
 // =============================================================================
-
-/** The sign-free integer and fraction digits of a canonical decimal string. */
-function splitCanonical(canonical: string): [string, string] {
-  const unsigned = canonical.startsWith("-") ? canonical.slice(1) : canonical;
-  const [integer = "", fraction = ""] = unsigned.split(".");
-  return [integer, fraction];
-}
 
 /**
- * Why this canonical value does not fit the descriptor, or `undefined` when it
- * does. The one owner of both refusal sentences.
- *
- * Fitting is a DOMAIN question, not a spelling one: `"1.2"` at scale 5 fits and
- * stays `"1.2"`, because scale is a limit on the value's fractional digits and
- * not display formatting. Only non-zero digits past `scale`, or an unscaled
- * coefficient wider than `precision`, are outside the domain — and both are
- * refused rather than rounded, so database assignment is never asked to perform
- * implicit input rounding.
+ * The one physical coefficient spelling: `0`, or an optional minus and digits
+ * with no leading zero. `BigInt` alone would also read `" 1 "`, `"0x10"` and
+ * `""`, so a provider value crosses this before it becomes a number.
  */
-export function describeDescriptorRefusal(
-  canonical: string,
-  descriptor: DecimalDescriptor
+const COEFFICIENT_REGEX = /^(?:0|-?[1-9]\d*)$/;
+
+/**
+ * Decode one untrusted unscaled coefficient at `scale`, or `undefined` when it
+ * is outside the vocabulary or wider than `precision` digits. The length is
+ * bounded before the `BigInt` is built.
+ */
+function decodeCoefficient(
+  value: unknown,
+  scale: number,
+  precision?: number
+): Decimal | undefined {
+  if (!(isString(value) && COEFFICIENT_REGEX.test(value))) return undefined;
+  const digits = value.startsWith("-") ? value.length - 1 : value.length;
+  if (precision !== undefined && digits > precision) return undefined;
+  return fromCoefficient(BigInt(value), scale);
+}
+
+/** The canonical text of a decoded coefficient, or `undefined`. */
+function decodeCoefficientText(
+  value: unknown,
+  scale: number,
+  precision?: number
 ): string | undefined {
-  const [integer, fraction] = splitCanonical(canonical);
-  if (fraction.length > descriptor.scale) {
-    return `Expected at most ${descriptor.scale} fractional digit${descriptor.scale === 1 ? "" : "s"}, but '${canonical}' has ${fraction.length}`;
-  }
-  const digitCount = coefficientDigitCount(integer, fraction, descriptor.scale);
-  if (digitCount > descriptor.precision) {
-    return `Expected an unscaled coefficient of at most ${descriptor.precision} digits, but '${canonical}' needs ${digitCount}`;
-  }
-  return undefined;
-}
-
-/**
- * The significant unscaled-coefficient digit COUNT of one canonical value.
- *
- * Descriptor validation runs before a provider binds the model and therefore
- * accepts a syntactically valid scale up to `Number.MAX_SAFE_INTEGER`. Counting
- * must stay O(the input spelling): padding a zero or fraction to that scale
- * would allocate the physical coefficient before a provider has applied its
- * much smaller domain limit.
- */
-function coefficientDigitCount(
-  integer: string,
-  fraction: string,
-  scale: number
-): number {
-  if (integer !== "0") return integer.length + scale;
-  if (fraction === "") return 0;
-  let firstNonZero = 0;
-  while (fraction[firstNonZero] === "0") firstNonZero++;
-  return scale - firstNonZero;
-}
-
-/**
- * The significant unscaled-coefficient DIGITS of one canonical value.
- *
- * This physical rendering is reached only after provider binding has admitted
- * the descriptor. Definition-time and input validation use
- * {@link coefficientDigitCount} and never allocate according to the declared
- * scale.
- */
-function coefficientDigits(
-  integer: string,
-  fraction: string,
-  scale: number
-): string {
-  const whole = integer === "0" ? "" : integer;
-  return `${whole}${fraction.padEnd(scale, "0")}`.replace(
-    LEADING_ZEROS_REGEX,
-    ""
-  );
-}
-
-// =============================================================================
-// LOGICAL <-> UNSCALED COEFFICIENT
-// =============================================================================
-
-/**
- * The unscaled integer coefficient of a canonical value at this scale:
- * `logical x 10^scale`, spelled in the coefficient grammar.
- *
- * Digit strings only. A JavaScript multiplication would be exactly the loss
- * this whole representation exists to avoid, so the dot is moved rather than
- * the number scaled.
- */
-export function logicalToCoefficient(canonical: string, scale: number): string {
-  const negative = canonical.startsWith("-");
-  const [integer, fraction] = splitCanonical(canonical);
-  const digits = coefficientDigits(integer, fraction, scale);
-  if (digits === "") return "0";
-  return negative ? `-${digits}` : digits;
-}
-
-/** Whether one UTF-16 code unit is an ASCII decimal digit. */
-function isDecimalDigit(code: number): boolean {
-  return code >= 48 && code <= 57;
-}
-
-/**
- * Validate the one physical coefficient vocabulary and its optional precision
- * bound in one pass.
- *
- * Canonical rendering and direct public construction both consume this result,
- * so neither path has a second grammar or domain rule.
- */
-function scanCoefficient(coefficient: string, precision?: number): boolean {
-  const length = coefficient.length;
-  if (length === 0) return false;
-
-  const negative = coefficient.charCodeAt(0) === 45;
-  const digitStart = negative ? 1 : 0;
-  if (digitStart === length) return false;
-
-  const first = coefficient.charCodeAt(digitStart);
-  if (first === 48) {
-    return !negative && length === 1;
-  }
-  if (first < 49 || first > 57) return false;
-  for (let index = digitStart + 1; index < length; index++) {
-    if (!isDecimalDigit(coefficient.charCodeAt(index))) return false;
-  }
-
-  return precision === undefined || length - digitStart <= precision;
-}
-
-/** Render one validated coefficient as canonical logical text. */
-function renderCoefficientLogical(coefficient: string, scale: number): string {
-  if (coefficient === "0") return "0";
-  const length = coefficient.length;
-  const digitStart = coefficient.charCodeAt(0) === 45 ? 1 : 0;
-  const coefficientDigits = length - digitStart;
-  let fractionalZeros = 0;
-  while (
-    fractionalZeros < scale &&
-    coefficient.charCodeAt(length - fractionalZeros - 1) === 48
-  ) {
-    fractionalZeros++;
-  }
-
-  const canonicalDigitEnd = length - fractionalZeros;
-  const integerDigits = coefficientDigits - scale;
-  let logical: string;
-  if (integerDigits > 0) {
-    const point = digitStart + integerDigits;
-    logical =
-      canonicalDigitEnd === point
-        ? coefficient.slice(digitStart, point)
-        : `${coefficient.slice(digitStart, point)}.${coefficient.slice(point, canonicalDigitEnd)}`;
-  } else {
-    logical = `0.${"0".repeat(-integerDigits)}${coefficient.slice(digitStart, canonicalDigitEnd)}`;
-  }
-
-  return digitStart === 1 ? `-${logical}` : logical;
-}
-
-/**
- * The canonical logical value of an unscaled integer coefficient at this scale,
- * or `undefined` when the text is not a coefficient this codec ever wrote.
- *
- * Untrusted: it is the exact physical vocabulary the result parser and the
- * migration copy map read back, so a JSON number token, a leading zero, `+1`,
- * `-0`, or an empty string is a malformed provider value rather than a number.
- */
-export function coefficientToLogical(
-  coefficient: unknown,
-  scale: number
-): string | undefined {
-  return isString(coefficient) && scanCoefficient(coefficient)
-    ? renderCoefficientLogical(coefficient, scale)
-    : undefined;
+  const decoded = decodeCoefficient(value, scale, precision);
+  return decoded === undefined ? undefined : canonicalDecimalText(decoded);
 }
 
 // =============================================================================
 // PROVIDER TEXT DECODE
 // =============================================================================
+
+/** Whether one UTF-16 code unit is an ASCII decimal digit. */
+function isDecimalDigit(code: number): boolean {
+  return code >= 48 && code <= 57;
+}
 
 /**
  * Validate and locate canonical physical decimal TEXT in one scan.
@@ -406,7 +272,7 @@ function encodePhysicalDecimalAtScale(
   representation: DecimalPhysicalRepresentation
 ): string {
   return representation === "coefficient"
-    ? logicalToCoefficient(canonical, scale)
+    ? toCoefficient(canonical, scale)
     : canonical;
 }
 
@@ -424,27 +290,6 @@ export function encodePhysicalDecimal(
     descriptor.scale,
     representation
   );
-}
-
-/** Decode one coefficient after the shared grammar and domain scan. */
-function decodeCoefficientAtPrecision(
-  value: unknown,
-  scale: number,
-  precision?: number
-): string | undefined {
-  return isString(value) && scanCoefficient(value, precision)
-    ? renderCoefficientLogical(value, scale)
-    : undefined;
-}
-
-/** Construct one coefficient after the shared grammar and domain scan. */
-function materializeCoefficientAtPrecision(
-  value: unknown,
-  scale: number,
-  precision?: number
-): Decimal | undefined {
-  if (!(isString(value) && scanCoefficient(value, precision))) return undefined;
-  return fromCanonical(renderCoefficientLogical(value, scale));
 }
 
 /** Construct one provider TEXT value after the shared grammar and domain scan. */
@@ -469,21 +314,14 @@ export function decodePhysicalDecimal(
 ): string | undefined {
   return representation === "text"
     ? decodeFieldScalar(value, descriptor)
-    : decodeCoefficientAtPrecision(
-        value,
-        descriptor.scale,
-        descriptor.precision
-      );
+    : decodeCoefficientText(value, descriptor.scale, descriptor.precision);
 }
 
 /**
- * Decode one ordinary scalar directly into its one fresh public Decimal.
- *
- * Both paths reach the same canonical text this codec already owns for the
- * vocabulary they came in on — `renderProviderText` for a native decimal
- * spelling, `renderCoefficientLogical` for an unscaled integer one — and hand
- * it to the construction seam. Neither builds an intermediate Decimal, and
- * neither invents a second rendering.
+ * Decode one ordinary scalar directly into its one fresh public Decimal: a
+ * native decimal spelling through `renderProviderText` and the text seam, an
+ * unscaled integer through the coefficient seam. Neither builds an
+ * intermediate Decimal.
  */
 export function materializePhysicalDecimal(
   value: unknown,
@@ -492,11 +330,7 @@ export function materializePhysicalDecimal(
 ): Decimal | undefined {
   return representation === "text"
     ? materializeProviderText(value, descriptor.scale, descriptor.precision)
-    : materializeCoefficientAtPrecision(
-        value,
-        descriptor.scale,
-        descriptor.precision
-      );
+    : decodeCoefficient(value, descriptor.scale, descriptor.precision);
 }
 
 /**
@@ -578,7 +412,7 @@ export function decodePhysicalWidenedSum(
 ): string | undefined {
   return representation === "text"
     ? decodeWidenedSum(value, descriptor.scale)
-    : decodeCoefficientAtPrecision(value, descriptor.scale);
+    : decodeCoefficientText(value, descriptor.scale);
 }
 
 /** Decode one widened SUM directly into its one fresh public Decimal. */
@@ -589,7 +423,7 @@ export function materializePhysicalWidenedSum(
 ): Decimal | undefined {
   return representation === "text"
     ? materializeProviderText(value, descriptor.scale)
-    : materializeCoefficientAtPrecision(value, descriptor.scale);
+    : decodeCoefficient(value, descriptor.scale);
 }
 
 // =============================================================================
@@ -692,16 +526,9 @@ export function decimalDefaultText(
   canonical: string,
   descriptor: DecimalDescriptor
 ): string {
-  if (dialect === "sqlite") {
-    return logicalToCoefficient(canonical, descriptor.scale);
-  }
-  const negative = canonical.startsWith("-");
-  const [integer, fraction] = splitCanonical(canonical);
-  const scaled =
-    descriptor.scale === 0
-      ? integer
-      : `${integer}.${fraction.padEnd(descriptor.scale, "0")}`;
-  return negative ? `-${scaled}` : scaled;
+  return dialect === "sqlite"
+    ? toCoefficient(canonical, descriptor.scale)
+    : fixedText(canonical, descriptor.scale);
 }
 
 /**
@@ -783,10 +610,9 @@ function decodeDecimalListContainerAtPrecision(
   if (!Array.isArray(parsed)) return undefined;
   const members = new Array<string>(parsed.length);
   for (const [index, member] of parsed.entries()) {
-    if (!(isString(member) && scanCoefficient(member, precision))) {
-      return undefined;
-    }
-    members[index] = renderCoefficientLogical(member, scale);
+    const canonical = decodeCoefficientText(member, scale, precision);
+    if (canonical === undefined) return undefined;
+    members[index] = canonical;
   }
   return members;
 }

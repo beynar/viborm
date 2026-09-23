@@ -6,16 +6,13 @@ import type {
   ValidationResult,
   VibSchema,
 } from "../types";
-import {
-  type DecimalDescriptor,
-  describeDescriptorRefusal,
-  toDecimal,
-} from "./decimal-codec";
+import { type DecimalDescriptor, toDecimal } from "./decimal-codec";
 import {
   admitDecimal,
   canonicalDecimalText,
   DECIMAL_INPUT_REFUSAL,
   type Decimal,
+  domainRefusal,
 } from "./decimal-value";
 import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
 
@@ -150,7 +147,11 @@ function buildDecimalValueValidator(
     validate = (value) => {
       const parsed = base(value);
       if (parsed.issues) return parsed;
-      const refusal = describeDescriptorRefusal(parsed.value, descriptor);
+      const refusal = domainRefusal(
+        parsed.value,
+        descriptor.precision,
+        descriptor.scale
+      );
       return refusal === undefined ? parsed : fail(refusal);
     };
   }

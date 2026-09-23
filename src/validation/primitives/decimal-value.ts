@@ -171,6 +171,33 @@ function renderParts(coefficient: bigint, scale: number): string {
 }
 
 /**
+ * Write a coefficient and scale with exactly `fractionDigits` fraction digits,
+ * rounding half away from zero: `toFixed`, and the fixed rendering the codec
+ * reads from text without going through the prototype.
+ */
+function renderFixed(
+  coefficient: bigint,
+  scale: number,
+  fractionDigits: number
+): string {
+  const negative = coefficient < 0n;
+  const rounded = roundQuotient(
+    (negative ? -coefficient : coefficient) * shift(fractionDigits),
+    shift(scale),
+    "half-up"
+  ).toString();
+  // A negative value keeps its sign even when every digit it rounded to is a
+  // zero: `-0.004` to two places is `-0.00`, which says the value was below
+  // zero and too small to show. Zero itself is never negative, so there is no
+  // second rule to apply.
+  const sign = negative ? "-" : "";
+  if (fractionDigits === 0) return `${sign}${rounded}`;
+  const padded = rounded.padStart(fractionDigits + 1, "0");
+  const point = padded.length - fractionDigits;
+  return `${sign}${padded.slice(0, point)}.${padded.slice(point)}`;
+}
+
+/**
  * Read already-canonical text straight into a coefficient and a scale.
  *
  * Canonical text carries no `+`, no insignificant zero and no bare `-0`, so
@@ -413,23 +440,9 @@ class ExactDecimal implements Decimal {
   }
 
   toFixed(fractionDigits?: number): string {
-    if (fractionDigits === undefined) return this.toString();
-    const negative = this.#c < 0n;
-    const magnitude = negative ? -this.#c : this.#c;
-    const rounded = roundQuotient(
-      magnitude * shift(fractionDigits),
-      shift(this.#scale),
-      "half-up"
-    ).toString();
-    // A negative value keeps its sign even when every digit it rounded to is a
-    // zero: `-0.004` to two places is `-0.00`, which says the value was below
-    // zero and too small to show. Zero itself is never negative, so there is no
-    // second rule to apply.
-    const sign = negative ? "-" : "";
-    if (fractionDigits === 0) return `${sign}${rounded}`;
-    const padded = rounded.padStart(fractionDigits + 1, "0");
-    const point = padded.length - fractionDigits;
-    return `${sign}${padded.slice(0, point)}.${padded.slice(point)}`;
+    return fractionDigits === undefined
+      ? this.toString()
+      : renderFixed(this.#c, this.#scale, fractionDigits);
   }
 
   toNumber(): number {
@@ -496,4 +509,71 @@ export function fromCanonical(canonical: string): Decimal {
  */
 export function canonicalDecimalText(value: unknown): string | undefined {
   return owns(value) ? textOf(value) : undefined;
+}
+
+/**
+ * The Decimal `coefficient x 10^-scale`: the decode seam for an unscaled
+ * integer a provider stored, normalized by the constructor like every result.
+ */
+export function fromCoefficient(coefficient: bigint, scale: number): Decimal {
+  return new ExactDecimal(coefficient, scale);
+}
+
+/**
+ * The unscaled integer coefficient of canonical text at `scale`, which is never
+ * less than the text's own: `logical x 10^scale`, exact because it is the
+ * value's own `BigInt` shifted, never a JavaScript multiplication.
+ */
+export function toCoefficient(canonical: string, scale: number): string {
+  const [coefficient, own] = partsOfCanonical(canonical);
+  return (coefficient * shift(scale - own)).toString();
+}
+
+/**
+ * Canonical text written with exactly `fractionDigits` fraction digits — the
+ * `toFixed` rendering, read from the text so no prototype method is consulted.
+ */
+export function fixedText(canonical: string, fractionDigits: number): string {
+  const [coefficient, scale] = partsOfCanonical(canonical);
+  return renderFixed(coefficient, scale, fractionDigits);
+}
+
+/**
+ * Why canonical text is outside the domain `{ precision, scale }`, or
+ * `undefined` when it fits: the one owner of both refusal sentences.
+ *
+ * Fitting is a DOMAIN question, not a spelling one: `"1.2"` at scale 5 fits and
+ * stays `"1.2"`. Only digits past `scale`, or an unscaled coefficient wider
+ * than `precision`, are outside, and both are refused rather than rounded.
+ *
+ * Read from the TEXT, in one pass and with no allocation: a declared scale may
+ * be as large as `Number.MAX_SAFE_INTEGER` before a provider bounds it, and a
+ * field refuses an over-long literal before any `BigInt` is built.
+ */
+export function domainRefusal(
+  canonical: string,
+  precision: number,
+  scale: number
+): string | undefined {
+  const point = canonical.indexOf(".");
+  const fractionDigits = point === -1 ? 0 : canonical.length - point - 1;
+  if (fractionDigits > scale) {
+    return `Expected at most ${scale} fractional digit${scale === 1 ? "" : "s"}, but '${canonical}' has ${fractionDigits}`;
+  }
+  const start = canonical.startsWith("-") ? 1 : 0;
+  let digits: number;
+  if (canonical[start] !== "0") {
+    // Canonical text has no leading zero, so every integer digit counts.
+    digits = (point === -1 ? canonical.length : point) - start + scale;
+  } else {
+    // A zero integer part: the coefficient starts at the first non-zero
+    // fraction digit, and zero itself has none.
+    let first = point + 1;
+    while (canonical[first] === "0") first++;
+    digits = point === -1 ? 0 : scale - (first - point - 1);
+  }
+  if (digits > precision) {
+    return `Expected an unscaled coefficient of at most ${precision} digits, but '${canonical}' needs ${digits}`;
+  }
+  return undefined;
 }

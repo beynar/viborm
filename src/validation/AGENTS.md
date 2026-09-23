@@ -166,16 +166,22 @@ beside it and for nothing else: the admission rule `admitDecimal`
 canonical-text reader `canonicalDecimalText` —
 which IS the brand answer, because the module-private `owns` is the only thing
 that can answer and it returns `undefined` for anything the constructor never
-built — and the grammar-skipping `fromCanonical`. `DECIMAL_INPUT_REFUSAL`, the
-field boundary's sentence, goes to `primitives/decimal.ts` for the same reason;
-the constructor's sentence adds the `bigint` member and shares the rest. `src/index.ts` re-exports only the class.
+built — the two grammar-skipping decode seams `fromCanonical` and
+`fromCoefficient`, and the text-level arithmetic the codec needs:
+`domainRefusal` (the one owner of both descriptor sentences, read from the text
+without allocating), `toCoefficient` and `fixedText`. `DECIMAL_INPUT_REFUSAL`,
+the field boundary's sentence, goes to `primitives/decimal.ts` for the same
+reason; the constructor's sentence adds the `bigint` member and shares the
+rest. `src/index.ts` re-exports only the class.
 
 `primitives/decimal-codec.ts` owns both the one structural `DecimalDescriptor`
-shape and the one field-aware decimal codec. It owns the accepted
-`Decimal | string` admission at the FIELD boundary, descriptor
-validation, logical/coefficient conversion, provider scalar/list encode/decode,
-widened sum decode, the two DDL renderings, and fresh public Decimal
-construction through the value module's seam. Import it by direct path; do not
+shape and the one field-aware decimal codec: the two physical vocabularies,
+the provider scalar/list decode grammars, widened sum decode, the two DDL
+renderings, and the provider limit table. It moves no decimal point in a
+string — the coefficient and fixed renderings are the value module's — and it
+keeps `canonicalizeDecimal`, `canonicalizeMaterializedDecimal`, `toDecimal`
+and `logicalToCoefficient` as the value module's functions under the names the
+engine imports. Import it by direct path; do not
 add a barrel cycle, another structural descriptor, or a second
 cache/query/migration codec.
 

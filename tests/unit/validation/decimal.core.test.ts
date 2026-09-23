@@ -7,7 +7,6 @@ import { parse as parseSchema } from "@validation";
 import {
   canonicalizeDecimal,
   canonicalizeMaterializedDecimal,
-  coefficientToLogical,
   decimalColumnType,
   decimalDefaultText,
   decimalListDefaultText,
@@ -17,7 +16,6 @@ import {
   decodePhysicalDecimalList,
   decodePhysicalWidenedSum,
   decodeWidenedSum,
-  describeDescriptorRefusal,
   describeProviderLimitRefusal,
   encodeDecimalListContainer,
   encodePhysicalDecimal,
@@ -32,6 +30,7 @@ import {
   canonicalDecimalText,
   DECIMAL_CONSTRUCTOR_REFUSAL,
   DECIMAL_INPUT_REFUSAL,
+  domainRefusal,
 } from "@validation/primitives/decimal-value";
 import v from "@validation/primitives/v";
 import { getScalarSchemas } from "@validation/scalars";
@@ -302,9 +301,7 @@ describe("decimal value boundary", () => {
     expect(decodeWidenedSum(forged, 2)).toBeUndefined();
     // The descriptor cannot be the net: it reads "NaN" as three coefficient
     // digits and no fractional digit, so it finds nothing to refuse.
-    expect(
-      describeDescriptorRefusal("NaN", { precision: 10, scale: 2 })
-    ).toBeUndefined();
+    expect(domainRefusal("NaN", 10, 2)).toBeUndefined();
   });
 
   test("public parse contains external decimal-schema failures", () => {
@@ -492,20 +489,27 @@ describe("declared domain", () => {
   });
 
   test("names which bound was exceeded", () => {
-    expect(
-      describeDescriptorRefusal("1.005", { precision: 10, scale: 2 })
-    ).toBe("Expected at most 2 fractional digits, but '1.005' has 3");
-    expect(describeDescriptorRefusal("0.05", { precision: 10, scale: 1 })).toBe(
+    expect(domainRefusal("1.005", 10, 2)).toBe(
+      "Expected at most 2 fractional digits, but '1.005' has 3"
+    );
+    expect(domainRefusal("0.05", 10, 1)).toBe(
       "Expected at most 1 fractional digit, but '0.05' has 2"
     );
-    expect(
-      describeDescriptorRefusal("100000", { precision: 10, scale: 5 })
-    ).toBe(
+    expect(domainRefusal("100000", 10, 5)).toBe(
       "Expected an unscaled coefficient of at most 10 digits, but '100000' needs 11"
     );
-    expect(
-      describeDescriptorRefusal("1.2", { precision: 10, scale: 5 })
-    ).toBeUndefined();
+    expect(domainRefusal("1.2", 10, 5)).toBeUndefined();
+    // The count reads the text: an integer part counts every digit, a zero
+    // integer part counts from the first non-zero fraction digit, zero none.
+    expect(domainRefusal("123456789.1", 10, 2)).toBe(
+      "Expected an unscaled coefficient of at most 10 digits, but '123456789.1' needs 11"
+    );
+    expect(domainRefusal("-0.001", 3, 3)).toBeUndefined();
+    expect(domainRefusal("0.001", 2, 3)).toBeUndefined();
+    expect(domainRefusal("0.01", 1, 3)).toBe(
+      "Expected an unscaled coefficient of at most 1 digits, but '0.01' needs 2"
+    );
+    expect(domainRefusal("0", 1, Number.MAX_SAFE_INTEGER)).toBeUndefined();
   });
 });
 
@@ -596,13 +600,18 @@ describe("custom schema over the decimal value", () => {
   });
 });
 
+/** A coefficient decode with a bound no case below reaches. */
+const coefficientToLogical = (coefficient: unknown, scale: number) =>
+  decodePhysicalDecimal(coefficient, { precision: 1000, scale }, "coefficient");
+
 describe("logical and coefficient conversion", () => {
-  test("moves the point with digits, never with arithmetic", () => {
+  test("shifts the value's own coefficient, never a JavaScript number", () => {
     expect(logicalToCoefficient("1.2", 2)).toBe("120");
     expect(logicalToCoefficient("-0.03", 2)).toBe("-3");
     expect(logicalToCoefficient("0", 2)).toBe("0");
     expect(logicalToCoefficient("0", 0)).toBe("0");
     expect(logicalToCoefficient("-12345", 0)).toBe("-12345");
+    expect(logicalToCoefficient("-1.2", 5)).toBe("-120000");
     // Past 2^53, where a JS multiply would already be wrong.
     expect(logicalToCoefficient("90071992547409.93", 2)).toBe(
       "9007199254740993"
@@ -627,17 +636,23 @@ describe("logical and coefficient conversion", () => {
   test("refuses any coefficient spelling this codec never wrote", () => {
     expect(coefficientToLogical("120", 2)).toBe("1.2");
     expect(coefficientToLogical("0", 2)).toBe("0");
+    // `BigInt` itself reads `"0x10"`, `" 1 "`, `"1 "` and `""`: the vocabulary
+    // is refused before a number is built.
     for (const bad of [
       "+1",
       "-",
       "-0",
       "01",
+      "0120",
       "1.0",
       "1e3",
       "",
       " 1",
+      "1 ",
+      "0x10",
       "abc",
       120,
+      1n,
     ]) {
       expect(coefficientToLogical(bad, 2)).toBeUndefined();
     }

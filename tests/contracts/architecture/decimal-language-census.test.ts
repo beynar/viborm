@@ -587,6 +587,20 @@ export const one = () => fromCanonical("1");
       )
     ).toEqual([]);
 
+    // The coefficient seam is the third way to an instance.
+    const coefficientSeam = `import { fromCoefficient } from "@validation/primitives/decimal-value";
+export const cent = () => fromCoefficient(1n, 2);
+`;
+    expect(
+      ormOwnedDecimalWrapperEntries("src/client/money.ts", coefficientSeam)
+    ).toEqual(["src/client/money.ts decimalRuntimeImport 1"]);
+    expect(
+      ormOwnedDecimalWrapperEntries(
+        "src/validation/primitives/decimal-codec.ts",
+        coefficientSeam
+      )
+    ).toEqual([]);
+
     const sibling = `import { Decimal } from "../primitives/decimal-value";
 export const zero = new Decimal(0);
 `;
