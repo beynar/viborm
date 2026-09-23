@@ -1092,6 +1092,157 @@ describe("D1 binding provider", () => {
     await expect(client.author.findMany()).resolves.toEqual([]);
   });
 
+  it("refuses a nested createMany with skipDuplicates under create or update before any D1 call", async () => {
+    // A nested member is skippable only inside a rollback region, which D1's
+    // batch-only transport does not have, even when the member is scalar.
+    const calls: string[] = [];
+    const client = createClient({
+      schema: progressiveSchema,
+      database: observeD1Calls(env.DB, calls),
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.create({ data: { id: "a0", name: "zero" } });
+    calls.length = 0;
+
+    const underCreate = await client.author
+      .create({
+        data: {
+          id: "a1",
+          name: "one",
+          posts: {
+            createMany: {
+              data: [{ id: "p1", title: "one" }],
+              skipDuplicates: true,
+            },
+          },
+        },
+      })
+      .catch((error) => error);
+    const underUpdate = await client.author
+      .update({
+        where: { id: "a0" },
+        data: {
+          posts: {
+            createMany: {
+              data: [{ id: "p2", title: "two" }],
+              skipDuplicates: true,
+            },
+          },
+        },
+      })
+      .catch((error) => error);
+
+    for (const [refusal, operation] of [
+      [underCreate, "create"],
+      [underUpdate, "update"],
+    ] as const) {
+      expect(refusal).toBeInstanceOf(TransactionError);
+      if (!(refusal instanceof TransactionError)) throw refusal;
+      expect(refusal.code).toBe("V5001");
+      expect(refusal.message).toBe(
+        "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region."
+      );
+      expect(refusal.meta).toEqual({
+        driver: "d1",
+        model: "author",
+        operation,
+      });
+    }
+    expect(calls).toEqual([]);
+    await expect(client.post.findMany()).resolves.toEqual([]);
+    await expect(client.author.findMany()).resolves.toEqual([
+      { id: "a0", name: "zero" },
+    ]);
+  });
+
+  it("refuses a many-to-many nested createMany with skipDuplicates before any D1 call", async () => {
+    const taggedPost = s
+      .model({
+        id: s.string().id(),
+        tags: s.toMany(() => postTag),
+      })
+      .map("viborm_d1_skip_posts");
+    const postTag = s
+      .model({
+        id: s.string().id(),
+        name: s.string().unique(),
+        posts: s.toMany(() => taggedPost),
+      })
+      .map("viborm_d1_skip_tags");
+    await env.DB.exec(
+      `CREATE TABLE IF NOT EXISTS viborm_d1_skip_posts (id TEXT PRIMARY KEY);
+       CREATE TABLE IF NOT EXISTS viborm_d1_skip_tags (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+       CREATE TABLE IF NOT EXISTS post_tag (postId TEXT NOT NULL REFERENCES viborm_d1_skip_posts(id), tagId TEXT NOT NULL REFERENCES viborm_d1_skip_tags(id), PRIMARY KEY (postId, tagId))`
+    );
+    const calls: string[] = [];
+    const client = createClient({
+      schema: { post: taggedPost, tag: postTag },
+      database: observeD1Calls(env.DB, calls),
+    });
+
+    const refusal = await client.post
+      .create({
+        data: {
+          id: "p1",
+          tags: {
+            createMany: {
+              data: [{ id: "t1", name: "one" }],
+              skipDuplicates: true,
+            },
+          },
+        },
+      })
+      .catch((error) => error);
+
+    expect(refusal).toBeInstanceOf(TransactionError);
+    if (!(refusal instanceof TransactionError)) throw refusal;
+    expect(refusal.code).toBe("V5001");
+    expect(refusal.meta).toEqual({
+      driver: "d1",
+      model: "post",
+      operation: "create",
+    });
+    expect(calls).toEqual([]);
+    const rows = await env.DB.batch([
+      env.DB.prepare("SELECT count(*) AS n FROM viborm_d1_skip_posts"),
+      env.DB.prepare("SELECT count(*) AS n FROM viborm_d1_skip_tags"),
+      env.DB.prepare("SELECT count(*) AS n FROM post_tag"),
+    ]);
+    expect(rows.map((result) => result.results)).toEqual([
+      [{ n: 0 }],
+      [{ n: 0 }],
+      [{ n: 0 }],
+    ]);
+  });
+
+  it("keeps a root scalar createMany with skipDuplicates on D1: a colliding row is skipped", async () => {
+    const calls: string[] = [];
+    const client = createClient({
+      schema: progressiveSchema,
+      database: observeD1Calls(env.DB, calls),
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    calls.length = 0;
+
+    await expect(
+      client.author.createMany({
+        data: [
+          { id: "a1", name: "one" },
+          { id: "a2", name: "one" },
+        ],
+        skipDuplicates: true,
+      })
+    ).resolves.toEqual({ count: 1 });
+    expect(calls.length).toBeGreaterThan(0);
+    await expect(client.author.findMany()).resolves.toEqual([
+      { id: "a1", name: "one" },
+    ]);
+  });
+
   it("executes nested relation-bearing record series at their tree position", async () => {
     const client = createClient({
       schema: progressiveSchema,
