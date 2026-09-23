@@ -21,6 +21,7 @@ import type { ScalarState } from "@schema/scalars/common";
 import { string } from "@schema/scalars/string/scalar";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
+  createSchemaRegistry,
   type InferInput,
   type InferOutput,
   type Prettify,
@@ -999,6 +1000,77 @@ describe("a declared identifier domain", () => {
         .default(() => `usr-${UUID.toUpperCase()}`)["~"].state
     );
     expect(admitted(shouting.create, undefined)).toBe(`usr-${UUID}`);
+  });
+
+  describe("a custom schema's output crosses the domain again", () => {
+    /** A Standard Schema that returns `map(input)`, recording what it read. */
+    const returning = (map: (input: string) => string) => {
+      const seen: unknown[] = [];
+      const schema: StandardSchemaV1<string, string> = {
+        "~standard": {
+          version: 1,
+          vendor: "custom-output-probe",
+          validate: (value) => {
+            seen.push(value);
+            return { value: map(String(value)) };
+          },
+        },
+      };
+      return { schema, seen };
+    };
+
+    test("an output outside the domain is refused at admission", () => {
+      // Before the domain was the last word, `"garbage"` was admitted and the
+      // engine died at the binding (`EngineInvariantError: Identifier field
+      // 'id' reached its binding with a value outside a uuid value prefixed
+      // 'usr-'`).
+      const { schema } = returning(() => "garbage");
+      const schemas = getScalarSchemas(
+        string().uuid("usr").schema(schema)["~"].state
+      );
+      const result = parse(schemas.create, `usr-${UUID}`);
+      expect(result.issues?.[0]?.message).toBe(
+        "Expected a uuid value prefixed 'usr-'"
+      );
+      expect(
+        admitted(schemas.filter, { equals: `usr-${UUID}` })
+      ).toBeUndefined();
+
+      const user = s.model({
+        id: s.string().uuid("usr").schema(schema).id(),
+        name: s.string(),
+      });
+      const create = parse(
+        createSchemaRegistry({ user }).proxy.user.args.create,
+        {
+          data: { id: `usr-${UUID}`, name: "a" },
+        }
+      );
+      expect(create.issues).toEqual([
+        {
+          message: "Expected a uuid value prefixed 'usr-'",
+          path: ["data", "id"],
+        },
+      ]);
+    });
+
+    test("an alias it returns folds to the canonical spelling", () => {
+      const { schema, seen } = returning(
+        (input) => `usr-${input.slice("usr-".length).toUpperCase()}`
+      );
+      const schemas = getScalarSchemas(
+        string().uuid("usr").schema(schema)["~"].state
+      );
+      // The custom schema still reads the canonical spelling first ...
+      expect(admitted(schemas.create, `usr-${UUID.toUpperCase()}`)).toBe(
+        `usr-${UUID}`
+      );
+      expect(seen).toEqual([`usr-${UUID}`]);
+      // ... and what it returns leaves canonical, operand and value alike.
+      expect(admitted(schemas.filter, { equals: `usr-${UUID}` })).toEqual({
+        equals: `usr-${UUID}`,
+      });
+    });
   });
 
   test("a LIST of strings has no domain, whatever it declares", () => {

@@ -427,11 +427,19 @@ with. Choosing the representation belongs one layer up, to
 `@schema/scalars/string/id-domain`'s `idStorageOf`; do not teach this module a
 column type.
 
-Admission is chained ONCE, in `buildValidator`, from the internal
-`ScalarOptions.idDomain` (a sibling of `disallowZero`): after the base type
-check and BEFORE a caller's `.schema()` and any transform, so a custom validator
-sees the canonical spelling and every identity-sensitive consumer downstream —
-cache key, captured row key, `fkEquals` — sees one spelling per identifier.
+Admission is chained in ONE place, `buildValidator`, from the internal
+`ScalarOptions.idDomain` (a sibling of `disallowZero`), and the domain is both
+the first and the last word on the value: base type check → domain → a
+caller's `.schema()` → domain again → transform. The first crossing gives a
+custom validator the canonical spelling; the second is there because that
+validator's OUTPUT is caller code — a Standard Schema may return any string —
+so an alias it returns folds and a value outside the domain is refused at the
+field's path with the same `Expected <domain>` an input gets, instead of
+reaching the engine's binding invariant. The second crossing is chained only
+when a custom schema exists, and no transform ever meets a domain
+(`scalars/string.ts` is the one caller and a field state carries none). Every
+identity-sensitive consumer downstream — cache key, captured row key,
+`fkEquals` — therefore sees one spelling per identifier.
 `scalars/string.ts` is the one place that passes it: from the field's own
 declaration, or from the domain a FOREIGN KEY derives, which the registry reads
 off the resolved index and threads through `getScalarsSchemas`. The four
