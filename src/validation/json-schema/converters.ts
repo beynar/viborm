@@ -7,15 +7,13 @@ import { ValidationError } from "@errors";
 import type { DecimalSchema } from "../primitives/decimal";
 import {
   GEO_BOUNDS_KEYS,
-  GEO_POLYGON_MIN_RING_POINTS,
-} from "../primitives/geo-area-codec";
-import {
   GEO_LATITUDE_MAX,
   GEO_LATITUDE_MIN,
   GEO_LONGITUDE_MAX,
   GEO_LONGITUDE_MIN,
   GEO_POINT_KEYS,
-} from "../primitives/geo-point-codec";
+  GEO_POLYGON_MIN_RING_POINTS,
+} from "../primitives/geo-values";
 import type { ExactlyOneSchema } from "../scalars/decimal";
 import type { VibSchema } from "../types";
 import { isFunction, isString } from "../value-guards";

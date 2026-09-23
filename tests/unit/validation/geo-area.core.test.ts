@@ -1,6 +1,7 @@
-import type { GeoPoint } from "@validation";
+import { type GeoPoint, parse } from "@validation";
 import {
   GEO_POINT_EARTH_RADIUS_METERS,
+  geoAreaSchema,
   geoBoundsForDistance,
   validateGeoArea,
   validateGeoBounds,
@@ -323,8 +324,8 @@ describe("GeoArea validation boundary", () => {
       { outer: disguisedSparse },
       { outer: throwingRing },
     ]) {
-      expect(() => validateGeoPolygon(polygon)).not.toThrow();
-      expect(validateGeoPolygon(polygon).issues).toBeDefined();
+      expect(() => parse(geoAreaSchema(), { polygon })).not.toThrow();
+      expect(parse(geoAreaSchema(), { polygon }).issues).toBeDefined();
     }
   });
 

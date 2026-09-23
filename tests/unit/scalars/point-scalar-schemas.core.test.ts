@@ -175,7 +175,7 @@ describe("GeoPoint scalar modifiers", () => {
 
     const scalar = point();
     expect(() => Reflect.apply(scalar.default, scalar, [null])).toThrow(
-      "Expected GeoPoint object"
+      "Expected object"
     );
   });
 

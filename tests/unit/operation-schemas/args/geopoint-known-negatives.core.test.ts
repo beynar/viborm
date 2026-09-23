@@ -155,9 +155,7 @@ describe("GeoPoint retained negative operation keys", () => {
       },
     });
 
-    expect(firstMessage(result.issues)).toContain(
-      "Expected GeoPoint with exactly longitude and latitude"
-    );
+    expect(firstMessage(result.issues)).toContain("Unknown key: latitdue");
   });
 
   test("ordinary nested filter refuses a non-fresh point typo", () => {
@@ -168,9 +166,7 @@ describe("GeoPoint retained negative operation keys", () => {
       },
     });
 
-    expect(firstMessage(result.issues)).toContain(
-      "Expected GeoPoint with exactly longitude and latitude"
-    );
+    expect(firstMessage(result.issues)).toContain("Unknown key: latitdue");
   });
 
   test("variant nested create refuses a non-fresh point typo", () => {
@@ -187,9 +183,7 @@ describe("GeoPoint retained negative operation keys", () => {
       },
     });
 
-    expect(firstMessage(result.issues)).toContain(
-      "Expected GeoPoint with exactly longitude and latitude"
-    );
+    expect(firstMessage(result.issues)).toContain("Unknown key: latitdue");
   });
 
   test("variant nested filter refuses a non-fresh point typo", () => {
@@ -203,9 +197,7 @@ describe("GeoPoint retained negative operation keys", () => {
       },
     });
 
-    expect(firstMessage(result.issues)).toContain(
-      "Expected GeoPoint with exactly longitude and latitude"
-    );
+    expect(firstMessage(result.issues)).toContain("Unknown key: latitdue");
   });
 
   test("ordinary nested filter refuses a non-fresh area typo", () => {

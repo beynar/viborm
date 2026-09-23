@@ -1,22 +1,26 @@
 import type { ValidationResult, VibSchema } from "../types";
 import {
-  GEO_LATITUDE_MAX,
-  GEO_LATITUDE_MIN,
-  GEO_LONGITUDE_MAX,
-  GEO_LONGITUDE_MIN,
   prefixGeoFailure,
   readExactGeoRecord,
   readGeoRecordWithOptional,
   readGeoVariantRecord,
   validateGeoPoint,
 } from "./geo-point-codec";
-import type { GeoArea, GeoBounds, GeoPoint, GeoPolygon } from "./geo-values";
+import {
+  GEO_BOUNDS_KEYS,
+  GEO_LATITUDE_MAX,
+  GEO_LATITUDE_MIN,
+  GEO_LONGITUDE_MAX,
+  GEO_LONGITUDE_MIN,
+  GEO_POLYGON_MIN_RING_POINTS,
+  type GeoArea,
+  type GeoBounds,
+  type GeoPoint,
+  type GeoPolygon,
+} from "./geo-values";
 import { createSchema, fail, ok } from "./helpers";
 
 export type { GeoArea, GeoBounds, GeoPolygon } from "./geo-values";
-
-export const GEO_BOUNDS_KEYS = ["south", "west", "north", "east"] as const;
-export const GEO_POLYGON_MIN_RING_POINTS = 3;
 
 type CanonicalRing = GeoPoint[];
 type UnwrappedPoint = { longitude: number; latitude: number };

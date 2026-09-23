@@ -2077,3 +2077,45 @@ own small integer argument instead, and is deliberately unguarded:
 `"0".repeat(20000)` does, it is unreachable from VibORM (no call site in `src/`
 divides or fixes a Decimal), and a ceiling there would be a guard on a caller's
 own arithmetic with no VibORM coverage to name.
+
+## Addendum — geographic values as ordinary records (decision D2, 2026-09-23)
+
+Decision D2: the public input for a geographic value is exactly the value
+VibORM returns, validated as an ordinary record. The record walker
+(`createObjectValidator` in `src/validation/primitives/object.ts`) owns key
+reading, unknown and missing keys, and issue paths for every object operand;
+the geographic codecs keep only the facts no generic schema can state.
+
+**Retired: the bespoke geographic record reader.** `snapshotGeoRecord` and
+`readExactGeoRecord` refused a non-plain prototype, a symbol key, an inherited
+key, and a key deleted between listing and reading, and caught every throwing
+reflection trap. Successor: the walker. It reads enumerable string keys (own or
+inherited) in schema order, refuses unknown keys before reading any value, and
+reports a key removed mid-read as `Missing required field`. A throwing getter
+or trap is contained by `parse` (`src/validation/index.ts`) and by the
+operation boundary, which turn it into an issue with the thrown cause; a direct
+call to `validateGeoPoint` now propagates it. The one direct caller outside a
+boundary, `parsePointValue` (`src/query-engine/result/scalar-structured-parser.ts`),
+reads provider rows, which are plain values decoded from JSON. Witnesses:
+`tests/unit/validation/point.core.test.ts` ("reads the point as an ordinary
+record", "names the offending key", "refuses a coordinate removed after the key
+snapshot").
+
+**Kept normalization: longitude `-180` becomes `180`** (`validateGeoPoint`).
+Consumers: the SQLite CHECK in `src/migrations/drivers/sqlite/geo-point.ts`
+(`longitude > -180`, so the physical `-180` spelling is refused by the
+database) and the meridian arms of `src/adapters/shared/geo-point.ts`, which
+assume the `+180` spelling.
+
+**Kept normalization: `-0` becomes `0`** (`geoCoordinate`, the one coordinate
+schema). Consumer: the returned-value contract. The same codec decodes provider
+rows and cache snapshots, and the type VibORM returns has no `-0`.
+
+**Moved, not added: the coordinate domain constants.** `GEO_POINT_KEYS`, the
+longitude and latitude limits, `GEO_BOUNDS_KEYS` and
+`GEO_POLYGON_MIN_RING_POINTS` now live in the import-free
+`src/validation/primitives/geo-values.ts`. The codecs now build records with
+`object()` at module load; while the JSON Schema converter imported its
+constants from the codecs, loading `object.ts` first re-entered it through
+`json-schema/factory` → `converters` → codec and threw a temporal-dead-zone
+`ReferenceError`. Reading the constants from the leaf removes that edge.

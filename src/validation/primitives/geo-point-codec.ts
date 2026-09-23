@@ -1,14 +1,17 @@
 import type { ValidationFailure, ValidationResult } from "../types";
-import type { GeoPoint } from "./geo-values";
-import { fail, ok } from "./helpers";
+import {
+  GEO_LATITUDE_MAX,
+  GEO_LATITUDE_MIN,
+  GEO_LONGITUDE_MAX,
+  GEO_LONGITUDE_MIN,
+  GEO_POINT_KEYS,
+  type GeoPoint,
+} from "./geo-values";
+import { createSchema, fail, ok, validateSchema } from "./helpers";
+import { validateNumber } from "./number";
+import { object } from "./object";
 
 export type { GeoPoint } from "./geo-values";
-
-export const GEO_POINT_KEYS = ["longitude", "latitude"] as const;
-export const GEO_LONGITUDE_MIN = -180;
-export const GEO_LONGITUDE_MAX = 180;
-export const GEO_LATITUDE_MIN = -90;
-export const GEO_LATITUDE_MAX = 90;
 
 type GeoProperty = string | symbol;
 
@@ -158,41 +161,48 @@ export function readGeoVariantRecord(
   return ok({ variant, value: snapshot.value.values[variant] });
 }
 
-function canonicalCoordinate(value: number): number {
-  return Object.is(value, -0) ? 0 : value;
+/**
+ * One finite coordinate inside its inclusive range, with -0 read as 0: the
+ * type VibORM returns has no -0, and points decode provider rows and cache
+ * snapshots through this same schema.
+ */
+function geoCoordinate(label: string, low: number, high: number) {
+  return createSchema<number, number>("number", (value) => {
+    const coordinate = validateNumber(value);
+    if (coordinate.issues) return coordinate;
+    if (coordinate.value < low || coordinate.value > high) {
+      return fail(`${label} must be between ${low} and ${high}`);
+    }
+    return ok(Object.is(coordinate.value, -0) ? 0 : coordinate.value);
+  });
 }
 
-/** Validate and snapshot the one public GeoPoint representation. */
+const geoLongitude = geoCoordinate(
+  "Longitude",
+  GEO_LONGITUDE_MIN,
+  GEO_LONGITUDE_MAX
+);
+const geoLatitude = geoCoordinate(
+  "Latitude",
+  GEO_LATITUDE_MIN,
+  GEO_LATITUDE_MAX
+);
+
+const pointRecord = object(
+  { [GEO_POINT_KEYS[0]]: geoLongitude, [GEO_POINT_KEYS[1]]: geoLatitude },
+  { partial: false }
+);
+
+/** Validate the one public GeoPoint representation into a fresh record. */
 export function validateGeoPoint(value: unknown): ValidationResult<GeoPoint> {
-  const snapshot = readExactGeoRecord(value, GEO_POINT_KEYS, "GeoPoint");
-  if (snapshot.issues) return snapshot;
-
-  const longitude = snapshot.value.values.longitude;
-  const latitude = snapshot.value.values.latitude;
-  if (typeof longitude !== "number" || !Number.isFinite(longitude)) {
-    return fail("Expected finite longitude", ["longitude"]);
-  }
-  if (longitude < GEO_LONGITUDE_MIN || longitude > GEO_LONGITUDE_MAX) {
-    return fail(
-      `Longitude must be between ${GEO_LONGITUDE_MIN} and ${GEO_LONGITUDE_MAX}`,
-      ["longitude"]
-    );
-  }
-  if (typeof latitude !== "number" || !Number.isFinite(latitude)) {
-    return fail("Expected finite latitude", ["latitude"]);
-  }
-  if (latitude < GEO_LATITUDE_MIN || latitude > GEO_LATITUDE_MAX) {
-    return fail(
-      `Latitude must be between ${GEO_LATITUDE_MIN} and ${GEO_LATITUDE_MAX}`,
-      ["latitude"]
-    );
-  }
-
+  const point = validateSchema(pointRecord, value);
+  if (point.issues) return point;
+  const { longitude, latitude } = point.value;
+  // -180 and +180 are one meridian. The SQLite CHECK
+  // (migrations/drivers/sqlite/geo-point.ts) refuses -180, and the coordinate
+  // predicates in adapters/shared/geo-point.ts assume the +180 spelling.
   return ok({
-    longitude:
-      longitude === GEO_LONGITUDE_MIN
-        ? GEO_LONGITUDE_MAX
-        : canonicalCoordinate(longitude),
-    latitude: canonicalCoordinate(latitude),
+    longitude: longitude === GEO_LONGITUDE_MIN ? GEO_LONGITUDE_MAX : longitude,
+    latitude,
   });
 }
