@@ -1,0 +1,32 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | docs/architecture/raptor3-evidence/g4/root-review-probes/C/decisions-recheck.review.test.ts > Area C2 — two of Arnaud's decisions, re-checked by cells of my own > D-6: the upsert interceptor input is the ONE admission (operator arm, defaulted column)
+[D-6 re-check]
+  shipped   seen [{"where":{"email":"d6@example.test"},"create":{"email":"d6@example.test","id":1,"name":"Created"},"update":{"score":{"increment":5}}},{"where":{"email":"d6@example.test"},"create":{"email":"d6@example.test","id":1,"name":"Created"},"update":{"score":{"increment":5}}}]
+  candidate seen [{"where":{"email":"d6@example.test"},"create":{"id":1,"email":"d6@example.test","name":"Created","score":0,"tier":"bronze"},"update":{"score":{"increment":5}}},{"where":{"email":"d6@example.test"},"create":{"id":1,"email":"d6@example.test","name":"Created","score":0,"tier":"bronze"},"update":{"score":{"increment":5}}}]
+  shipped   rows [{"id":1,"name":"Created","score":5,"tier":"bronze"}]
+  candidate rows [{"id":1,"name":"Created","score":5,"tier":"bronze"}]
+
+stdout | docs/architecture/raptor3-evidence/g4/root-review-probes/C/decisions-recheck.review.test.ts > Area C2 — two of Arnaud's decisions, re-checked by cells of my own > R-D2 (a): a decimal primary key under increment/decrement is the candidate's contract
+[R-D2 increment]
+  shipped   QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value. rows [{"id":1000,"label":"seed"}]
+  candidate ok:{"id":"11","label":"seed"} rows [{"id":1100,"label":"seed"}]
+[R-D2 decrement]
+  shipped   QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value. rows [{"id":1000,"label":"seed"}]
+  candidate ok:{"id":"9","label":"seed"} rows [{"id":900,"label":"seed"}]
+[R-D2 multiply]
+  shipped   QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value. rows [{"id":1000,"label":"seed"}]
+  candidate QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value. rows [{"id":1000,"label":"seed"}]
+[R-D2 divide]
+  shipped   QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value. rows [{"id":1000,"label":"seed"}]
+  candidate QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value. rows [{"id":1000,"label":"seed"}]
+
+ ✓ |g4-root-review-C| docs/architecture/raptor3-evidence/g4/root-review-probes/C/decisions-recheck.review.test.ts (2 tests) 92ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:35:38
+   Duration  8.36s (transform 2.93s, setup 21ms, collect 4.52s, tests 92ms, environment 0ms, prepare 73ms)
+
+Vitest resources: 15.51s wall, 461.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

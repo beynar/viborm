@@ -1,0 +1,127 @@
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -141,6 +141,7 @@
+   readonly owner: RecordCommand;
+   readonly reads: DependencyObservation[];
+   readonly state: AnalysisState;
++  readonly publications: AnalysisState[];
+   readonly provisionalLength: number;
+   substituted: boolean;
+ }
+@@ -552,10 +553,8 @@
+       } else if (command.kind === "link" || command.kind === "remove") {
+         writes.push(command);
+       } else if (command.kind === "series" && "records" in command) {
+-        for (const record of command.records) {
+-          this.analyzeInto(record, state);
+-          root.refusal ??= record.refusal;
+-        }
++        const refusal = this.analyzeMembers(command.records, state);
++        root.refusal ??= refusal?.error;
+       } else if (command.kind === "series") {
+         this.analyzeSeriesInto(command.series, root, state);
+       }
+@@ -588,6 +587,7 @@
+       owner,
+       reads: [],
+       state,
++      publications: [],
+       provisionalLength: state.writes.length - provisionalStart,
+       substituted: false,
+     };
+@@ -596,6 +596,39 @@
+     else this.seriesAnalysis.set(series, [scope]);
+     state.series.push(scope);
+   }
++  private analyzeMembers(
++    members: readonly SelectedSeriesMember[],
++    state: AnalysisState,
++    observe?: (state: AnalysisState) => Error | undefined
++  ): SeriesRefusal | undefined {
++    const prefixLength = state.writes.length;
++    const enclosingSeries = state.series.length;
++    const expandedWrites: WriteOccurrence[] = [];
++    const expandedSeries: SeriesAnalysis[] = [];
++    let refusal: SeriesRefusal | undefined;
++    for (const member of members) {
++      const memberState: AnalysisState = {
++        writes: [...state.writes],
++        series: [...state.series],
++      };
++      for (const scope of state.series) scope.publications.push(memberState);
++      if (member.kind === "record") {
++        this.analyzeInto(member, memberState);
++        if (member.refusal) refusal ??= { error: member.refusal, member };
++      } else {
++        memberState.writes.push(member);
++      }
++      expandedWrites.push(...memberState.writes.slice(prefixLength));
++      const memberSeries = memberState.series.slice(enclosingSeries);
++      for (const scope of memberSeries) scope.publications.push(state);
++      expandedSeries.push(...memberSeries);
++      const observed = !refusal && observe?.(memberState);
++      if (observed) refusal = { error: observed, member };
++    }
++    state.writes.push(...expandedWrites);
++    state.series.push(...expandedSeries);
++    return refusal;
++  }
+   resumeSeries(
+     series: SelectedSeries,
+     members: readonly SelectedSeriesMember[]
+@@ -624,30 +657,37 @@
+       : -1;
+     const publishedOwner =
+       ownerIndex < 0 ? undefined : state.writes.splice(ownerIndex, 1)[0];
+-
+-    let refusal: SeriesRefusal | undefined;
+-    for (const member of members) {
+-      if (member.kind === "record") {
+-        this.analyzeInto(member, state);
+-        if (member.refusal) refusal ??= { error: member.refusal, member };
+-      } else {
+-        state.writes.push(member);
++    const expansionStart = state.writes.length;
++    const expandedSeriesStart = state.series.length;
++    const refusal = this.analyzeMembers(members, state, (memberState) => {
++      for (const observation of scope.reads) {
++        const error = this.checkObservation(memberState, observation);
++        if (error) return error;
+       }
+-      if (!refusal) {
+-        for (const observation of scope.reads) {
+-          const error = this.checkObservation(state, observation);
+-          if (error) {
+-            refusal = { error, member };
+-            break;
+-          }
+-        }
+-      }
+-    }
++    });
++    const expansion = state.writes.slice(expansionStart);
++    const expandedScopes = state.series.slice(expandedSeriesStart);
+     if (!refusal) {
+       for (const observation of scope.reads) {
+         for (const active of state.series) active.reads.push(observation);
+       }
+     }
++    for (const publication of scope.publications) {
++      const publishedOccurrence = publication.writes.indexOf(scope.occurrence);
++      if (publishedOccurrence < 0)
++        throw new Error("Published selected series occurrence is unavailable");
++      publication.writes.splice(
++        publishedOccurrence + 1,
++        scope.provisionalLength,
++        ...expansion
++      );
++      const publishedScope = publication.series.indexOf(scope);
++      if (publishedScope < 0)
++        throw new Error("Published selected series scope is unavailable");
++      publication.series.splice(publishedScope, 1, ...expandedScopes);
++      for (const expanded of expandedScopes)
++        expanded.publications.push(publication);
++    }
+ 
+     if (publishedOwner) state.writes.splice(ownerIndex, 0, publishedOwner);
+     state.writes.push(...suffix);

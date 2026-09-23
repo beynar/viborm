@@ -14,6 +14,8 @@ export const PROTOCOL_PATHS = Object.freeze([
   "benchmarks/operation-pipeline-batch-workloads.mjs",
   "benchmarks/operation-pipeline-catalog.mjs",
   "benchmarks/operation-pipeline-compare.mjs",
+  "benchmarks/operation-pipeline-contract-workloads.mjs",
+  "benchmarks/operation-pipeline-evidence.mjs",
   "benchmarks/operation-pipeline-fixtures.mjs",
   "benchmarks/operation-pipeline-harness.mjs",
   "benchmarks/operation-pipeline-mutation-workloads.mjs",

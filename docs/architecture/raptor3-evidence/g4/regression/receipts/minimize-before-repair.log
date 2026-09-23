@@ -1,0 +1,149 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests | 1 failed | 45 skipped) 41ms
+   ↓ pins the approved single-admission ledger against duplicate and missing entries: sqlite-interactive
+   ↓ G2 generated fixed key-move: sqlite-interactive
+   ↓ G2 generated fixed key-rollback: sqlite-interactive
+   ↓ G2 generated fixed singular-supply-modify: sqlite-interactive
+   ↓ G2 generated fixed required-retain: sqlite-interactive
+   ↓ G2 generated fixed required-depart: sqlite-interactive
+   ↓ G2 generated fixed coc-set-distinct: sqlite-interactive
+   ↓ G2 generated fixed coc-set-same: sqlite-interactive
+   ↓ G2 generated fixed delete-create: sqlite-interactive
+   ↓ G2 generated fixed delete-update: sqlite-interactive
+   ↓ G2 generated fixed junction-transfer: sqlite-interactive
+   ↓ G2 generated before-dispatch followed by healthy calls: sqlite-interactive
+   ↓ G2 generated after-key-write followed by healthy calls: sqlite-interactive
+   ↓ G2 generated two-before-dispatch followed by healthy calls: sqlite-interactive
+   ↓ G2 generated seed 2000: sqlite-interactive
+   ↓ G2 generated seed 2001: sqlite-interactive
+   ↓ G2 generated seed 2002: sqlite-interactive
+   ↓ G2 generated seed 2003: sqlite-interactive
+   ↓ G2 generated seed 2004: sqlite-interactive
+   ↓ G2 generated seed 2005: sqlite-interactive
+   ↓ G2 generated seed 2006: sqlite-interactive
+   ↓ G2 generated seed 2007: sqlite-interactive
+   ↓ G2 shrinks actual wrong-parent publication and exactly replays the same property: sqlite-interactive
+   ↓ pins the approved single-admission ledger against duplicate and missing entries: sqlite-atomic-batch
+   ↓ G2 generated fixed key-move: sqlite-atomic-batch
+   ↓ G2 generated fixed key-rollback: sqlite-atomic-batch
+   ↓ G2 generated fixed singular-supply-modify: sqlite-atomic-batch
+   ↓ G2 generated fixed required-retain: sqlite-atomic-batch
+   ↓ G2 generated fixed required-depart: sqlite-atomic-batch
+   ↓ G2 generated fixed coc-set-distinct: sqlite-atomic-batch
+   ↓ G2 generated fixed coc-set-same: sqlite-atomic-batch
+   ↓ G2 generated fixed delete-create: sqlite-atomic-batch
+   ↓ G2 generated fixed delete-update: sqlite-atomic-batch
+   ↓ G2 generated fixed junction-transfer: sqlite-atomic-batch
+   ↓ G2 generated before-dispatch followed by healthy calls: sqlite-atomic-batch
+   ↓ G2 generated after-key-write followed by healthy calls: sqlite-atomic-batch
+   × G2 generated two-before-dispatch followed by healthy calls: sqlite-atomic-batch 40ms
+     → G2 seed 2122, sqlite-atomic-batch, commands failed
+   ↓ G2 generated seed 2000: sqlite-atomic-batch
+   ↓ G2 generated seed 2001: sqlite-atomic-batch
+   ↓ G2 generated seed 2002: sqlite-atomic-batch
+   ↓ G2 generated seed 2003: sqlite-atomic-batch
+   ↓ G2 generated seed 2004: sqlite-atomic-batch
+   ↓ G2 generated seed 2005: sqlite-atomic-batch
+   ↓ G2 generated seed 2006: sqlite-atomic-batch
+   ↓ G2 generated seed 2007: sqlite-atomic-batch
+   ↓ G2 shrinks actual wrong-parent publication and exactly replays the same property: sqlite-atomic-batch
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated two-before-dispatch followed by healthy calls: sqlite-atomic-batch
+Error: G2 seed 2122, sqlite-atomic-batch, commands failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: g2-generated-transitions changed subsequent public operation outcomes
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      failure: {
+        cause: {
+          message: 'Underlying error details redacted',
+...
+          operation: 'create',
++         recordSeriesProgress: {
++           atomicity: 'segment',
++           committedSegments: 0,
++           committedWriteMembers: 0,
++           completedMembers: 0,
++           mayHaveCommittedSegment: true,
++           phase: 'member'
++         },
++         statementIndex: 0
+        },
+        name: 'QueryError'
+      },
+      kind: 'failure'
+    },
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -10,10 +10,19 @@[39m
+[2m        "meta": {[22m
+[2m          "correlationId": "<diagnostic identity>",[22m
+[2m          "driver": "sqlite3",[22m
+[2m          "model": "owner",[22m
+[2m          "operation": "create",[22m
+[31m+         "recordSeriesProgress": {[39m
+[31m+           "atomicity": "segment",[39m
+[31m+           "committedSegments": 0,[39m
+[31m+           "committedWriteMembers": 0,[39m
+[31m+           "completedMembers": 0,[39m
+[31m+           "mayHaveCommittedSegment": true,[39m
+[31m+           "phase": "member",[39m
+[31m+         },[39m
+[31m+         "statementIndex": 0,[39m
+[2m        },[22m
+[2m        "name": "QueryError",[22m
+[2m      },[22m
+[2m      "kind": "failure",[22m
+[2m    },[22m
+
+ ❯ assertEquivalentRunObservations benchmarks/operation-pipeline-semantics.mjs:84:18
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:60:7
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 45 skipped (46)
+   Start at  20:55:30
+   Duration  2.21s (transform 1.29s, setup 8ms, collect 1.93s, tests 41ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 4.54s wall, 569.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+        4.65 real         4.46 user         2.17 sys
+           373309440  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               72133  page reclaims
+                1046  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                4684  messages sent
+                3546  messages received
+                5764  signals received
+                7646  voluntary context switches
+               88317  involuntary context switches
+           587777056  instructions retired
+           304809831  cycles elapsed
+            22219368  peak memory footprint

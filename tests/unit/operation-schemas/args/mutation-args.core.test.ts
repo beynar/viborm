@@ -8,11 +8,12 @@
  * - upsert
  */
 
+import { s } from "@schema";
 import {
   authorSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
-import { type InferInput, parse } from "@validation";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
@@ -235,7 +236,7 @@ describe("CreateMany Args - Types", () => {
   type Input = InferInput<typeof simpleSchemas.args.createMany>;
 
   test("type: requires data", () => {
-    expectTypeOf<{}>().not.toMatchTypeOf<Input>();
+    expectTypeOf<Record<string, never>>().not.toMatchTypeOf<Input>();
     expectTypeOf<{
       data: Array<{ id: string; name: string; email: string }>;
     }>().toMatchTypeOf<Input>();
@@ -303,6 +304,62 @@ describe("CreateMany Args - Simple Model Runtime", () => {
     if (!result.issues) {
       expect(result.value.skipDuplicates).toBe(true);
     }
+  });
+
+  test("runtime: a missing data array is refused before skipDuplicates is asked", () => {
+    // The ordering the default-only refusal below depends on: `data` is an
+    // `atLeast` key, so the required-field rule answers first and the
+    // whole-object refusal never sees a payload with no array to inspect.
+    const result = parse(schema, { skipDuplicates: true });
+    expect(result.issues?.[0]).toEqual({
+      message: "Missing required field: data",
+      path: ["data"],
+    });
+  });
+});
+
+// =============================================================================
+// CREATE MANY - THE DEFAULT-ONLY SKIP REFUSAL
+// =============================================================================
+
+/**
+ * A row with no explicit value has nothing to name as a conflict target, and no
+ * dialect has a portable `INSERT … DEFAULT VALUES ON CONFLICT DO NOTHING`
+ * shape. The fact is about the ADMITTED payload, so it is asked here rather
+ * than at a physical owner a nested `createMany` never reaches.
+ *
+ * The same refusal is pinned end to end, at all four spellings of the verb, by
+ * `tests/contracts/engine/query/parity-admission.core.test.ts`, which runs in
+ * the `layer-query-engine` project — outside this coverage scope.
+ */
+describe("CreateMany Args - default-only rows", () => {
+  const generated = s.model({ id: s.int().id().increment() });
+  const schema = createSchemaRegistry({ generated }).proxy.generated.args
+    .createMany;
+
+  test("runtime: a database-generated row alone is a legitimate payload", () => {
+    const result = parse(schema, { data: [{}] });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: skipDuplicates beside a default-only row is refused", () => {
+    const result = parse(schema, { data: [{}], skipDuplicates: true });
+    expect(result.issues?.[0]?.message).toBe(
+      "createMany with skipDuplicates cannot include a row with no explicit scalar values; no portable duplicate-only DEFAULT VALUES primitive exists."
+    );
+  });
+
+  test("runtime: skipDuplicates beside explicit rows still passes", () => {
+    const result = parse(schema, {
+      data: [{ id: 1 }, { id: 2 }],
+      skipDuplicates: true,
+    });
+    expect(result.issues).toBeUndefined();
+  });
+
+  test("runtime: skipDuplicates: false does not ask the question at all", () => {
+    const result = parse(schema, { data: [{}], skipDuplicates: false });
+    expect(result.issues).toBeUndefined();
   });
 });
 

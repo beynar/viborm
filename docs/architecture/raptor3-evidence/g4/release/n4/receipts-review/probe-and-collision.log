@@ -1,0 +1,45 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+stdout | ../viborm-n4-review-classified/probe/combinator.probe.test.ts > N4 review — a scalar named AND reaches #48 > the schema declares a scalar named AND
+CREATE: {"id":1,"AND":5,"title":"x"}
+
+stdout | ../viborm-n4-review-classified/probe/combinator.probe.test.ts > N4 review — a scalar named AND reaches #48 > findMany({ where: { AND: { gt: 1 } } }) is admitted and reaches the assertion
+WHERE-AND: EngineInvariantError: 'gt' is neither a declared scalar of 'n4rc_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator.probe.test.ts > N4 review — a scalar named AND reaches #48 > the shipped client answers the same payload
+SHIPPED: "EngineInvariantError: 'gt' is neither a declared scalar of 'n4rc_rows' nor one of its variant carrier columns."
+
+ ✓ ../viborm-n4-review-classified/probe/combinator.probe.test.ts (3 tests) 15ms
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+findMany where AND gt: EngineInvariantError: 'gt' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+findMany where OR gt: EngineInvariantError: 'gt' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+findMany where NOT gt: EngineInvariantError: 'gt' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+findMany where AND shorthand: EngineInvariantError: 'equals' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+findMany where AND equals: EngineInvariantError: 'equals' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+findMany where AND in: EngineInvariantError: 'in' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+groupBy having AND: EngineInvariantError: 'gt' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+stdout | ../viborm-n4-review-classified/probe/combinator2.probe.test.ts > N4 review 2 — AND/OR/NOT collisions > reports each payload
+updateMany where AND shorthand: EngineInvariantError: 'equals' is neither a declared scalar of 'n4rc2_rows' nor one of its variant carrier columns.
+
+ ✓ ../viborm-n4-review-classified/probe/combinator2.probe.test.ts (1 test) 4ms
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  08:23:09
+   Duration  1.42s (transform 822ms, setup 0ms, collect 1.28s, tests 20ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 1.81s wall, 421.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

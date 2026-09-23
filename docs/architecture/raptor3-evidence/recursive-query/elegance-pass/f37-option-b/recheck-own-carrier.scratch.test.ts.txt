@@ -1,0 +1,398 @@
+// SCRATCH (outside the repository): the Option B re-checker's OWN malformed
+// recursive carriers, answered by a fake driver to reads through the shipped
+// client (`createClient`). Each malformed answer must reject with the one
+// malformed-result QueryEngineError (V9001), `meta.scalarType` the phrase;
+// the identity-rewritten answer must still decode. Probes (recorded, not
+// asserted): `$transaction([...])` placements, a borrowed callback
+// transaction, a null node row, a carrier that is not JSON text.
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { createClient } from "@client/client";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import { QueryEngineError, VibORMError } from "@errors";
+import { Queries } from "@query-engine/raptor3/shared/query";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+
+const Database = createRequire("/Users/arnaud/code/viborm/package.json")(
+  "better-sqlite3"
+);
+
+const node = s
+  .model({
+    id: s.string().id(),
+    label: s.string(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => node)
+      .fields("parentId")
+      .references("id")
+      .name("recheckTree"),
+    children: s.toMany(() => node).name("recheckTree"),
+    links: s
+      .toMany(() => node)
+      .name("recheckGraph")
+      .through("recheck_links")
+      .source("fromId")
+      .target("toId"),
+    linkedBy: s.toMany(() => node).name("recheckGraph"),
+  })
+  .map("recheck_nodes");
+
+const RECURSIVE = /WITH RECURSIVE/;
+
+class FakeDriver extends SQLite3Driver {
+  readonly statements: string[] = [];
+  corrupt: ((statement: string, rows: unknown[]) => void) | undefined;
+  protected override async execute<T>(
+    client: any,
+    statement: string,
+    parameters: unknown[]
+  ): Promise<any> {
+    this.statements.push(statement);
+    const response = await super.execute<T>(client, statement, parameters);
+    this.corrupt?.(statement, response.rows);
+    return response;
+  }
+}
+class BatchOnlyFakeDriver extends FakeDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+  protected override async executeBatch<T>(
+    client: any,
+    queries: any[]
+  ): Promise<any> {
+    return (this as any).transaction(client, (transaction: any) =>
+      super.executeBatch<T>(transaction, queries)
+    );
+  }
+}
+
+const closers: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of closers.splice(0)) await close();
+});
+
+async function world(transport: "transactional" | "batch-only" = "transactional") {
+  const database = new Database(":memory:");
+  const driver =
+    transport === "batch-only"
+      ? new BatchOnlyFakeDriver({ client: database })
+      : new FakeDriver({ client: database });
+  const client: any = createClient({ schema: { node }, driver });
+  closers.push(async () => {
+    await client.$disconnect();
+    database.close();
+  });
+  if (!(await syncLiveSchema(client)).applied)
+    throw new Error("the scratch schema was not applied");
+  const insertNode = database.prepare(
+    "INSERT INTO recheck_nodes(id, label, parentId) VALUES (?, ?, ?)"
+  );
+  for (const [id, label, parentId] of [
+    ["r", "Root", null],
+    ["a", "A", "r"],
+    ["b", "B", "r"],
+    ["a1", "A1", "a"],
+    ["z", "Z", null],
+  ] as const)
+    insertNode.run(id, label, parentId);
+  const insertLink = database.prepare(
+    "INSERT INTO recheck_links(fromId, toId) VALUES (?, ?)"
+  );
+  for (const [from, to] of [
+    ["r", "a"],
+    ["r", "b"],
+    ["a", "b"],
+    ["b", "r"],
+  ] as const)
+    insertLink.run(from, to);
+  return { client, driver };
+}
+
+type Carrier = Record<string, any>;
+/** Every recursive carrier in column `column` is answered as `rewrite` spells it. */
+function answer(
+  driver: FakeDriver,
+  column: string,
+  rewrite: (carrier: Carrier) => unknown,
+  raw = false
+) {
+  driver.corrupt = (statement, rows) => {
+    if (!RECURSIVE.test(statement)) return;
+    for (const row of rows as Record<string, unknown>[]) {
+      if (!(row && typeof row === "object" && Object.hasOwn(row, column)))
+        continue;
+      const text = row[column];
+      assert(typeof text === "string", "SQLite answers the carrier as text");
+      const next = rewrite(JSON.parse(text));
+      row[column] = raw ? next : JSON.stringify(next);
+    }
+  };
+}
+
+function identity(failure: unknown): unknown {
+  if (failure === undefined) return undefined;
+  if (!(failure instanceof VibORMError))
+    return {
+      raw:
+        failure instanceof Error
+          ? `${failure.constructor.name}: ${failure.message}`
+          : String(failure),
+    };
+  const { correlationId: _c, ...meta } = (failure.meta ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const cause = (failure as { cause?: unknown }).cause;
+  return {
+    name: failure.name,
+    code: failure.code,
+    message: failure.message,
+    meta,
+    ...(cause === undefined
+      ? {}
+      : {
+          cause:
+            cause instanceof Error
+              ? `${cause.constructor.name}: ${cause.message}${"scalarType" in cause ? ` [scalarType=${String((cause as { scalarType: unknown }).scalarType)}, reason=${String((cause as { reason?: unknown }).reason)}]` : ""}`
+              : String(cause),
+        }),
+  };
+}
+
+async function outcome(driver: FakeDriver, run: () => PromiseLike<unknown>) {
+  const start = driver.statements.length;
+  try {
+    const value = await run();
+    return { value, failure: undefined, statements: driver.statements.length - start };
+  } catch (failure) {
+    return { value: undefined, failure, statements: driver.statements.length - start };
+  }
+}
+
+const treeArgs = (depth: number | false) => ({
+  where: { id: "r" },
+  select: {
+    id: true,
+    children: { recurse: { depth }, orderBy: { id: "asc" }, select: { id: true } },
+  },
+});
+const chainArgs = () => ({
+  where: { id: "a1" },
+  select: { id: true, parent: { recurse: true, select: { id: true } } },
+});
+const graphArgs = () => ({
+  where: { id: "r" },
+  select: {
+    id: true,
+    links: { recurse: { depth: 3 }, orderBy: { id: "asc" }, select: { id: true } },
+  },
+});
+
+const key = (id: string) => JSON.stringify([id]);
+const same = (value: unknown, id: string) => JSON.stringify(value) === key(id);
+
+it("own malformed carriers reject with the V9001 identity; well-formed answers decode", async () => {
+  const { client, driver } = await world();
+  const observed: Record<string, unknown> = {};
+
+  // Well-formed controls: the provider's own answer, and the same answer
+  // through the identity rewrite, decode to the hand value.
+  const plainTree = await outcome(driver, () => client.node.findUnique(treeArgs(2)));
+  assert.equal(plainTree.failure, undefined, String(plainTree.failure));
+  assert.deepStrictEqual(plainTree.value, {
+    id: "r",
+    children: [
+      { id: "a", children: [{ id: "a1" }] },
+      { id: "b", children: [] },
+    ],
+  });
+  answer(driver, "children", (carrier) => carrier);
+  const rewrittenTree = await outcome(driver, () => client.node.findUnique(treeArgs(2)));
+  assert.deepStrictEqual(rewrittenTree.value, plainTree.value);
+  observed.wellFormedTree = rewrittenTree.value;
+  driver.corrupt = undefined;
+  const plainChain = await outcome(driver, () => client.node.findUnique(chainArgs()));
+  assert.deepStrictEqual(plainChain.value, {
+    id: "a1",
+    parent: { id: "a", parent: { id: "r", parent: null } },
+  });
+  answer(driver, "parent", (carrier) => carrier);
+  const rewrittenChain = await outcome(driver, () => client.node.findUnique(chainArgs()));
+  assert.deepStrictEqual(rewrittenChain.value, plainChain.value);
+  driver.corrupt = undefined;
+  const plainExhaustive = await outcome(driver, () => client.node.findUnique(treeArgs(false)));
+  assert.deepStrictEqual(plainExhaustive.value, {
+    id: "r",
+    children: [
+      { id: "a", children: [{ id: "a1", children: [] }] },
+      { id: "b", children: [] },
+    ],
+  });
+
+  const cases: [
+    string,
+    string,
+    () => Record<string, unknown>,
+    (carrier: Carrier) => unknown,
+    string,
+    string,
+  ][] = [
+    ["duplicate node", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_nodes: [...c.__rq_nodes, c.__rq_nodes[0]] }),
+      "duplicate recursive node", "two nodes carry the same identity"],
+    ["depth past the cutoff", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_edges: c.__rq_edges.map((e: any, i: number) => (i === 0 ? { ...e, __rq_depth: 3 } : e)) }),
+      "recursive depth", "an edge depth is not an integer from 1 to the cutoff"],
+    ["root of the wrong width", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_root: ["r", "extra"] }),
+      "recursive identity", "an identity is not a tuple of the key's width"],
+    ["edge entry not an object", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_edges: [...c.__rq_edges, null] }),
+      "recursive edge", "an edge entry is not an object"],
+    ["node entry not an object", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_nodes: [...c.__rq_nodes, 7] }),
+      "recursive node", "a node entry is not an object"],
+    ["edge carried twice", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_edges: [...c.__rq_edges, c.__rq_edges[0]] }),
+      "duplicate recursive edge", "an edge fact is carried twice"],
+    ["unreachable node", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_nodes: [...c.__rq_nodes, { __rq_key: ["z"], __rq_row: c.__rq_nodes[0].__rq_row }] }),
+      "unreachable recursive node", "a carried node is not reachable from the root"],
+    ["edge below its parent's only level", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_edges: [...c.__rq_edges, { __rq_parent: ["a1"], __rq_child: ["b"], __rq_depth: 2 }] }),
+      "recursive depth", "an edge is not reachable at its recorded depth"],
+    ["exhaustive carrier states a depth", "children", () => treeArgs(false),
+      (c) => ({ ...c, __rq_edges: c.__rq_edges.map((e: any, i: number) => (i === 0 ? { ...e, __rq_depth: 1 } : e)) }),
+      "exhaustive recursive depth", "an exhaustive carrier states an edge depth"],
+    ["singular parent with two successors", "parent", chainArgs,
+      (c) => ({ ...c, __rq_edges: [...c.__rq_edges, { __rq_parent: ["a1"], __rq_child: ["r"], __rq_depth: 1 }] }),
+      "recursive singular relation", "a singular parent has several successors"],
+    ["edge from an uncarried parent", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_edges: [...c.__rq_edges, { __rq_parent: ["q"], __rq_child: ["a"], __rq_depth: 1 }] }),
+      "recursive edge endpoint", "an edge's parent is neither the root nor a carried node"],
+    ["graph hop at level 2 omits r -> b", "links", graphArgs,
+      (c) => {
+        const kept = c.__rq_edges.filter((e: any) => !(same(e.__rq_parent, "r") && same(e.__rq_child, "b") && e.__rq_depth === 3));
+        assert.equal(kept.length, c.__rq_edges.length - 1, "one level-3 fact r -> b");
+        return { ...c, __rq_edges: kept };
+      },
+      "recursive depth", "a hop below the cutoff omits some of its parent's children"],
+    ["tree edge misattributed to level 1", "children", () => treeArgs(2),
+      (c) => ({ ...c, __rq_edges: c.__rq_edges.map((e: any) => (same(e.__rq_parent, "a") ? { ...e, __rq_depth: 1 } : e)) }),
+      "recursive depth", "a hop below the cutoff omits some of its parent's children"],
+    ["nodes member not an array", "links", graphArgs,
+      (c) => ({ ...c, __rq_nodes: {} }),
+      "recursive carrier", "the carrier's root, nodes or edges member is not an array"],
+  ];
+  const report: unknown[] = [];
+  const seenAll: { failure: unknown; value: unknown; statements: number }[] = [];
+  for (const [name, column, args, rewrite] of cases) {
+    answer(driver, column, rewrite);
+    const seen = await outcome(driver, () => client.node.findUnique(args()));
+    seenAll.push(seen);
+    report.push({ name, identity: identity(seen.failure), value: seen.value, statements: seen.statements });
+  }
+  driver.corrupt = undefined;
+  process.stdout.write(`OWN-CARRIERS ${JSON.stringify(report, null, 1)}\n`);
+  // Probes (recorded): a null node row, a carrier that is not JSON text, and
+  // the ordinary collection answered as non-JSON text.
+  answer(driver, "children", (c) => ({ ...c, __rq_nodes: c.__rq_nodes.map((n: any, i: number) => (i === 0 ? { ...n, __rq_row: null } : n)) }));
+  observed.nullRow = identity((await outcome(driver, () => client.node.findUnique(treeArgs(2)))).failure);
+  answer(driver, "children", () => "{", true);
+  observed.carrierNotJson = identity((await outcome(driver, () => client.node.findUnique(treeArgs(2)))).failure);
+  driver.corrupt = (_statement, rows) => {
+    for (const row of rows as Record<string, unknown>[])
+      if (row && typeof row === "object" && Object.hasOwn(row, "links")) row.links = "{";
+  };
+  observed.ordinaryNotJson = identity((await outcome(driver, () => client.node.findUnique({ where: { id: "r" }, select: { id: true, links: { select: { id: true } } } }))).failure);
+  driver.corrupt = undefined;
+  process.stdout.write(`OWN-PROBES ${JSON.stringify(observed, null, 1)}\n`);
+  for (const [index, [name, , , , phrase, reason]] of cases.entries()) {
+    const seen = seenAll[index]!;
+    assert.ok(seen.failure instanceof QueryEngineError, `${name}: ${String(seen.failure)}`);
+    assert.deepEqual(identity(seen.failure), {
+      name: "QueryEngineError",
+      code: "V9001",
+      message: `Driver "sqlite3" returned a malformed ${phrase} scalar for operation "findUnique": ${reason}.`,
+      meta: { driver: "sqlite3", operation: "findUnique", scalarType: phrase },
+    }, name);
+    assert.equal(seen.value, undefined, name);
+    assert.equal(seen.statements, 1, name);
+  }
+
+});
+
+it("probe: array and callback transaction placements of a malformed carrier", async () => {
+  const observed: Record<string, unknown> = {};
+  const dupNode = (c: Carrier) => ({ ...c, __rq_nodes: [...c.__rq_nodes, c.__rq_nodes[0]] });
+  for (const transport of ["batch-only", "transactional"] as const) {
+    const { client, driver } = await world(transport);
+    const wellFormed = await outcome(driver, () => client.$transaction([client.node.findUnique(treeArgs(2))]));
+    observed[`${transport}:array:wellFormed`] = wellFormed.failure === undefined ? wellFormed.value : identity(wellFormed.failure);
+    answer(driver, "children", dupNode);
+    const decoderThrows: unknown[] = [];
+    const proto = Queries.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const original = proto.decodeRecursiveCarrier!;
+    proto.decodeRecursiveCarrier = function (this: unknown, ...args: unknown[]) {
+      try {
+        return original.apply(this, args);
+      } catch (error) {
+        decoderThrows.push({
+          name: (error as Error).constructor.name,
+          message: (error as Error).message,
+          scalarType: Reflect.get(error as object, "scalarType"),
+          reason: Reflect.get(error as object, "reason"),
+        });
+        throw error;
+      }
+    };
+    let recursive;
+    try {
+      recursive = await outcome(driver, () => client.$transaction([client.node.findUnique(treeArgs(2))]));
+    } finally {
+      proto.decodeRecursiveCarrier = original;
+    }
+    observed[`${transport}:array:malformedCarrier:decoderThrows`] = decoderThrows;
+    observed[`${transport}:array:malformedCarrier`] = identity(recursive.failure);
+    {
+      const f = recursive.failure as Record<string, unknown> | undefined;
+      const c = f ? Reflect.get(f, "originalCause") : undefined;
+      observed[`${transport}:array:malformedCarrier:debug`] = f
+        ? {
+            own: Object.getOwnPropertyNames(f),
+            causeName: c instanceof Error ? c.constructor.name : typeof c,
+            causeMessage: c instanceof Error ? c.message : String(c),
+            causeScalarType: c && typeof c === "object" ? Reflect.get(c, "scalarType") : undefined,
+            causeReason: c && typeof c === "object" ? Reflect.get(c, "reason") : undefined,
+          }
+        : undefined;
+    }
+    driver.corrupt = (_statement, rows) => {
+      for (const row of rows as Record<string, unknown>[])
+        if (row && typeof row === "object" && Object.hasOwn(row, "links")) row.links = "{}";
+    };
+    const ordinary = await outcome(driver, () => client.$transaction([client.node.findUnique({ where: { id: "r" }, select: { id: true, links: { select: { id: true } } } })]));
+    observed[`${transport}:array:malformedOrdinaryCollection`] = identity(ordinary.failure);
+    driver.corrupt = (_statement, rows) => {
+      for (const row of rows as Record<string, unknown>[])
+        if (row && typeof row === "object" && Object.hasOwn(row, "label")) row.label = 42;
+    };
+    const scalarArray = await outcome(driver, () => client.$transaction([client.node.findUnique({ where: { id: "r" }, select: { id: true, label: true } })]));
+    observed[`${transport}:array:malformedOrdinaryScalar`] = identity(scalarArray.failure);
+    const scalarSingle = await outcome(driver, () => client.node.findUnique({ where: { id: "r" }, select: { id: true, label: true } }));
+    observed[`${transport}:single:malformedOrdinaryScalar`] = identity(scalarSingle.failure);
+    answer(driver, "children", dupNode);
+    const recursiveSingle = await outcome(driver, () => client.node.findUnique(treeArgs(2)));
+    observed[`${transport}:single:malformedCarrier`] = identity(recursiveSingle.failure);
+    driver.corrupt = undefined;
+    if (transport === "transactional") {
+      answer(driver, "children", dupNode);
+      const callback = await outcome(driver, () => client.$transaction(async (tx: any) => tx.node.findUnique(treeArgs(2))));
+      observed[`${transport}:callback:malformedCarrier`] = identity(callback.failure);
+    }
+    driver.corrupt = undefined;
+  }
+  process.stdout.write(`PLACEMENT-PROBES ${JSON.stringify(observed, null, 1)}\n`);
+});

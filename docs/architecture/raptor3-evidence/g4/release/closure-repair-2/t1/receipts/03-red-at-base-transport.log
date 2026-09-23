@@ -1,0 +1,575 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ❯ |coverage-raptor3| tests/raptor3/transport.test.ts (44 tests | 4 failed) 536ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays create 18ms
+   × G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-found 7ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-missing 6ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected and its healthy new-call suffix 7ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-empty and its healthy new-call suffix 7ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected-after-commit and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected-after-commit and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-malformed and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected and its healthy new-call suffix 9ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-empty and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 6ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-malformed and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > queues two creates before release and explores both first actors with exact replay 168ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > records two failed calls and a healthy third call on one reusable engine 27ms
+   × G1 explicit transport replies: scripted-returning-weak > rejects wrong-publication, saves its full trace, and repeats the same failure three times 2ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1018-1',
++         101
+-         'account-1018-1',
+-         1
+        ],
+        [
+          'token-1018-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-weak > rejects lost-progress, saves its full trace, and repeats the same failure three times 37ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > rejects corrupted failure attribution without changing transport progress 1ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > keeps an unknown response sticky when the caller swallows the second public call's failure 2ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > rejects omitted provider work even when the caller returns the expected public row 0ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays create 3ms
+   × G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-found 1ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-missing 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-empty and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected-after-commit and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected-after-commit and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-malformed and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-empty and its healthy new-call suffix 6ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 6ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-malformed and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > queues two creates before release and explores both first actors with exact replay 82ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > records two failed calls and a healthy third call on one reusable engine 32ms
+   × G1 explicit transport replies: scripted-returning-ack > rejects wrong-publication, saves its full trace, and repeats the same failure three times 2ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1018-1',
++         101
+-         'account-1018-1',
+-         1
+        ],
+        [
+          'token-1018-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-ack > rejects lost-progress, saves its full trace, and repeats the same failure three times 31ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > rejects corrupted failure attribution without changing transport progress 1ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > keeps an unknown response sticky when the caller swallows the second public call's failure 1ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > rejects omitted provider work even when the caller returns the expected public row 1ms
+ ❯ |raptor3| tests/raptor3/transport.test.ts (44 tests | 4 failed) 454ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays create 18ms
+   × G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-found 7ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-missing 6ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected and its healthy new-call suffix 7ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-empty and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected-after-commit and its healthy new-call suffix 7ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected-after-commit and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-malformed and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected and its healthy new-call suffix 8ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-empty and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-malformed and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > queues two creates before release and explores both first actors with exact replay 96ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > records two failed calls and a healthy third call on one reusable engine 26ms
+   × G1 explicit transport replies: scripted-returning-weak > rejects wrong-publication, saves its full trace, and repeats the same failure three times 2ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1018-1',
++         101
+-         'account-1018-1',
+-         1
+        ],
+        [
+          'token-1018-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-weak > rejects lost-progress, saves its full trace, and repeats the same failure three times 30ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > rejects corrupted failure attribution without changing transport progress 2ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > keeps an unknown response sticky when the caller swallows the second public call's failure 2ms
+   ✓ G1 explicit transport replies: scripted-returning-weak > rejects omitted provider work even when the caller returns the expected public row 0ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays create 3ms
+   × G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-found 1ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-missing 2ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-empty and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected-after-commit and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected-after-commit and its healthy new-call suffix 6ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-malformed and its healthy new-call suffix 3ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-empty and its healthy new-call suffix 6ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected and its healthy new-call suffix 5ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-malformed and its healthy new-call suffix 4ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > queues two creates before release and explores both first actors with exact replay 80ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > records two failed calls and a healthy third call on one reusable engine 29ms
+   × G1 explicit transport replies: scripted-returning-ack > rejects wrong-publication, saves its full trace, and repeats the same failure three times 1ms
+     → actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1018-1',
++         101
+-         'account-1018-1',
+-         1
+        ],
+        [
+          'token-1018-1'
+        ]
+      ],
+
+   ✓ G1 explicit transport replies: scripted-returning-ack > rejects lost-progress, saves its full trace, and repeats the same failure three times 32ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > rejects corrupted failure attribution without changing transport progress 1ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > keeps an unknown response sticky when the caller swallows the second public call's failure 1ms
+   ✓ G1 explicit transport replies: scripted-returning-ack > rejects omitted provider work even when the caller returns the expected public row 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-found
+AssertionError: actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -16,12 +16,11 @@[39m
+[2m          "account-1000-1",[22m
+[2m          "account-1000-1",[22m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[32m-         "account-1000-1",[39m
+[32m-         1,[39m
+[31m+         101,[39m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[2m        ],[22m
+[2m      ],[22m
+
+ ❯ Object.assert tests/raptor3/transport/world.ts:742:18
+    740|         );
+    741|         for (const script of scripts)
+    742|           assert.deepEqual(
+       |                  ^
+    743|             dispatched.filter((request) => request.actor === script.na…
+    744|             script.replies.map((reply) => ({
+ ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+ ❯ tests/raptor3/transport.test.ts:78:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > rejects wrong-publication, saves its full trace, and repeats the same failure three times
+ FAIL  |coverage-raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > rejects wrong-publication, saves its full trace, and repeats the same failure three times
+AssertionError: actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1018-1',
++         101
+-         'account-1018-1',
+-         1
+        ],
+        [
+          'token-1018-1'
+        ]
+      ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -16,12 +16,11 @@[39m
+[2m          "account-1018-1",[22m
+[2m          "account-1018-1",[22m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1018-1",[22m
+[32m-         "account-1018-1",[39m
+[32m-         1,[39m
+[31m+         101,[39m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1018-1",[22m
+[2m        ],[22m
+[2m      ],[22m
+
+ ❯ Object.assert tests/raptor3/transport/world.ts:742:18
+    740|         );
+    741|         for (const script of scripts)
+    742|           assert.deepEqual(
+       |                  ^
+    743|             dispatched.filter((request) => request.actor === script.na…
+    744|             script.replies.map((reply) => ({
+ ❯ tests/raptor3/transport.test.ts:156:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-found
+AssertionError: actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -16,12 +16,11 @@[39m
+[2m          "account-1000-1",[22m
+[2m          "account-1000-1",[22m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[32m-         "account-1000-1",[39m
+[32m-         1,[39m
+[31m+         101,[39m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[2m        ],[22m
+[2m      ],[22m
+
+ ❯ Object.assert tests/raptor3/transport/world.ts:742:18
+    740|         );
+    741|         for (const script of scripts)
+    742|           assert.deepEqual(
+       |                  ^
+    743|             dispatched.filter((request) => request.actor === script.na…
+    744|             script.replies.map((reply) => ({
+ ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+ ❯ tests/raptor3/transport.test.ts:78:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-found
+AssertionError: actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -16,12 +16,11 @@[39m
+[2m          "account-1000-1",[22m
+[2m          "account-1000-1",[22m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[32m-         "account-1000-1",[39m
+[32m-         1,[39m
+[31m+         101,[39m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[2m        ],[22m
+[2m      ],[22m
+
+ ❯ Object.assert tests/raptor3/transport/world.ts:742:18
+    740|         );
+    741|         for (const script of scripts)
+    742|           assert.deepEqual(
+       |                  ^
+    743|             dispatched.filter((request) => request.actor === script.na…
+    744|             script.replies.map((reply) => ({
+ ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+ ❯ tests/raptor3/transport.test.ts:78:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > rejects wrong-publication, saves its full trace, and repeats the same failure three times
+ FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > rejects wrong-publication, saves its full trace, and repeats the same failure three times
+AssertionError: actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1018-1',
++         101
+-         'account-1018-1',
+-         1
+        ],
+        [
+          'token-1018-1'
+        ]
+      ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -16,12 +16,11 @@[39m
+[2m          "account-1018-1",[22m
+[2m          "account-1018-1",[22m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1018-1",[22m
+[32m-         "account-1018-1",[39m
+[32m-         1,[39m
+[31m+         101,[39m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1018-1",[22m
+[2m        ],[22m
+[2m      ],[22m
+
+ ❯ Object.assert tests/raptor3/transport/world.ts:742:18
+    740|         );
+    741|         for (const script of scripts)
+    742|           assert.deepEqual(
+       |                  ^
+    743|             dispatched.filter((request) => request.actor === script.na…
+    744|             script.replies.map((reply) => ({
+ ❯ tests/raptor3/transport.test.ts:156:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-found
+AssertionError: actor-1: exact-publication-parameters
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      actor: 'actor-1',
+      parameters: [
+        [
+...
+          'token-1000-1',
++         101
+-         'account-1000-1',
+-         1
+        ],
+        [
+          'token-1000-1'
+        ]
+      ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -16,12 +16,11 @@[39m
+[2m          "account-1000-1",[22m
+[2m          "account-1000-1",[22m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[32m-         "account-1000-1",[39m
+[32m-         1,[39m
+[31m+         101,[39m
+[2m        ],[22m
+[2m        [[22m
+[2m          "token-1000-1",[22m
+[2m        ],[22m
+[2m      ],[22m
+
+ ❯ Object.assert tests/raptor3/transport/world.ts:742:18
+    740|         );
+    741|         for (const script of scripts)
+    742|           assert.deepEqual(
+       |                  ^
+    743|             dispatched.filter((request) => request.actor === script.na…
+    744|             script.replies.map((reply) => ({
+ ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+ ❯ tests/raptor3/transport.test.ts:78:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  8 failed | 80 passed (88)
+   Start at  23:29:30
+   Duration  4.03s (transform 1.65s, setup 15ms, collect 2.70s, tests 990ms, environment 0ms, prepare 56ms)
+
+Vitest resources: 5.99s wall, 703.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,34 @@
+✔ fails closed where process-tree bounds cannot be verified (0.583875ms)
+✔ process-group RSS sums every member and ignores other groups (0.15175ms)
+✔ process-group teardown ignores zombie-only groups (0.06475ms)
+✔ heap replacement preserves unrelated Node options (0.084542ms)
+✔ RSS limit defaults to the project cap and is configurable (0.378958ms)
+✔ the ordinary ceiling is 1536 MiB and may only ever be lowered (0.085625ms)
+✔ no ordinary caller can reach the 2560 MiB PGlite allowance (0.171542ms)
+✔ the allowlisted typecheck ceiling reaches 8192 MiB and stops there (0.090375ms)
+✔ the allowlisted PGlite ceiling reaches 2560 MiB and stops there (0.075459ms)
+✔ the resource line names the ceiling that was applied (0.609167ms)
+✔ a bounded run reports the ceiling it enforced (119.286792ms)
+✔ heap limits may be lowered but never raised above the caller cap (0.252042ms)
+✔ Vitest arguments end with the enforced single-worker policy (0.114584ms)
+RSS limit witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ the sampled RSS ceiling terminates the complete child group (327.55575ms)
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ RSS teardown verifies a group whose leader and worker exit together (2871.942291ms)
+✔ normal leader exit still tears down inherited descendants (301.413291ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3627.810334
+Node resources: 3.87s wall, 63.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,34 @@
+CELL: nested-conditional-found/full modes=cpu,retained extra=
+COMMAND: cd /private/tmp/viborm-g4-perf-baseline && TMPDIR=/private/tmp/viborm-g4-cutover-tmp node --max-old-space-size=512 benchmarks/operation-pipeline-compare.mjs --baseline-dir /private/tmp/viborm-g4-perf-baseline --baseline-commit e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0 --baseline-source-commit 0cc61e61f372945026b0b564fa643de67168c08e --candidate-dir /private/tmp/viborm-g4-perf-candidate --candidate-commit 981368f6a4aad7628fe37bb5b5b38bac86b885d4 --providers sqlite3 --comparison semantic --workloads nested-conditional-found --stages full --modes cpu,retained --output /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/g4cut/cells/pass1__nested-conditional-found__full__cpu+retained.json
+STARTED: 2026-09-15T18:34:43Z
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/nested-conditional-found/full/cpu replicate 1/5: baseline
+sqlite3/nested-conditional-found/full/cpu replicate 1/5: candidate
+sqlite3/nested-conditional-found/full/cpu replicate 2/5: candidate
+sqlite3/nested-conditional-found/full/cpu replicate 2/5: baseline
+sqlite3/nested-conditional-found/full/cpu replicate 3/5: baseline
+sqlite3/nested-conditional-found/full/cpu replicate 3/5: candidate
+sqlite3/nested-conditional-found/full/cpu replicate 4/5: candidate
+sqlite3/nested-conditional-found/full/cpu replicate 4/5: baseline
+sqlite3/nested-conditional-found/full/cpu replicate 5/5: baseline
+sqlite3/nested-conditional-found/full/cpu replicate 5/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 1/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 1/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 2/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 2/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 3/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 3/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 4/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 4/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 5/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 5/5: candidate
+EXIT: 0
+FINISHED: 2026-09-15T18:38:52Z
+REPORT_BYTES: 12986427
+REPORT_SHA256: 2b783c8f108a883ba831212e13915d6f93e585ea9e9a9bc31fc0056bc8d986a9
+nested-conditional-found/full/cpu seam=-/- stmts=-/-
+  cpu: B=374.865 N=339.367 E=41.96 budget=18.74 d+E=6.461 WITHIN
+  wall: B=361.356 N=504.590 E=352.6 budget=18.07 d+E=495.8 STRADDLES
+nested-conditional-found/full/retained seam=-/- stmts=-/-
+  peakRss: B=1.36282e+8 N=1.13738e+8 E=9.437e+6 budget=1.363e+7 d+E=-1.311e+7 WITHIN

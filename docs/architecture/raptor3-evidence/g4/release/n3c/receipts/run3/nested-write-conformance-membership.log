@@ -1,0 +1,16 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts (30 tests | 13 failed) 1064ms
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > nested create membership rejects a l
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > connectOrCreate membership rejects a
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > found connect membership rejects a l
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-one inverse upsert rejects a
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membersh
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-many inverse update rejects 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > nested to-many child update carries 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > non-self nested FK rebind rejects a 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested scalar FK rebind 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested scalar FK rebind 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > non-self child-holds cascade keeps m
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested identity transiti
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membersh
+ Test Files  1 failed (1)
+      Tests  13 failed | 17 passed (30)

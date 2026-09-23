@@ -1,0 +1,75 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sfix
+
+ ❯ |coverage-raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests | 1 failed) 25ms
+   ✓ post-G3 selector preparation > prepares mixed compound and relation facts without SQL or alias allocation 4ms
+   ✓ post-G3 selector preparation > executes admitted mapped-int FieldRef equality and comparison predicates 12ms
+   ✓ post-G3 selector preparation > refuses a cross-model FieldRef before provider execution 1ms
+   × post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes 7ms
+     → Expected values to be strictly equal:
+
+2 !== 3
+
+ ❯ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests | 1 failed) 19ms
+   ✓ post-G3 selector preparation > prepares mixed compound and relation facts without SQL or alias allocation 4ms
+   ✓ post-G3 selector preparation > executes admitted mapped-int FieldRef equality and comparison predicates 6ms
+   ✓ post-G3 selector preparation > refuses a cross-model FieldRef before provider execution 1ms
+   × post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes 7ms
+     → Expected values to be strictly equal:
+
+2 !== 3
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/selector-preparation.test.ts > post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes
+AssertionError: Expected values to be strictly equal:
+
+2 !== 3
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 3[39m
+[31m+ 2[39m
+
+ ❯ tests/raptor3/post-prep/selector-preparation.test.ts:299:14
+    297|       // the two probe selectors themselves, so the base is reused a t…
+    298|       // and nothing is prepared again (`preparation` is still 3 above…
+    299|       assert.equal(conjunction.mock.calls.length, 3);
+       |              ^
+    300|       const targetOperands = conjunction.mock.calls[0]?.[1];
+    301|       const setOperands = conjunction.mock.calls[1]?.[1];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts > post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes
+AssertionError: Expected values to be strictly equal:
+
+2 !== 3
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 3[39m
+[31m+ 2[39m
+
+ ❯ tests/raptor3/post-prep/selector-preparation.test.ts:299:14
+    297|       // the two probe selectors themselves, so the base is reused a t…
+    298|       // and nothing is prepared again (`preparation` is still 3 above…
+    299|       assert.equal(conjunction.mock.calls.length, 3);
+       |              ^
+    300|       const targetOperands = conjunction.mock.calls[0]?.[1];
+    301|       const setOperands = conjunction.mock.calls[1]?.[1];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 6 passed (8)
+   Start at  21:31:30
+   Duration  2.72s (transform 1.50s, setup 16ms, collect 2.33s, tests 45ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 4.60s wall, 530.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,233 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+(node:6776) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts (227 tests | 7 skipped) 278264ms
+   ✓ pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections  1922ms
+   ✓ pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds  1408ms
+   ✓ pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions  1405ms
+   ✓ pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs  1420ms
+   ✓ pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh  1344ms
+   ✓ pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions  1336ms
+   ✓ pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical  1338ms
+   ✓ pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering  1477ms
+   ✓ pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases  1441ms
+   ✓ pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes  1461ms
+   ✓ pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset  4671ms
+   ✓ pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates  2610ms
+   ✓ pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude  1331ms
+   ✓ pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression  1450ms
+   ✓ pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate  2069ms
+   ✓ pg Driver > Driver Creation > creates driver with connection string  612ms
+   ✓ pg Driver > Driver Creation > creates driver with options  385ms
+   ✓ pg Driver > attributes a sequential atomic-batch failure to its exact statement  1171ms
+   ✓ pg Driver > Raw SQL Execution > executes INSERT and returns row count  1196ms
+   ✓ pg Driver > Raw SQL Execution > executes SELECT and returns rows  1273ms
+   ✓ pg Driver > Raw SQL Execution > executes UPDATE and returns affected count  1199ms
+   ✓ pg Driver > Raw SQL Execution > executes DELETE and returns affected count  1172ms
+   ✓ pg Driver > Transactions > commits transaction on success  1234ms
+   ✓ pg Driver > Transactions > rolls back transaction on error  1168ms
+   ✓ pg Driver > Transactions > supports nested transactions with savepoints  1498ms
+   ✓ pg Driver > Transactions > rejects removed isolation before opening a transaction  1243ms
+   ✓ pg Driver > VibORM Client Integration > creates client with schema  563ms
+   ✓ pg Driver > VibORM Client Integration > performs CRUD operations via client  1016ms
+   ✓ pg Driver > VibORM Client Integration > performs transactions via client  1312ms
+   ✓ pg Driver > VibORM Client Integration > rejects removed isolation at the client boundary  1253ms
+   ✓ pg Driver > pg list/json filter and update behavior > list round-trip > create returns real arrays with typed elements  1064ms
+   ✓ pg Driver > pg list/json filter and update behavior > list round-trip > empty and null lists round-trip  1030ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches the exact list  1061ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals is order-sensitive  1134ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches empty lists  1073ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches int lists  1270ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals null matches null lists only  1138ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > not excludes the matching list and null lists  1255ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has matches string elements  1322ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has matches int elements  1279ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has with no match returns empty  1112ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has null is rejected consistently  1222ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > hasEvery requires all elements  1167ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > hasSome requires any element  1316ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list  1370ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect  1291ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > set replaces the whole list  1477ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push appends a single value  1192ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push expands an array value element-wise  1238ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push appends int elements  1377ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push onto an empty list  1507ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push onto a null list creates the list  1424ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > unshift prepends a single value  1263ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > unshift expands an array value element-wise  1121ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals matches the exact document  1344ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals does not match a partial document  1540ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals null matches null json only  1445ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > not equals excludes the matching document and nulls  1184ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches the scoped value  1135ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a nested path  1146ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches numbers  1244ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents  1218ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a missing path matches nothing  1154ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys  1151ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > integer path segments address array elements  1048ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > path segments with dots stay literal  1167ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution  1121ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_contains at a path  1123ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND  1160ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode  1127ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots  1142ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains requires every candidate element  1862ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate  1332ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains without a path matches array roots only  1087ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_starts_with matches the first element  1512ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_ends_with matches the last element  1321ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > not at a path inherits the path  1176ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators  1121ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract  1211ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded  1442ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold  1348ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode  1233ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode  1144ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too  1212ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored  1212ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form  1361ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements  1407ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root  1298ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form  1334ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form  1347ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution  1393ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal  1338ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only  1365ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types  1270ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point  1382ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation  1214ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross  1309ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error  1195ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object  1599ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices  1188ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root  1245ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows  1218ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution  1106ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only  1098ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only  1120ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals AnyNull matches both  1163ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not DbNull matches every row that holds a document  1221ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs  1220ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not AnyNull matches only real documents  1593ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > the three equals predicates partition the table  1228ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > DbNull and JsonNull are different stored values  1184ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > update moves a row between the two nulls  1199ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > upsert stores a sentinel on either arm  1240ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column  1194ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a bare null in write position is refused, not guessed  1172ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > AnyNull is filter-only  1277ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column  1416ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a sentinel nested inside a document is refused  1110ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a sentinel under a path is refused before execution  1180ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused  1157ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root  1126ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL  1141ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there  1129ms
+   ✓ pg Driver > pg field references > gt compares two columns of the same row  1337ms
+   ✓ pg Driver > pg field references > lt compares two columns of the same row  1800ms
+   ✓ pg Driver > pg field references > gte and lte include the equal row  2193ms
+   ✓ pg Driver > pg field references > equals and not compare two columns of the same row  1641ms
+   ✓ pg Driver > pg field references > a bare reference is the equals shorthand  1604ms
+   ✓ pg Driver > pg field references > a reference resolves through .map()ed column names  3442ms
+   ✓ pg Driver > pg field references > string prefix/suffix/substring predicates accept a reference  2299ms
+   ✓ pg Driver > pg field references > a callback is refused where only the token is accepted  1363ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation  1287ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column  1375ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive contains folds the referenced column  1450ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive startsWith folds the referenced column  1365ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive endsWith folds the referenced column  1387ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive `not` complements the folded comparison  1243ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive mode folds ASCII only  1345ms
+   ✓ pg Driver > pg field references > enum references > equals compares two enum columns of the same row  1293ms
+   ✓ pg Driver > pg field references > enum references > not complements it  1247ms
+   ✓ pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand  1249ms
+   ✓ pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name  1371ms
+   ✓ pg Driver > pg field references > enum references > lt on an enum is refused with the portability reason  1158ms
+   ✓ pg Driver > pg field references > enum references > lte on an enum is refused with the portability reason  1413ms
+   ✓ pg Driver > pg field references > enum references > gt on an enum is refused with the portability reason  1210ms
+   ✓ pg Driver > pg field references > enum references > gte on an enum is refused with the portability reason  1154ms
+   ✓ pg Driver > pg field references > enum references > literal enum filters are untouched  1206ms
+   ✓ pg Driver > pg field references > a reference mixes with literal operands in one filter object  1170ms
+   ✓ pg Driver > pg field references > a reference works inside a nested relation where  1096ms
+   ✓ pg Driver > pg field references > the nested scope's own model is the one a reference must name  1152ms
+   ✓ pg Driver > pg field references > a reference drives updateMany and deleteMany  1136ms
+   ✓ pg Driver > pg field references > two decimals of the SAME domain compare exactly  1118ms
+   ✓ pg Driver > pg field references > two decimals of DIFFERENT domains are refused before any I/O  1097ms
+   ✓ pg Driver > pg field references > a cross-model reference is refused before any I/O  1061ms
+   ✓ pg Driver > pg field references > a reference of the wrong scalar type is refused  1110ms
+   ✓ pg Driver > pg field references > a reference is refused in in/notIn  1015ms
+   ✓ pg Driver > pg field references > a reference is refused in `having`, however deeply nested  1068ms
+   ✓ pg Driver > pg field references > a reference is refused in JSON filters and JSON write data  1193ms
+   ✓ pg Driver > pg field references > SQL fragment operands > an arithmetic expression compares against the row  1157ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table  1147ms
+   ✓ pg Driver > pg field references > SQL fragment operands > an interpolated value rides as a bound parameter  1172ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter  1278ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment drives updateMany and deleteMany  1165ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment survives both execution substrates  1269ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment is refused where a reference is  1147ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime round-trips exactly through create and findMany  1075ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime filters match the stored instant  1073ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime update round-trips exactly  1191ms
+   ✓ pg Driver > pg scalar round-trip behavior > decimal reads back as its exact canonical value  1134ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST round-trips member by member  1085ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST filters by containment on its logical members  1172ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary  1053ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST survives a grouped projection  1187ms
+   ✓ pg Driver > pg scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly  1019ms
+   ✓ pg Driver > pg scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly  1114ms
+   ✓ pg Driver > pg decimal exactness > round-trips every value in the domain exactly  1068ms
+   ✓ pg Driver > pg decimal exactness > callback transactions materialize fresh Decimal scalar and list results  1045ms
+   ✓ pg Driver > pg decimal exactness > array transactions materialize fresh Decimal scalar and list results  1240ms
+   ✓ pg Driver > pg decimal exactness > a nullable decimal stores and reads NULL, not zero  1495ms
+   ✓ pg Driver > pg decimal exactness > equals matches on value, not on spelling  1122ms
+   ✓ pg Driver > pg decimal exactness > equals distinguishes the two values a double cannot  1110ms
+   ✓ pg Driver > pg decimal exactness > in / notIn compare numerically  1145ms
+   ✓ pg Driver > pg decimal exactness > gt/lt compare numerically, not lexicographically  1132ms
+   ✓ pg Driver > pg decimal exactness > orderBy sorts numerically, windowed and not  1176ms
+   ✓ pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision  1207ms
+   ✓ pg Driver > pg decimal exactness > _avg of an all-null column is NULL, not zero and not an error  1205ms
+   ✓ pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs  1174ms
+   ✓ pg Driver > pg decimal exactness > groupBy orders groups and filters them on exact aggregates  1130ms
+   ✓ pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision  1173ms
+   ✓ pg Driver > pg decimal exactness > increment and decrement are exact and never round  1313ms
+   ✓ pg Driver > pg decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact  1052ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour  1095ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd  1110ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour  1111ms
+   ✓ pg Driver > pg decimal exactness > a rounded tie CARRIES across the whole value  1114ms
+   ✓ pg Driver > pg decimal exactness > divide rounds by the same rule, in both signs  1231ms
+   ✓ pg Driver > pg decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign  1111ms
+   ✓ pg Driver > pg decimal exactness > arithmetic on a NULL column stays NULL  1115ms
+   ✓ pg Driver > pg decimal exactness > division by zero fails BEFORE any statement is issued  1107ms
+   ✓ pg Driver > pg decimal exactness > a result past the field's precision fails and leaves the row alone  1100ms
+   ✓ pg Driver > pg decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float  1084ms
+   ✓ pg Driver > pg decimal exactness > an operand finer than the field's scale is refused, never rounded  1090ms
+   ✓ pg Driver > pg blob in/notIn filters > in matches exactly the listed byte arrays  1178ms
+   ✓ pg Driver > pg blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out  1041ms
+   ✓ pg Driver > pg blob in/notIn filters > in with no matching member returns nothing  1055ms
+   ✓ pg Driver > pg blob in/notIn filters > empty in matches nothing (Prisma semantics)  1322ms
+   ✓ pg Driver > pg blob in/notIn filters > notIn excludes exactly the listed byte arrays  1116ms
+   ✓ pg Driver > pg blob in/notIn filters > empty notIn matches everything (Prisma semantics)  1098ms
+   ✓ pg Driver > pg blob in/notIn filters > notIn on a nullable column excludes NULL rows  1075ms
+   ✓ pg Driver > pg blob in/notIn filters > in on a nullable column excludes NULL rows  1001ms
+   ✓ pg Driver > pg blob in/notIn filters > empty notIn on a nullable column keeps the NULL row  1084ms
+   ✓ pg Driver > pg blob in/notIn filters > Buffer members are accepted alongside Uint8Array  1311ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with not  1224ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with arbitrarily nested not  1122ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with the boolean wrappers  941ms
+   ✓ pg Driver > pg blob in/notIn filters > in drives deleteMany, not just reads  978ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly top-level  1222ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include  1136ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types  1047ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > aggregates are scalar-aware  1084ms
+
+ Test Files  1 passed (1)
+      Tests  220 passed | 7 skipped (227)
+   Start at  11:02:54
+   Duration  280.40s (transform 1.27s, setup 11ms, collect 1.94s, tests 278.26s, environment 0ms, prepare 31ms)
+
+Vitest resources: 282.30s wall, 513.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

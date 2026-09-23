@@ -1,0 +1,89 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+(node:28489) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts (76 tests) 105487ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > select _count returns exact counts, including zero  1904ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > returns multiple counts with a long public relation name  1672ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > includes a long relation under its exact public name  1915ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > select _count on findUnique with zero relations  1745ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > filtered _count only counts rows matching the where  1732ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > _count alongside relation rows returns both  1548ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > _count inside include returns counts alongside relations  1500ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > select _count: true counts every to-many relation  1555ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > select _count: true equals the explicit object form  1466ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > include _count: true counts every to-many relation  1441ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > include _count: true sits alongside included relations  1336ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true on findUnique counts for the single row  1557ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key)  1496ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true inside a nested include  1351ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy posts._count desc yields exact order  2187ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy posts._count asc yields exact order  1284ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy to-one relation scalar asc/desc  1344ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-one relation filters > isNot with real conditions includes null-FK rows  1187ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-one relation filters > findMany applies same-object is and isNot filters independent of key order  1209ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-one relation filters > findMany combines null and object to-one filters  1215ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and none filters independent of key order  1160ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and every filters independent of key order  1154ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches zero related rows  1212ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches one related row  1319ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches several related rows  1351ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every matches vacuously for zero relations  1465ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > none excludes any user with a matching relation  1713ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > none with empty condition means zero relations  1872ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders root rows by a two-hop to-one chain  1517ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders root rows by a three-hop to-one chain  1242ms
+   ✓ pg Driver > pg nested relation orderBy behavior > runs the sorting docs three-hop author chain example  2047ms
+   ✓ pg Driver > pg nested relation orderBy behavior > places null relation-chain rows according to explicit nulls  2053ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders a self-relation chain by parent.parent.name  1600ms
+   ✓ pg Driver > pg nested relation orderBy behavior > rejects ordering through a to-many relation mid-chain  1266ms
+   ✓ pg Driver > pg nested relation orderBy behavior > combines nested orderBy with take, skip, and scalar tiebreakers  1170ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders included to-many rows by a nested relation chain  1116ms
+   ✓ pg Driver > pg omit > findMany drops exactly the omitted scalar  1103ms
+   ✓ pg Driver > pg omit > findUnique / findFirst honor omit  1093ms
+   ✓ pg Driver > pg omit > omit composes with include, and the relation keeps its own shape  1039ms
+   ✓ pg Driver > pg omit > nested omit reduces the relation payload only  1030ms
+   ✓ pg Driver > pg omit > omit at both levels applies independently  1010ms
+   ✓ pg Driver > pg omit > create / update / upsert / delete honor omit  1019ms
+   ✓ pg Driver > pg omit > create composes select with omit  1036ms
+   ✓ pg Driver > pg omit > a bulk write with omit returns the projected rows, not a count  1037ms
+   ✓ pg Driver > pg omit > a bulk write composes select with omit  1036ms
+   ✓ pg Driver > pg omit > a bulk write WITHOUT a projection still counts  1251ms
+   ✓ pg Driver > pg omit > select + omit returns the selected shape minus overlaps  1061ms
+   ✓ pg Driver > pg omit > an omit that hides every field is refused  1048ms
+   ✓ pg Driver > pg omit > a model-level omitted column never comes back  1073ms
+   ✓ pg Driver > pg omit > neither select nor omit can re-include it  1418ms
+   ✓ pg Driver > pg omit > a model-level omitted column cannot be selected through a relation  1404ms
+   ✓ pg Driver > pg omit > client-level omit hides the field on every read of that model  1172ms
+   ✓ pg Driver > pg omit > client-level omit reaches relation payloads  1367ms
+   ✓ pg Driver > pg omit > a local omit: { field: false } re-includes a globally hidden field  1317ms
+   ✓ pg Driver > pg omit > a local omit adds to the global one instead of replacing it  1255ms
+   ✓ pg Driver > pg omit > an explicit select overrides the client default before local omit subtracts  1308ms
+   ✓ pg Driver > pg omit > select + omit composes through a selected relation include and all omit layers  1497ms
+   ✓ pg Driver > pg omit > client-level omit does not turn a bulk write into a row-returning one  1978ms
+   ✓ pg Driver > pg omit > a client that configures nothing is unaffected  1632ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit below the matching count removes exactly limit rows  1274ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit equal to the matching count removes all of them  1210ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit above the matching count is the uncapped delete  1386ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit 0 removes nothing and reports count 0  1739ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit without a where caps a whole-table delete  1748ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit below the matching count updates exactly limit rows  1619ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit at or above the matching count updates all of them  1282ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit 0 changes nothing and reports count 0  1204ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit composes with an arithmetic update  1346ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit composes with a relation filter  1277ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit composes with a relation filter  1208ms
+   ✓ pg Driver > pg bulk-write limit > updateMany with select returns exactly the capped rows  1176ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany with select returns exactly the capped rows  1139ms
+   ✓ pg Driver > pg bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set  1326ms
+   ✓ pg Driver > pg bulk-write limit > limit works on a model with a compound primary key  1156ms
+   ✓ pg Driver > pg bulk-write limit > limit 0 is the same no-op inside $transaction([...])  1741ms
+   ✓ pg Driver > pg bulk-write limit > a negative or fractional limit is rejected before any write  1569ms
+
+ Test Files  1 passed (1)
+      Tests  76 passed (76)
+   Start at  13:19:17
+   Duration  107.75s (transform 1.39s, setup 11ms, collect 2.07s, tests 105.49s, environment 0ms, prepare 47ms)
+
+Vitest resources: 110.44s wall, 500.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

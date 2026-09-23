@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02b
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (17 tests) 108ms
+ ✓ |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (17 tests) 102ms
+
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+   Start at  23:16:50
+   Duration  3.30s (transform 1.78s, setup 16ms, collect 2.66s, tests 210ms, environment 0ms, prepare 69ms)
+
+Vitest resources: 5.22s wall, 586.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

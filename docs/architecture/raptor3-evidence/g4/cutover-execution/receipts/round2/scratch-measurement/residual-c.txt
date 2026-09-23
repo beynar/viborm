@@ -1,0 +1,94 @@
+### contracts/drivers/namespace-execution-target.core.test.ts  (5)
+      5  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+### contracts/drivers/provider-result-contracts.core.test.ts  (1)
+      1  AssertionError: expected 'X'longitude\'X' to be 'X'longitude\'X' // Object.is equality
+### contracts/drivers/sqlite-integer-safety.core.test.ts  (1)
+      1  Error: Expected one prepared statement
+### contracts/engine/write/architecture-gates.core.test.ts  (1)
+      1  Error: ENOENT: no such file or directory, open 'X'
+### contracts/engine/write/parse-boundary-gate.core.test.ts  (3)
+      2  Error: ENOENT: no such file or directory, open 'X'
+      1  AssertionError: expected N to be N // Object.is equality
+### contracts/public-client/array-transaction-closure.core.test.ts  (1)
+      1  AssertionError: promise resolved "[ [], [] ]" instead of rejecting
+### contracts/public-client/official-cache-swr.core.test.ts  (1)
+      1  AssertionError: expected +N to be N // Object.is equality
+### contracts/public-client/query-interceptors-array.core.test.ts  (4)
+      1  AssertionError: expected "spy" to be called once, but got N times
+      1  AssertionError: expected [ …(N) ] to have a length of N but got N
+      1  AssertionError: expected [ 'X' ] to deeply equal []
+      1  Error: Expected the array transaction to fail
+### contracts/public-client/query-interceptors-integration.core.test.ts  (2)
+      2  AssertionError: expected [] to deeply equal [ 'X' ]
+### contracts/public-client/request-transforms.core.test.ts  (6)
+      2  AssertionError: expected function to throw an error, but it didn't
+      1  AssertionError: expected [Function] to throw an error
+      1  AssertionError: expected undefined to be defined
+      1  AssertionError: expected Set{} to deeply equal Set{ 'X', 'X', …(N) }
+### contracts/architecture/contract-matrix.core.test.ts  (3)
+      1  AssertionError: libsql:drivers.batch-primary-key-dataflow: expected 'X' to contain 'X'
+      1  AssertionError: query-engine type core: expected N to be greater than N
+      1  AssertionError: tests/raptorN/candidate-handoff.test.ts: expected undefined to be defined
+### contracts/engine/query/batch-attribution-hazard-signature.core.test.ts  (12)
+     12  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+### contracts/engine/query/bulk-create-plan.core.test.ts  (1)
+      1  AssertionError: expected [Function] to throw error including 'X' but got 'X'bulk-plan\'X'
+### contracts/engine/query/bulk-insert-row-shapes.core.test.ts  (1)
+      1  AssertionError: promise resolved "[ { count: +N } ]" instead of rejecting
+### contracts/engine/query/cursor-pagination-sql.core.test.ts  (30)
+     16  AssertionError: expected 'X' to contain 'X'
+      2  FAIL  |layer-query-engine| tests/contracts/engine/query/cursor-pagination-sql.core.test.ts > 'X' cursor SQL > one normal
+      2  FAIL  |layer-query-engine| tests/contracts/engine/query/cursor-pagination-sql.core.test.ts > 'X' cursor SQL > vector-dis
+      1  AssertionError: expected null not to be null
+### contracts/engine/query/decimal-having-operand-sql.core.test.ts  (6)
+      3  AssertionError: expected 'X' to contain 'X'
+      3  AssertionError: expected 'X' to match /^\$\d+$/
+### contracts/engine/query/field-reference-sql.core.test.ts  (40)
+     18  AssertionError: expected 'X' to be 'X' // Object.is equality
+      9  AssertionError: expected 'X' to contain 'X'
+      3  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > JSON operands stay closed to 
+      2  AssertionError: expected 'X'ABCDEFGHIJK…'X'TRANSLATE("tN"."title", \'X' // Object.is equality
+### contracts/engine/query/geopoint-sql.core.test.ts  (6)
+      3  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+      3  AssertionError: expected 'X' to contain 'X'
+### contracts/engine/query/json-null-sentinel-sql.core.test.ts  (9)
+      6  AssertionError: expected 'X' to contain 'X'
+      3  FAIL  |layer-query-engine| tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts > 'X' json null sentinel SQL
+### contracts/engine/query/lateral-joins.core.test.ts  (7)
+      7  AssertionError: expected 'X' to contain 'X'
+### contracts/engine/query/namespace-qualification.core.test.ts  (2)
+      2  AssertionError: expected 'X' to contain 'X'
+### contracts/engine/query/operand-callback-sql.core.test.ts  (12)
+      6  AssertionError: expected 'X' to contain 'X'
+      2  FAIL  |layer-query-engine| tests/contracts/engine/query/operand-callback-sql.core.test.ts > 'X' operand callbacks > a fr
+      2  AssertionError: expected 'X' to be 'X' // Object.is equality
+      1  FAIL  |layer-query-engine| tests/contracts/engine/query/operand-callback-sql.core.test.ts > 'X' operand callbacks > a su
+### contracts/engine/query/operation-equivalence-oracles.core.test.ts  (3)
+      2  FAIL  |layer-query-engine| tests/contracts/engine/query/operation-equivalence-oracles.core.test.ts > operation SQL and p
+      1  AssertionError: expected { read: { …(N) } } to deeply equal { read: { …(N) } }
+### contracts/engine/query/operation-program-read-contracts.core.test.ts  (1)
+      1  AssertionError: promise rejected "QueryEngineError: Driver "read-contract-s… { …(N) }" instead of resolving
+### contracts/engine/query/pending-operation-contracts.core.test.ts  (4)
+      1  AssertionError: expected function to throw an error, but it didn't
+      1  AssertionError: expected undefined to match object { sql: Any<String>, …(N) }
+      1  QueryEngineError: Operation 'X' on model 'X' publishes no single driver result to parse.
+      1  AssertionError: expected [Function] to throw error matching /Unknown operation 'X'/ but got 'X'
+### contracts/engine/query/read-traversal-byte-pins.core.test.ts  (32)
+      1  Error: Snapshot `self-relation many-to-many read SQL > PostgreSQL include of the forward side (follows) N` mismatched
+      1  Error: Snapshot `self-relation many-to-many read SQL > SQLite include of the forward side (follows) N` mismatched
+      1  Error: Snapshot `self-relation many-to-many read SQL > MySQL include of the forward side (follows) N` mismatched
+      1  Error: Snapshot `self-relation many-to-many read SQL > PostgreSQL include of the reversed side (followedBy) N` mismatche
+### contracts/engine/query/request-result-shape-contracts.core.test.ts  (15)
+      4  AssertionError: expected 'X' to contain 'X'
+      3  FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware resu
+      2  QueryEngineError: Operation 'X' on model 'X' publishes no single driver result to parse.
+      1  AssertionError: promise resolved "[ { id: 'X' } ]" instead of rejecting
+### contracts/engine/query/select-mode-capability-matrix.core.test.ts  (3)
+      1  AssertionError: expected 'X' to be 'X'no-atomic-planning\'X' // Object.is equality
+      1  FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor 
+      1  AssertionError: expected QueryError: Query execution failed { …(N) } to be an instance of TransactionError
+### contracts/engine/query/sql-generation.core.test.ts  (56)
+     14  AssertionError: expected 'X' to contain 'X'
+     13  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+      6  AssertionError: expected [Function] to throw an error
+      5  FAIL  |layer-query-engine| tests/contracts/engine/query/sql-generation.core.test.ts > Basic CRUD Operations > findMany >

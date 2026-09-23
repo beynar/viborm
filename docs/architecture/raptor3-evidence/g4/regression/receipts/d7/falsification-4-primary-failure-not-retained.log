@@ -1,0 +1,145 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (7 tests | 2 failed) 49ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 20ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 5ms
+   × G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 7ms
+     → the operation's own failure stays primary: {
+  "candidate": {
+    "invalidations": 1,
+    "outcome": "CacheConfigurationError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "QueryError"
+  }
+}
++ actual - expected
+
+  {
++   outcome: 'CacheConfigurationError',
++   primary: undefined
+-   outcome: 'raw:Query execution and write-outcome publication both failed.',
+-   primary: 'QueryError'
+  }
+
+   × G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 4ms
+     → a listener that fails alone answers the same on both routes: {
+  "candidate": {
+    "invalidations": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "undefined"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "outcome": "CacheConfigurationError"
+  }
+}
++ actual - expected
+
+  {
++   outcome: 'raw:Query execution and write-outcome publication both failed.',
++   primary: 'undefined'
+-   outcome: 'CacheConfigurationError',
+-   primary: undefined
+  }
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure
+AssertionError: the operation's own failure stays primary: {
+  "candidate": {
+    "invalidations": 1,
+    "outcome": "CacheConfigurationError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "QueryError"
+  }
+}
++ actual - expected
+
+  {
++   outcome: 'CacheConfigurationError',
++   primary: undefined
+-   outcome: 'raw:Query execution and write-outcome publication both failed.',
+-   primary: 'QueryError'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "outcome": "raw:Query execution and write-outcome publication both failed.",[39m
+[32m-   "primary": "QueryError",[39m
+[31m+   "outcome": "CacheConfigurationError",[39m
+[31m+   "primary": undefined,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:400:12
+    398|       JSON.stringify({ shipped })
+    399|     );
+    400|     assert.deepEqual(
+       |            ^
+    401|       { outcome: candidate.outcome, primary: candidate.primary },
+    402|       { outcome: shipped.outcome, primary: shipped.primary },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes
+AssertionError: a listener that fails alone answers the same on both routes: {
+  "candidate": {
+    "invalidations": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "undefined"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "outcome": "CacheConfigurationError"
+  }
+}
++ actual - expected
+
+  {
++   outcome: 'raw:Query execution and write-outcome publication both failed.',
++   primary: 'undefined'
+-   outcome: 'CacheConfigurationError',
+-   primary: undefined
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "outcome": "CacheConfigurationError",[39m
+[32m-   "primary": undefined,[39m
+[31m+   "outcome": "raw:Query execution and write-outcome publication both failed.",[39m
+[31m+   "primary": "undefined",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:414:12
+    412|     const candidate = await observeInvalidation("candidate", "committe…
+    413|     assert.equal(candidate.invalidations, shipped.invalidations, JSON.…
+    414|     assert.deepEqual(
+       |            ^
+    415|       { outcome: candidate.outcome, primary: candidate.primary },
+    416|       { outcome: shipped.outcome, primary: shipped.primary },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  23:16:10
+   Duration  2.09s (transform 1.20s, setup 9ms, collect 1.80s, tests 49ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.40s wall, 577.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

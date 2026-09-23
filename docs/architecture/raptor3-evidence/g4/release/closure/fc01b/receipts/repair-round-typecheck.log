@@ -1,0 +1,4 @@
+# FC01B repair round (2026-09-21)
+$ node scripts/run-typecheck.mjs   # run once, on the final tree
+# no diagnostic line emitted (tsc's stdout is passed through; the runner exits with tsc's own code)
+TypeScript (whole estate, native): 7.89s wall, 4980.7 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

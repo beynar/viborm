@@ -1,0 +1,153 @@
+{
+ "paths": [
+  {
+   "path": "benchmarks/drizzle-memory-cpu.mjs",
+   "baseline": "4c523c58e8b4491024004fb494e7cd2655c5f0ea14e3f02eaf879bea7470ad08",
+   "candidate": "4c523c58e8b4491024004fb494e7cd2655c5f0ea14e3f02eaf879bea7470ad08",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/drizzle.bench.ts",
+   "baseline": "53a64446ba1a048d8b50e974531f342e875f5438e248b07c9e0f04194ca60259",
+   "candidate": "53a64446ba1a048d8b50e974531f342e875f5438e248b07c9e0f04194ca60259",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/e2e-overhead.bench.ts",
+   "baseline": "fe110855fa6b6410ff45a6b9009692bff24e452f35e31007a6e2258c6e74b308",
+   "candidate": "fe110855fa6b6410ff45a6b9009692bff24e452f35e31007a6e2258c6e74b308",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/internal/operation.ts",
+   "baseline": "137d885c198033c61b08b6e5391f76423cc2edd03fc91f6df99d48a0bc5709d3",
+   "candidate": "137d885c198033c61b08b6e5391f76423cc2edd03fc91f6df99d48a0bc5709d3",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-lifecycle.bench.ts",
+   "baseline": "56f2bb38bf0c9db4d06400dfa450146d56bdcf887bff94682ade3189b77b03da",
+   "candidate": "56f2bb38bf0c9db4d06400dfa450146d56bdcf887bff94682ade3189b77b03da",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-batch-workloads.mjs",
+   "baseline": "95d5ad0328a0e5676c1c4313a5c9d12a9fe077d63cd0f0bfbf82fcbdcee11791",
+   "candidate": "95d5ad0328a0e5676c1c4313a5c9d12a9fe077d63cd0f0bfbf82fcbdcee11791",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-catalog.mjs",
+   "baseline": "7b7bf0a9c3543d4ce1c420073826d9ad90b796b40a6ae0acc1d425f6b0da0bf4",
+   "candidate": "7b7bf0a9c3543d4ce1c420073826d9ad90b796b40a6ae0acc1d425f6b0da0bf4",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-compare.mjs",
+   "baseline": "76a973f66de0799a1d7e234506ae567cc5bbb5e9da2ae385cc1ddea63746c420",
+   "candidate": "76a973f66de0799a1d7e234506ae567cc5bbb5e9da2ae385cc1ddea63746c420",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-contract-workloads.mjs",
+   "baseline": "eb66478647dfc20c361380fbd887465ba4095db728211589487e527e4e4644d9",
+   "candidate": "eb66478647dfc20c361380fbd887465ba4095db728211589487e527e4e4644d9",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-evidence.mjs",
+   "baseline": "c148f2e19cfdc7f9fb0ac83ec2b59849bb663c17fe637b3014a09a15bff91851",
+   "candidate": "c148f2e19cfdc7f9fb0ac83ec2b59849bb663c17fe637b3014a09a15bff91851",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-fixtures.mjs",
+   "baseline": "6ac9b3edf0e44be7d9e7d51f69402880e6d7d3de340e1bef9c48b7c65dd64eaa",
+   "candidate": "6ac9b3edf0e44be7d9e7d51f69402880e6d7d3de340e1bef9c48b7c65dd64eaa",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-harness.mjs",
+   "baseline": "bb5a0f68a92b586dba4e7e2d6dc685ebdf41f744d25cbd89725f7d477db22552",
+   "candidate": "bb5a0f68a92b586dba4e7e2d6dc685ebdf41f744d25cbd89725f7d477db22552",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-mutation-workloads.mjs",
+   "baseline": "f7b80919eb93e8940d33f5505a669db69db9ce8b374611ec29a0e7200d17700b",
+   "candidate": "f7b80919eb93e8940d33f5505a669db69db9ce8b374611ec29a0e7200d17700b",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-provider-fixtures.mjs",
+   "baseline": "3d441334c65f7fe5c65d5ea34ffcd8790ddf61d99bee2669f68684e148ddb084",
+   "candidate": "3d441334c65f7fe5c65d5ea34ffcd8790ddf61d99bee2669f68684e148ddb084",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-provider-workloads.mjs",
+   "baseline": "57cb46bcc002a783d7370ddebbad04c30147ccfab020d6d77c30ef9eb98b0291",
+   "candidate": "57cb46bcc002a783d7370ddebbad04c30147ccfab020d6d77c30ef9eb98b0291",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-protocol.mjs",
+   "baseline": "e5b45b068a87f3091c24525fd1b0a0ba3171d8acf784f5115d02056c988f13de",
+   "candidate": "e5b45b068a87f3091c24525fd1b0a0ba3171d8acf784f5115d02056c988f13de",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-read-workloads.mjs",
+   "baseline": "2a0f086d8f2221ebf975d179dd092ff86b30baacfc3707886efad9d77dd322ba",
+   "candidate": "2a0f086d8f2221ebf975d179dd092ff86b30baacfc3707886efad9d77dd322ba",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-report.mjs",
+   "baseline": "08e29cd211a39c7b025f3048a65b5fb7b0768ddcb5b3e8e72ae30f833267a7ea",
+   "candidate": "08e29cd211a39c7b025f3048a65b5fb7b0768ddcb5b3e8e72ae30f833267a7ea",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-semantics.mjs",
+   "baseline": "c0fadce67e2fea31085a2671811897a053f491fb1e9d659bbafd731b7dd87b87",
+   "candidate": "c0fadce67e2fea31085a2671811897a053f491fb1e9d659bbafd731b7dd87b87",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-worker.mjs",
+   "baseline": "e7d2dde0d0dd71d23a6dcbfa261b9e721186f7943494e3c54c4d19e1c00d6705",
+   "candidate": "e7d2dde0d0dd71d23a6dcbfa261b9e721186f7943494e3c54c4d19e1c00d6705",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/operation-pipeline-workloads.mjs",
+   "baseline": "acf0fefda309c6b3c23116b10cb9969070b579d1f3a5d9c2d90183e6b3fa98b0",
+   "candidate": "acf0fefda309c6b3c23116b10cb9969070b579d1f3a5d9c2d90183e6b3fa98b0",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/relation-read-memory.mjs",
+   "baseline": "f1dcca742073ee78df69fb366654477a13525f6dcf74c23bd6a5111f9eed89bf",
+   "candidate": "f1dcca742073ee78df69fb366654477a13525f6dcf74c23bd6a5111f9eed89bf",
+   "equal": true
+  },
+  {
+   "path": "benchmarks/relation-read-overhead.bench.ts",
+   "baseline": "9d8465fe07ee437d0997cf1f72ec0e79ef3ff1955110547eed720ca00d4bda6d",
+   "candidate": "9d8465fe07ee437d0997cf1f72ec0e79ef3ff1955110547eed720ca00d4bda6d",
+   "equal": true
+  },
+  {
+   "path": "scripts/test-run-lock.mjs",
+   "baseline": "c7a1dd1213e21ffeeb90ead5ccabc660ffb3bf7dc4cf35f4935f25af1aef01cc",
+   "candidate": "c7a1dd1213e21ffeeb90ead5ccabc660ffb3bf7dc4cf35f4935f25af1aef01cc",
+   "equal": true
+  }
+ ],
+ "identical": true,
+ "protocolSha256": {
+  "baseline": "2e35d9a73c57468f7a840a1ab8251393f489ae3b933db8e511e26a8591d5f087",
+  "candidate": "2e35d9a73c57468f7a840a1ab8251393f489ae3b933db8e511e26a8591d5f087"
+ }
+}

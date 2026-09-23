@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 131ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  01:16:57
+   Duration  7.58s (transform 2.64s, setup 31ms, collect 4.00s, tests 131ms, environment 0ms, prepare 113ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hQEE58/vitest.json
+Vitest resources: 14.54s wall, 535.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-dependency-choices contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hQEE58

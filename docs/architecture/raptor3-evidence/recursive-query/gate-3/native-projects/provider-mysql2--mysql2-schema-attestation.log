@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts (6 tests) 778ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  13:28:11
+   Duration  3.23s (transform 1.45s, setup 17ms, collect 2.15s, tests 778ms, environment 0ms, prepare 83ms)
+
+Vitest resources: 5.90s wall, 556.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

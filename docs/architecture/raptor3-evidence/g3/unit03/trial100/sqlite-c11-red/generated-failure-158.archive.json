@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "source": "generated-failure-158.json",
+  "file": "generated-failure-158.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 66476937,
+  "originalSha256": "da30c1aff1faead5fad0bd40a14860b8ca667029781b02796bb442912ce0c060",
+  "archiveBytes": 1162023,
+  "archiveSha256": "c0892eb5312b8353a0dba3bcb024e88e1a90f644b3284478b0b56ed41a203a94",
+  "restoreWorkingDirectory": "the directory containing this receipt",
+  "restoreCommand": "g3_red_restore_dir=$(mktemp -d); gzip -dc \"generated-failure-158.json.gz\" > \"$g3_red_restore_dir/generated-failure-158.json\""
+}

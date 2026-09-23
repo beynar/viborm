@@ -1,0 +1,381 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+ ❯ |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts (26 tests | 16 failed) 137ms
+   ✓ FC-02C: reference representability on the interactive route > connects a representable target through both verbs 29ms
+   × FC-02C: reference representability on the interactive route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing 7ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > keeps the plain connect's own sentence and its written state 5ms
+   × FC-02C: reference representability on the interactive route > refuses on a COMPOUND edge when one member of the pair is unrepresentable 4ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > leaves a nullable scalar that is never consumed as a reference alone 7ms
+   ✓ FC-02C: reference representability on the interactive route > asks nothing of a JUNCTION choice, whose captured pair is the target's row key 4ms
+   × FC-02C: reference representability on the interactive route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference 5ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > refuses the CHILD-held direction when the parent's own reference reads null 4ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > refuses a child-held CREATE under a parent whose reference reads null 4ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > refuses a COMPOUND reference whose produced or parent-held member is null 4ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > asks the same requirement at a NESTED placement and keeps the create root's own owner 6ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > connects and disconnects in the child-held direction whenever the reference is representable 5ms
+   ✓ FC-02C: reference representability on the segmented route > connects a representable target through both verbs 5ms
+   × FC-02C: reference representability on the segmented route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing 3ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > keeps the plain connect's own sentence and its written state 3ms
+   × FC-02C: reference representability on the segmented route > refuses on a COMPOUND edge when one member of the pair is unrepresentable 3ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > leaves a nullable scalar that is never consumed as a reference alone 3ms
+   ✓ FC-02C: reference representability on the segmented route > asks nothing of a JUNCTION choice, whose captured pair is the target's row key 3ms
+   × FC-02C: reference representability on the segmented route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference 3ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > refuses the CHILD-held direction when the parent's own reference reads null 5ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > refuses a child-held CREATE under a parent whose reference reads null 3ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > refuses a COMPOUND reference whose produced or parent-held member is null 3ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > asks the same requirement at a NESTED placement and keeps the create root's own owner 4ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > connects and disconnects in the child-held direction whenever the reference is representable 4ms
+   × FC-02C: the session-pinned segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched 5ms
+     → The expression evaluated to a falsy value:
+
+  ok(failure instanceof NestedWriteError)
+
+   × FC-02C: the sessionless segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched 3ms
+     → The expression evaluated to a falsy value:
+
+  ok(failure instanceof NestedWriteError)
+
+ ❯ |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts (26 tests | 16 failed) 120ms
+   ✓ FC-02C: reference representability on the interactive route > connects a representable target through both verbs 25ms
+   × FC-02C: reference representability on the interactive route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing 7ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > keeps the plain connect's own sentence and its written state 5ms
+   × FC-02C: reference representability on the interactive route > refuses on a COMPOUND edge when one member of the pair is unrepresentable 4ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > leaves a nullable scalar that is never consumed as a reference alone 4ms
+   ✓ FC-02C: reference representability on the interactive route > asks nothing of a JUNCTION choice, whose captured pair is the target's row key 6ms
+   × FC-02C: reference representability on the interactive route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference 4ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > refuses the CHILD-held direction when the parent's own reference reads null 4ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > refuses a child-held CREATE under a parent whose reference reads null 3ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > refuses a COMPOUND reference whose produced or parent-held member is null 3ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the interactive route > asks the same requirement at a NESTED placement and keeps the create root's own owner 5ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > connects and disconnects in the child-held direction whenever the reference is representable 5ms
+   ✓ FC-02C: reference representability on the segmented route > connects a representable target through both verbs 5ms
+   × FC-02C: reference representability on the segmented route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing 3ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > keeps the plain connect's own sentence and its written state 3ms
+   × FC-02C: reference representability on the segmented route > refuses on a COMPOUND edge when one member of the pair is unrepresentable 3ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > leaves a nullable scalar that is never consumed as a reference alone 3ms
+   ✓ FC-02C: reference representability on the segmented route > asks nothing of a JUNCTION choice, whose captured pair is the target's row key 2ms
+   × FC-02C: reference representability on the segmented route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference 2ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > refuses the CHILD-held direction when the parent's own reference reads null 5ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > refuses a child-held CREATE under a parent whose reference reads null 3ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > refuses a COMPOUND reference whose produced or parent-held member is null 2ms
+     → Missing expected rejection.
+   × FC-02C: reference representability on the segmented route > asks the same requirement at a NESTED placement and keeps the create root's own owner 3ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > connects and disconnects in the child-held direction whenever the reference is representable 3ms
+   × FC-02C: the session-pinned segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched 4ms
+     → The expression evaluated to a falsy value:
+
+  ok(failure instanceof NestedWriteError)
+
+   × FC-02C: the sessionless segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched 3ms
+     → The expression evaluated to a falsy value:
+
+  ok(failure instanceof NestedWriteError)
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 32 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:235:7
+    233|       // it — the pre-N5 behaviour the `folded` narrowing had restored.
+    234|       const client = await world();
+    235|       await assert.rejects(
+       |       ^
+    236|         async () => {
+    237|           await client.holder.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/32]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses on a COMPOUND edge when one member of the pair is unrepresentable
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses on a COMPOUND edge when one member of the pair is unrepresentable
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:293:7
+    291|     it("refuses on a COMPOUND edge when one member of the pair is unre…
+    292|       const client = await world();
+    293|       await assert.rejects(
+       |       ^
+    294|         async () => {
+    295|           await client.gate.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/32]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:403:7
+    401|       // disconnected and `b9` stood created beside it.
+    402|       const client = await world();
+    403|       await assert.rejects(
+       |       ^
+    404|         async () => {
+    405|           await client.holder.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/32]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses the CHILD-held direction when the parent's own reference reads null
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses the CHILD-held direction when the parent's own reference reads null
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:441:7
+    439|       // sibling scalar was written beside it.
+    440|       const client = await world();
+    441|       await assert.rejects(
+       |       ^
+    442|         async () => {
+    443|           await client.badge.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/32]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a child-held CREATE under a parent whose reference reads null
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a child-held CREATE under a parent whose reference reads null
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:465:7
+    463|       // holding NULL for the edge, which is not membership at all.
+    464|       const client = await world();
+    465|       await assert.rejects(
+       |       ^
+    466|         async () => {
+    467|           await client.badge.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/32]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a COMPOUND reference whose produced or parent-held member is null
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a COMPOUND reference whose produced or parent-held member is null
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:487:7
+    485|       const client = await world();
+    486|       // Produced: the create arm spells one member of the pair NULL.
+    487|       await assert.rejects(
+       |       ^
+    488|         async () => {
+    489|           await client.gate.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/32]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > asks the same requirement at a NESTED placement and keeps the create root's own owner
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > asks the same requirement at a NESTED placement and keeps the create root's own owner
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:533:7
+    531|       // member's own update. The requirement is the record's, so its …
+    532|       // in the tree is not a question it asks.
+    533|       await assert.rejects(
+       |       ^
+    534|         async () => {
+    535|           await client.badge.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/32]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: the session-pinned segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: the sessionless segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched
+AssertionError: The expression evaluated to a falsy value:
+
+  ok(failure instanceof NestedWriteError)
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:689:14
+    687|           (error: unknown) => error
+    688|         );
+    689|       assert.ok(failure instanceof NestedWriteError);
+       |              ^
+    690|       assert.equal(failure.message, NULL_CODE);
+    691|       // No committed prefix is reported, because none exists: the fai…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:235:7
+    233|       // it — the pre-N5 behaviour the `folded` narrowing had restored.
+    234|       const client = await world();
+    235|       await assert.rejects(
+       |       ^
+    236|         async () => {
+    237|           await client.holder.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses on a COMPOUND edge when one member of the pair is unrepresentable
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses on a COMPOUND edge when one member of the pair is unrepresentable
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:293:7
+    291|     it("refuses on a COMPOUND edge when one member of the pair is unre…
+    292|       const client = await world();
+    293|       await assert.rejects(
+       |       ^
+    294|         async () => {
+    295|           await client.gate.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a connectOrCreate whose CREATE arm produces an unrepresentable reference
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:403:7
+    401|       // disconnected and `b9` stood created beside it.
+    402|       const client = await world();
+    403|       await assert.rejects(
+       |       ^
+    404|         async () => {
+    405|           await client.holder.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses the CHILD-held direction when the parent's own reference reads null
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses the CHILD-held direction when the parent's own reference reads null
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:441:7
+    439|       // sibling scalar was written beside it.
+    440|       const client = await world();
+    441|       await assert.rejects(
+       |       ^
+    442|         async () => {
+    443|           await client.badge.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a child-held CREATE under a parent whose reference reads null
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a child-held CREATE under a parent whose reference reads null
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:465:7
+    463|       // holding NULL for the edge, which is not membership at all.
+    464|       const client = await world();
+    465|       await assert.rejects(
+       |       ^
+    466|         async () => {
+    467|           await client.badge.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a COMPOUND reference whose produced or parent-held member is null
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a COMPOUND reference whose produced or parent-held member is null
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:487:7
+    485|       const client = await world();
+    486|       // Produced: the create arm spells one member of the pair NULL.
+    487|       await assert.rejects(
+       |       ^
+    488|         async () => {
+    489|           await client.gate.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > asks the same requirement at a NESTED placement and keeps the create root's own owner
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > asks the same requirement at a NESTED placement and keeps the create root's own owner
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:533:7
+    531|       // member's own update. The requirement is the record's, so its …
+    532|       // in the tree is not a question it asks.
+    533|       await assert.rejects(
+       |       ^
+    534|         async () => {
+    535|           await client.badge.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/32]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: the session-pinned segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched
+ FAIL  |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: the sessionless segmented transport's committed prefix > claims neither progress nor a rollback, because nothing was dispatched
+AssertionError: The expression evaluated to a falsy value:
+
+  ok(failure instanceof NestedWriteError)
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:689:14
+    687|           (error: unknown) => error
+    688|         );
+    689|       assert.ok(failure instanceof NestedWriteError);
+       |              ^
+    690|       assert.equal(failure.message, NULL_CODE);
+    691|       // No committed prefix is reported, because none exists: the fai…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/32]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  32 failed | 20 passed (52)
+   Start at  10:25:01
+   Duration  3.40s (transform 1.77s, setup 15ms, collect 2.63s, tests 258ms, environment 0ms, prepare 52ms)
+
+Vitest resources: 5.34s wall, 612.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

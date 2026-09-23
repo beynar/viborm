@@ -27,6 +27,7 @@ import { readSuppressedFailures } from "@drivers/shared";
 import {
   condemnPhysicalSession,
   leasePinnedCommand,
+  releaseReservedPostgresSession,
 } from "@drivers/shared/pinned-session";
 import { ConnectionError } from "@errors";
 import { describe, expect, it } from "vitest";
@@ -405,5 +406,31 @@ describe("a transport whose owned closure FAILED", () => {
       `reserved:SELECT ${RESET}()`,
       "ordinary",
     ]);
+  });
+});
+
+describe("a session that was never discarded", () => {
+  it("goes back to the pool without a reset and without a condemnation", async () => {
+    // The ordinary return, and the negative control for every condemnation
+    // above: a session that is not being discarded goes straight back to the
+    // pool. The reset is what the whole containment hangs on, so it must not
+    // run here — and a transport VibORM owns must not be closed either.
+    const events: string[] = [];
+
+    await releaseReservedPostgresSession({
+      driverName: "postgres",
+      discard: false,
+      reset: () => {
+        events.push(RESET);
+        return Promise.resolve([]);
+      },
+      release: () => events.push("release"),
+      closeOwnedTransport: () => {
+        events.push("close");
+        return Promise.resolve();
+      },
+    });
+
+    expect(events).toEqual(["release"]);
   });
 });

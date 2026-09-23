@@ -1,0 +1,14 @@
+Machine load (uptime) around each measured run. Apple M4 Pro, macOS Darwin 25.5.0,
+node v24.21.0. This machine was NOT quiet: an interactive desktop session with several
+Electron applications ran throughout, and the 1-minute load average stayed between 6.3
+and 8.9 for the whole unit. Every cell below is a PAIRED, alternating five-replicate
+comparison measured in the same window, which is what the protocol's design bounds this
+against; the absolute microsecond figures are not comparable with a quiet machine's.
+
+before, fixed-collection-rowref-1000/parse/cpu (protocol compare)   19:59  load 6.34 7.48 7.84
+before, the four other cells (protocol compare)                     20:06-20:07 load 6.52-8.85
+profiles (prof-stage, gc-stage)                                     20:08-20:11 load ~7
+after, parse series A                                               20:19  load 7.14 7.60 7.72 -> 7.27 7.62 7.72
+after, parse series B                                               20:19  load 7.32 7.61 7.72 -> 7.29 7.60 7.71
+control (unchanged tree, same direct-worker instrument)             20:20  load ~7.3
+after, the four other cells                                         20:20-20:21 load 6.52-7.94

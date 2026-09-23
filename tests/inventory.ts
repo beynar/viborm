@@ -3,6 +3,10 @@ import type {
   TestLayer,
   TestTier,
 } from "@tests/contracts/contract";
+import {
+  RAPTOR3_LIVE_PROVIDER_TESTS,
+  RAPTOR3_PROVIDER_TESTS,
+} from "../scripts/raptor3-manifest.mjs";
 
 export interface TestInventoryRecord {
   readonly file: string;
@@ -60,6 +64,11 @@ function typeLayer(file: string): TestLayer | undefined {
   }
 }
 
+const raptor3ProviderBacked: ReadonlySet<string> = new Set([
+  ...RAPTOR3_PROVIDER_TESTS,
+  ...RAPTOR3_LIVE_PROVIDER_TESTS,
+]);
+
 export function classifyTestFile(
   file: string
 ): TestInventoryRecord | undefined {
@@ -97,6 +106,20 @@ export function classifyTestFile(
       tier,
       boundary: "contract",
       requiredCapabilities: [],
+    };
+  }
+
+  if (file.startsWith("tests/raptor3/")) {
+    // The Raptor 3 engine's own contract tree. Which of its files need a live
+    // provider is the manifest's fact, read here and by the vitest projects.
+    return {
+      file,
+      owningLayer: "query-engine",
+      tier,
+      boundary: "contract",
+      requiredCapabilities: raptor3ProviderBacked.has(file)
+        ? ["sql-execution"]
+        : [],
     };
   }
 

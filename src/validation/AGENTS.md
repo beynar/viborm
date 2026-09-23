@@ -3,6 +3,15 @@
 **Location:** `src/validation/`  
 **Layer:** L1 + L3 - Validation foundation and operation schemas (see [root AGENTS.md](../../AGENTS.md))
 
+> **One provenance citation in this layer names a V1 file that no longer exists.**
+> The pattern retirement (Arnaud's decision D-15) deleted `query-engine/builders/`
+> whole. `scalars/negatable-filter.ts:12` carries an editor link,
+> `{@link file://../../query-engine/builders/where-builder.ts}`, which now resolves
+> to nothing: it records that V1's SQL builder recursed through `not` without a cap,
+> so read it in git history (`e8114ed9`), not on disk.
+> (`relations/order-by.ts:75` also names a deleted builder, but that docblock was
+> restated in place by the same unit and reads as history already.)
+
 ## Purpose
 
 Provides Standard Schema V1-compliant validation primitives (`v.*`) and builds all ORM operation schemas through `SchemaRegistry`.

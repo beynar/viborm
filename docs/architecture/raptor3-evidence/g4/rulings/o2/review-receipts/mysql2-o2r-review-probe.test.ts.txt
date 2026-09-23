@@ -1,0 +1,16 @@
+/** D-40 REVIEW PROBE — MySQL (`mysql2`). Removed once its receipt is taken. */
+import { describe, it } from "vitest";
+import { createMySQL2Driver, TEST_CONNECTION_STRING } from "./mysql2-fixtures";
+import { DELETED_LEGS, runReviewProbe } from "./o2r-review-probe";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+
+describeIf("D-40 review probe — the MySQL adapter parseResult leg", () => {
+  it("answers identically with and without the deleted count leg", async () => {
+    await runReviewProbe({
+      provider: "mysql",
+      driver: createMySQL2Driver(),
+      deletedLeg: DELETED_LEGS.mysql,
+    });
+  }, 120_000);
+});

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-uncaught-failure.review.test.ts (2 tests) 29ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  01:46:54
+   Duration  1.93s (transform 1.20s, setup 9ms, collect 1.78s, tests 29ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.48s wall, 459.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

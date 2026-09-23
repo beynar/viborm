@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02c
+
+ ✓ |extended-local| tests/raptor3/g4/parity/reference-representability.test.ts (12 tests) 97ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  23:16:43
+   Duration  1.75s (transform 920ms, setup 9ms, collect 1.39s, tests 97ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 3.78s wall, 517.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

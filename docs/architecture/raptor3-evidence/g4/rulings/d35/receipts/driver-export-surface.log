@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d35
+
+ ✓ |layer-drivers| tests/contracts/drivers/driver-export-surface.core.test.ts (10 tests) 4ms
+ ✓ |coverage-drivers| tests/contracts/drivers/driver-export-surface.core.test.ts (10 tests) 4ms
+
+ Test Files  2 passed (2)
+      Tests  20 passed (20)
+   Start at  22:28:36
+   Duration  2.62s (transform 1.42s, setup 15ms, collect 2.19s, tests 8ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 4.64s wall, 530.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

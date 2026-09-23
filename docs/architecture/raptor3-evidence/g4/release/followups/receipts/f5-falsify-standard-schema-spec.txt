@@ -1,0 +1,21 @@
+src/schema/scalars/bigint/scalar.ts(4,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/datetime/date-scalar.ts(4,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/datetime/scalar.ts(4,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/datetime/time-scalar.ts(4,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/decimal/scalar.ts(1,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/int/scalar.ts(1,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/json/scalar.ts(1,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/number/scalar.ts(1,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+src/schema/scalars/string/scalar.ts(4,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+tests/types/scalars/state.core.types.ts(187,1): error TS2578: Unused '@ts-expect-error' directive.
+tests/unit/operation-schemas/decimal-update-union.core.test.ts(262,7): error TS2345: Argument of type 'DecimalScalarState<Omit<DecimalScalarState<{ decimal: DecimalDescriptor; type: "decimal"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; autoGenerate: undefined; ... 5 more ...; base: DecimalSchema<...>; }>, "base" | "schema"> & { ...; }>' is not assignable to parameter of type 'ScalarState<ScalarType>'.
+  The types of 'schema["~standard"].version' are incompatible between these types.
+    Type 'number' is not assignable to type '1'.
+tests/unit/operation-schemas/decimal-update-union.core.test.ts(271,7): error TS2339: Property 'update' does not exist on type 'never'.
+tests/unit/scalars/decimal-descriptor.core.test.ts(707,39): error TS2345: Argument of type 'DecimalScalarState<Omit<DecimalScalarState<Omit<DecimalScalarState<{ decimal: DecimalDescriptor; type: "decimal"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: DecimalSchema<...>; }>, "base" | "schema"> & { ...; }>, "default" | ......' is not assignable to parameter of type 'ScalarState<ScalarType>'.
+  The types of 'schema["~standard"].version' are incompatible between these types.
+    Type 'number' is not assignable to type '1'.
+tests/unit/scalars/decimal-descriptor.core.test.ts(707,58): error TS2339: Property 'create' does not exist on type 'never'.
+tests/unit/scalars/modifier-contracts.core.test.ts(18,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+tests/unit/scalars/number-scalar-schemas.core.test.ts(26,15): error TS2724: '"@standard-schema/spec"' has no exported member named 'StandardSchemaOf'. Did you mean 'StandardSchemaV1'?
+TypeScript (whole estate, native): 7.15s wall, 4984.4 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

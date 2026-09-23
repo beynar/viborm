@@ -1,0 +1,372 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-PsGDnH
+✔ the same replay command accepts saved fixed, cut/fault and clock corpora (12362.184917ms)
+✔ the command refuses filtering, missing required cases and profiles (8716.0155ms)
+✔ saved evidence with a stale identity, empty corpus or malformed wire fails (12886.798709ms)
+✔ the outer watchdog terminates an operation that actually reached its wait (120313.255792ms)
+✔ the outer watchdog terminates a public call awaiting a queued provider reply (10471.88375ms)
+✔ completed G2 progress survives watchdog termination without becoming qualifying evidence (30423.199625ms)
+✖ test:all cannot replace the required lane through inherited specimen variables (13028.126292ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 6
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 213380.339
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:215:1
+✖ test:all cannot replace the required lane through inherited specimen variables (13028.126292ms)
+  AssertionError [ERR_ASSERTION]: 
+  [test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison
+  
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 66ms
+   ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 21ms
+   ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 18ms
+   ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 14ms
+   ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 37ms
+   ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 29ms
+   ✓ |raptor3| tests/raptor3/gate.test.ts (8 tests) 119ms
+   ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 65ms
+   ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 19ms
+   ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 9ms
+   ✓ |raptor3| tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts (5 tests) 4ms
+   ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 36ms
+   ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 15ms
+   ✓ |raptor3| tests/raptor3/ownership/commands.test.ts (6 tests) 5ms
+   ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 4ms
+   ❯ |raptor3| tests/raptor3/transport.test.ts (44 tests | 4 failed) 421ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays create 9ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-found 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-missing 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-empty and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected-after-commit and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected-after-commit and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-malformed and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-empty and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected and its healthy new-call suffix 7ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-malformed and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > queues two creates before release and explores both first actors with exact replay 75ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > records two failed calls and a healthy third call on one reusable engine 23ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > rejects wrong-publication, saves its full trace, and repeats the same failure three times 24ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > rejects lost-progress, saves its full trace, and repeats the same failure three times 31ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > rejects corrupted failure attribution without changing transport progress 1ms
+     × G1 explicit transport replies: scripted-returning-weak > keeps an unknown response sticky when the caller swallows the second public call's failure 2ms
+       → The input did not match the regular expression /Unknown or ambiguous scripted actor/. Input:
+  
+  'AssertionError [ERR_ASSERTION]: g3-transport:actor-attribution; unknown or ambiguous scripted actor\n' +
+    '\n' +
+    '0 !== 1\n'
+  
+     × G1 explicit transport replies: scripted-returning-weak > rejects omitted provider work even when the caller returns the expected public row 0ms
+       → The input did not match the regular expression /Unconsumed explicit replies: actor-1/. Input:
+  
+  'AssertionError [ERR_ASSERTION]: g3-transport:reply-consumption; unconsumed explicit replies: actor-1\n' +
+    '\n' +
+    'undefined !== 2\n'
+  
+     ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays create 3ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-found 2ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-missing 2ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-empty and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected-after-commit and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected-after-commit and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-malformed and its healthy new-call suffix 3ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-empty and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 6ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-malformed and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > queues two creates before release and explores both first actors with exact replay 68ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > records two failed calls and a healthy third call on one reusable engine 22ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > rejects wrong-publication, saves its full trace, and repeats the same failure three times 22ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > rejects lost-progress, saves its full trace, and repeats the same failure three times 28ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > rejects corrupted failure attribution without changing transport progress 1ms
+     × G1 explicit transport replies: scripted-returning-ack > keeps an unknown response sticky when the caller swallows the second public call's failure 1ms
+       → The input did not match the regular expression /Unknown or ambiguous scripted actor/. Input:
+  
+  'AssertionError [ERR_ASSERTION]: g3-transport:actor-attribution; unknown or ambiguous scripted actor\n' +
+    '\n' +
+    '0 !== 1\n'
+  
+     × G1 explicit transport replies: scripted-returning-ack > rejects omitted provider work even when the caller returns the expected public row 0ms
+       → The input did not match the regular expression /Unconsumed explicit replies: actor-1/. Input:
+  
+  'AssertionError [ERR_ASSERTION]: g3-transport:reply-consumption; unconsumed explicit replies: actor-1\n' +
+    '\n' +
+    'undefined !== 2\n'
+  
+   ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 5ms
+   ❯ |raptor3| tests/raptor3/g3/scope-failure-contract.test.ts (2 tests | 2 failed) 10ms
+     × G3 failed caller-scope publication > rejects a late relation-series completion before public array success, progress, or a successor 5ms
+       → Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'create'
+  - 'createMany'
+           ^
+  
+     × G3 failed caller-scope publication > stops after two caller-plus-late failures, then admits one healthy suffix on the same engine 4ms
+       → The expression evaluated to a falsy value:
+  
+    (scope.reason instanceof AggregateError)
+  
+   ✓ |raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 10ms
+   ❯ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests | 1 failed) 16ms
+     ✓ CS-01 A returns omitted-key rows only after every relation-series member 6ms
+     ✓ CS-01 A reads compound final keys while keeping injected keys private 3ms
+     ✓ CS-01 A refuses a missing terminal row and rolls back interactively 2ms
+     ✓ CS-01 A reports acknowledged member progress when a terminal row is missing 2ms
+     ✓ CS-01 A preserves the createMany terminal underflow error contract 1ms
+     × CS-01 A does not widen scalar returning or projection capabilities 1ms
+       → Missing expected rejection.
+   ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms
+   ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 15ms
+   ✓ |raptor3| tests/raptor3/g3/bulk-series-contract.test.ts (6 tests) 11ms
+   ✓ |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests) 12ms
+   ✓ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (5 tests) 10ms
+   ✓ |raptor3| tests/raptor3/g3/depth-recurrence-contract.test.ts (6 tests) 19ms
+   ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts (5 tests) 11ms
+   ✓ |raptor3| tests/raptor3/core-structure/extension-b.contract.test.ts (4 tests) 8ms
+   ✓ |raptor3| tests/raptor3/g3/generation/generated-smoke.test.ts (6 tests) 119ms
+   ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 39ms
+   ✓ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 5ms
+   ✓ |raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts (3 tests) 6ms
+   ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (2 tests) 5ms
+   ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 16ms
+   ❯ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests | 1 failed) 8ms
+     × refuses a requested candidate that the fixture silently bypasses 3ms
+       → The input did not match the regular expression /Unexpected candidate execution count/. Input:
+  
+  'Error: s3-empty/sqlite-interactive/seed-0: unexpected candidate execution count: 0 !== 1; the fixture bypassed or repeated the requested engine'
+  
+     ✓ refuses duplicate cases even when the fixed case count is unchanged 0ms
+     ✓ refuses duplicate profiles even when the profile count is unchanged 0ms
+     ✓ compares correlation identity without prescribing another engine's UUID draws 4ms
+     ✓ does not rename correlation-looking keys in public results or database rows 0ms
+     ✓ preserves opaque Error causes even when they resemble error observations 0ms
+   ✓ |raptor3| tests/raptor3/cleanup-failure.test.ts (2 tests) 25ms
+   ✓ |raptor3| tests/raptor3/candidate.test.ts (48 tests) 229ms
+   ✓ |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts (1 test) 71ms
+   ✓ |raptor3| tests/raptor3/generated-gate.test.ts (3 tests) 35ms
+   ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (8 tests) 7ms
+   ✓ |raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms
+   ✓ |raptor3| tests/raptor3/expanded/lifetime-commands.test.ts (16 tests) 48ms
+   ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (4 tests) 22ms
+   ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 241ms
+   ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 70ms
+   ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 189ms
+   ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 35ms
+   ✓ |raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 23ms
+   ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 38ms
+   ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 60ms
+   ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 60ms
+   ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 42ms
+   ✓ |raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 23ms
+   ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 85ms
+   ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 176ms
+   ✓ |raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 70ms
+   ✓ |raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 86ms
+   ✓ |raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 35ms
+   ✓ |raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 72ms
+   ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 89ms
+   ✓ |raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 1ms
+   ✓ |raptor3| tests/raptor3/expanded/commands.test.ts (82 tests) 156ms
+   ✓ |raptor3| tests/raptor3/expanded/variant-identity-commands.test.ts (42 tests) 85ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 38ms
+   ✓ |raptor3| tests/raptor3/generated-smoke.test.ts (32 tests) 146ms
+  
+   Test Files  4 failed | 61 passed (65)
+        Tests  8 failed | 746 passed (754)
+     Start at  15:56:06
+     Duration  10.34s (transform 1.61s, setup 37ms, collect 6.46s, tests 3.47s, environment 0ms, prepare 29ms)
+  
+  
+  
+  ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+  
+   FAIL  |raptor3| tests/raptor3/candidate-handoff.test.ts > refuses a requested candidate that the fixture silently bypasses
+  AssertionError: The input did not match the regular expression /Unexpected candidate execution count/. Input:
+  
+  'Error: s3-empty/sqlite-interactive/seed-0: unexpected candidate execution count: 0 !== 1; the fixture bypassed or repeated the requested engine'
+  
+  
+  - Expected: 
+  /Unexpected candidate execution count/
+  
+  + Received: 
+  Error {
+    "message": "s3-empty/sqlite-interactive/seed-0: unexpected candidate execution count: 0 !== 1; the fixture bypassed or repeated the requested engine",
+  }
+  
+   ❯ tests/raptor3/candidate-handoff.test.ts:26:3
+       24|     },
+       25|   };
+       26|   await assert.rejects(
+         |   ^
+       27|     runSQLiteWorld(bypassed, "sqlite-interactive", 0, {
+       28|       candidateFactory: () => ({
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+  
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > keeps an unknown response sticky when the caller swallows the second public call's failure
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > keeps an unknown response sticky when the caller swallows the second public call's failure
+  AssertionError: The input did not match the regular expression /Unknown or ambiguous scripted actor/. Input:
+  
+  'AssertionError [ERR_ASSERTION]: g3-transport:actor-attribution; unknown or ambiguous scripted actor\n' +
+    '\n' +
+    '0 !== 1\n'
+  
+  
+  - Expected: 
+  /Unknown or ambiguous scripted actor/
+  
+  + Received: 
+  AssertionError {
+    "message": "g3-transport:actor-attribution; unknown or ambiguous scripted actor
+  
+  0 !== 1
+  ",
+    "generatedMessage": false,
+    "code": "ERR_ASSERTION",
+    "actual": 0,
+    "expected": 1,
+    "operator": "strictEqual",
+    "diff": "simple",
+  }
+  
+   ❯ tests/raptor3/transport.test.ts:217:5
+      215|   it("keeps an unknown response sticky when the caller swallows the se…
+      216|     let swallowed: Promise<unknown> | undefined;
+      217|     await assert.rejects(
+         |     ^
+      218|       () =>
+      219|         runTransportWorld(
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+  
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > rejects omitted provider work even when the caller returns the expected public row
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > rejects omitted provider work even when the caller returns the expected public row
+  AssertionError: The input did not match the regular expression /Unconsumed explicit replies: actor-1/. Input:
+  
+  'AssertionError [ERR_ASSERTION]: g3-transport:reply-consumption; unconsumed explicit replies: actor-1\n' +
+    '\n' +
+    'undefined !== 2\n'
+  
+  
+  - Expected: 
+  /Unconsumed explicit replies: actor-1/
+  
+  + Received: 
+  AssertionError {
+    "message": "g3-transport:reply-consumption; unconsumed explicit replies: actor-1
+  
+  undefined !== 2
+  ",
+    "generatedMessage": false,
+    "code": "ERR_ASSERTION",
+    "actual": undefined,
+    "expected": 2,
+    "operator": "strictEqual",
+    "diff": "simple",
+  }
+  
+   ❯ tests/raptor3/transport.test.ts:253:5
+      251| 
+      252|   it("rejects omitted provider work even when the caller returns the e…
+      253|     await assert.rejects(
+         |     ^
+      254|       () =>
+      255|         runTransportWorld(
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+  
+   FAIL  |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts > CS-01 A does not widen scalar returning or projection capabilities
+  AssertionError: Missing expected rejection.
+  
+  simple
+  
+   ❯ tests/raptor3/core-structure/extension-a.contract.test.ts:374:7
+      372| 
+      373|     for (const attempt of attempts) {
+      374|       await assert.rejects(
+         |       ^
+      375|         candidate.execute("node", "updateMany", attempt.args),
+      376|         (failure) => failure instanceof attempt.error
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+  
+   FAIL  |raptor3| tests/raptor3/g3/scope-failure-contract.test.ts > G3 failed caller-scope publication > rejects a late relation-series completion before public array success, progress, or a successor
+  AssertionError: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'create'
+  - 'createMany'
+           ^
+  
+  
+  Expected: "createMany"
+  Received: "create"
+  
+   ❯ tests/raptor3/g3/scope-failure-contract.test.ts:252:14
+      250|       const heldStatement = world.driver.statements[heldIndex];
+      251|       assert(heldStatement);
+      252|       assert.equal(heldStatement.context?.operation, "createMany");
+         |              ^
+      253|       assert.match(heldStatement.sql, /g3_failed_scope_authors/);
+      254|       assert.deepEqual(storedAuthors(world.database), []);
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+  
+   FAIL  |raptor3| tests/raptor3/g3/scope-failure-contract.test.ts > G3 failed caller-scope publication > stops after two caller-plus-late failures, then admits one healthy suffix on the same engine
+  AssertionError: The expression evaluated to a falsy value:
+  
+    (scope.reason instanceof AggregateError)
+  
+  
+  - Expected
+  + Received
+  
+  - true
+  + false
+  
+   ❯ tests/raptor3/g3/scope-failure-contract.test.ts:309:9
+      307|         assert.equal(scope.status, "rejected");
+      308|         if (scope.status !== "rejected") throw new Error("Expected rej…
+      309|         assert(scope.reason instanceof AggregateError);
+         |         ^
+      310|         assert.equal(scope.reason.cause, callerFailure);
+      311|         const heldIndex = held.statementIndex();
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+  
+  Vitest resources: 12.46s wall, 905.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  [test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 12.75s wall, 63.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:225:3)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

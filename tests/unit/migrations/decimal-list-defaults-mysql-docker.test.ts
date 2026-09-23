@@ -7,7 +7,7 @@
 
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { introspect } from "@migrations/push";
+import { introspect } from "@migrations/push/planner";
 import { s } from "@schema";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
@@ -73,13 +73,21 @@ function noDefaultSchema() {
   };
 }
 
+/**
+ * The estate promises ONE thing about this server: the connection string in
+ * `MYSQL_TEST_CONNECTION_STRING`, whose path names the database. An explicit
+ * `namespace: "viborm"` overrode that path with the database name of the
+ * container this file was written against, so on any other container every
+ * statement went to a database the server does not have (errno 1049,
+ * SQLSTATE 42000) before one assertion ran. The database is the connection's,
+ * as in every sibling suite; nothing else about the case changes.
+ */
 function mysqlDriver(): MySQL2Driver {
   if (CONNECTION === undefined) {
     throw new Error("MYSQL_TEST_CONNECTION_STRING is required");
   }
   return new MySQL2Driver({
     databaseUrl: CONNECTION,
-    namespace: "viborm",
     migrationNamespaceAttestation: "non-redirecting",
   });
 }

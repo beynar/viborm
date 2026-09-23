@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |hr-review-unregistered-cut-evidence| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 26ms
+ ✓ |hr-review-unregistered-cut-evidence| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 15ms
+ ✓ |hr-review| tests/raptor3/g4/review/harness-reconciliation/folded-root-create-publication.test.ts (3 tests) 10ms
+ ✓ |hr-review| tests/raptor3/g4/review/harness-reconciliation/lookup-recognizer.test.ts (3 tests) 0ms
+ ✓ |hr-review| tests/raptor3/g4/review/harness-reconciliation/vector-read-witness.test.ts (2 tests) 14ms
+ ✓ |hr-review| tests/raptor3/g4/review/harness-reconciliation/folded-fault-coverage.test.ts (6 tests) 22ms
+
+ Test Files  6 passed (6)
+      Tests  22 passed (22)
+   Start at  14:11:38
+   Duration  4.39s (transform 2.52s, setup 22ms, collect 3.94s, tests 87ms, environment 0ms, prepare 52ms)
+
+Vitest resources: 4.87s wall, 644.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

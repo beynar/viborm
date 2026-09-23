@@ -1,0 +1,3 @@
+Raptor campaign receipt owner: 15 tests passed, 0 failed; 0.20 seconds wall; teardown verified.
+Raptor CLI owner: 7 tests passed, 0 failed; artifact VCWZAB; 209.05 seconds wall; 224.8 MiB peak sampled process-group RSS; teardown verified.
+Five fresh source-bound saved corpora replayed successfully. Two historical corpora were refused at the identity check before semantic decoding.

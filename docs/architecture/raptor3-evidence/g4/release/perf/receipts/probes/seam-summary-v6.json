@@ -1,0 +1,93 @@
+{
+ "method": "v6 (v5's method, one added workload: series setup, the catalog's stage kind for the statement-arm loop, NO forced collection between warmup and the measured loop): 5 fresh-process pairs per (seam, side) with the SIDE ORDER ALTERNATED per pair, medians; ONE seam per process; the counts the series ran this cell at (1000/200); sqlite3 :memory:, Node v24.21.0, darwin/arm64.",
+ "seriesComparison": {
+  "cell": "bulk-update-returning-100/prepare",
+  "seriesCpuRatioPass1": 1.5558,
+  "seriesCpuRatioPass2": 1.4316,
+  "note": "the series brackets prepareOperationPlan(op, driver) + witness checksum, which returns capability.prepare() when that seam answers; both sides answer it here (see published)"
+ },
+ "trees": {
+  "baseline": "/private/tmp/viborm-perf-baseline",
+  "candidate": "/private/tmp/viborm-perf-cand"
+ },
+ "cells": [
+  {
+   "workload": "bulk-update-returning-100",
+   "published": {
+    "baseline": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     }
+    },
+    "candidate": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     }
+    }
+   },
+   "seams": {
+    "statement": {
+     "baselineCpuMedian": 42.389,
+     "candidateCpuMedian": 59.79,
+     "cpuRatio": 1.4105074429686946,
+     "baselineWallMedian": 20.729249999999993,
+     "candidateWallMedian": 25.483250000000012,
+     "wallRatio": 1.2293377715064473,
+     "baselineCpuSamples": [
+      41.092,
+      45.84,
+      42.641,
+      42.389,
+      41.413
+     ],
+     "candidateCpuSamples": [
+      59.79,
+      60.017,
+      56.039,
+      56.752,
+      60.037
+     ]
+    },
+    "package": {
+     "baselineCpuMedian": 44.546,
+     "candidateCpuMedian": 59.025,
+     "cpuRatio": 1.3250347954923,
+     "baselineWallMedian": 22.979208,
+     "candidateWallMedian": 26.47104200000001,
+     "wallRatio": 1.1519562380043737,
+     "baselineCpuSamples": [
+      44.1,
+      44.858,
+      45.034,
+      44.546,
+      43.452
+     ],
+     "candidateCpuSamples": [
+      59.025,
+      58.848,
+      59.107,
+      58.169,
+      63.68
+     ]
+    }
+   },
+   "stageKind": "async"
+  }
+ ]
+}

@@ -1,0 +1,52 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 2 failed) 36ms
+   × G3-02 author execution regressions > reports malformed and missing terminal results after an atomic batch was acknowledged 27ms
+     → The expression evaluated to a falsy value:
+
+  (failure instanceof TransactionError)
+
+   × G3-02 author execution regressions > keeps prepared result cardinality independent of terminal query chunking 5ms
+     → Query execution failed
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > reports malformed and missing terminal results after an atomic batch was acknowledged
+AssertionError: The expression evaluated to a falsy value:
+
+  (failure instanceof TransactionError)
+
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ Object.<anonymous> tests/raptor3/g3/author-execution-regressions.test.ts:192:11
+    190|         }),
+    191|         (failure) => {
+    192|           assert(failure instanceof TransactionError);
+       |           ^
+    193|           assert.match(failure.message, /omitted the terminal result/);
+    194|           assert.deepEqual(failure.meta.recordSeriesProgress, {
+ ❯ tests/raptor3/g3/author-execution-regressions.test.ts:186:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > keeps prepared result cardinality independent of terminal query chunking
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  18:38:20
+   Duration  1.57s (transform 970ms, setup 8ms, collect 1.40s, tests 36ms, environment 0ms, prepare 31ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-wJpVYg/vitest.json
+Vitest resources: 3.57s wall, 502.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-wJpVYg

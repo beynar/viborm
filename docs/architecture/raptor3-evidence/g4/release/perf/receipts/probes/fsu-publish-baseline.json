@@ -1,0 +1,11 @@
+{
+ "root": "/private/tmp/viborm-perf-baseline",
+ "statementSeam": {
+  "answered": false
+ },
+ "packageSeam": {
+  "answered": false,
+  "refusal": "Step 'user.update' carries a postcondition that is not yet enforced in batch mode."
+ },
+ "buildStatement": "[object Object]"
+}

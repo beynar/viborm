@@ -1,0 +1,16 @@
+# repair round 2026-09-20 — decode pin re-run after the two doc-only clause edits
+20:48  up 20 days, 20:28, 3 users, load averages: 7.22 6.44 6.69
+$ node scripts/run-vitest-safe.mjs run tests/contracts/engine/query/parity-decoding.core.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-p1
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests) 18ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  20:48:29
+   Duration  1.22s (transform 644ms, setup 8ms, collect 994ms, tests 18ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 3.13s wall, 523.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+EXIT=0
+20:48  up 20 days, 20:28, 3 users, load averages: 7.22 6.44 6.69

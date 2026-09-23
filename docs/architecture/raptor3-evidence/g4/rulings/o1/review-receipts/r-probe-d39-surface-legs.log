@@ -1,0 +1,51 @@
+{
+  "sqlite3": {
+    "stock": {
+      "shippedLeg": true,
+      "preD39Leg": true,
+      "resolvesAsCandidate": true
+    },
+    "withResultMiddleware": {
+      "shippedLeg": false,
+      "preD39Leg": false,
+      "resolvesAsCandidate": false
+    },
+    "withFieldMiddleware": {
+      "shippedLeg": false,
+      "preD39Leg": true,
+      "resolvesAsCandidate": false
+    },
+    "withReenteredAdapter": {
+      "shippedLeg": false,
+      "preD39Leg": false,
+      "resolvesAsCandidate": false
+    }
+  },
+  "pglite": {
+    "stock": {
+      "shippedLeg": true,
+      "preD39Leg": true,
+      "resolvesAsCandidate": true
+    },
+    "withResultMiddleware": {
+      "shippedLeg": false,
+      "preD39Leg": false,
+      "resolvesAsCandidate": false
+    },
+    "withFieldMiddleware": {
+      "shippedLeg": false,
+      "preD39Leg": true,
+      "resolvesAsCandidate": false
+    },
+    "withReenteredAdapter": {
+      "shippedLeg": false,
+      "preD39Leg": false,
+      "resolvesAsCandidate": false
+    }
+  },
+  "shippedSurfaceIdentity": {
+    "sqlite3ResultIsSharedParser": true,
+    "pgliteResultIsUndefined": true,
+    "sqliteParserHasNoResultHook": true
+  }
+}

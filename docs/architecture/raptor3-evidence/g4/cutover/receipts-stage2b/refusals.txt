@@ -1,0 +1,30 @@
+Refusals observed in the stage-2b series, quoted from the per-cell logs (cells/).
+Lines longer than 300 characters (the minified dist/ frame the worker prints) are elided.
+
+--- cells/pass1__flat-scalar-update__prepare__cpu.log
+Error: candidate worker failed (1):
+  throw new Error(`Harness ${workloadName} does not implement ${stage}`);
+Error: Harness flat-scalar-update does not implement prepare
+--- cells/pass1__flat-scalar-update__prepare__retained.log
+Error: candidate worker failed (1):
+  throw new Error(`Harness ${workloadName} does not implement ${stage}`);
+Error: Harness flat-scalar-update does not implement prepare
+--- cells/pass1__flat-scalar-update__execute__cpu.log
+Error: candidate worker failed (1):
+  throw new Error(`Harness ${workloadName} does not implement ${stage}`);
+Error: Harness flat-scalar-update does not implement execute
+--- cells/pass1__flat-scalar-update__execute__retained.log
+Error: candidate worker failed (1):
+  throw new Error(`Harness ${workloadName} does not implement ${stage}`);
+Error: Harness flat-scalar-update does not implement execute
+
+--- cells/pass1__relation-series-2__full__cpu.log
+i [QueryError]: Query execution failed
+  code: 'V2001',
+    model: 'generatedChild',
+    operation: 'updateMany'
+--- cells/pass1__relation-series-2__full__retained.log
+i [QueryError]: Query execution failed
+  code: 'V2001',
+    model: 'generatedChild',
+    operation: 'updateMany'

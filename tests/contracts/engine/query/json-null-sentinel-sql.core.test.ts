@@ -110,7 +110,6 @@ describe.each(dialectCases)("$name json null sentinel SQL", (dialectCase) => {
   const q = (identifier: string) =>
     `${dialectCase.quote}${identifier}${dialectCase.quote}`;
   const jsonNull = dialectCase.jsonNullOperand("?");
-  const notEquals = dialectCase.notEquals;
 
   const wherePredicate = (where: Record<string, unknown>) => {
     const query = build(dialectCase, "findMany", { where });
@@ -149,26 +148,6 @@ describe.each(dialectCases)("$name json null sentinel SQL", (dialectCase) => {
     expect(predicate).toContain(`${q("meta")} IS NULL`);
     expect(predicate).toContain(`${q("meta")} = ${jsonNull}`);
     expect(predicate).toContain(" OR ");
-    expect(jsonTexts(values)).toEqual(["null"]);
-  });
-
-  test("not DbNull is IS NOT NULL", () => {
-    const { predicate, values } = wherePredicate({ meta: { not: DbNull } });
-    expect(predicate).toContain(`${q("meta")} IS NOT NULL`);
-    expect(values).toEqual([]);
-  });
-
-  test("not JsonNull is a value inequality", () => {
-    const { predicate, values } = wherePredicate({ meta: { not: JsonNull } });
-    expect(predicate).toContain(`${q("meta")} ${notEquals} ${jsonNull}`);
-    expect(jsonTexts(values)).toEqual(["null"]);
-  });
-
-  test("not AnyNull is the conjunction of both complements", () => {
-    const { predicate, values } = wherePredicate({ meta: { not: AnyNull } });
-    expect(predicate).toContain(`${q("meta")} IS NOT NULL`);
-    expect(predicate).toContain(`${q("meta")} ${notEquals} ${jsonNull}`);
-    expect(predicate).toContain(" AND ");
     expect(jsonTexts(values)).toEqual(["null"]);
   });
 

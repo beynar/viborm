@@ -158,6 +158,11 @@ export function validateOperationPayload(
 /**
  * Render the concrete return type for one validated public operation payload.
  * Client extensions and `defaultOmit()` are not part of this schema-only view.
+ *
+ * A payload with a recursive relation slot renders as declarations — a
+ * `VibORMOperationResult` alias followed by one `VibORMRecursiveNodeN` alias per
+ * recursive slot, numbered outer-first — because a finite recursive type needs
+ * a name; every other result renders as one type expression.
  */
 export function renderOperationResultType<
   const S extends Schema,

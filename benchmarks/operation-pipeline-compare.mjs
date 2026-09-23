@@ -4,16 +4,43 @@
  * children run sequentially under the repository test-run lock.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { acquireTestRunLock } from "../scripts/test-run-lock.mjs";
 import {
+  formatBoundedResourceLine,
+  startBoundedProcess,
+} from "../scripts/bounded-process.mjs";
+import {
+  calibrationSourceIdentity,
+  verifyRewriteBenchmarkEvidence,
+} from "./operation-pipeline-semantics.mjs";
+import {
+  encodeEvidenceValue,
+  parseEvidenceReport,
+  serializeEvidenceReport,
+} from "./operation-pipeline-evidence.mjs";
+import {
   assertEvidenceProgramCommits,
   defaultMeasurementIterations,
   EXTENSION_ARMS,
   resolveEvidenceProgram,
+  RAPTOR3_WORKLOADS,
+  RAPTOR3_WORKLOAD_VERSION,
   WORKLOADS,
 } from "./operation-pipeline-catalog.mjs";
 import {
@@ -52,6 +79,7 @@ const VALUE_ARGUMENTS = new Set([
   "output",
   "iterations",
   "warmup",
+  "comparison",
 ]);
 const COORDINATOR_REPOSITORY = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -63,6 +91,7 @@ const COORDINATOR_WORKER = join(
 );
 process.chdir(COORDINATOR_REPOSITORY);
 const activeChildren = new Set();
+const activeCalibrationRuns = new Set();
 
 function signalProcessGroup(child, signal) {
   if (child.exitCode !== null || child.pid === undefined) return;
@@ -72,6 +101,7 @@ function signalProcessGroup(child, signal) {
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {
+    for (const run of activeCalibrationRuns) run.terminate(signal);
     for (const child of activeChildren) signalProcessGroup(child, "SIGTERM");
     setTimeout(() => {
       for (const child of activeChildren) signalProcessGroup(child, "SIGKILL");
@@ -101,6 +131,12 @@ for a short infrastructure check; smoke output is explicitly invalid for a
 performance keep decision. Use --diagnostic with an explicit --workloads
 subset for two reduced-count alternating pairs; its output is also never
 keep-eligible.
+
+--comparison semantic requires independent contract observations and keeps
+physical repeatability within each engine. The default remains strict.
+--calibrate --workloads name,name [--stages full] [--modes cpu,retained]
+builds and measures this exact hashed checkout in both arms. It accepts no
+checkout or adoption options and can never issue a keep decision.
 `);
   process.exit(message ? 2 : 0);
 }
@@ -111,6 +147,11 @@ function parseArguments(argv) {
   while (index < argv.length) {
     const argument = argv[index];
     if (argument === "--help") usage();
+    if (argument === "--calibrate") {
+      values.calibrate = true;
+      index += 1;
+      continue;
+    }
     if (argument === "--smoke") {
       values.smoke = true;
       index += 1;
@@ -671,7 +712,7 @@ function verifyTargetEvidence(
   const expectedEnvironment = JSON.stringify(
     comparableEnvironment(first.metadata, includeLockfileInEnvironment)
   );
-  const expectedWitness = JSON.stringify(first.witness);
+  const expectedWitness = JSON.stringify(encodeEvidenceValue(first.witness));
   const expectedProtocol = {
     ...(first.provider === undefined ? {} : { provider: target.provider }),
     workload: target.workload,
@@ -704,7 +745,8 @@ function verifyTargetEvidence(
       sample.checkout === "baseline" ? baseline : candidate;
     if (
       sample.output.metadata.commit !== expectedCheckout.commit ||
-      sample.output.metadata.clean !== true
+      sample.output.metadata.clean !== true ||
+      sample.output.calibrationOnly === true
     ) {
       throw new Error(
         `${target.workload}/${target.stage}/${target.mode} reported the wrong commit or a dirty checkout`
@@ -732,7 +774,11 @@ function verifyTargetEvidence(
         );
       }
     }
-    if (JSON.stringify(sample.output.witness) !== expectedWitness) {
+    if (
+      comparisonMode === "strict" &&
+      JSON.stringify(encodeEvidenceValue(sample.output.witness)) !==
+        expectedWitness
+    ) {
       throw new Error(
         `${target.workload}/${target.stage}/${target.mode} changed SQL, parameters, or statement count`
       );
@@ -752,7 +798,340 @@ function verifyTargetEvidence(
   }
 }
 
+/** Calibration uses the same installed workers but cannot issue an adoption verdict. */
+async function runCalibration(options) {
+  const allowed = new Set([
+    "calibrate",
+    "workloads",
+    "providers",
+    "stages",
+    "modes",
+    "iterations",
+    "warmup",
+    "output",
+  ]);
+  if (
+    !options.workloads ||
+    Object.keys(options).some((key) => !allowed.has(key))
+  ) {
+    throw new Error(
+      "--calibrate requires explicit workloads and accepts only provider/stage/mode/count/output options, never adoption options"
+    );
+  }
+  if (options.output && !isAbsolute(options.output))
+    throw new Error("Calibration --output must be absolute");
+  const providers = splitFilter(options.providers ?? "sqlite3");
+  if (providers.size !== 1 || !providers.has("sqlite3"))
+    throw new Error("Initial calibration is scoped to real local SQLite");
+  const selectedStages = splitFilter(options.stages ?? "full");
+  const selectedModes = splitFilter(options.modes ?? "cpu");
+  if ([...selectedModes].some((mode) => !["cpu", "retained"].includes(mode)))
+    throw new Error("Calibration measures CPU/wall or retained/peak memory");
+  const targets = [...splitFilter(options.workloads)].flatMap((workload) => {
+    const definition = WORKLOADS[workload];
+    if (
+      !definition ||
+      !definition.providers.includes("sqlite3") ||
+      definition.comparison !== "baseline-candidate" ||
+      definition.evidenceProgram
+    )
+      throw new Error(
+        `Not an eligible local calibration workload: ${workload}`
+      );
+    const stages = definition.stages.filter((stage) =>
+      selectedStages.has(stage)
+    );
+    if (!stages.length)
+      throw new Error(`No selected stage applies to ${workload}`);
+    return stages.flatMap((stage) =>
+      [...selectedModes].map((mode) => ({
+        provider: "sqlite3",
+        workload,
+        stage,
+        mode,
+      }))
+    );
+  });
+  for (const stage of selectedStages)
+    if (!targets.some((target) => target.stage === stage))
+      throw new Error(`No calibration target for stage ${stage}`);
+  const overrideIterations = optionalPositiveInteger(
+    "iterations",
+    options.iterations
+  );
+  const overrideWarmup = optionalPositiveInteger("warmup", options.warmup);
+  const release = acquireTestRunLock("Raptor 3 same-source calibration");
+  const temporary = mkdtempSync(join(tmpdir(), "viborm-raptor3-calibration-"));
+  const outputFile = join(temporary, "worker-output.json");
+  const errorFile = join(temporary, "worker-error.txt");
+  async function runBounded(label, args, env, heapLimitMb, wallLimitMs) {
+    const stdout = openSync(outputFile, "w");
+    const stderr = openSync(errorFile, "w");
+    let outcome;
+    let child;
+    try {
+      child = startBoundedProcess({
+        command: process.execPath,
+        arguments: args,
+        env: { ...process.env, ...env },
+        heapLimitMb,
+        label,
+        wallLimitMs,
+        stdio: ["ignore", stdout, stderr],
+      });
+      activeCalibrationRuns.add(child);
+      outcome = await child.completion;
+    } finally {
+      activeCalibrationRuns.delete(child);
+      closeSync(stdout);
+      closeSync(stderr);
+    }
+    process.stderr.write(`${formatBoundedResourceLine(label, outcome)}\n`);
+    if (outcome.error || outcome.stopReason || outcome.code !== 0)
+      throw new Error(
+        `${label} failed: ${outcome.error?.message ?? readFileSync(errorFile, "utf8")}`
+      );
+    return readFileSync(outputFile, "utf8").trim();
+  }
+  try {
+    const sourceBeforeBuild = calibrationSourceIdentity(COORDINATOR_REPOSITORY);
+    const manifest = JSON.parse(
+      readFileSync(join(COORDINATOR_REPOSITORY, "package.json"), "utf8")
+    );
+    const installedVersions = Object.fromEntries(
+      [
+        ...new Set([
+          ...Object.keys(manifest.dependencies),
+          ...Object.keys(manifest.peerDependencies),
+          "tsdown",
+          "typescript",
+        ]),
+      ]
+        .sort()
+        .map((name) => {
+          const path = join(
+            COORDINATOR_REPOSITORY,
+            "node_modules",
+            name,
+            "package.json"
+          );
+          return [
+            name,
+            existsSync(path)
+              ? JSON.parse(readFileSync(path, "utf8")).version
+              : null,
+          ];
+        })
+    );
+    const require = createRequire(import.meta.url);
+    const binaries = {
+      node: process.execPath,
+      sqlite3: resolve(
+        dirname(require.resolve("better-sqlite3")),
+        "../build/Release/better_sqlite3.node"
+      ),
+    };
+    const binaryHashes = () =>
+      Object.fromEntries(
+        Object.entries(binaries).map(([name, path]) => [
+          name,
+          createHash("sha256").update(readFileSync(path)).digest("hex"),
+        ])
+      );
+    const runtimeBinaries = binaryHashes();
+    const commit = git(COORDINATOR_REPOSITORY, ["rev-parse", "HEAD"]);
+    await runBounded(
+      "Calibration package build",
+      [join(COORDINATOR_REPOSITORY, "node_modules/tsdown/dist/run.mjs")],
+      {},
+      1280,
+      300_000
+    );
+    if (
+      calibrationSourceIdentity(COORDINATOR_REPOSITORY).sha256 !==
+      sourceBeforeBuild.sha256
+    )
+      throw new Error("Calibration source changed during build");
+    const sourceIdentity = calibrationSourceIdentity(
+      COORDINATOR_REPOSITORY,
+      true
+    );
+    const protocol = protocolIdentity(COORDINATOR_REPOSITORY);
+    const samples = [];
+    for (const { target, replicate, checkout } of measurementSchedule(
+      targets,
+      WORKLOADS,
+      5
+    )) {
+      const iterations =
+        overrideIterations ??
+        defaultMeasurementIterations(
+          WORKLOADS[target.workload],
+          target.mode,
+          false
+        );
+      const warmup = overrideWarmup ?? Math.max(10, Math.ceil(iterations / 5));
+      const sample = parseEvidenceReport(
+        await runBounded(
+          `Calibration ${target.workload}/${target.stage}/${target.mode} ${replicate + 1}/5 ${checkout}`,
+          ["--expose-gc", COORDINATOR_WORKER],
+          {
+            VIBORM_BENCH_PROVIDER: target.provider,
+            VIBORM_BENCH_WORKLOAD: target.workload,
+            VIBORM_BENCH_STAGE: target.stage,
+            VIBORM_BENCH_MODE: target.mode,
+            VIBORM_BENCH_EXPECTED_COMMIT: commit,
+            VIBORM_BENCH_TARGET_DIRECTORY: COORDINATOR_REPOSITORY,
+            VIBORM_BENCH_EXTENSION_ARM: "unextended",
+            VIBORM_BENCH_SMOKE: "0",
+            VIBORM_BENCH_ITERATIONS: String(iterations),
+            VIBORM_BENCH_WARMUP_ITERATIONS: String(warmup),
+            VIBORM_BENCH_CALIBRATION_SOURCE_SHA256: sourceIdentity.sha256,
+          },
+          768,
+          120_000
+        )
+      );
+      if (
+        sample.status !== "measured" ||
+        sample.calibrationOnly !== true ||
+        sample.calibrationSourceSha256 !== sourceIdentity.sha256 ||
+        sample.metadata.commit !== commit ||
+        sample.protocol.sha256 !== protocol.sha256 ||
+        sample.iterations !== iterations ||
+        sample.warmupIterations !== warmup
+      )
+        throw new Error(
+          "Calibration worker supplied incomplete or mismatched evidence"
+        );
+      for (const field of ["provider", "workload", "stage", "mode"]) {
+        if (sample[field] !== target[field])
+          throw new Error(`Calibration worker changed ${field}`);
+      }
+      samples.push({ ...target, replicate, checkout, output: sample });
+    }
+    verifyCrossStageSemantics(samples);
+    verifyRewriteBenchmarkEvidence(samples);
+    const comparisons = targets.map((target) => {
+      const selected = samples.filter(
+        (sample) =>
+          sample.workload === target.workload &&
+          sample.stage === target.stage &&
+          sample.mode === target.mode
+      );
+      if (
+        selected.length !== 10 ||
+        new Set(
+          selected.map((sample) =>
+            JSON.stringify(encodeEvidenceValue(sample.output.witness))
+          )
+        ).size !== 1
+      )
+        throw new Error(
+          `Calibration ${target.workload} lost a sample or changed physical evidence`
+        );
+      const fullCpu =
+        target.mode === "cpu" && ["full", "cold-full"].includes(target.stage);
+      const comparison = aggregateTarget(
+        target,
+        selected,
+        fullCpu ? ["peakRssBytes"] : []
+      );
+      const metrics =
+        target.mode === "cpu"
+          ? [
+              "cpuMicrosecondsPerOperation",
+              "wallMicrosecondsPerOperation",
+              ...(fullCpu ? ["peakRssBytes"] : []),
+            ]
+          : ["peakRssBytes"];
+      return {
+        ...comparison,
+        noiseBudget: Object.fromEntries(
+          metrics.map((metric) => {
+            const baselineMedian =
+              comparison.byCheckout.baseline.metrics[metric].median;
+            const delta = comparison.deltas[metric];
+            const budget =
+              (metric === "peakRssBytes" ? 0.1 : 0.05) * baselineMedian;
+            return [
+              metric,
+              {
+                baselineMedian,
+                signedDelta: delta.absolute,
+                twoMad: delta.twoMadThreshold,
+                budget,
+                noiseResolved: delta.twoMadThreshold <= budget,
+                apparentDeltaWithinBudget:
+                  Math.abs(delta.absolute) + delta.twoMadThreshold <= budget,
+              },
+            ];
+          })
+        ),
+      };
+    });
+    if (
+      calibrationSourceIdentity(COORDINATOR_REPOSITORY, true).sha256 !==
+      sourceIdentity.sha256
+    )
+      throw new Error("Calibration source/build changed during the series");
+    if (JSON.stringify(binaryHashes()) !== JSON.stringify(runtimeBinaries))
+      throw new Error("Calibration runtime binary changed during the series");
+    const report = {
+      calibrationOnly: true,
+      adoptionEligible: false,
+      keepGate: null,
+      qualification:
+        "Five alternating same-source fresh-process pairs; noise calibration only, not candidate performance or rewrite semantic qualification",
+      sourceBeforeBuild,
+      sourceIdentity,
+      commit,
+      protocol,
+      installedVersions,
+      runtimeBinaries,
+      provenanceLimits:
+        "One shared installed dependency tree, frozen lockfile and direct installed versions; no install permitted during the serial run. Node and SQLite binaries checked coordinator-side. Not an adversarial dependency-tamper attestation. Worker source hashing is untimed but contributes to process-lifetime peak RSS equally in both arms.",
+      workloadSelection: targets,
+      replicatesPerSide: 5,
+      frozenWorkloadVersion: RAPTOR3_WORKLOAD_VERSION,
+      missingFrozenWorkloads: RAPTOR3_WORKLOADS.filter(
+        (name) => !targets.some((target) => target.workload === name)
+      ),
+      memoryQualification:
+        "peakRssBytes is the whole-worker high-water mark in bytes sampled at measurement end, including setup and pre-measurement source hashing but not later teardown; it is not isolated stage memory. Full CPU workers supply it without a duplicate memory cohort",
+      overrides: {
+        iterations: overrideIterations ?? null,
+        warmup: overrideWarmup ?? null,
+      },
+      noiseResolved: comparisons.every((comparison) =>
+        Object.values(comparison.noiseBudget).every(
+          (metric) => metric.noiseResolved && metric.apparentDeltaWithinBudget
+        )
+      ),
+      comparisons,
+    };
+    const serialized = `${serializeEvidenceReport(report)}\n`;
+    if (options.output) {
+      writeFileSync(options.output, serialized);
+    } else process.stdout.write(serialized);
+  } finally {
+    try {
+      for (const file of [outputFile, errorFile]) rmSync(file, { force: true });
+      rmdirSync(temporary);
+    } finally {
+      release();
+    }
+  }
+}
+
 const arguments_ = parseArguments(process.argv.slice(2));
+const comparisonMode = arguments_.comparison ?? "strict";
+if (!["strict", "semantic"].includes(comparisonMode))
+  usage("--comparison must be strict or semantic");
+if (arguments_.calibrate) {
+  await runCalibration(arguments_);
+  process.exit(0);
+}
 if (arguments_.scheduleSelfCheck === true) {
   process.stdout.write(`${JSON.stringify(scheduleSelfCheck())}\n`);
   process.exit(0);
@@ -1114,7 +1493,7 @@ try {
       ...target,
       replicate,
       checkout: checkout.label,
-      output: JSON.parse(output),
+      output: parseEvidenceReport(output),
     });
   }
 
@@ -1201,7 +1580,13 @@ try {
   const measuredSamples = samples.filter(
     (sample) => (sample.output.status ?? "measured") === "measured"
   );
-  verifyCrossStageSemantics(measuredSamples);
+  if (comparisonMode === "semantic") {
+    verifyRewriteBenchmarkEvidence(measuredSamples);
+    for (const checkout of ["baseline", "candidate"])
+      verifyCrossStageSemantics(
+        measuredSamples.filter((sample) => sample.checkout === checkout)
+      );
+  } else verifyCrossStageSemantics(measuredSamples);
   const baselineSample = samples.find(
     (sample) => sample.checkout === "baseline"
   );
@@ -1272,10 +1657,21 @@ try {
     providerCoverageComplete:
       skippedComparisons.length === 0 &&
       skippedCandidateMeasurements.length === 0,
-    keepGate,
+    keepGate:
+      comparisonMode === "semantic"
+        ? {
+            ...keepGate,
+            eligible: false,
+            reasons: [
+              ...keepGate.reasons,
+              "Semantic mode supplies comparison evidence only. The Raptor 3 milestone gate must apply its frozen signed delta-plus-uncertainty budgets and complete workload/profile coverage; the legacy keep gate is not an adoption verdict.",
+            ],
+          }
+        : keepGate,
     generatedAt: new Date().toISOString(),
     protocol: {
       replicates,
+      comparisonMode,
       alternatingOrderForComparisons: true,
       candidateOnlyRunsOneCandidateSamplePerReplicate: true,
       freshProcessPerMeasurement: true,
@@ -1318,7 +1714,7 @@ try {
     comparisons,
     candidateMeasurements,
   };
-  const serialized = `${JSON.stringify(report, null, 2)}\n`;
+  const serialized = `${serializeEvidenceReport(report)}\n`;
   if (arguments_.output) {
     if (!isAbsolute(arguments_.output)) {
       throw new Error("--output must be an absolute path");

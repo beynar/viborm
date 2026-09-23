@@ -1,0 +1,68 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/judge-total.scratch.test.ts (4 tests | 3 failed) 7ms
+   × R3: a primitive row is a mismatch verdict with its owner, not an exception 6ms
+     → a recursive occurrence is one public object
+   × R3: a primitive member is a mismatch verdict with its owner, not an exception 0ms
+     → a recursive occurrence is one public object
+   × R3: a null row is a mismatch verdict with its owner, not an exception 0ms
+     → a recursive occurrence is one public object
+   ✓ R3: a matched value still carries its occurrence count and digest 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/judge-total.scratch.test.ts > R3: a primitive row is a mismatch verdict with its owner, not an exception
+ FAIL  ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/judge-total.scratch.test.ts > R3: a null row is a mismatch verdict with its owner, not an exception
+AssertionError: a recursive occurrence is one public object
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ occurrence tests/raptor3/recursive-query/provider-sql-fixture.ts:534:3
+    532| 
+    533| function occurrence(value: unknown): Occurrence {
+    534|   assert(
+       |   ^
+    535|     value !== null && typeof value === "object" && !Array.isArray(valu…
+    536|     "a recursive occurrence is one public object"
+ ❯ tests/raptor3/recursive-query/provider-sql-fixture.ts:570:33
+ ❯ occurrencesOf tests/raptor3/recursive-query/campaign-harness.ts:449:14
+ ❯ judgeOutcome tests/raptor3/recursive-query/campaign-harness.ts:535:20
+ ❯ ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/judge-total.scratch.test.ts:28:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/judge-total.scratch.test.ts > R3: a primitive member is a mismatch verdict with its owner, not an exception
+AssertionError: a recursive occurrence is one public object
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ occurrence tests/raptor3/recursive-query/provider-sql-fixture.ts:534:3
+    532| 
+    533| function occurrence(value: unknown): Occurrence {
+    534|   assert(
+       |   ^
+    535|     value !== null && typeof value === "object" && !Array.isArray(valu…
+    536|     "a recursive occurrence is one public object"
+ ❯ tests/raptor3/recursive-query/provider-sql-fixture.ts:576:22
+ ❯ occurrencesOf tests/raptor3/recursive-query/campaign-harness.ts:449:14
+ ❯ judgeOutcome tests/raptor3/recursive-query/campaign-harness.ts:535:20
+ ❯ ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/judge-total.scratch.test.ts:28:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  16:31:47
+   Duration  1.20s (transform 570ms, setup 15ms, collect 951ms, tests 7ms, environment 0ms, prepare 51ms)
+
+Vitest resources: 2.09s wall, 258.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

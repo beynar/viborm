@@ -7,10 +7,15 @@ import {
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import { JsonParameter } from "../../../sql/json-parameter";
-import type { ArithmeticTarget } from "../../adapter-core-types";
+import type {
+  ArithmeticTarget,
+  BatchReferenceSqlAdapter,
+} from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
 import type { QueryParts } from "../../adapter-query-parts";
+import { passThroughParseResult } from "../../adapter-result-parser";
+import { createNamedConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
   type GeoPointSql,
@@ -28,7 +33,6 @@ import {
   geoBoundsIndexPolygons,
   geoPolygonJson,
 } from "../../shared/geo-point";
-import { convertBigIntToNumber } from "../../shared/result-parsing";
 import {
   assembleDistinctOnEmulation,
   assembleSelectQuery,
@@ -63,6 +67,9 @@ import {
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter('"');
+const POSTGRES_CONSTRAINTS = createNamedConstraintIdentities(
+  (tableName) => `${tableName}_pkey`
+);
 
 /**
  * `div`/`mod` rather than `/` and a hand-rolled remainder: both are exact on
@@ -129,6 +136,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     installGeoPointSql(this, postgis ? this.createGeoPointSql() : undefined);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
+      constraints: POSTGRES_CONSTRAINTS,
       select: this.#assemble.select,
     });
   }
@@ -267,6 +275,11 @@ export class PostgresAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
 
+    // PostgreSQL integer division already truncates toward zero, which is why
+    // `set.divide` ignores `target.integer` here as well. Casting either side
+    // would narrow a `bigint` operand to `int4`.
+    integerDivide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
+
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${expr} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
 
@@ -274,6 +287,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     cast: createCastExpression({
       text: "TEXT",
       integer: "INTEGER",
+      bigint: "BIGINT",
       boolean: "BOOLEAN",
       numeric: "NUMERIC",
     }),
@@ -561,14 +575,51 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   lastInsertId = (): Sql => sql.raw`lastval()`;
 
-  readonly #batchRefs = createOnConflictBatchRefs({
+  readonly #cteBatchRefs = createOnConflictBatchRefs({
     table: sql.raw`"__viborm_batch_refs"`,
     batchIdColumn: sql.raw`"batch_id"`,
     keyColumn: sql.raw`"ref_key"`,
     valueColumn: sql.raw`"ref_value"`,
-    createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key")) ON COMMIT DROP`,
+    // The table is not ON COMMIT DROP, so it survives the native batch that
+    // created it (D-50); the scratch itself belongs to the dispatched batch —
+    // each batch stores its own reference rows, reads back what it stored at
+    // its own end and deletes them there (D-58), so a later batch never names
+    // a reference an earlier one stored. The table lingers on the session like
+    // the SQLite and MySQL scratch tables do.
+    createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))`,
     castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
+    // The exact identity of an INSERT, carried by the statement that runs it:
+    // the INSERT is the data-modifying CTE, its RETURNING feeds the reference
+    // row, and nothing session-global (lastval) is read.
+    storeReturning: (batchId, key, insert, column) =>
+      sql`WITH "__viborm_inserted" AS (${insert} RETURNING ${column}) INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") SELECT ${batchId}, ${key}, CAST(${column} AS TEXT) FROM "__viborm_inserted"`,
   });
+
+  // Whether this provider can mutate inside a CTE is the capability's fact,
+  // read live: the CTE store and the key store it derives are offered only
+  // while `capabilities.supportsCteWithMutations` holds, and a PostgreSQL
+  // without it offers no exact key store at all (lastval() is not exact).
+  readonly #batchRefs: BatchReferenceSqlAdapter = (() => {
+    const withCte = this.#cteBatchRefs;
+    const capabilities = this.capabilities;
+    return {
+      setup: withCte.setup,
+      clear: withCte.clear,
+      cleanup: withCte.cleanup,
+      store: withCte.store,
+      read: withCte.read,
+      get storeReturning() {
+        return capabilities.supportsCteWithMutations
+          ? withCte.storeReturning
+          : undefined;
+      },
+      get storeInsertedKey() {
+        return capabilities.supportsCteWithMutations
+          ? withCte.storeInsertedKey
+          : undefined;
+      },
+    };
+  })();
 
   // ============================================================
   // VECTOR (pgvector)
@@ -630,7 +681,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   // ============================================================
   // RESULT PARSING
-  // PostgreSQL: Mostly passthrough - native JSON and boolean types
+  // PostgreSQL: passthrough - native JSON and boolean types
   // ============================================================
 
   result: DatabaseAdapter["result"] = {
@@ -643,18 +694,17 @@ export class PostgresAdapter implements DatabaseAdapter {
     // enum LIST comes back as the array's own text rather than a JS array.
     enumListRepresentation: "arrayText",
 
-    parseResult: (
-      raw: unknown,
-      _operation: import("../../../query-engine/types").Operation,
-      next: (value?: unknown) => unknown
-    ): unknown => {
-      // PostgreSQL returns bigint for COUNT - convert to number
-      const converted = convertBigIntToNumber(raw);
-      if (converted !== undefined) {
-        return converted;
-      }
-      return next();
-    },
+    // The contract's shape, deciding nothing. This leg used to offer
+    // `convertBigIntToNumber(raw)`, but `Queries.decodeResult` hands it the
+    // operation's ROW ARRAY, which is never a bigint, and an integer's width
+    // is a VALUE's fact that the engine's `int` codec owns - it turns a bigint
+    // or an integer text into a number and refuses one outside the safe range
+    // (`raptor3/shared/query.ts`). Measured on live PostgreSQL over seven
+    // operations and both routes, on `pg` and on `postgres.js`: 40 asks, 40
+    // `undefined` (Arnaud's D-40, `g4/rulings/o2/receipts/leg-probe-pg.log`
+    // and `leg-probe-postgresjs-2.log`), with `COUNT(*)` arriving as the text
+    // `"2"` on both transports.
+    parseResult: passThroughParseResult,
 
     parseRelation: (
       _value: unknown,

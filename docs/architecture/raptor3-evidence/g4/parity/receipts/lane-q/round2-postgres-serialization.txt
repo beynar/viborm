@@ -1,0 +1,247 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-q
+
+ ❯ |provider-postgres| tests/providers/docker/postgres-serialization.test.ts (201 tests | 4 failed) 49405ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list round-trip > create returns real arrays with typed elements 247ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list round-trip > empty and null lists round-trip 202ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > equals matches the exact list 211ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > equals is order-sensitive 195ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > equals matches empty lists 205ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > equals matches int lists 210ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > equals null matches null lists only 211ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > not excludes the matching list and null lists 221ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > has matches string elements 196ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > has matches int elements 212ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > has with no match returns empty 205ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > has null is rejected consistently 182ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > hasEvery requires all elements 182ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > hasSome requires any element 189ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list 192ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect 173ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > set replaces the whole list 183ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > push appends a single value 193ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > push expands an array value element-wise 212ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > push appends int elements 184ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > push onto an empty list 204ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > push onto a null list creates the list 208ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > unshift prepends a single value 194ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > list updates > unshift expands an array value element-wise 213ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json filters > equals matches the exact document 209ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json filters > equals does not match a partial document 197ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json filters > equals null matches null json only 189ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json filters > not equals excludes the matching document and nulls 181ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > equals at a path matches the scoped value 196ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > equals at a nested path 228ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > equals at a path matches numbers 207ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents 272ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > equals at a missing path matches nothing 203ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys 214ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > integer path segments address array elements 231ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > path segments with dots stay literal  370ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution 256ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > string_contains at a path 223ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND 229ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode 232ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > string_contains without a path matches string roots  360ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > array_contains requires every candidate element  302ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate 237ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > array_contains without a path matches array roots only 237ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > array_starts_with matches the first element 202ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > array_ends_with matches the last element 185ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > not at a path inherits the path 182ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators 174ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract 192ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded 192ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold 174ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode 177ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode 198ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too 198ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored 289ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form  539ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements  678ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root 280ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form 218ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form 281ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution  478ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal  444ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only 257ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types 228ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point 264ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation  313ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross 204ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error 210ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object 289ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices 205ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root  344ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows  581ms
+   ✓ postgres.js Driver > postgres.js list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution 259ms
+   ✓ postgres.js Driver > postgres.js field references > gt compares two columns of the same row 269ms
+   ✓ postgres.js Driver > postgres.js field references > lt compares two columns of the same row  432ms
+   ✓ postgres.js Driver > postgres.js field references > gte and lte include the equal row  384ms
+   ✓ postgres.js Driver > postgres.js field references > equals and not compare two columns of the same row 247ms
+   ✓ postgres.js Driver > postgres.js field references > a bare reference is the equals shorthand 243ms
+   ✓ postgres.js Driver > postgres.js field references > a reference resolves through .map()ed column names 218ms
+   ✓ postgres.js Driver > postgres.js field references > string prefix/suffix/substring predicates accept a reference 212ms
+   ✓ postgres.js Driver > postgres.js field references > a callback is refused where only the token is accepted 200ms
+   ✓ postgres.js Driver > postgres.js field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation 211ms
+   ✓ postgres.js Driver > postgres.js field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column 186ms
+   ✓ postgres.js Driver > postgres.js field references > case folding against a referenced column > insensitive contains folds the referenced column 188ms
+   ✓ postgres.js Driver > postgres.js field references > case folding against a referenced column > insensitive startsWith folds the referenced column 188ms
+   ✓ postgres.js Driver > postgres.js field references > case folding against a referenced column > insensitive endsWith folds the referenced column 187ms
+   ✓ postgres.js Driver > postgres.js field references > case folding against a referenced column > insensitive `not` complements the folded comparison 190ms
+   ✓ postgres.js Driver > postgres.js field references > case folding against a referenced column > insensitive mode folds ASCII only 191ms
+   × postgres.js Driver > postgres.js field references > enum references > equals compares two enum columns of the same row 199ms
+     → Query execution failed
+   × postgres.js Driver > postgres.js field references > enum references > not complements it 199ms
+     → Query execution failed
+   × postgres.js Driver > postgres.js field references > enum references > a bare enum reference is the equals shorthand 193ms
+     → Query execution failed
+   × postgres.js Driver > postgres.js field references > enum references > the reference resolves through the .map()ed column name 205ms
+     → Query execution failed
+   ✓ postgres.js Driver > postgres.js field references > enum references > lt on an enum is refused with the portability reason 189ms
+   ✓ postgres.js Driver > postgres.js field references > enum references > lte on an enum is refused with the portability reason 183ms
+   ✓ postgres.js Driver > postgres.js field references > enum references > gt on an enum is refused with the portability reason 174ms
+   ✓ postgres.js Driver > postgres.js field references > enum references > gte on an enum is refused with the portability reason 185ms
+   ✓ postgres.js Driver > postgres.js field references > enum references > literal enum filters are untouched 228ms
+   ✓ postgres.js Driver > postgres.js field references > a reference mixes with literal operands in one filter object 205ms
+   ✓ postgres.js Driver > postgres.js field references > a reference works inside a nested relation where 185ms
+   ✓ postgres.js Driver > postgres.js field references > the nested scope's own model is the one a reference must name 180ms
+   ✓ postgres.js Driver > postgres.js field references > a reference drives updateMany and deleteMany 210ms
+   ✓ postgres.js Driver > postgres.js field references > two decimals of the SAME domain compare exactly 265ms
+   ✓ postgres.js Driver > postgres.js field references > two decimals of DIFFERENT domains are refused before any I/O 193ms
+   ✓ postgres.js Driver > postgres.js field references > a cross-model reference is refused before any I/O 213ms
+   ✓ postgres.js Driver > postgres.js field references > a reference of the wrong scalar type is refused 186ms
+   ✓ postgres.js Driver > postgres.js field references > a reference is refused in in/notIn 196ms
+   ✓ postgres.js Driver > postgres.js field references > a reference is refused in `having`, however deeply nested 205ms
+   ✓ postgres.js Driver > postgres.js field references > a reference is refused in JSON filters and JSON write data 239ms
+   ✓ postgres.js Driver > postgres.js field references > SQL fragment operands > an arithmetic expression compares against the row 244ms
+   ✓ postgres.js Driver > postgres.js field references > SQL fragment operands > a scalar subquery compares against the whole table 260ms
+   ✓ postgres.js Driver > postgres.js field references > SQL fragment operands > an interpolated value rides as a bound parameter 200ms
+   ✓ postgres.js Driver > postgres.js field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter 220ms
+   ✓ postgres.js Driver > postgres.js field references > SQL fragment operands > a fragment drives updateMany and deleteMany 193ms
+   ✓ postgres.js Driver > postgres.js field references > SQL fragment operands > a fragment survives both execution substrates 208ms
+   ✓ postgres.js Driver > postgres.js field references > SQL fragment operands > a fragment is refused where a reference is 189ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > datetime round-trips exactly through create and findMany 260ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > datetime filters match the stored instant 287ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > datetime update round-trips exactly 239ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > decimal reads back as its exact canonical value  330ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > a decimal LIST round-trips member by member 223ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > a decimal LIST filters by containment on its logical members 225ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary 242ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > a decimal LIST survives a grouped projection  541ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly  434ms
+   ✓ postgres.js Driver > postgres.js scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly  347ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > round-trips every value in the domain exactly  332ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > callback transactions materialize fresh Decimal scalar and list results  327ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > array transactions materialize fresh Decimal scalar and list results 258ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > a nullable decimal stores and reads NULL, not zero  305ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > equals matches on value, not on spelling 262ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > equals distinguishes the two values a double cannot 294ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > in / notIn compare numerically 257ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > gt/lt compare numerically, not lexicographically 276ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > orderBy sorts numerically, windowed and not 279ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision  630ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > _avg of an all-null column is NULL, not zero and not an error 263ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > _avg rounds exact ties to the even neighbour in both signs  321ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > groupBy orders groups and filters them on exact aggregates 286ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > groupBy compares a widened _sum beyond the field precision 256ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > increment and decrement are exact and never round  317ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact 233ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour 228ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd 210ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour 212ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > a rounded tie CARRIES across the whole value 216ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > divide rounds by the same rule, in both signs 257ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign 198ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > arithmetic on a NULL column stays NULL 234ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > division by zero fails BEFORE any statement is issued 254ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > a result past the field's precision fails and leaves the row alone 218ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float 236ms
+   ✓ postgres.js Driver > postgres.js decimal exactness > an operand finer than the field's scale is refused, never rounded 257ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in matches exactly the listed byte arrays 259ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out 237ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in with no matching member returns nothing 215ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > empty in matches nothing (Prisma semantics) 225ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > notIn excludes exactly the listed byte arrays 237ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > empty notIn matches everything (Prisma semantics) 225ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > notIn on a nullable column excludes NULL rows 245ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in on a nullable column excludes NULL rows 215ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > empty notIn on a nullable column keeps the NULL row 214ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > Buffer members are accepted alongside Uint8Array 215ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in composes with not 202ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in composes with arbitrarily nested not 276ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in composes with the boolean wrappers 231ms
+   ✓ postgres.js Driver > postgres.js blob in/notIn filters > in drives deleteMany, not just reads 211ms
+   ✓ postgres.js Driver > postgres.js full scalar-type round-trip behavior > every scalar type round-trips exactly top-level 227ms
+   ✓ postgres.js Driver > postgres.js full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include  324ms
+   ✓ postgres.js Driver > postgres.js full scalar-type round-trip behavior > json primitives round-trip with exact types  415ms
+   ✓ postgres.js Driver > postgres.js full scalar-type round-trip behavior > aggregates are scalar-aware 251ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip 268ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order 218ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment 247ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params 222ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path 207ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement 208ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError 212ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError 217ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found 187ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches 256ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found 242ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist 211ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > exist > returns true when a matching row exists 222ms
+   ✓ postgres.js Driver > postgres.js client raw/orThrow/exist behavior > exist > returns false when no row matches 185ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > deleteMany limit below the matching count removes exactly limit rows 201ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > deleteMany limit equal to the matching count removes all of them 241ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > deleteMany limit above the matching count is the uncapped delete  348ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > deleteMany limit 0 removes nothing and reports count 0  415ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > deleteMany limit without a where caps a whole-table delete 298ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > updateMany limit below the matching count updates exactly limit rows 266ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > updateMany limit at or above the matching count updates all of them  439ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > updateMany limit 0 changes nothing and reports count 0 239ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > updateMany limit composes with an arithmetic update 235ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > updateMany limit composes with a relation filter 217ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > deleteMany limit composes with a relation filter 212ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > updateMany with select returns exactly the capped rows 212ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > deleteMany with select returns exactly the capped rows 225ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set 203ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > limit works on a model with a compound primary key 194ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > limit 0 is the same no-op inside $transaction([...]) 226ms
+   ✓ postgres.js Driver > postgres.js bulk-write limit > a negative or fractional limit is rejected before any write 231ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-postgres| tests/providers/docker/postgres-serialization.test.ts > postgres.js Driver > postgres.js field references > enum references > equals compares two enum columns of the same row
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |provider-postgres| tests/providers/docker/postgres-serialization.test.ts > postgres.js Driver > postgres.js field references > enum references > not complements it
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |provider-postgres| tests/providers/docker/postgres-serialization.test.ts > postgres.js Driver > postgres.js field references > enum references > a bare enum reference is the equals shorthand
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |provider-postgres| tests/providers/docker/postgres-serialization.test.ts > postgres.js Driver > postgres.js field references > enum references > the reference resolves through the .map()ed column name
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 197 passed (201)
+   Start at  12:35:49
+   Duration  51.15s (transform 1.07s, setup 9ms, collect 1.59s, tests 49.40s, environment 0ms, prepare 38ms)
+
+Vitest resources: 53.19s wall, 603.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

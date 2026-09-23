@@ -1,0 +1,360 @@
+
+[test:all] provider-pglite: tests/providers/local/pglite-scalars.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ❯ |provider-pglite| tests/providers/local/pglite-scalars.test.ts (307 tests | 5 failed) 150178ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list round-trip > create returns real arrays with typed elements  682ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list round-trip > empty and null lists round-trip  500ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > equals matches the exact list  503ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > equals is order-sensitive  449ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > equals matches empty lists  472ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > equals matches int lists  468ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > equals null matches null lists only  471ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > not excludes the matching list and null lists  472ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > has matches string elements  463ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > has matches int elements  458ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > has with no match returns empty  467ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > has null is rejected consistently  469ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > hasEvery requires all elements  491ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > hasSome requires any element  458ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list  464ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect  462ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > set replaces the whole list  445ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > push appends a single value  469ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > push expands an array value element-wise  459ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > push appends int elements  458ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > push onto an empty list  460ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > push onto a null list creates the list  475ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > unshift prepends a single value  458ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > list updates > unshift expands an array value element-wise  459ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json filters > equals matches the exact document  452ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json filters > equals does not match a partial document  473ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json filters > equals null matches null json only  459ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json filters > not equals excludes the matching document and nulls  511ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > equals at a path matches the scoped value  466ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > equals at a nested path  455ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > equals at a path matches numbers  461ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents  473ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > equals at a missing path matches nothing  461ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys  460ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > integer path segments address array elements  477ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > path segments with dots stay literal  459ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution  468ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > string_contains at a path  476ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND  463ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode  471ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > string_contains without a path matches string roots  464ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > array_contains requires every candidate element  467ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate  451ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > array_contains without a path matches array roots only  457ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > array_starts_with matches the first element  440ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > array_ends_with matches the last element  452ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > not at a path inherits the path  460ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators  460ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract  457ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded  456ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold  449ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode  473ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode  536ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too  480ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored  465ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form  440ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements  447ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root  445ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form  449ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form  446ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution  457ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal  449ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only  464ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types  460ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point  477ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation  487ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross  471ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error  453ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object  456ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices  460ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root  449ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows  479ms
+   ✓ PGlite Driver > PGlite list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution  463ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only  450ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only  626ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > the truth table > equals AnyNull matches both  496ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > the truth table > not DbNull matches every row that holds a document  473ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs  477ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > the truth table > not AnyNull matches only real documents  481ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > the truth table > the three equals predicates partition the table  482ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > writes > DbNull and JsonNull are different stored values  479ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > writes > update moves a row between the two nulls  451ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > writes > upsert stores a sentinel on either arm  471ms
+   × PGlite Driver > PGlite json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column 473ms
+     → Driver "pglite" returned a malformed json scalar for operation "create": a required scalar is null.
+   ✓ PGlite Driver > PGlite json null sentinel behavior > refusals > a bare null in write position is refused, not guessed  464ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > refusals > AnyNull is filter-only  451ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column  454ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > refusals > a sentinel nested inside a document is refused  461ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > refusals > a sentinel under a path is refused before execution  468ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused  464ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root  457ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL  512ms
+   ✓ PGlite Driver > PGlite json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there  454ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > contains with literal % matches only literal occurrences  472ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > contains with literal _ matches only literal occurrences  469ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > contains with literal backslash matches only literal occurrences  469ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > startsWith with literal % does not act as a wildcard  458ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > endsWith with literal _ does not act as a wildcard  461ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > insensitive contains with literal % matches only literal occurrences  451ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > insensitive contains still matches case-insensitively  464ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > plain contains without wildcards still matches  464ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > not-contains with literal % excludes only literal occurrences  455ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > a percent in the value stays literal  456ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > an underscore in the value stays literal  500ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > a trailing escape character in the value stays literal  452ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > a value that is only the escape character stays literal  520ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > the empty value matches every row  470ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > every wildcard family at once stays literal  469ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > SQLite's GLOB metacharacters stay literal on every dialect  460ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > the prefix path stays case-sensitive  453ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > insensitive mode is unchanged and still ignores case  462ms
+   ✓ PGlite Driver > PGlite LIKE wildcard escaping > escaped prefix patterns > endsWith keeps its spelling and its literal wildcards  459ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in matches exactly the listed byte arrays  444ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out  463ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in with no matching member returns nothing  465ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > empty in matches nothing (Prisma semantics)  461ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > notIn excludes exactly the listed byte arrays  449ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > empty notIn matches everything (Prisma semantics)  456ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > notIn on a nullable column excludes NULL rows  460ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in on a nullable column excludes NULL rows  457ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > empty notIn on a nullable column keeps the NULL row  454ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > Buffer members are accepted alongside Uint8Array  445ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in composes with not  460ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in composes with arbitrarily nested not  471ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in composes with the boolean wrappers  450ms
+   ✓ PGlite Driver > PGlite blob in/notIn filters > in drives deleteMany, not just reads  464ms
+   ✓ PGlite Driver > PGlite field references > gt compares two columns of the same row  472ms
+   ✓ PGlite Driver > PGlite field references > lt compares two columns of the same row  458ms
+   ✓ PGlite Driver > PGlite field references > gte and lte include the equal row  479ms
+   ✓ PGlite Driver > PGlite field references > equals and not compare two columns of the same row  478ms
+   ✓ PGlite Driver > PGlite field references > a bare reference is the equals shorthand  474ms
+   ✓ PGlite Driver > PGlite field references > a reference resolves through .map()ed column names  472ms
+   ✓ PGlite Driver > PGlite field references > string prefix/suffix/substring predicates accept a reference  473ms
+   ✓ PGlite Driver > PGlite field references > a callback is refused where only the token is accepted  467ms
+   ✓ PGlite Driver > PGlite field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation  488ms
+   ✓ PGlite Driver > PGlite field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column  456ms
+   ✓ PGlite Driver > PGlite field references > case folding against a referenced column > insensitive contains folds the referenced column  533ms
+   ✓ PGlite Driver > PGlite field references > case folding against a referenced column > insensitive startsWith folds the referenced column  457ms
+   ✓ PGlite Driver > PGlite field references > case folding against a referenced column > insensitive endsWith folds the referenced column  469ms
+   ✓ PGlite Driver > PGlite field references > case folding against a referenced column > insensitive `not` complements the folded comparison  474ms
+   ✓ PGlite Driver > PGlite field references > case folding against a referenced column > insensitive mode folds ASCII only  473ms
+   × PGlite Driver > PGlite field references > enum references > equals compares two enum columns of the same row 467ms
+     → Query execution failed
+   × PGlite Driver > PGlite field references > enum references > not complements it 468ms
+     → Query execution failed
+   × PGlite Driver > PGlite field references > enum references > a bare enum reference is the equals shorthand 459ms
+     → Query execution failed
+   × PGlite Driver > PGlite field references > enum references > the reference resolves through the .map()ed column name 467ms
+     → Query execution failed
+   ✓ PGlite Driver > PGlite field references > enum references > lt on an enum is refused with the portability reason  455ms
+   ✓ PGlite Driver > PGlite field references > enum references > lte on an enum is refused with the portability reason  469ms
+   ✓ PGlite Driver > PGlite field references > enum references > gt on an enum is refused with the portability reason  464ms
+   ✓ PGlite Driver > PGlite field references > enum references > gte on an enum is refused with the portability reason  469ms
+   ✓ PGlite Driver > PGlite field references > enum references > literal enum filters are untouched  459ms
+   ✓ PGlite Driver > PGlite field references > a reference mixes with literal operands in one filter object  464ms
+   ✓ PGlite Driver > PGlite field references > a reference works inside a nested relation where  456ms
+   ✓ PGlite Driver > PGlite field references > the nested scope's own model is the one a reference must name  459ms
+   ✓ PGlite Driver > PGlite field references > a reference drives updateMany and deleteMany  466ms
+   ✓ PGlite Driver > PGlite field references > two decimals of the SAME domain compare exactly  452ms
+   ✓ PGlite Driver > PGlite field references > two decimals of DIFFERENT domains are refused before any I/O  467ms
+   ✓ PGlite Driver > PGlite field references > a cross-model reference is refused before any I/O  460ms
+   ✓ PGlite Driver > PGlite field references > a reference of the wrong scalar type is refused  459ms
+   ✓ PGlite Driver > PGlite field references > a reference is refused in in/notIn  452ms
+   ✓ PGlite Driver > PGlite field references > a reference is refused in `having`, however deeply nested  469ms
+   ✓ PGlite Driver > PGlite field references > a reference is refused in JSON filters and JSON write data  521ms
+   ✓ PGlite Driver > PGlite field references > SQL fragment operands > an arithmetic expression compares against the row  554ms
+   ✓ PGlite Driver > PGlite field references > SQL fragment operands > a scalar subquery compares against the whole table  478ms
+   ✓ PGlite Driver > PGlite field references > SQL fragment operands > an interpolated value rides as a bound parameter  524ms
+   ✓ PGlite Driver > PGlite field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter  458ms
+   ✓ PGlite Driver > PGlite field references > SQL fragment operands > a fragment drives updateMany and deleteMany  468ms
+   ✓ PGlite Driver > PGlite field references > SQL fragment operands > a fragment survives both execution substrates  455ms
+   ✓ PGlite Driver > PGlite field references > SQL fragment operands > a fragment is refused where a reference is  461ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > equals matches case-insensitively  461ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > insensitive equality and set filters fold ASCII only  481ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > equals stays case-sensitive without mode  463ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > not stays case-sensitive without mode  466ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > in stays case-sensitive without mode  455ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > notIn stays case-sensitive without mode  461ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > insensitive equals does not treat % as a wildcard  459ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > not excludes case-insensitively  499ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > in matches case-insensitively  472ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > insensitive in does not treat % as a wildcard  473ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > insensitive in with empty list matches nothing  539ms
+   ✓ PGlite Driver > PGlite Prisma parity > insensitive mode on equality filters > notIn excludes case-insensitively  590ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > contains stays case-sensitive without mode  1067ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > startsWith stays case-sensitive without mode  683ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > endsWith stays case-sensitive without mode  601ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > default substring filters treat wildcard characters literally  621ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > default substring filters handle empty and non-ASCII values exactly  661ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > startsWith matches case-insensitively  677ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > endsWith matches case-insensitively  737ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > insensitive endsWith matches every case variant  604ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > insensitive substring filters fold ASCII only  618ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > insensitive startsWith does not treat % as a wildcard  721ms
+   ✓ PGlite Driver > PGlite Prisma parity > string substring filters > insensitive endsWith does not treat % as a wildcard  643ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > top-level NOT excludes matching rows  586ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > NOT {contains} does not match NULL rows (Prisma parity)  592ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > NOT with equality also skips NULL rows  593ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > NOT combines with AND  630ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > NOT combines with OR  619ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > nested NOT double-negates but still skips NULL rows  577ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > NOT array negates each condition and ANDs them (Prisma parity)  464ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > OR of two scalar predicates  462ms
+   ✓ PGlite Driver > PGlite Prisma parity > NOT and OR combinators > OR with a null check matches NULL rows via IS NULL  462ms
+   ✓ PGlite Driver > PGlite Prisma parity > enum in/notIn filters > enum equals matches a single value  458ms
+   ✓ PGlite Driver > PGlite Prisma parity > enum in/notIn filters > enum in matches listed values and skips NULL rows  463ms
+   ✓ PGlite Driver > PGlite Prisma parity > enum in/notIn filters > enum in with empty list matches nothing  455ms
+   ✓ PGlite Driver > PGlite Prisma parity > enum in/notIn filters > enum notIn excludes listed values and NULL rows  457ms
+   ✓ PGlite Driver > PGlite Prisma parity > enum in/notIn filters > enum notIn with empty list matches every row  455ms
+   ✓ PGlite Driver > PGlite Prisma parity > empty select rejection > empty select object throws  452ms
+   ✓ PGlite Driver > PGlite Prisma parity > empty select rejection > all-false select throws  441ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected  466ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > orderBy a grouped column still works  456ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > orderBy _count on a field  493ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > orderBy _count _all  457ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > orderBy _sum  572ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having aggregate in filter  471ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having aggregate in with empty list matches nothing  469ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having aggregate notIn with empty list matches everything  455ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having aggregate equals null uses IS NULL  457ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having aggregate not null uses IS NOT NULL  459ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > where filters rows before grouping  457ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > take with orderBy limits groups  449ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > take and skip with orderBy window the groups  465ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > take and skip with aggregate orderBy window the groups  445ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > multi-field by groups on the field combination  465ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > multi-field by supports having on aggregates  464ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > OR of two single-group conditions matches both groups  477ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > OR with a single unmatchable arm keeps only the other  477ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > AND of the same two conditions matches nothing  533ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > AND accepts a bare object as well as an array  485ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR evaluates the inner conjunction  454ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR fails the arm when one conjunct misses  454ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > NOT of an aggregate condition selects the complement  563ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > NOT array negates each arm and ANDs the negations (Prisma parity)  447ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > NOT array with one unmatchable arm keeps the other complement  455ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > NOT array on a `by` field agrees with the same NOT array in where  466ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > NOT array of a single item matches the object form  463ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > NOT of a multi-key object negates that object's conjunction  453ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > NOT inside OR restores the excluded group  463ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > a combinator conjoins with sibling field-keyed conditions  457ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by`  489ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > empty OR matches no group, exactly like empty OR in where  498ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > empty OR is false, not absent, when conjoined with a sibling  498ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in AND poisons the conjunction  482ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in OR contributes nothing but is not vacuous  472ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > empty OR under NOT is true and keeps every group  483ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > empty AND and empty NOT stay true and keep every group  479ms
+   ✓ PGlite Driver > PGlite Prisma parity > groupBy ordering and having > having boolean combinators > empty AND still conjoins its sibling rather than erasing it  488ms
+   ✓ PGlite Driver > PGlite optional-relation Prisma parity > create succeeds with all optional relations omitted  515ms
+   ✓ PGlite Driver > PGlite optional-relation Prisma parity > nested create does not demand other optional relations  570ms
+   ✓ PGlite Driver > PGlite optional-relation Prisma parity > where: { relation: null } matches rows with a null FK  510ms
+   ✓ PGlite Driver > PGlite optional-relation Prisma parity > include: { rel: false } omits the relation  508ms
+   ✓ PGlite Driver > PGlite optional-relation Prisma parity > select > include chains down the relation tree  498ms
+   ✓ PGlite Driver > PGlite optional-relation Prisma parity > nested select+include on the same node is rejected  515ms
+   ✓ PGlite Driver > PGlite optional-relation Prisma parity > create with nested writes returns scalars only without include  514ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip  482ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order  493ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment  481ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params  494ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path  483ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement  495ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError  490ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError  497ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found  492ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches  488ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found  511ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist  489ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > exist > returns true when a matching row exists  528ms
+   ✓ PGlite Driver > PGlite client raw/orThrow/exist behavior > exist > returns false when no row matches  521ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > datetime round-trips exactly through create and findMany  498ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > datetime filters match the stored instant  578ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > datetime update round-trips exactly  578ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > decimal reads back as its exact canonical value  498ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > a decimal LIST round-trips member by member  490ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > a decimal LIST filters by containment on its logical members  502ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary  491ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > a decimal LIST survives a grouped projection  501ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly  519ms
+   ✓ PGlite Driver > PGlite scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly  510ms
+   ✓ PGlite Driver > PGlite decimal exactness > round-trips every value in the domain exactly  618ms
+   ✓ PGlite Driver > PGlite decimal exactness > callback transactions materialize fresh Decimal scalar and list results  529ms
+   ✓ PGlite Driver > PGlite decimal exactness > array transactions materialize fresh Decimal scalar and list results  600ms
+   ✓ PGlite Driver > PGlite decimal exactness > a nullable decimal stores and reads NULL, not zero  535ms
+   ✓ PGlite Driver > PGlite decimal exactness > equals matches on value, not on spelling  573ms
+   ✓ PGlite Driver > PGlite decimal exactness > equals distinguishes the two values a double cannot  526ms
+   ✓ PGlite Driver > PGlite decimal exactness > in / notIn compare numerically  520ms
+   ✓ PGlite Driver > PGlite decimal exactness > gt/lt compare numerically, not lexicographically  533ms
+   ✓ PGlite Driver > PGlite decimal exactness > orderBy sorts numerically, windowed and not  500ms
+   ✓ PGlite Driver > PGlite decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision  495ms
+   ✓ PGlite Driver > PGlite decimal exactness > _avg of an all-null column is NULL, not zero and not an error  486ms
+   ✓ PGlite Driver > PGlite decimal exactness > _avg rounds exact ties to the even neighbour in both signs  508ms
+   ✓ PGlite Driver > PGlite decimal exactness > groupBy orders groups and filters them on exact aggregates  499ms
+   ✓ PGlite Driver > PGlite decimal exactness > groupBy compares a widened _sum beyond the field precision  469ms
+   ✓ PGlite Driver > PGlite decimal exactness > increment and decrement are exact and never round  568ms
+   ✓ PGlite Driver > PGlite decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact  508ms
+   ✓ PGlite Driver > PGlite decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour  501ms
+   ✓ PGlite Driver > PGlite decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd  494ms
+   ✓ PGlite Driver > PGlite decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour  501ms
+   ✓ PGlite Driver > PGlite decimal exactness > a rounded tie CARRIES across the whole value  492ms
+   ✓ PGlite Driver > PGlite decimal exactness > divide rounds by the same rule, in both signs  505ms
+   ✓ PGlite Driver > PGlite decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign  517ms
+   ✓ PGlite Driver > PGlite decimal exactness > arithmetic on a NULL column stays NULL  489ms
+   ✓ PGlite Driver > PGlite decimal exactness > division by zero fails BEFORE any statement is issued  484ms
+   ✓ PGlite Driver > PGlite decimal exactness > a result past the field's precision fails and leaves the row alone  497ms
+   ✓ PGlite Driver > PGlite decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float  484ms
+   ✓ PGlite Driver > PGlite decimal exactness > an operand finer than the field's scale is refused, never rounded  514ms
+   ✓ PGlite Driver > PGlite full scalar-type round-trip behavior > every scalar type round-trips exactly top-level  524ms
+   ✓ PGlite Driver > PGlite full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include  496ms
+   ✓ PGlite Driver > PGlite full scalar-type round-trip behavior > json primitives round-trip with exact types  511ms
+   ✓ PGlite Driver > PGlite full scalar-type round-trip behavior > aggregates are scalar-aware  537ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-scalars.test.ts > PGlite Driver > PGlite json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column
+QueryEngineError: Driver "pglite" returned a malformed json scalar for operation "create": a required scalar is null.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-scalars.test.ts > PGlite Driver > PGlite field references > enum references > equals compares two enum columns of the same row
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-scalars.test.ts > PGlite Driver > PGlite field references > enum references > not complements it
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-scalars.test.ts > PGlite Driver > PGlite field references > enum references > a bare enum reference is the equals shorthand
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-scalars.test.ts > PGlite Driver > PGlite field references > enum references > the reference resolves through the .map()ed column name
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 302 passed (307)
+   Start at  20:39:01
+   Duration  151.73s (transform 934ms, setup 9ms, collect 1.40s, tests 150.18s, environment 0ms, prepare 26ms)
+
+[test:all] provider-pglite: tests/providers/local/pglite-scalars.test.ts: 153.68s wall, 1801.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

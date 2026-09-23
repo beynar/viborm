@@ -1,0 +1,74 @@
+
+> viborm@0.1.0 test:coverage:policy /Users/arnaud/code/viborm
+> node scripts/run-node-safe.mjs 512 60000 scripts/coverage-policy.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/bounded-process.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/test-run-lock.test.mjs
+
+✔ every TypeScript source has exactly one coverage owner (4.943084ms)
+✔ subsystem configs derive includes and thresholds from the manifest (0.201459ms)
+✔ waived sources remain owned and included (0.1355ms)
+✔ test fixtures use the workspace alias instead of root-absolute imports (38.679208ms)
+✔ migration coverage admits every credential-free local contract (1.564333ms)
+✔ migration core contracts open no database outside the named in-memory SQLite exception (9.518291ms)
+✔ client coverage admits the core and audited deterministic contracts (0.204083ms)
+✔ driver coverage isolates provider resources and admits only audited local providers (3.290292ms)
+✔ query coverage admits every core contract exactly once (7.735334ms)
+✔ write coverage admits the core and audited high-signal local contracts (2.612041ms)
+✔ cache coverage admits every deterministic cache contract exactly once (1.143958ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 73.008083
+Node resources: 0.33s wall, 0.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+✔ fails closed where process-tree bounds cannot be verified (0.556042ms)
+✔ process-group RSS sums every member and ignores other groups (0.137125ms)
+✔ process-group teardown ignores zombie-only groups (0.0675ms)
+✔ heap replacement preserves unrelated Node options (0.079333ms)
+✔ RSS limit defaults to the project cap and is configurable (0.369291ms)
+✔ the ordinary ceiling is 1536 MiB and may only ever be lowered (0.084ms)
+✔ no ordinary caller can reach the 2560 MiB PGlite allowance (0.167084ms)
+✔ the allowlisted typecheck ceiling reaches 8192 MiB and stops there (0.082666ms)
+✔ the allowlisted PGlite ceiling reaches 2560 MiB and stops there (0.11825ms)
+✔ the resource line names the ceiling that was applied (0.601459ms)
+✔ a bounded run reports the ceiling it enforced (212.922959ms)
+✔ heap limits may be lowered but never raised above the caller cap (0.16275ms)
+✔ Vitest arguments end with the enforced single-worker policy (0.045833ms)
+RSS limit witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ the sampled RSS ceiling terminates the complete child group (556.192ms)
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ RSS teardown verifies a group whose leader and worker exit together (5194.395167ms)
+✔ normal leader exit still tears down inherited descendants (394.370833ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6364.151208
+Node resources: 6.65s wall, 60.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+✔ a bounded descendant inherits its ancestor's workspace lock (290.521416ms)
+✔ parses complete process rows without truncating commands (0.377084ms)
+✔ refuses malformed, duplicate, and incomplete process graphs (0.189625ms)
+✔ excludes every direct, pnpm, and coverage-wrapper ancestor (0.113875ms)
+✔ finds stale Vitest, TypeScript, tsdown, and Vitest worker processes (0.180167ms)
+✔ does not confuse a sibling path with the current workspace (0.056792ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 294.024333
+Node resources: 0.56s wall, 0.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

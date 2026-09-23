@@ -1,0 +1,66 @@
+import { describe, it } from "vitest";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
+import type { ScenarioDefinition } from "../../harness/protocol";
+import { runSQLiteWorld } from "../../harness/sqlite-world";
+import { G0_PROFILES } from "../../profiles";
+import { fixedScenarios } from "../../scenarios/contracts";
+
+const J = (v: unknown) =>
+  JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? `${x}n` : x));
+
+const scenario = fixedScenarios.find((s) => s.id === "s2-changed-dependency");
+if (!scenario) throw new Error("missing scenario");
+
+const reordered: ScenarioDefinition = {
+  ...scenario,
+  prepare(controls) {
+    const fixture = scenario.prepare(controls);
+    const publicInput = fixture.publicInput as {
+      args: {
+        data: {
+          bins: {
+            updateMany: {
+              data: { targets: { connectOrCreate: unknown; set: unknown } };
+            };
+          };
+        };
+      };
+    };
+    const memberData = publicInput.args.data.bins.updateMany.data;
+    const { connectOrCreate, set } = memberData.targets;
+    memberData.targets = { set, connectOrCreate };
+    return fixture;
+  },
+};
+
+const variants = [
+  ["original", scenario],
+  ["reordered", reordered],
+] as const;
+
+describe("FC01B trace", () => {
+  for (const [name, definition] of variants) {
+    it.each(G0_PROFILES)(`${name} %s`, async (profile) => {
+      console.error(`[FC01B BEGIN ${name} ${profile}]`);
+      const world = await runSQLiteWorld(definition, profile, 0, {
+        candidateFactory: createCommandEngine,
+        candidateName: "commands",
+        statementTransform: (sql: string) => {
+          console.error(`[FC01B sql] ${sql.replace(/\s+/g, " ").slice(0, 80)}`);
+          return sql;
+        },
+      });
+      const lines: string[] = [`### ${name} profile=${profile}`];
+      world.statements.forEach((s, i) => {
+        lines.push(
+          `${String(i).padStart(2, "0")}  ${s.sql.replace(/\s+/g, " ").slice(0, 110)} || params=${J(s.parameters)}`
+        );
+      });
+      lines.push(`OUTCOME ${J(world.observation.outcome)}`);
+      lines.push(`DEFAULTS ${J(world.observation.defaults)}`);
+      lines.push(`FINAL ${J(world.observation.final)}`);
+      lines.push(`CUTS ${J(world.observation.reachedCuts)}`);
+      console.error(lines.join("\n"));
+    });
+  }
+});

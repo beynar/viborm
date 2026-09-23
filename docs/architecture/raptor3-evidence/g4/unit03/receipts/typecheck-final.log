@@ -1,0 +1,29 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/codec-schema.ts(36,22): error TS4104: The type 'readonly ["ACTIVE", "PAUSED", "DONE"]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.
+tests/raptor3/g4/codec-schema.ts(48,24): error TS4104: The type 'readonly ["ACTIVE", "PAUSED", "DONE"]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.
+tests/raptor3/g4/generation/campaign.ts(89,44): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+tests/raptor3/g4/generation/world.ts(49,22): error TS4104: The type 'readonly ["ACTIVE", "PAUSED", "DONE"]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.
+tests/raptor3/g4/lifecycle-events.test.ts(70,28): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(82,25): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(92,34): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(111,43): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(114,16): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(122,48): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(127,16): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(135,28): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/lifecycle-events.test.ts(156,16): error TS2339: Property 'findMany' does not exist on type 'never'.
+tests/raptor3/g4/read-recursive-fit.test.ts(157,5): error TS2322: Type 'VibORMClient<{ schema: { node: Model<UpdateState<UpdateState<UpdateState<ModelState, { shape: { tenant: StringScalar<UpdateState<{ type: "string"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: StringSchema<...>; }, { ...; }>>; ... ...' is not assignable to type 'VibORMClient<VibORMConfig<Schema>, EmptyClientExtensionState>'.
+  Type 'VibORMClient<{ schema: { node: Model<UpdateState<UpdateState<UpdateState<ModelState, { shape: { tenant: StringScalar<UpdateState<{ type: "string"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: StringSchema<...>; }, { ...; }>>; ... ...' is not assignable to type 'ExtensionModelClient<VibORMConfig<Schema>, EmptyClientExtensionState>'.
+    Index signature for type 'string' is missing in type 'VibORMClient<{ schema: { node: Model<UpdateState<UpdateState<UpdateState<ModelState, { shape: { tenant: StringScalar<UpdateState<{ type: "string"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: StringSchema<...>; }, { ...; }>>; ... ...'.
+tests/raptor3/g4/witness-world.ts(119,58): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+tests/raptor3/g4/witness-world.ts(135,58): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+tests/raptor3/g4/witness-world.ts(188,36): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+tests/raptor3/g4/witness-world.ts(213,55): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+TypeScript (whole estate, native): 10.41s wall, 4772.7 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

@@ -1,0 +1,105 @@
+# Falsification — the SETTLEMENT REGION is the repair, not the relocation
+
+## B: the caller's same answer, one statement AFTER `settleSubmitted` returns
+
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+(node:21345) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (28 tests | 2 failed) 3950ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > default native route: nothing is captured, and the statement removes exactly the rows it still matches 206ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted 172ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route, lock held: the captured row that stopped matching survives the write, and the shortfall is the cardinality sentence 167ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported 112ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back 157ms
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it 122ms
+     → expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it 151ms
+     → expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a listener that fails beside a captured answer that SUCCEEDED is still published alone 129ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: an undisturbed captured UPDATE succeeds, publishing the rows its non-RETURNING read-back produced 105ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts 105ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a LIMITED capture claims no complement, and a newly eligible row outside its slice is not mutated 109ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a COMPOUND captured identity is carried completely, and only the row that still matches is deleted 112ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing 115ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing 109ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges 173ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added after that boundary stays outside the captured worklist 136ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: the initial filter selected the worklist and is not re-asked at each member's own write 142ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member whose required membership was reassigned is not deleted for the parent that no longer holds it 139ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member reassigned between the last premise and its OWN write is not deleted, and the segment that committed is reported 134ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member reassigned between the last premise and its OWN write is not UPDATED for the parent that no longer holds it 125ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a reassignment the member's own requirement waits behind is observed, and the retry converges 182ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a captured UPDATE member's own requirement waits behind the reassignment it must observe 194ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a LATER member reassigned before the unit's premises aborts it before any write, and the retry converges 147ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a REFERENCE member reassigned in the window is not written as this parent's, and the series it carries never runs 138ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a REFERENCE member's own requirement waits behind the reassignment it must observe 176ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: the capture's FOR UPDATE holds the member ROW, and the junction it is consumed through is held too 156ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: an earlier member's own write does not invalidate the worklist a sibling was selected into 104ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing 117ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it
+AssertionError: expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+ ❯ composedFailure tests/providers/docker/pg-captured-set-concurrency.test.ts:449:18
+    447|   retained: unknown;
+    448| } {
+    449|   expect(raised).toBeInstanceOf(AggregateError);
+       |                  ^
+    450|   const aggregate = raised as AggregateError;
+    451|   expect(aggregate.message).toBe(COMPOSED);
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:958:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it
+AssertionError: expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+ ❯ composedFailure tests/providers/docker/pg-captured-set-concurrency.test.ts:449:18
+    447|   retained: unknown;
+    448| } {
+    449|   expect(raised).toBeInstanceOf(AggregateError);
+       |                  ^
+    450|   const aggregate = raised as AggregateError;
+    451|   expect(aggregate.message).toBe(COMPOSED);
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:1014:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 26 passed (28)
+   Start at  19:11:37
+   Duration  5.94s (transform 1.22s, setup 17ms, collect 1.81s, tests 3.95s, environment 0ms, prepare 41ms)
+
+Vitest resources: 8.43s wall, 503.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+## What B was
+
+```
+-    await this.settleSubmitted(() => {
++    const settled = await this.settleSubmitted(() => {
+       const response = responses[index];
+       if (!response) throw new TransactionError(…);
+-      answered(response);
++      return response;
+     });
++    answered(settled);
+```
+
+The SAME answer, stated by the same caller, one statement later — outside the
+region in which the hold is released. Exactly the two combined-failure cells go
+red again; every other cell of the file stays green, including the four D-65
+cardinality answers (which have no listener) and the successful-answer +
+failed-listener control. So what closes the defect is the POSITION inside
+`settleSubmitted`, not the fact that `capturedMutation` now takes the answer.
+
+## A (receipt 01)
+
+This unit's base source — the row-count check at both callers, after
+`capturedMutation` had returned — with the three new cells present: the same two
+cells red, 26 passed. That is the unit's red-before.
+
+Applied to a backup copy in `$TMPDIR` and restored by `cp`; `git checkout` was
+not used and nothing was staged.

@@ -1,0 +1,7 @@
+FAILED replay cs03-extension-a
+FAILED replay cs03-extension-b
+FAILED replay cs03-extension-composition
+FAILED replay g2-conditional-upsert
+FAILED replay g25-polish
+FAILED replay g3-sqlite-8000
+FAILED replay g3-transport-8000

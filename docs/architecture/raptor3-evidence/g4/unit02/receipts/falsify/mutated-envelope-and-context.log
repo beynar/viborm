@@ -1,0 +1,295 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests | 3 failed) 47ms
+   × G4-02 borrowed transaction envelope > runs a single-statement write directly on the borrowed driver 26ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'SAVEPOINT sp_498a15d8b4c943a3870caff46cba970e'
++ ]
+- []
+
+   ✓ G4-02 borrowed transaction envelope > runs a multi-statement write inside one granted member region 8ms
+   × G4-02 borrowed transaction envelope > a failing single-statement write poisons the caller's transaction, as shipped 6ms
+     → candidate {"inner":"UniqueConstraintError","after":"ok","outer":"resolved"} vs shipped {"inner":"UniqueConstraintError","after":"UniqueConstraintError","outer":"UniqueConstraintError"}
++ actual - expected
+
+  {
++   after: 'ok',
+-   after: 'UniqueConstraintError',
+    inner: 'UniqueConstraintError',
++   outer: 'resolved'
+-   outer: 'UniqueConstraintError'
+  }
+
+   × G4-02 execution context threading > every candidate statement carries the caller's own trusted context 4ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'f63adf97-c643-4c86-840e-f690e4e19f8e'
+- 'g4u2-caller'
+
+   ✓ G4-02 execution context threading > without a caller context the candidate keeps its own attribution 2ms
+ ❯ |extended-local| tests/raptor3/g4/unit02/physical-envelope.test.ts (8 tests | 3 failed) 22ms
+   ✓ G4-02 physical envelope > scalar-find-unique: one statement, no envelope, on both engines 5ms
+   ✓ G4-02 physical envelope > fixed-collection-rowref-20: one statement, no envelope 3ms
+   × G4-02 physical envelope > flat-scalar-update: one statement, no envelope, same row as shipped 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 1,
++   transactions: 1
+-   transactions: 0
+  }
+
+   × G4-02 physical envelope > bulk-update-returning: one statement, no envelope 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 1,
++   transactions: 1
+-   transactions: 0
+  }
+
+   ✓ G4-02 physical envelope > a counting read opens no transaction and runs one statement 2ms
+   ✓ G4-02 physical envelope > a multi-statement write keeps its envelope and is constructed once 2ms
+   ✓ G4-02 physical envelope > an update that names a relation projection keeps its qualified route 2ms
+   × G4-02 physical envelope > a bulk verb with no rows reaches the provider not at all 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 0,
++   transactions: 1
+-   transactions: 0
+  }
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 11ms
+ ❯ |extended-local| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests | 1 failed) 36ms
+   × G4-02 root delete > removes one located row and publishes its default projection in one statement 4ms
+     → Expected values to be strictly equal:
+
+1 !== 0
+
+   ✓ G4-02 root delete > publishes the requested projection, not the whole row 2ms
+   ✓ G4-02 root delete > keeps the shipped not-found identity and removes nothing 11ms
+   ✓ G4-02 root delete > reads a relation projection BEFORE the row is gone 9ms
+   ✓ G4-02 root delete > delete is admitted as a verb and refuses nothing it used to answer 7ms
+   ✓ G4-02 whole-value assignment > writes a Uint8Array as one blob value, not as its inherited set 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/borrowed-envelope.test.ts > G4-02 borrowed transaction envelope > runs a single-statement write directly on the borrowed driver
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'SAVEPOINT sp_498a15d8b4c943a3870caff46cba970e'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "SAVEPOINT sp_498a15d8b4c943a3870caff46cba970e",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/unit02/borrowed-envelope.test.ts:64:14
+     62|       // the unit, exactly as the shipped `runStatementAtomic` leaves …
+     63|       assert.equal(driver.statements.length, 1);
+     64|       assert.deepEqual(
+       |              ^
+     65|         driver.control.filter((statement) => /^SAVEPOINT/i.test(statem…
+     66|         []
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ runTransaction src/drivers/driver-transaction-base.ts:385:16
+ ❯ RecordingSQLiteDriver.runConnectionTransactionLease src/drivers/driver-transaction-base.ts:94:14
+ ❯ src/drivers/savepoint-queue.ts:63:19
+ ❯ SavepointQueue.flush src/drivers/savepoint-queue.ts:92:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/borrowed-envelope.test.ts > G4-02 borrowed transaction envelope > a failing single-statement write poisons the caller's transaction, as shipped
+AssertionError: candidate {"inner":"UniqueConstraintError","after":"ok","outer":"resolved"} vs shipped {"inner":"UniqueConstraintError","after":"UniqueConstraintError","outer":"UniqueConstraintError"}
++ actual - expected
+
+  {
++   after: 'ok',
+-   after: 'UniqueConstraintError',
+    inner: 'UniqueConstraintError',
++   outer: 'resolved'
+-   outer: 'UniqueConstraintError'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "after": "UniqueConstraintError",[39m
+[31m+   "after": "ok",[39m
+[2m    "inner": "UniqueConstraintError",[22m
+[32m-   "outer": "UniqueConstraintError",[39m
+[31m+   "outer": "resolved",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/borrowed-envelope.test.ts:164:12
+    162|     }
+    163| 
+    164|     assert.deepEqual(
+       |            ^
+    165|       candidate,
+    166|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/borrowed-envelope.test.ts > G4-02 execution context threading > every candidate statement carries the caller's own trusted context
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'f63adf97-c643-4c86-840e-f690e4e19f8e'
+- 'g4u2-caller'
+
+
+Expected: [32m"g4u2-caller"[39m
+Received: [31m"f63adf97-c643-4c86-840e-f690e4e19f8e"[39m
+
+ ❯ tests/raptor3/g4/unit02/borrowed-envelope.test.ts:218:14
+    216|         `a candidate statement lost the caller's resolved extension ch…
+    217|       );
+    218|       assert.equal(statement.context?.correlationId, "g4u2-caller");
+       |              ^
+    219|       assert.equal(statement.context?.model, "author");
+    220|       assert.equal(statement.context?.operation, "update");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/physical-envelope.test.ts > G4-02 physical envelope > flat-scalar-update: one statement, no envelope, same row as shipped
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 1,
++   transactions: 1
+-   transactions: 0
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "statements": 1,[22m
+[32m-   "transactions": 0,[39m
+[31m+   "transactions": 1,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/physical-envelope.test.ts:97:12
+     95|     );
+     96|     assert.deepEqual(shipped.cost, { statements: 1, transactions: 0 });
+     97|     assert.deepEqual(candidate.cost, { statements: 1, transactions: 0 …
+       |            ^
+     98|     assert.deepEqual(shipped.value, {
+     99|       id: 1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/physical-envelope.test.ts > G4-02 physical envelope > bulk-update-returning: one statement, no envelope
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 1,
++   transactions: 1
+-   transactions: 0
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "statements": 1,[22m
+[32m-   "transactions": 0,[39m
+[31m+   "transactions": 1,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/physical-envelope.test.ts:125:12
+    123|       })
+    124|     );
+    125|     assert.deepEqual(candidate.cost, { statements: 1, transactions: 0 …
+       |            ^
+    126|     assert.deepEqual(candidate.value, [
+    127|       { id: 10, rank: 11 },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/physical-envelope.test.ts > G4-02 physical envelope > a bulk verb with no rows reaches the provider not at all
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 0,
++   transactions: 1
+-   transactions: 0
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "statements": 0,[22m
+[32m-   "transactions": 0,[39m
+[31m+   "transactions": 1,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/physical-envelope.test.ts:204:12
+    202|       })
+    203|     );
+    204|     assert.deepEqual(candidate.cost, { statements: 0, transactions: 0 …
+       |            ^
+    205|     assert.deepEqual(candidate.value, { count: 0 });
+    206|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/root-delete.test.ts > G4-02 root delete > removes one located row and publishes its default projection in one statement
+AssertionError: Expected values to be strictly equal:
+
+1 !== 0
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/unit02/root-delete.test.ts:43:12
+     41|     assert.deepEqual(value, { id: 2, name: "Bo", age: 41, avatar: null…
+     42|     assert.equal(world.driver.statements.length, 1);
+     43|     assert.equal(world.driver.transactionCalls, 0);
+       |            ^
+     44|     assert.match(world.driver.statements[0]?.sql ?? "", /^DELETE\b/);
+     45|     assert.equal(remaining(world), 1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  3 failed | 1 passed (4)
+      Tests  7 failed | 17 passed (24)
+   Start at  02:50:18
+   Duration  2.34s (transform 1.23s, setup 12ms, collect 2.00s, tests 116ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.58s wall, 660.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

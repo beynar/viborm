@@ -1,0 +1,617 @@
+src/query-engine/raptor3/shared/query.ts:2431:11 lint/correctness/noUnusedVariables  FIXABLE  ━━━━━━━━━━
+
+  i This variable a is unused.
+  
+    2429 │     cursored = false,
+    2430 │   ): OrderTerm {
+  > 2431 │     const a = this.adapter;
+         │           ^
+    2432 │     if (model["~"].state.relations[field])
+    2433 │       return this.relationOrderTerm(model, field, record(direction), alias);
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+  i Unsafe fix: If this is intentional, prepend a with an underscore.
+  
+    2429 2429 │       cursored = false,
+    2430 2430 │     ): OrderTerm {
+    2431      │ - ····const·a·=·this.adapter;
+         2431 │ + ····const·_a·=·this.adapter;
+    2432 2432 │       if (model["~"].state.relations[field])
+    2433 2433 │         return this.relationOrderTerm(model, field, record(direction), alias);
+  
+
+src/query-engine/raptor3/shared/query.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { ArithmeticTarget } from "@adapters/adapter-core-types";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
+    3 │ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+       1    1 │   import type { ArithmeticTarget } from "@adapters/adapter-core-types";
+       2      │ - import·type·{·DatabaseAdapter,·GeoPointSql·}·from·"@adapters/database-adapter";
+       3      │ - import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+       4      │ - import·{
+       5      │ - ··FeatureNotSupportedError,
+       6      │ - ··QueryEngineError,
+       7      │ - ··TransactionError,
+       8      │ - }·from·"@errors";
+            2 │ + import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+            3 │ + import·type·{·DatabaseAdapter,·GeoPointSql·}·from·"@adapters/database-adapter";
+            4 │ + import·type·{·DriverResultParser·}·from·"@drivers";
+       9    5 │   import {
+      10      │ - ··fieldRefPayload,
+      11      │ - ··formatFieldRef,
+      12      │ - ··isFieldRef,
+      13      │ - }·from·"@schema/field-ref";
+      14      │ - import·{·jsonNullKindOf·}·from·"@schema/json-null";
+            6 │ + ··FeatureNotSupportedError,
+            7 │ + ··QueryEngineError,
+            8 │ + ··TransactionError,
+            9 │ + }·from·"@errors";
+           10 │ + import·{
+           11 │ + ··CURSOR_CARRIER_PREFIX,
+           12 │ + ··EMPTY_ROW_RESULT_KEY,
+           13 │ + ··POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+           14 │ + }·from·"@query-engine/result-aliases";
+      15   15 │   import {
+      16      │ - ··findAddressableKey,
+      17      │ - ··getModelKeyCatalog,
+      18      │ - ··type·AnyModel,
+      19      │ - ··type·OrderedModelKey,
+      20      │ - }·from·"@schema/model";
+      21      │ - import·type·{·Scalar·}·from·"@schema/scalars/base";
+      22      │ - import·type·{·ScalarState·}·from·"@schema/scalars/common";
+      23      │ - import·type·{·StandardSchemaV1·}·from·"@standard-schema/spec";
+      24      │ - import·type·{·NativeType·}·from·"@schema/scalars/native-types";
+      25      │ - import·{
+      26      │ - ··CURSOR_CARRIER_PREFIX,
+      27      │ - ··EMPTY_ROW_RESULT_KEY,
+      28      │ - ··POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+      29      │ - }·from·"@query-engine/result-aliases";
+      30      │ - import·type·{·DriverResultParser·}·from·"@drivers";
+      31      │ - import·type·{·Operation·}·from·"../../types";
+      32      │ - import·{·Sql,·sql·}·from·"@sql";
+           16 │ + ··fieldRefPayload,
+           17 │ + ··formatFieldRef,
+           18 │ + ··isFieldRef,
+           19 │ + }·from·"@schema/field-ref";
+           20 │ + import·{·jsonNullKindOf·}·from·"@schema/json-null";
+           21 │ + import·{
+           22 │ + ··type·AnyModel,
+           23 │ + ··findAddressableKey,
+           24 │ + ··getModelKeyCatalog,
+           25 │ + ··type·OrderedModelKey,
+           26 │ + }·from·"@schema/model";
+           27 │ + import·type·{·Scalar·}·from·"@schema/scalars/base";
+           28 │ + import·type·{·ScalarState·}·from·"@schema/scalars/common";
+           29 │ + import·type·{·NativeType·}·from·"@schema/scalars/native-types";
+           30 │ + import·{·Sql,·sql·}·from·"@sql";
+           31 │ + import·type·{·StandardSchemaV1·}·from·"@standard-schema/spec";
+           32 │ + import·{·parse·}·from·"@validation";
+      33   33 │   import {
+      34   34 │     decodePhysicalDateTime,
+    ········· │ 
+      40   40 │     isGregorianCalendarDate,
+      41   41 │   } from "@validation/primitives/datetime-values";
+      42      │ - import·{
+      43      │ - ··canonicalDecimal,
+      44      │ - ··decimalMembers,
+      45      │ - ··decimalSumOperand,
+      46      │ - ··decodeDecimalList,
+      47      │ - ··decodeDecimalScalar,
+      48      │ - ··dividesByZero,
+      49      │ - ··exactDecimalDomain,
+      50      │ - ··requireDecimal,
+      51      │ - ··sameDecimalDomain,
+      52      │ - ··type·DecimalDescriptor,
+      53      │ - }·from·"./decimal";
+      54      │ - import·{·parse·}·from·"@validation";
+      55      │ - import·{·geoBoundsForDistance·}·from·"@validation/primitives/geo-area-codec";
+      56      │ - import·{·validateGeoPoint·}·from·"@validation/primitives/geo-point-codec";
+      57      │ - import·type·{·GeoArea,·GeoPoint·}·from·"@validation/primitives/geo-values";
+           42 │ + import·{·geoBoundsForDistance·}·from·"@validation/primitives/geo-area-codec";
+           43 │ + import·{·validateGeoPoint·}·from·"@validation/primitives/geo-point-codec";
+           44 │ + import·type·{·GeoArea,·GeoPoint·}·from·"@validation/primitives/geo-values";
+           45 │ + import·type·{·Operation·}·from·"../../types";
+           46 │ + import·{
+           47 │ + ··canonicalDecimal,
+           48 │ + ··type·DecimalDescriptor,
+           49 │ + ··decimalMembers,
+           50 │ + ··decimalSumOperand,
+           51 │ + ··decodeDecimalList,
+           52 │ + ··decodeDecimalScalar,
+           53 │ + ··dividesByZero,
+           54 │ + ··exactDecimalDomain,
+           55 │ + ··requireDecimal,
+           56 │ + ··sameDecimalDomain,
+           57 │ + }·from·"./decimal";
+      58   58 │   import {
+      59   59 │     type Arguments,
+      60   60 │     type EngineSchema,
+      61      │ - ··type·Input,
+           61 │ + ··entries,
+           62 │ + ··type·Input,
+      62   63 │     type QueryViews,
+      63   64 │     type ReadOperation,
+      64      │ - ··record,
+      65      │ - ··entries,
+           65 │ + ··record,
+      66   66 │   } from "./schema";
+      67   67 │   import {
+      68   68 │     bindMembership,
+      69   69 │     type Membership,
+      70      │ - ··physicalField,
+      71      │ - ··type·PhysicalField,
+           70 │ + ··type·PhysicalField,
+           71 │ + ··physicalField,
+      72   72 │     storedFields,
+      73   73 │   } from "./storage";
+  
+
+src/query-engine/raptor3/shared/query.ts:455:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    453 │ export class InvalidScalarResult extends TypeError {
+    454 │   constructor(
+  > 455 │     readonly scalarType: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    456 │     readonly reason: string,
+    457 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:456:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    454 │   constructor(
+    455 │     readonly scalarType: string,
+  > 456 │     readonly reason: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+    457 │   ) {
+    458 │     super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:591:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    589 │   private readonly result: DriverResultParser | undefined;
+    590 │   constructor(
+  > 591 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    592 │     readonly adapter: DatabaseAdapter,
+    593 │     result?: DriverResultParser,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:592:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    590 │   constructor(
+    591 │     readonly schema: EngineSchema,
+  > 592 │     readonly adapter: DatabaseAdapter,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    593 │     result?: DriverResultParser,
+    594 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:1792:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    1790 │   ): Sql {
+    1791 │     const a = this.adapter;
+  > 1792 │     switch (predicate.kind) {
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 1793 │       case "and":
+          ...
+  > 1814 │         return this.lowerRelationPredicate(predicate, alias, mutationTarget);
+  > 1815 │     }
+         │     ^
+    1816 │   }
+    1817 │   private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/shared/query.ts:2840:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    2838 │       row: query.shape,
+    2839 │     });
+  > 2840 │     switch (operation) {
+         │     ^^^^^^^^^^^^^^^^^^^^
+  > 2841 │       case "findUnique": {
+          ...
+  > 2971 │       }
+  > 2972 │     }
+         │     ^
+    2973 │   }
+    2974 │   /** One aggregate window: the same filter/order/cursor/page, then aggregates. */
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/shared/query.ts:4494:11 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    4492 │           typeof value === "string" ? DATE_TEXT.exec(value) : null;
+    4493 │         if (
+  > 4494 │           !match ||
+         │           ^^^^^^^^^
+  > 4495 │           !isGregorianCalendarDate(
+  > 4496 │             Number(match[1]),
+  > 4497 │             Number(match[2]),
+  > 4498 │             Number(match[3]),
+  > 4499 │           )
+         │           ^
+    4500 │         )
+    4501 │           throw new InvalidScalarResult(
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    4492 4492 │             typeof value === "string" ? DATE_TEXT.exec(value) : null;
+    4493 4493 │           if (
+    4494      │ - ··········!match·||
+    4495      │ - ··········!isGregorianCalendarDate(
+         4494 │ + ··········!(match·&&isGregorianCalendarDate(
+    4496 4495 │               Number(match[1]),
+    4497 4496 │               Number(match[2]),
+    4498 4497 │               Number(match[3]),
+    4499      │ - ··········)
+         4498 │ + ··········))
+    4500 4499 │           )
+    4501 4500 │             throw new InvalidScalarResult(
+  
+
+src/query-engine/raptor3/shared/query.ts:4710:5 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    4708 │   if (!match) return undefined;
+    4709 │   if (
+  > 4710 │     !isGregorianCalendarDate(
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 4711 │       Number(match[1]),
+  > 4712 │       Number(match[2]),
+  > 4713 │       Number(match[3]),
+  > 4714 │     ) ||
+  > 4715 │     !isDateTimeClock(Number(match[4]), Number(match[5]), Number(match[6]))
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    4716 │   )
+    4717 │     return undefined;
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    4708 4708 │     if (!match) return undefined;
+    4709 4709 │     if (
+    4710      │ - ····!isGregorianCalendarDate(
+         4710 │ + ····!(isGregorianCalendarDate(
+    4711 4711 │         Number(match[1]),
+    4712 4712 │         Number(match[2]),
+    4713 4713 │         Number(match[3]),
+    4714      │ - ····)·||
+    4715      │ - ····!isDateTimeClock(Number(match[4]),·Number(match[5]),·Number(match[6]))
+         4714 │ + ····)·&&isDateTimeClock(Number(match[4]),·Number(match[5]),·Number(match[6])))
+    4716 4715 │     )
+    4717 4716 │       return undefined;
+  
+
+src/query-engine/raptor3/shared/query.ts:4733:5 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    4731 │   const match = TIME_TEXT.exec(value);
+    4732 │   if (
+  > 4733 │     !match ||
+         │     ^^^^^^^^^
+  > 4734 │     !isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3]))
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    4735 │   )
+    4736 │     throw new InvalidScalarResult("time", "the value is not a valid provider time");
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    4731 4731 │     const match = TIME_TEXT.exec(value);
+    4732 4732 │     if (
+    4733      │ - ····!match·||
+    4734      │ - ····!isDateTimeClock(Number(match[1]),·Number(match[2]),·Number(match[3]))
+         4733 │ + ····!(match·&&isDateTimeClock(Number(match[1]),·Number(match[2]),·Number(match[3])))
+    4735 4734 │     )
+    4736 4735 │       throw new InvalidScalarResult("time", "the value is not a valid provider time");
+  
+
+src/query-engine/raptor3/shared/query.ts:4791:7 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    4789 │ /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
+    4790 │ function providerArrayMembers(text: string): unknown[] {
+  > 4791 │   if (!text.startsWith("{") || !text.endsWith("}"))
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    4792 │     throw new InvalidScalarResult("enum", "a list scalar did not return an array");
+    4793 │   const body = text.slice(1, -1);
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    4789 4789 │   /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
+    4790 4790 │   function providerArrayMembers(text: string): unknown[] {
+    4791      │ - ··if·(!text.startsWith("{")·||·!text.endsWith("}"))
+         4791 │ + ··if·(!(text.startsWith("{")·&&·text.endsWith("}")))
+    4792 4792 │       throw new InvalidScalarResult("enum", "a list scalar did not return an array");
+    4793 4793 │     const body = text.slice(1, -1);
+  
+
+src/query-engine/raptor3/shared/query.ts:2093:5 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    2091 │     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    2092 │     column: Sql,
+  > 2093 │     alias?: string,
+         │     ^^^^^
+    2094 │   ): Sql {
+    2095 │     const a = this.adapter;
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    2091 2091 │       predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    2092 2092 │       column: Sql,
+    2093      │ - ····alias?:·string,
+         2093 │ + ····_alias?:·string,
+    2094 2094 │     ): Sql {
+    2095 2095 │       const a = this.adapter;
+  
+
+src/query-engine/raptor3/shared/query.ts:2673:5 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    2671 │     order: readonly OrderTerm[],
+    2672 │     cursor: Input,
+  > 2673 │     alias: string,
+         │     ^^^^^
+    2674 │   ): Sql {
+    2675 │     const a = this.adapter;
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    2671 2671 │       order: readonly OrderTerm[],
+    2672 2672 │       cursor: Input,
+    2673      │ - ····alias:·string,
+         2673 │ + ····_alias:·string,
+    2674 2674 │     ): Sql {
+    2675 2675 │       const a = this.adapter;
+  
+
+src/query-engine/raptor3/shared/query.ts:2913:12 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    2911 │                 ]
+    2912 │               : [["_count", this.adapter.aggregates.count()]],
+  > 2913 │           (alias) =>
+         │            ^^^^^
+    2914 │             selected
+    2915 │               ? {
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    2911 2911 │                   ]
+    2912 2912 │                 : [["_count", this.adapter.aggregates.count()]],
+    2913      │ - ··········(alias)·=>
+         2913 │ + ··········(_alias)·=>
+    2914 2914 │               selected
+    2915 2915 │                 ? {
+  
+
+src/query-engine/raptor3/shared/query.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       7    7 │     TransactionError,
+       8    8 │   } from "@errors";
+       9      │ - import·{
+      10      │ - ··fieldRefPayload,
+      11      │ - ··formatFieldRef,
+      12      │ - ··isFieldRef,
+      13      │ - }·from·"@schema/field-ref";
+            9 │ + import·{·fieldRefPayload,·formatFieldRef,·isFieldRef·}·from·"@schema/field-ref";
+      14   10 │   import { jsonNullKindOf } from "@schema/json-null";
+      15   11 │   import {
+    ········· │ 
+     230  226 │    */
+     231  227 │   export function returningSafeProjection(
+     232      │ - ··projection:·PreparedProjection,
+          228 │ + ··projection:·PreparedProjection
+     233  229 │   ): boolean {
+     234  230 │     return projection.fields.every(
+     235      │ - ····(field)·=>·field.kind·===·"scalar"·||·field.kind·===·"sentinel",
+          231 │ + ····(field)·=>·field.kind·===·"scalar"·||·field.kind·===·"sentinel"
+     236  232 │     );
+     237  233 │   }
+    ········· │ 
+     369  365 │     const { lt, lte } = value as { lt?: unknown; lte?: unknown };
+     370  366 │     const bounds = [lt, lte].filter(
+     371      │ - ····(bound):·bound·is·number·=>·typeof·bound·===·"number"·&&·bound·>·0,
+          367 │ + ····(bound):·bound·is·number·=>·typeof·bound·===·"number"·&&·bound·>·0
+     372  368 │     );
+     373  369 │     return bounds.length === 0 ? undefined : Math.min(...bounds);
+    ········· │ 
+     388  384 │     if (typeof document !== "object" || document === null) return false;
+     389  385 │     return (
+     390      │ - ····Object.keys(document).length·===·0·&&
+     391      │ - ····Object.keys(arm.fields).length·>·0
+          386 │ + ····Object.keys(document).length·===·0·&&·Object.keys(arm.fields).length·>·0
+     392  387 │     );
+     393  388 │   }
+    ········· │ 
+     454  449 │     constructor(
+     455  450 │       readonly scalarType: string,
+     456      │ - ····readonly·reason:·string,
+          451 │ + ····readonly·reason:·string
+     457  452 │     ) {
+     458  453 │       super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+    ········· │ 
+     518  513 │   function addressesOperators(
+     519  514 │     state: ScalarState | undefined,
+     520      │ - ··value:·Input,
+          515 │ + ··value:·Input
+     521  516 │   ): boolean {
+     522  517 │     if (!isOperatorRecord(value)) return false;
+    ········· │ 
+     566  561 │    */
+     567  562 │   export function wholeValue(
+     568      │ - ··value:·unknown,
+          563 │ + ··value:·unknown
+     569  564 │   ): { readonly value: unknown } | undefined {
+     570  565 │     if (value instanceof Sql || value === null || typeof value !== "object")
+    ········· │ 
+     591  586 │       readonly schema: EngineSchema,
+     592  587 │       readonly adapter: DatabaseAdapter,
+     593      │ - ····result?:·DriverResultParser,
+          588 │ + ····result?:·DriverResultParser
+     594  589 │     ) {
+     595  590 │       this.views = schema.queryViews(adapter);
+    ········· │ 
+     605  600 │       const adapterDecode = (input: unknown): unknown =>
+     606  601 │         this.adapter.result.parseField(input, type, (transformed?: unknown) =>
+     607      │ - ········transformed·===·undefined·?·input·:·transformed,
+          602 │ + ········transformed·===·undefined·?·input·:·transformed
+     608  603 │         );
+     609  604 │       const driverParse = this.result?.parseField;
+    ········· │ 
+     721  716 │         physicalField(this.schema, model, field).scalar,
+     722  717 │         value,
+     723      │ - ······field,
+          718 │ + ······field
+     724  719 │       );
+     725  720 │     }
+    ········· │ 
+     734  729 │       }
+     735  730 │       const sentinel = jsonNullKindOf(value);
+     736      │ - ····if·(sentinel)·return·sentinel·===·"DbNull"·?·a.literals.null()·:·a.json.value(null);
+          731 │ + ····if·(sentinel)
+          732 │ + ······return·sentinel·===·"DbNull"·?·a.literals.null()·:·a.json.value(null);
+     737  733 │       if (value === null || value === undefined) return a.literals.null();
+     738  734 │       if (state.array === true && Array.isArray(value))
+    ········· │ 
+     742  738 │           return state.array === true
+     743  739 │             ? a.literals.value(
+     744      │ - ··············decimalMembers(state,·[value],·field,·this.adapter.result)[0]!,
+          740 │ + ··············decimalMembers(state,·[value],·field,·this.adapter.result)[0]!
+     745  741 │               )
+     746  742 │             : a.literals.decimal(
+     747  743 │                 canonicalDecimal(value, field),
+     748      │ - ··············requireDecimal(state,·field),
+          744 │ + ··············requireDecimal(state,·field)
+     749  745 │               );
+     750  746 │         case "json":
+    ········· │ 
+     753  749 │           return this.geoPoint("value").value(
+     754  750 │             this.value((value as GeoPoint).longitude),
+     755      │ - ··········this.value((value·as·GeoPoint).latitude),
+          751 │ + ··········this.value((value·as·GeoPoint).latitude)
+     756  752 │           );
+     757  753 │         case "vector":
+    ········· │ 
+     778  774 │       state: ScalarState,
+     779  775 │       values: readonly unknown[],
+     780      │ - ····field:·string,
+          776 │ + ····field:·string
+     781  777 │     ): Sql {
+     782  778 │       if (state.type === "decimal")
+     783  779 │         return this.adapter.arrays.value(
+     784      │ - ········decimalMembers(state,·values,·field,·this.adapter.result),
+          780 │ + ········decimalMembers(state,·values,·field,·this.adapter.result)
+     785  781 │         );
+     786  782 │       return state.type === "enum"
+    ········· │ 
+     801  797 │           "point",
+     802  798 │           usage,
+     803      │ - ········"GeoPoint·requires·a·provider·with·its·physical·point·tier·enabled.",
+          799 │ + ········"GeoPoint·requires·a·provider·with·its·physical·point·tier·enabled."
+     804  800 │         );
+     805  801 │       return geoPoint;
+    ········· │ 
+     826  822 │                 },
+     827  823 │               ],
+     828      │ - ············projected,
+          824 │ + ············projected
+     829  825 │             )
+     830  826 │           : projected;
+    ········· │ 
+     848  844 │           ? this.adapter.arrays.decimalProjection(expression)
+     849  845 │           : this.adapter.expressions.cast(expression, "text");
+     850      │ - ····if·(leaf.list·||·leaf.type·===·"json"·||·leaf.type·===·"point"·||·leaf.type·===·"vector")
+          846 │ + ····if·(
+          847 │ + ······leaf.list·||
+          848 │ + ······leaf.type·===·"json"·||
+          849 │ + ······leaf.type·===·"point"·||
+          850 │ + ······leaf.type·===·"vector"
+          851 │ + ····)
+     851  852 │         return this.adapter.json.document(expression);
+     852  853 │       if (leaf.type === "bigint")
+    ········· │ 
+     892  893 │           state.type === "datetime"
+     893  894 │             ? (this.adapter.result.dateTimeRepresentation?.(
+     894      │ - ··············this.nativeType(scalar),
+          895 │ + ··············this.nativeType(scalar)
+     895  896 │               ) ?? "text")
+     896  897 │             : undefined,
+    ········· │ 
+     906  907 │       edge: Extract<Membership, { kind: "junction" }>,
+     907  908 │       values: Input,
+     908      │ - ····alias?:·string,
+          909 │ + ····alias?:·string
+     909  910 │     ): Sql {
+     910  911 │       return this.adapter.operators.and(
+    ········· │ 
+     920  921 │                   side.model,
+     921  922 │                   pair.referencedField,
+     922      │ - ················values[pair.junctionField],
+     923      │ - ··············),
+     924      │ - ············),
+     925      │ - ··········),
+     926      │ - ······),
+          923 │ + ················values[pair.junctionField]
+          924 │ + ··············)
+          925 │ + ············)
+          926 │ + ··········)
+  1893 more lines truncated
+  
+
+Checked 2 files in 79ms. No fixes applied.
+Found 15 errors.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

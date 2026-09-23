@@ -1,0 +1,115 @@
+--- a/src/query-engine/raptor3/shared/query.ts (r4, pre-Repair-3)
++++ b/src/query-engine/raptor3/shared/query.ts (r5, Repair 3)
+@@ -38,6 +38,7 @@
+   encodePhysicalDecimalListMembers,
+   materializePhysicalDecimal,
+   materializePhysicalWidenedSum,
++  sameDecimalDescriptor,
+   toDecimal,
+   type DecimalDescriptor,
+ } from "@validation/primitives/decimal-codec";
+@@ -232,6 +233,18 @@
+   kind: "always",
+   value: false,
+ });
++/**
++ * The declared domain of an exact decimal COLUMN, or `undefined` when the state
++ * is not one. A list answers `undefined`: its members live in a container and
++ * the scalar comparison this domain governs is not one a list has.
++ */
++function exactDecimalDomain(
++  state: ScalarState,
++): DecimalDescriptor | undefined {
++  return state.type === "decimal" && state.array !== true
++    ? state.decimal
++    : undefined;
++}
+ /** One normalized sort key; `field` marks a direct scalar a cursor can use. */
+ interface OrderTerm {
+   readonly expression: Sql;
+@@ -926,10 +939,10 @@
+     value: unknown,
+     insensitive: boolean,
+   ): PreparedPredicate {
+-    const model = target.scalar?.model;
++    const owner = target.scalar;
+     const operand = () =>
+-      model
+-        ? this.prepareOperand(model, value)
++      owner
++        ? this.prepareOperand(owner, value)
+         : Object.freeze<PreparedOperand>({ kind: "value", value });
+     switch (operator) {
+       case "in":
+@@ -940,8 +953,8 @@
+           target,
+           operands: Object.freeze(
+             (value as unknown[]).map((member) =>
+-              model
+-                ? this.prepareOperand(model, member)
++              owner
++                ? this.prepareOperand(owner, member)
+                 : Object.freeze<PreparedOperand>({ kind: "value", value: member }),
+             ),
+           ),
+@@ -973,18 +986,29 @@
+         });
+     }
+   }
+-  private prepareOperand(model: AnyModel, value: unknown): PreparedOperand {
++  private prepareOperand(
++    owner: PreparedScalar,
++    value: unknown,
++  ): PreparedOperand {
+     if (!isFieldRef(value))
+       return Object.freeze({ kind: "value", value });
++    const { model } = owner;
+     const payload = fieldRefPayload(value);
+     const scope = model["~"].names.ts ?? "unknown";
+     if (payload.model !== scope)
+       throw new QueryEngineError(
+         `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`,
+       );
+-    if (!model["~"].state.scalars[payload.field])
++    const referenced = model["~"].state.scalars[payload.field];
++    if (!referenced)
+       throw new QueryEngineError(
+         `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`,
++      );
++    const own = exactDecimalDomain(owner.physical.scalar["~"].state);
++    const other = exactDecimalDomain(referenced["~"].state);
++    if (own && other && !sameDecimalDescriptor(own, other))
++      throw new QueryEngineError(
++        `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`,
+       );
+     return Object.freeze({
+       kind: "field",
+@@ -1356,6 +1380,10 @@
+    * THE JSON NULL TRUTH TABLE and the document operator set. A JSON column's
+    * operands are documents rather than scalars, which is a storage difference,
+    * not a second semantic interpretation of the same operator.
++   *
++   * The target always names a scalar here: `lowerOperation` reaches this only
++   * when that scalar's own state is a JSON document, which is why the refusal
++   * below can name the field.
+    */
+   private lowerJsonOperation(
+     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+@@ -1380,7 +1408,7 @@
+         if (sentinel) {
+           if (path.length)
+             throw new QueryEngineError(
+-              "A JSON null sentinel describes the column, not the value at a path; use 'path' with 'equals: null'.",
++              `JSON filter for field '${predicate.target.scalar!.field}' cannot combine 'path' with the ${sentinel} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`,
+             );
+           const isDatabaseNull = a.operators.isNull(column);
+           const isJsonNull = a.operators.eq(column, a.json.value(null));
+@@ -1770,7 +1798,7 @@
+         : undefined;
+     if (args.cursor !== undefined && !total)
+       throw new QueryEngineError(
+-        "Cursor pagination supports direct scalar sort directions only; relation and distance orderBy are not supported.",
++        "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.",
+       );
+     const terms = total ?? requested;
+     return {

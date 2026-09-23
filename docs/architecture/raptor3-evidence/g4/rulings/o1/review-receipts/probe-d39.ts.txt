@@ -1,0 +1,97 @@
+/* Reviewer probe (D-39). Measures, per family: the shipped leg's answer, the
+ * PRE-D-39 leg's answer (reconstructed), and what the mechanism resolves. */
+import { resolveConsumableResultCandidate } from "@drivers/consumable-result-candidate";
+import { PGliteDriver } from "@drivers/pglite";
+import { sqliteResultParser } from "@drivers/shared";
+import { SQLite3Driver } from "@drivers/sqlite3";
+
+/* biome-ignore-all lint: reviewer scratch probe, never committed */
+const anyOf = (value: unknown) => value as any;
+
+const install = (driver: any, surface: unknown) => {
+  Object.defineProperty(driver, "result", { configurable: true, value: surface });
+  return driver;
+};
+
+const resolves = (driver: any) =>
+  resolveConsumableResultCandidate(driver) !== undefined;
+
+const S = anyOf(SQLite3Driver);
+const P = anyOf(PGliteDriver);
+
+/* The leg as it stands (private static, reachable at runtime). */
+const shippedSqlite = (d: any) => S.hasCanonicalProducerSurface(d) as boolean;
+const shippedPglite = (d: any) => P.hasCanonicalProducerSurface(d) as boolean;
+
+/* The leg as it stood BEFORE D-39, reconstructed from 383f830c. */
+const oldSqlite = (d: any) =>
+  Object.getPrototypeOf(d) === SQLite3Driver.prototype &&
+  d._execute === S.canonicalExecuteEntry &&
+  d.execute === S.canonicalExecute &&
+  d.runStatement === S.canonicalRunStatement &&
+  d.result.parseResult === sqliteResultParser.parseResult &&
+  d.adapter.result.parseResult === d.canonicalAdapterParseResult;
+
+const oldPglite = (d: any) =>
+  Object.getPrototypeOf(d) === PGliteDriver.prototype &&
+  d._execute === P.canonicalExecuteEntry &&
+  d.execute === P.canonicalExecute &&
+  d.result?.parseResult === undefined &&
+  d.adapter.result.parseResult === d.canonicalAdapterParseResult;
+
+const reentered = (make: () => any) => {
+  const driver = make();
+  const shipped = driver.adapter.result.parseResult;
+  driver.adapter.result.parseResult = (raw: any, op: any, next: any) =>
+    shipped(raw, op, next);
+  return driver;
+};
+
+const family = (
+  name: string,
+  make: () => any,
+  fieldMiddleware: unknown,
+  resultMiddleware: unknown,
+  shipped: (d: any) => boolean,
+  old: (d: any) => boolean
+) => {
+  const witnesses: Record<string, any> = {
+    stock: make(),
+    withResultMiddleware: install(make(), resultMiddleware),
+    withFieldMiddleware: install(make(), fieldMiddleware),
+    withReenteredAdapter: reentered(make),
+  };
+  const answers: Record<string, unknown> = {};
+  for (const [key, driver] of Object.entries(witnesses))
+    answers[key] = {
+      shippedLeg: shipped(driver),
+      preD39Leg: old(driver),
+      resolvesAsCandidate: resolves(driver),
+    };
+  return { [name]: answers };
+};
+
+const report = {
+  ...family(
+    "sqlite3",
+    () => new SQLite3Driver(),
+    { parseField: sqliteResultParser.parseField },
+    { ...sqliteResultParser, parseResult: (raw: any, op: any, next: any) => next(raw, op) },
+    shippedSqlite,
+    oldSqlite
+  ),
+  ...family(
+    "pglite",
+    () => new PGliteDriver(),
+    { parseField: (v: any, t: any, next: any) => next(v, t) },
+    { parseResult: (raw: any, op: any, next: any) => next(raw, op) },
+    shippedPglite,
+    oldPglite
+  ),
+  shippedSurfaceIdentity: {
+    sqlite3ResultIsSharedParser: new SQLite3Driver().result === sqliteResultParser,
+    pgliteResultIsUndefined: anyOf(new PGliteDriver()).result === undefined,
+    sqliteParserHasNoResultHook: sqliteResultParser.parseResult === undefined,
+  },
+};
+process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

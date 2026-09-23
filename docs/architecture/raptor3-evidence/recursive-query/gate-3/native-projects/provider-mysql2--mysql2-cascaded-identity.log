@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-cascaded-identity.test.ts (4 tests) 484ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  13:26:17
+   Duration  2.96s (transform 1.44s, setup 13ms, collect 2.22s, tests 484ms, environment 0ms, prepare 51ms)
+
+Vitest resources: 5.15s wall, 481.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

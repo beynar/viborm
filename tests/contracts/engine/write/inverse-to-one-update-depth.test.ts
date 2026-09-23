@@ -245,8 +245,19 @@ const PROFILE_NOT_FOUND =
   /Cannot update relation 'profile': target record was not found for this parent\./;
 const NOTE_NOT_FOUND =
   /Cannot update relation 'notes': target record was not found for this parent\./;
-/** The executor's typed refusal when a declared `firstRowField` output is absent. */
-const UNRESOLVED_LOCATED_PK = /did not produce row field 'id'/;
+/**
+ * The typed refusal when a declared `firstRowField` output is absent.
+ *
+ * This pinned the RETIRED write engine's `extractOutput` wording ("step did not
+ * produce row field 'id'"), a phrase that survives only as removed lines in the
+ * cutover patches. The shipped engine answers the same fact at its typed result
+ * boundary and names more than the retired sentence did: the driver, the scalar
+ * type it could not decode, and the operation the decode belonged to
+ * (`shared/operation-context.ts` `failure()`, mapping `InvalidScalarResult`).
+ * Pinned whole — the attribution is the part that must not drift.
+ */
+const UNRESOLVED_LOCATED_PK =
+  /^Driver "pglite" returned a malformed string scalar for operation "update": the value is absent\.$/;
 
 function makeClient(driver: PGliteDriver) {
   return createClient({ schema: inverseDepthSchema, driver });
@@ -852,6 +863,8 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
       // The deeper edges Ref a DECLARED `firstRowField` output of the probe, not a raw
       // row read — which is what makes an absent value a typed planning failure before
       // any write instead of an `undefined` reaching the INSERT as a NULL foreign key.
+      // The wording moved with the engine (see `UNRESOLVED_LOCATED_PK`); the fact
+      // pinned here — typed, attributed, and BEFORE any write — did not.
       const config = {
         table: "e2u1_profiles",
         column: "id",

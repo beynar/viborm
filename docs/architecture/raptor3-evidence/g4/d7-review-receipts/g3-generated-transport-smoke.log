@@ -1,0 +1,25 @@
+ ❯ ScriptedTransport.answer tests/raptor3/transport/driver.ts:161:14
+    159|       assert(expected, `Unscripted redispatch by ${script.name}`);
+    160|       reply = expected;
+    161|       assert.equal(
+       |              ^
+    162|         via,
+    163|         reply.via,
+ ❯ ScriptedTransport.execute tests/raptor3/transport/driver.ts:108:32
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:199:43
+ ❯ ScriptedTransport.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:20
+ ❯ executeQuery src/drivers/driver-transaction-base.ts:209:16
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:1115:13
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:498:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  23:41:04
+   Duration  1.93s (transform 1.19s, setup 10ms, collect 1.77s, tests 17ms, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-47zfVI/vitest.json
+Vitest resources: 3.98s wall, 540.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-47zfVI

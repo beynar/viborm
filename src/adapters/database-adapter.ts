@@ -279,6 +279,19 @@ export interface DatabaseAdapter {
     subtract: (left: Sql, right: Sql) => Sql;
     multiply: (left: Sql, right: Sql) => Sql;
     divide: (left: Sql, right: Sql) => Sql;
+    /**
+     * The integer quotient of two integer operands, truncated toward zero.
+     *
+     * The same fact {@link DatabaseAdapter.set.divide}'s `target.integer` flag
+     * already carries, as an EXPRESSION rather than an assignment: naming the
+     * value an integer column will hold after `{ divide }` needs the dialect's
+     * own truncation, and `/` does not agree across dialects. SQLite and
+     * PostgreSQL truncate natively once both operands are integers, while MySQL
+     * `/` yields a DECIMAL quotient and needs `TRUNCATE(…, 0)`. Casting the
+     * quotient afterwards is not a substitute: MySQL and PostgreSQL ROUND on
+     * cast, only SQLite truncates.
+     */
+    integerDivide: (left: Sql, right: Sql) => Sql;
 
     // String operations
     concat: (...parts: Sql[]) => Sql;
@@ -361,7 +374,10 @@ export interface DatabaseAdapter {
     array: (items: Sql[]) => Sql;
     /** Empty JSON array literal: '[]'::json (PG), JSON_ARRAY() (MySQL), '[]' (SQLite) */
     emptyArray: () => Sql;
-    /** Aggregate rows into JSON array */
+    /**
+     * Aggregate rows into a JSON array. An empty aggregate is the empty array,
+     * never SQL NULL, so no caller wraps it in its own COALESCE.
+     */
     agg: (expr: Sql) => Sql;
     /** Build JSON object from explicit column list (works on all databases) */
     objectFromColumns: (columns: [string, Sql][]) => Sql;
@@ -420,7 +436,9 @@ export interface DatabaseAdapter {
    * Array operations (PG: native arrays, MySQL/SQLite: JSON-based)
    */
   arrays: {
-    /** Create array literal */
+    /**
+     * Create array literal. Reserved — not called by the query engine yet.
+     */
     literal: (items: Sql[]) => Sql;
     /**
      * Parameterized value for a complete list in the dialect's storage
@@ -472,7 +490,9 @@ export interface DatabaseAdapter {
     length: (column: Sql) => Sql;
     /** Get element at index. Reserved — not called by the query engine yet. */
     get: (column: Sql, index: Sql) => Sql;
-    /** Append value to array */
+    /**
+     * Append value to array. Reserved — not called by the query engine yet.
+     */
     push: (column: Sql, value: Sql) => Sql;
     /** Set value at index. Reserved — not called by the query engine yet. */
     set: (column: Sql, index: Sql, value: Sql) => Sql;
@@ -499,6 +519,13 @@ export interface DatabaseAdapter {
    * LIMIT value meaning "no limit", for dialects that reject OFFSET without
    * LIMIT (MySQL: 18446744073709551615, SQLite: -1).
    * Omit when the dialect supports bare OFFSET (PostgreSQL).
+   *
+   * It is also the bound an ORDERED derived table states when its caller asked
+   * for no window: MySQL merges an unlimited derived table into the query that
+   * reads it and the merge takes the ORDER BY with it, so a page whose order a
+   * reader consumes (the to-many include's aggregate) spells this value rather
+   * than losing it. A dialect that keeps a derived order unbounded declares
+   * none and emits nothing.
    */
   noLimitValue?: Sql;
 
@@ -589,7 +616,11 @@ export interface DatabaseAdapter {
   cte: {
     /** Build WITH clause: WITH name AS (query), ... */
     with: (definitions: { name: string; query: Sql }[]) => Sql;
-    /** Build recursive CTE: WITH RECURSIVE name AS (anchor UNION ALL recursive) */
+    /**
+     * Build recursive CTE: WITH RECURSIVE name AS (anchor UNION ALL recursive).
+     * The query engine calls only the `"distinct"` mode (`UNION`); the default
+     * `"all"` mode is reserved — not called by the query engine yet.
+     */
     recursive: (
       name: string,
       anchor: Sql,
@@ -719,7 +750,10 @@ export interface DatabaseAdapter {
   setOperations: {
     /** UNION (removes duplicates) */
     union: (...queries: Sql[]) => Sql;
-    /** UNION ALL (keeps duplicates) */
+    /**
+     * UNION ALL (keeps duplicates). Reserved — not called by the query engine
+     * yet.
+     */
     unionAll: (...queries: Sql[]) => Sql;
     /** INTERSECT */
     intersect: (...queries: Sql[]) => Sql;

@@ -1,0 +1,18 @@
+# Which vitest project each file belongs to, at 7c3c33a4e
+
+raptor3: 190 files
+coverage-raptor3: 181 files
+raptor3-provider: 8 files
+raptor3-live-provider: 29 files
+extended-local: 192 files
+
+tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts
+  -> extended-local
+tests/raptor3/g4/review/cutover/d14-publication.review.test.ts
+  -> NO PROJECT
+tests/raptor3/g4/parity/lane-x-route-seam.test.ts
+  -> extended-local
+tests/raptor3/prep/g3p04-review-regressions.test.ts
+  -> raptor3, coverage-raptor3
+tests/raptor3/prep/suppression-replay.test.ts
+  -> raptor3, coverage-raptor3

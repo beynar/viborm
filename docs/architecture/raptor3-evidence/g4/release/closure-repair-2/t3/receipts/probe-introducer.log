@@ -1,0 +1,42 @@
+utf8mb4_bmp (col cs=utf8mb4) introducer=utf8mb4
+   declared   = "café ☕" codes=63 61 66 e9 20 2615
+   catalog    = "_utf8mb4\\'cafÃ© â\\'"
+   body codes = 63 61 66 c3 a9 20 e2 98 95
+   all<=0xFF  = true
+   bytes->str = "café ☕"
+   stored row = "café ☕"
+utf8mb4_astral (col cs=utf8mb4) introducer=utf8mb4
+   declared   = "e😀nd" codes=65 1f600 6e 64
+   catalog    = "_utf8mb4\\'eðnd\\'"
+   body codes = 65 f0 9f 98 80 6e 64
+   all<=0xFF  = true
+   bytes->str = "e😀nd"
+   stored row = "e😀nd"
+utf8mb3_bmp (col cs=utf8mb3) introducer=utf8mb4
+   declared   = "café ☕" codes=63 61 66 e9 20 2615
+   catalog    = "_utf8mb4\\'cafÃ© â\\'"
+   body codes = 63 61 66 c3 a9 20 e2 98 95
+   all<=0xFF  = true
+   bytes->str = "café ☕"
+   stored row = "café ☕"
+latin1_e (col cs=latin1) introducer=utf8mb4
+   declared   = "café" codes=63 61 66 e9
+   catalog    = "_utf8mb4\\'cafÃ©\\'"
+   body codes = 63 61 66 c3 a9
+   all<=0xFF  = true
+   bytes->str = "café"
+   stored row = "café"
+ascii_plain (col cs=ascii) introducer=utf8mb4
+   declared   = "plain" codes=70 6c 61 69 6e
+   catalog    = "_utf8mb4\\'plain\\'"
+   body codes = 70 6c 61 69 6e
+   all<=0xFF  = true
+   bytes->str = "plain"
+   stored row = "plain"
+utf8mb4_mixed (col cs=utf8mb4) introducer=utf8mb4
+   declared   = "a\\b é it's\nx" codes=61 5c 62 20 e9 20 69 74 27 73 0a 78
+   catalog    = "_utf8mb4\\'a\\\\\\\\b Ã© it\\\\\\'s\\\\nx\\'"
+   body codes = 61 5c 5c 5c 5c 62 20 c3 a9 20 69 74 5c 5c 5c 27 73 5c 5c 6e 78
+   all<=0xFF  = true
+   bytes->str = "a\\\\\\\\b é it\\\\\\'s\\\\nx"
+   stored row = "a\\b é it's\nx"

@@ -1,0 +1,5 @@
+core exit=1 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯  Test Files 2 failed | 398 passed (400)  Tests 2 failed | 8386 passed (8388) 
+provider-local exit=0  Test Files 7 passed | 5 skipped (12)  Tests 764 passed | 664 skipped (1428) 
+provider-pg exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 25 ⎯⎯⎯⎯⎯⎯⎯  Test Files 2 failed | 2 passed (4)  Tests 25 failed | 426 passed | 7 skipped (458) 
+provider-mysql exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 165 ⎯⎯⎯⎯⎯⎯  Test Files 6 failed | 2 passed (8)  Tests 165 failed | 575 passed | 1 skipped (741) 
+=== 20:59:50 group estate finished ===

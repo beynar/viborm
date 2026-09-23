@@ -1,0 +1,63 @@
+{
+  "formatVersion": 1,
+  "date": "2026-09-13",
+  "status": "review-pending",
+  "identity": {
+    "production": "8f0ff7c22cbb39c1188fbfe1e8eba54463e2a071db73fe0c941294f5a81d08ea",
+    "harness": "9e46416a29a6fe60b30a39955630b1f39dc9b23332c103ea764528c05a59877a",
+    "node": "v24.21.0"
+  },
+  "approvedContract": {
+    "legacyOrdinaryProgress": null,
+    "commandsMalformedUpdateProgress": {
+      "atomicity": "segment",
+      "phase": "result",
+      "committedSegments": 1,
+      "committedWriteMembers": 1,
+      "completedMembers": 0
+    },
+    "commandsAcknowledgedRejectionProgress": {
+      "atomicity": "segment",
+      "phase": "member",
+      "committedSegments": 1,
+      "committedWriteMembers": 1,
+      "completedMembers": 0
+    }
+  },
+  "failedProjectionAttempts": [
+    {
+      "receipt": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-AWEK4h/vitest.json",
+      "sha256": "14cb36441368beb4a809ceab90a0516f54dadf675769fcf3724b1f8c94f30d68",
+      "result": "11/16",
+      "cause": "object spread replaced the original metadata prototype"
+    },
+    {
+      "receipt": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-uvbXBU/vitest.json",
+      "sha256": "8c32671ccbcf0bf272288a75671669192b5c5610d3add838d154db8b51568bef",
+      "result": "11/16",
+      "cause": "the parsed metadata copy had already lost the original prototype"
+    }
+  ],
+  "finalFocusedReceipts": [
+    {
+      "mode": "g1-transport",
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-GdSp7G",
+      "verifiedSha256": "09944c2bffe5e81432f70ed9acf4bac5c7fa1ce59cedf8a80af8b4731a2d6b07",
+      "vitestSha256": "2e246c7069baa234bbce3e29503660f8db2e8ea7754627ef4276d48ae2bff63f",
+      "result": "44/44"
+    },
+    {
+      "mode": "g2-transport",
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-CCqx1W",
+      "verifiedSha256": "a5b06164b1e0389e81934cd42a7980b795d8461f098ccc2b0d6e387f34b90f67",
+      "vitestSha256": "6761a174ec38346132e0428aefaca63c6e9b0600f852153d603d5f6aa60ad5b0",
+      "corpusSha256": "fc637257ff09211f6004073b09da9cdc88890366fa7283db4a4409e9b6ae34aa",
+      "result": "16/16"
+    }
+  ],
+  "selfTest": {
+    "command": "node scripts/run-node-safe.mjs --rss-limit-mb=1536 768 120000 scripts/raptor3-campaign-receipts.test.mjs",
+    "result": "12/12",
+    "teardownVerified": true
+  }
+}

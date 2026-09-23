@@ -1,0 +1,12 @@
+ ❯ |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests | 1 failed) 122ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 46ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 29ms
+ ❯ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests | 1 failed) 116ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 50ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 26ms
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 nested selected-series dependency [commands] (sqlite-interactive) > keeps an inner unresolved dependency until th
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 nested selected-series dependency [commands] (sqlite-interactive) > keeps an inner unresolved dependency until the inner c
+AssertionError: {
+ Test Files  2 failed | 4 passed (6)
+      Tests  2 failed | 54 passed (56)

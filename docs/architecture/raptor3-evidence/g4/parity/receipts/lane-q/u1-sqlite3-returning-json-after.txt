@@ -1,0 +1,20 @@
+      Tests  19 failed | 157 passed (176)
+SQLite3 Driver > SQLite3 list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object every and some filters
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and every filters
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and some filters
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > combined relation operators > rolls back a combined-filter mutation when a later operation fails
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > combined relation operators > updateMany applies same-object every and none filters
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and every filters
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and none filters
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > deleteMany with every relation filter deletes only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > deleteMany with none relation filter deletes only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > deleteMany with some relation filter deletes only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > self-relation filters > delete by a self-relation-filtered unique where removes one row
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > self-relation filters > deleteMany with self-relation filter deletes only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > self-relation filters > update by a self-relation-filtered unique where locates or declines
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > self-relation filters > updateMany with to-many self-relation filter affects only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > self-relation filters > updateMany with to-one self-relation filter affects only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > updateMany with every relation filter affects only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > updateMany with none relation filter affects only matching rows
+SQLite3 Driver > SQLite3 relation-filter mutation behavior > updateMany with some relation filter affects only matching rows

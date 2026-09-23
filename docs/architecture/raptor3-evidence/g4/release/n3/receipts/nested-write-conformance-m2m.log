@@ -1,0 +1,8 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts (34 tests | 5 failed) 1651ms
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m connectOrCreate string-selector array rejects unk
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m overlapping set and deleteMany reject membership 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m disconnect then deleteMany rejects membership dep
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m multiple deleteMany filters reject internal depen
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: self-referential m2m (tx vs batch) > self m2m connect then inverse upsert rejects 
+ Test Files  1 failed (1)
+      Tests  5 failed | 29 passed (34)

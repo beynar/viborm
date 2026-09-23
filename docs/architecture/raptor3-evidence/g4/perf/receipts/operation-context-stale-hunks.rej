@@ -1,0 +1,197 @@
+@@ -401,26 +336,10 @@
+       );
+     }
+     const attribution = member ? this.memberAttribution.get(member) : undefined;
+-    // A failure carries record-series progress only when it BELONGS to a record
+-    // series. A committed segment and a prefix phase are the series the
+-    // operation already has; an UNCERTAIN outcome is not one on its own, so a
+-    // set-oriented statement's window ({@link setWindow}) reports nothing while
+-    // its outcome is merely unknown. That unknown outcome stays internal — the
+-    // fact itself is unchanged, still gates recovery, and still reaches the
+-    // cache through the seam `submit` states it on ({@link WriteOutcomeSeam}) —
+-    // exactly as the shipped executor keeps `progress.mayHaveCommittedSegment`
+-    // internal for a single operation and rethrows the driver's own error
+-    // (`write-engine/OperationExecutor.ts:1031-1072`; `attachProgress` :2308
+-    // reaches only record-series member and invalidation failures).
+-    // The narrowing is only that arm: a set window whose segment DID commit is
+-    // a committed segment like any other and keeps publishing its progress,
+-    // which is the G2.9 atomic-batch pin
+-    // (`tests/raptor3/post-prep/g29-result-progress.test.ts`).
+-    const setStatement = member !== undefined && member === this.setWindow;
+     return this.usesBatch &&
+       (phase === "prefix" ||
+         this.committedSegments > 0 ||
+-        (this.mayHaveCommittedSegment && !setStatement))
++        this.mayHaveCommittedSegment)
+       ? attachRecordSeriesProgress(failure, {
+           atomicity: "segment",
+           phase,
+@@ -1120,158 +979,26 @@
+       };
+       return undefined;
+     }
+-    // ONE rule for the physical envelope, asked here of this owner's two
+-    // transports: a set statement that is the operation's ONLY statement needs
+-    // no envelope, so it takes the plain execute path on a batch-only driver
+-    // exactly as on every other. That is the shipped transport rule — the same
+-    // `runStatementAtomic` condition {@link run} already restates for the
+-    // envelope (`write-engine/OperationExecutor.ts` `canExecuteDirectly` at
+-    // `:241` and its `:346-357` call site), which sends this shape through
+-    // `_execute` and never through `_executeBatch`. Arnaud's D-7 decision
+-    // (2026-09-15) is to take it exactly: a ONE-STATEMENT BATCH is what makes
+-    // the driver seam attribute `statementIndex: 0` to a rejection the shipped
+-    // engine attributes no index to (`drivers/driver-diagnostics.ts:35-36`),
+-    // for the folded root write and for every relation-free bulk verb alike.
+-    //
+-    // Each conjunct is a different way of not being the only statement: a plan
+-    // of several statements; something already queued on this attempt that
+-    // would ride the same batch (`requireAbsent`/`requirePresent`); a
+-    // generated-output continuation whose guard must precede the mutation
+-    // inside one atomic unit ({@link submit}).
+-    const lone =
+-      statements.length === 1 &&
+-      this.attempt.pending.length === 0 &&
+-      this.continuations.length === 0;
+-    if (this.usesBatch && !lone) {
++    if (this.usesBatch) {
+       const windowMember: Member = {};
+-      this.setWindow = windowMember;
+       for (const statement of statements)
+         this.queue(statement.sql, statement.context, windowMember);
+       const results = await this.submit(true, windowMember);
+-      return this.settleSubmitted(() => {
+-        try {
+-          return parse(results);
+-        } catch (error) {
+-          throw this.failure(error, "result", windowMember);
+-        }
+-      });
++      try {
++        return parse(results);
++      } catch (error) {
++        throw this.failure(error, "result", windowMember);
++      }
+     }
+-    return this.dispatchSetMutations(statements, parse);
+-  }
+-  /**
+-   * The operation's own set-oriented statements on the plain execute path, and
+-   * the durable phase of the write it just made.
+-   *
+-   * This is the shipped `runBorrowedStatementAtomic` situation
+-   * (`write-engine/OperationExecutor.ts:1558-1645`): no envelope, so this
+-   * transport is the only one that learns whether the write became durable, and
+-   * it says so on the same rail {@link submit} uses ({@link WriteOutcomeSeam}) —
+-   * `mayBeVisible` when its statement fails without proving rollback, and
+-   * `committedSegment` once its statement has returned, whether or not the
+-   * result then decodes. Only a STANDALONE operation running outside any region
+-   * owns that answer: a borrowed operation's caller owns the scope (the shipped
+-   * `runLinearOn` notifies nothing), and this operation's own region answers
+-   * with its rollback.
+-   */
+-  private dispatchSetMutations(
+-    statements: readonly {
+-      readonly sql: Sql;
+-      readonly context: QueryExecutionContext;
+-    }[],
+-    parse: (results: readonly QueryResult<unknown>[]) => unknown
+-  ): Promise<unknown> {
+     return this.dispatch(statements.length, true, async () => {
+-      const owned = this.ownership === "standalone" && !this.ownRegionOpen;
+       const results: QueryResult<unknown>[] = [];
+-      try {
+-        for (const statement of statements)
+-          results.push(
+-            await this.transport._execute(statement.sql, statement.context)
+-          );
+-      } catch (error) {
+-        // The same sentence {@link submit}'s catch states about its batch: a
+-        // dispatched write whose rollback the transport cannot prove may be
+-        // visible, and a unique rejection is the one class that proves it.
+-        if (owned && !(error instanceof UniqueConstraintError))
+-          await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
+-        throw error;
+-      }
+-      let decoded: { readonly failure: unknown } | { readonly value: unknown };
+-      try {
+-        decoded = { value: parse(results) };
+-      } catch (error) {
+-        // Translated HERE, once, so the one value this arm holds is the one the
+-        // caller would have received: {@link run}'s catch is the only other
+-        // translator of a decoding failure, and it no longer recognises this
+-        // one once {@link stateWriteOutcome} has composed it with a listener's.
+-        // The registered malformed-scalar refusal must stay primary, so the
+-        // public failure — not the internal `InvalidScalarResult` — is what is
+-        // both published to the cache seam and thrown.
+-        decoded = { failure: this.failure(error, "result") };
+-      }
+-      if (owned)
+-        await this.stateWriteOutcome(
+-          this.writeOutcome?.committedSegment,
+-          "failure" in decoded ? decoded.failure : undefined
++      for (const statement of statements)
++        results.push(
++          await this.transport._execute(statement.sql, statement.context)
+         );
+-      if ("failure" in decoded) throw decoded.failure;
+-      return decoded.value;
++      return parse(results);
+     });
+-  }
+-  /**
+-   * Say ONE durable write phase on the client's cache rail, keeping the
+-   * OPERATION's own failure primary when the client's listener throws.
+-   *
+-   * The shipped engine composes the two exactly this way —
+-   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859-871`) at every
+-   * executor site that notifies while holding a failure
+-   * (`write-engine/OperationExecutor.ts:1310`, `:1341`, `:1609`, `:1640`). The
+-   * composition is restated here rather than imported because
+-   * `@extensions/query` imports `write-engine/routing` and with it every
+-   * shipped operation class — the one import this engine may not have. `primary`
+-   * absent means the operation has not failed, which is the shipped
+-   * `throw outcomeFailure` arm.
+-   */
+-  private async stateWriteOutcome(
+-    say: (() => Promise<void>) | undefined,
+-    primary?: unknown
+-  ): Promise<void> {
+-    if (!say) return;
+-    try {
+-      await say();
+-    } catch (outcomeFailure) {
+-      if (primary === undefined) throw outcomeFailure;
+-      throw this.retainOutcomeFailure(primary, outcomeFailure);
+-    }
+   }
+-  /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
+-  private answered<T>(failure: T): T {
+-    if (typeof failure === "object" && failure !== null)
+-      this.answeredFailures.add(failure);
+-    return failure;
+-  }
+-  /**
+-   * ONE composition of the two failures, wherever the operation's own failure
+-   * becomes known: it stays primary and every listener failure is retained
+-   * beside it. {@link stateWriteOutcome} composes when the primary is already
+-   * in hand; {@link settleSubmitted} composes when the batch transport learned
+-   * the listener's failure FIRST and held it.
+-   */
+-  private retainOutcomeFailure(
+-    primary: unknown,
+-    outcomeFailure: unknown
+-  ): AggregateError {
+-    return new AggregateError(
+-      [
+-        primary,
+-        ...(outcomeFailure instanceof AggregateError
+-          ? outcomeFailure.errors
+-          : [outcomeFailure])
+-      ],
+-      "Query execution and write-outcome publication both failed.",
+-      { cause: primary }
+-    );
+-  }
+   async createMany(
+     model: AnyModel,
+     rows: Input[],

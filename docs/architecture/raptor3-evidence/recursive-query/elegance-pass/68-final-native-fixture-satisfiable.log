@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-witness| tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts (5 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  15:21:51
+   Duration  2.31s (transform 238ms, setup 195ms, collect 125ms, tests 3ms, environment 0ms, prepare 385ms)
+
+Vitest resources: 7.57s wall, 194.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

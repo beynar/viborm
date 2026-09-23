@@ -1,0 +1,63 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ❯ |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests | 1 failed) 9ms
+   ✓ provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary 2ms
+   ✓ provider-free MySQL catalog reconstruction > undoes both layers of MySQL's deparse, and keeps what it cannot 1ms
+   × provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text 3ms
+     → expected '(\'caf\ufffd\')' to be '_utf8mb4\\'café\\'' // Object.is equality
+   ✓ provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table 0ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID -1 1ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID 4294967296 0ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID not-a-number 0ms
+ ❯ |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests | 1 failed) 10ms
+   ✓ provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary 2ms
+   ✓ provider-free MySQL catalog reconstruction > undoes both layers of MySQL's deparse, and keeps what it cannot 1ms
+   × provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text 3ms
+     → expected '(\'caf\ufffd\')' to be '_utf8mb4\\'café\\'' // Object.is equality
+   ✓ provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table 0ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID -1 2ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID 4294967296 0ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID not-a-number 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '(\'caf\ufffd\')' to be '_utf8mb4\\'café\\'' // Object.is equality
+
+Expected: [32m"[7m_utf8mb4\[27m'caf[7mé\'[27m"[39m
+Received: [31m"[7m([27m'caf[7m�')[27m"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:436:44
+    434|     // text is kept, reads as a difference, and refuses the push.
+    435|     expect(byName.get("not_bytes")?.default).toBe("_utf8mb4\\'x\u2615\…
+    436|     expect(byName.get("invalid")?.default).toBe("_utf8mb4\\'caf\u00e9\…
+       |                                            ^
+    437|     expect(byName.get("other_charset")?.default).toBe(
+    438|       "_latin1\\'\u00c3\u00a9\\'"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '(\'caf\ufffd\')' to be '_utf8mb4\\'café\\'' // Object.is equality
+
+Expected: [32m"[7m_utf8mb4\[27m'caf[7mé\'[27m"[39m
+Received: [31m"[7m([27m'caf[7m�')[27m"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:436:44
+    434|     // text is kept, reads as a difference, and refuses the push.
+    435|     expect(byName.get("not_bytes")?.default).toBe("_utf8mb4\\'x\u2615\…
+    436|     expect(byName.get("invalid")?.default).toBe("_utf8mb4\\'caf\u00e9\…
+       |                                            ^
+    437|     expect(byName.get("other_charset")?.default).toBe(
+    438|       "_latin1\\'\u00c3\u00a9\\'"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 12 passed (14)
+   Start at  23:24:08
+   Duration  1.16s (transform 530ms, setup 15ms, collect 797ms, tests 19ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 3.00s wall, 489.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

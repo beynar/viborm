@@ -1,0 +1,4046 @@
+--- a/tests/raptor3/g4/unit02/borrowed-envelope.test.ts
++++ b/tests/raptor3/g4/unit02/borrowed-envelope.test.ts
+@@ -0,0 +1,275 @@
++/**
++ * G4-02 — the borrowed-transaction half of the envelope rule (brief item 11,
++ * divergence D-1) and the trusted-context threading (item 9, blocker B-4).
++ *
++ * These checks construct the binding the CORRECTED route will pass — the
++ * caller's own transaction driver plus a `memberRollback` grant, with no region
++ * opened by the caller — because `src/query-engine/raptor3/route/client-route.ts`
++ * is the G4-03 author's file and still wraps every write itself (note §11.3).
++ * They therefore pin the candidate's own behavior, side by side with the shipped
++ * engine's, for both outcomes the divergence record names.
++ */
++
++import assert from "node:assert/strict";
++import type { AnyDriver, QueryExecutionContext } from "@drivers";
++import {
++  createExecutionContext,
++  getExecutionExtensionChain,
++} from "@drivers/execution-context";
++import type { ResolvedExtensionChain } from "@extensions/chain";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { afterEach, describe, it } from "vitest";
++import { createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++function engineOf(current: World) {
++  return createCommandEngine({ schema: worldSchema, driver: current.driver });
++}
++
++/** Exactly what the corrected route hands the candidate for a borrowed scope. */
++function borrowed(scoped: AnyDriver) {
++  return {
++    kind: "borrowed-transaction",
++    driver: scoped,
++    memberRollback: <T,>(
++      execute: (driver: AnyDriver) => Promise<T>,
++      context: QueryExecutionContext
++    ) => scoped.withTransaction(execute, undefined, context),
++  } as const;
++}
++
++describe("G4-02 borrowed transaction envelope", () => {
++  it("runs a single-statement write directly on the borrowed driver", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const driver = world.driver;
++    await driver.withTransaction(async (scoped) => {
++      driver.reset();
++      const value = await engine.execute(
++        "author",
++        "update",
++        { where: { id: 1 }, data: { age: { increment: 1 } } },
++        borrowed(scoped as AnyDriver)
++      );
++      assert.deepEqual(value, { id: 1, name: "Ada", age: 37, avatar: null });
++      // One statement, and NO region of its own: the caller's transaction is
++      // the unit, exactly as the shipped `runStatementAtomic` leaves it.
++      assert.equal(driver.statements.length, 1);
++      assert.deepEqual(
++        driver.control.filter((statement) => /^SAVEPOINT/i.test(statement)),
++        []
++      );
++    });
++  });
++
++  it("opens no region of its own for a multi-statement borrowed write", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const driver = world.driver;
++    await driver.withTransaction(async (scoped) => {
++      driver.reset();
++      await engine.execute(
++        "author",
++        "update",
++        {
++          where: { id: 1 },
++          data: {
++            name: "Ada II",
++            posts: { update: { where: { id: 10 }, data: { title: "renamed" } } },
++          },
++        },
++        borrowed(scoped as AnyDriver)
++      );
++      // The caller's scope is the unit. `memberRollback` is MEMBER isolation,
++      // not an operation-region grant: `g3-suppression-retry` pins one savepoint
++      // per suppressed member and none for the operation, and opening a second
++      // scope on the caller's driver is refused outright by the native
++      // `g3-scope-composition-*` contract. The operation-level region for a
++      // multi-statement borrowed write needs a binding grant that does not exist
++      // yet (g4/unit02/note.md §8.4).
++      const savepoints = driver.control.filter((statement) =>
++        /^SAVEPOINT/i.test(statement)
++      );
++      assert.deepEqual(savepoints, []);
++      assert.ok(driver.statements.length > 1);
++    });
++  });
++
++  it("a failing single-statement write poisons the caller's transaction, as shipped", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const driver = world.driver;
++    const name = (error: unknown) => (error as Error).constructor.name;
++
++    // A duplicate identity: `update` moving author 1 onto author 2's key.
++    const shipped = { inner: "", after: "", outer: "" };
++    try {
++      await world.client.$transaction(async (tx) => {
++        try {
++          await tx.author.update({ where: { id: 1 }, data: { id: 2 } });
++          shipped.inner = "ok";
++        } catch (error) {
++          shipped.inner = name(error);
++        }
++        try {
++          await tx.author.update({
++            where: { id: 1 },
++            data: { age: { increment: 1 } },
++          });
++          shipped.after = "ok";
++        } catch (error) {
++          shipped.after = name(error);
++        }
++      });
++      shipped.outer = "resolved";
++    } catch (error) {
++      shipped.outer = name(error);
++    }
++
++    const candidate = { inner: "", after: "", outer: "" };
++    try {
++      await driver.withTransaction(async (scoped) => {
++        const binding = borrowed(scoped as AnyDriver);
++        try {
++          await engine.execute(
++            "author",
++            "update",
++            { where: { id: 1 }, data: { id: 2 } },
++            binding
++          );
++          candidate.inner = "ok";
++        } catch (error) {
++          candidate.inner = name(error);
++        }
++        try {
++          await engine.execute(
++            "author",
++            "update",
++            { where: { id: 1 }, data: { age: { increment: 1 } } },
++            binding
++          );
++          candidate.after = "ok";
++        } catch (error) {
++          candidate.after = name(error);
++        }
++      });
++      candidate.outer = "resolved";
++    } catch (error) {
++      candidate.outer = name(error);
++    }
++
++    assert.deepEqual(
++      candidate,
++      shipped,
++      `candidate ${JSON.stringify(candidate)} vs shipped ${JSON.stringify(shipped)}`
++    );
++  });
++});
++
++describe("G4-02 execution context threading", () => {
++  it("every candidate statement carries the caller's own trusted context, attributed to the model it addresses", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const driver = world.driver;
++    const chain = {
++      extensions: [],
++      hasCache: false,
++      hasRequestHandlers: false,
++      hasQueryHandlers: false,
++      hasResultConsumers: false,
++      request: {},
++      query: {},
++      statement: [],
++      observe: [],
++    } as unknown as ResolvedExtensionChain;
++    const caller: QueryExecutionContext = createExecutionContext(
++      { model: "author", operation: "update", correlationId: "g4u2-caller" },
++      undefined,
++      () => "g4u2-caller",
++      chain
++    );
++    driver.reset();
++    await engine.execute(
++      "author",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          name: "Ada II",
++          posts: { update: { where: { id: 10 }, data: { title: "renamed" } } },
++        },
++      },
++      undefined,
++      caller
++    );
++    assert.ok(driver.statements.length > 1);
++    const candidateModels = driver.statements.map(
++      (statement) => statement.context?.model
++    );
++    for (const statement of driver.statements) {
++      // The driver snapshots a trusted context by value, carrying the resolved
++      // chain forward; what must NOT survive is a candidate-minted attribution,
++      // which carries no chain at all (g4/unit03/note.md B-4).
++      assert.equal(
++        getExecutionExtensionChain(statement.context),
++        chain,
++        `a candidate statement lost the caller's resolved extension chain`
++      );
++      assert.equal(statement.context?.correlationId, "g4u2-caller");
++      assert.equal(statement.context?.operation, "update");
++    }
++
++    // Model PARITY with the shipped engine, not "everything is the root model":
++    // `statementExecutionContext` re-attributes a statement compiled for a
++    // nested record to that record's model, and the candidate's
++    // `statementContext` does the same through the same public derivation
++    // (`deriveStatementExecutionContext`), which is what keeps the chain.
++    const shippedWorld = await createWorld();
++    try {
++      shippedWorld.driver.reset();
++      await shippedWorld.client.author.update({
++        where: { id: 1 },
++        data: {
++          name: "Ada II",
++          posts: {
++            update: { where: { id: 10 }, data: { title: "renamed" } },
++          },
++        },
++      });
++      const tally = (models: (string | undefined)[]) => {
++        const counts: Record<string, number> = {};
++        for (const model of models) counts[model ?? "?"] = (counts[model ?? "?"] ?? 0) + 1;
++        return counts;
++      };
++      assert.deepEqual(
++        tally(candidateModels),
++        tally(
++          shippedWorld.driver.statements.map(
++            (statement) => statement.context?.model
++          )
++        ),
++        `candidate statement models ${JSON.stringify(candidateModels)} do not match the shipped engine's`
++      );
++    } finally {
++      await shippedWorld.close();
++    }
++  });
++
++  it("without a caller context the candidate keeps its own attribution", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const driver = world.driver;
++    driver.reset();
++    await engine.execute("author", "findUnique", { where: { id: 1 } });
++    const context = driver.statements[0]?.context;
++    assert.equal(context?.model, "author");
++    assert.equal(context?.operation, "findUnique");
++    assert.equal(typeof context?.correlationId, "string");
++  });
++});
+--- a/tests/raptor3/g4/unit02/decimal-having-operand.test.ts
++++ b/tests/raptor3/g4/unit02/decimal-having-operand.test.ts
+@@ -0,0 +1,147 @@
++/**
++ * G4-02 author check — the decimal `having { _sum }` operand domain (§10.10).
++ *
++ * `having: { amount: { _sum: { gt: x } } }` compares `SUM(amount)`, whose domain
++ * is the WIDENED one: a sum may legitimately exceed the column's precision while
++ * keeping its scale. Binding the operand in the FIELD's domain (what
++ * `lowerOperation`'s `bind` did before phase 2) sends a different literal than
++ * the shipped engine for the same public request, and on SQLite — where the
++ * column holds an unscaled integer coefficient — a too-narrow cast is a wrong
++ * comparison rather than a rounding difference.
++ *
++ * The property is asserted as an EQUALITY with the shipped lowering on all three
++ * dialects, plus the registered refusal for a coefficient the provider cannot
++ * cast exactly. The shipped side is the oracle
++ * (`tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts` is its
++ * own contract); nothing is imported from the shipped builders into the
++ * candidate.
++ */
++
++import assert from "node:assert/strict";
++import type { DatabaseAdapter } from "@adapters/database-adapter";
++import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
++import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
++import type { Dialect } from "@drivers";
++import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { Queries } from "@query-engine/raptor3/shared/query";
++import { hydrateSchemaNames, s } from "@schema";
++import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
++import { createSchemaRegistry } from "@validation";
++import { beforeAll, describe, it } from "vitest";
++
++const ledger = s
++  .model({
++    id: s.string().id(),
++    bucket: s.string(),
++    amount: s.decimal({ precision: 16, scale: 2 }),
++  })
++  .map("g4u2_having_ledger");
++
++const schema = { ledger };
++
++beforeAll(() => hydrateSchemaNames(schema));
++
++const dialects: {
++  readonly name: string;
++  readonly dialect: Dialect;
++  readonly adapter: () => DatabaseAdapter;
++}[] = [
++  {
++    name: "PostgreSQL",
++    dialect: "postgresql",
++    adapter: () => new PostgresAdapter(),
++  },
++  { name: "MySQL", dialect: "mysql", adapter: () => new MySQLAdapter() },
++  { name: "SQLite", dialect: "sqlite", adapter: () => new SQLiteAdapter() },
++];
++
++function shipped(
++  adapter: DatabaseAdapter,
++  dialect: Dialect,
++  args: Record<string, unknown>
++): string {
++  const registry = createModelRegistry(schema, createSchemaRegistry(schema));
++  const engine = new QueryEngine(new SqlOnlyDriver(adapter, dialect), registry);
++  return engine.build(ledger, "groupBy", args).toStatement("$n");
++}
++
++function candidate(
++  adapter: DatabaseAdapter,
++  args: Record<string, unknown>
++): string {
++  const engineSchema = new EngineSchema(schema);
++  const queries = new Queries(engineSchema, adapter);
++  const admitted = engineSchema.admit(ledger, "groupBy", args);
++  return queries.grouped(ledger, admitted).sql.toStatement("$n");
++}
++
++/** Everything after the last comparison operator: the rendered operand. */
++function operandAfter(statement: string, operator: string): string {
++  const index = statement.lastIndexOf(`${operator} `);
++  assert.ok(index >= 0, `no '${operator}' comparison in: ${statement}`);
++  return statement.slice(index + operator.length + 1).trim();
++}
++
++const having = (operand: string) => ({
++  by: ["bucket"],
++  having: { amount: { _sum: { gt: operand } } },
++  _count: true,
++});
++
++describe("G4-02 decimal having _sum operand (§10.10)", () => {
++  it("binds the operand exactly as the shipped engine does, on all three dialects", () => {
++    for (const { name, dialect, adapter } of dialects) {
++      const args = having("5");
++      const shippedOperand = operandAfter(
++        shipped(adapter(), dialect, args),
++        ">"
++      );
++      const candidateOperand = operandAfter(candidate(adapter(), args), ">");
++      assert.equal(
++        candidateOperand,
++        shippedOperand,
++        `${name}: the _sum operand must be lowered in the widened domain`
++      );
++    }
++  });
++
++  it("binds a sum operand WIDER than the column's own precision, as shipped", () => {
++    // Coefficient 1_500_000_000_000_000_000: nineteen digits, three past the
++    // column's own precision of 16, legal for a SUM and inside every dialect's
++    // exact cast domain (it is the shipped contract's own pinned in-range
++    // value). This is the case a field-domain cast gets wrong.
++    for (const { name, dialect, adapter } of dialects) {
++      const args = having("15000000000000000.00");
++      const shippedOperand = operandAfter(
++        shipped(adapter(), dialect, args),
++        ">"
++      );
++      const candidateOperand = operandAfter(candidate(adapter(), args), ">");
++      assert.equal(candidateOperand, shippedOperand, name);
++    }
++  });
++
++  it("raises the registered refusal when the provider cannot cast the coefficient", () => {
++    // SQLite's exact HAVING operand cast domain is bounded; past it the owner
++    // refuses instead of silently changing the value written.
++    const args = having("1000000000000000000000000000.00");
++    const observe = (build: () => string): string => {
++      try {
++        return `ok:${build()}`;
++      } catch (error) {
++        return `error:${(error as Error).message}`;
++      }
++    };
++    const shippedOutcome = observe(() =>
++      shipped(new SQLiteAdapter(), "sqlite", args)
++    );
++    const candidateOutcome = observe(() => candidate(new SQLiteAdapter(), args));
++    assert.match(
++      candidateOutcome,
++      /outside this provider's exact HAVING operand cast domain/
++    );
++    assert.equal(candidateOutcome, shippedOutcome);
++  });
++});
+--- a/tests/raptor3/g4/unit02/k-competing-refusals.test.ts
++++ b/tests/raptor3/g4/unit02/k-competing-refusals.test.ts
+@@ -0,0 +1,77 @@
++/**
++ * G4-02 author check — finding K (refusal precedence), copied verbatim from the
++ * G4-01 third-review probe estate
++ * (`/private/tmp/viborm-g4-unit01/tests/raptor3/g4/review/unit01-followup3/`)
++ * except for the one import path below. The integrator delegated finding K to
++ * this unit with these two files as the witness (`g4.md`, G4-01 round 3).
++ */
++import assert from "node:assert/strict";
++import { describe, it } from "vitest";
++import { bothOutcomes, ledRefs } from "./k-decimal-world";
++
++/**
++ * Third review (repair 3). The two repairs that ADD or MOVE a throw can change
++ * which refusal a caller sees when a single call violates two contracts at
++ * once. The candidate raises the decimal-domain refusal while PREPARING the
++ * selector; the shipped engine raises it while BUILDING the SQL, after it has
++ * normalized the cursor order. If the two owners run in a different order, the
++ * same call answers a different error identity on each engine.
++ */
++const agrees = (
++  label: string,
++  seen: { shipped: unknown; candidate: unknown }
++): void => {
++  assert.deepEqual(
++    seen.candidate,
++    seen.shipped,
++    `${label}\n  candidate ${JSON.stringify(seen.candidate)}\n  shipped   ${JSON.stringify(seen.shipped)}`
++  );
++};
++
++describe("G4-01 repair 3 review — which refusal wins when two are owed", () => {
++  it("decimal domain vs the cursor refusal", async () => {
++    const seen = await bothOutcomes("led", "findMany", {
++      where: { cents: { equals: ledRefs.micros } },
++      orderBy: { lines: { _count: "asc" } },
++      cursor: { id: 1 },
++      take: 2,
++      select: { id: true },
++    });
++    agrees("decimal mismatch beside a cursor refusal", seen);
++  });
++
++  it("decimal domain vs the cross-model scope refusal, in one filter", async () => {
++    const seen = await bothOutcomes("led", "findMany", {
++      where: {
++        AND: [
++          { cents: { equals: ledRefs.micros } },
++          { count: { equals: ledRefs.id } },
++        ],
++      },
++      select: { id: true },
++    });
++    agrees("two guards in one AND", seen);
++  });
++
++  it("decimal domain vs a null cursor field", async () => {
++    const seen = await bothOutcomes("led", "findMany", {
++      where: { cents: { equals: ledRefs.micros } },
++      orderBy: { id: "asc" },
++      cursor: { id: 99 },
++      take: 2,
++      select: { id: true },
++    });
++    agrees("decimal mismatch beside an absent cursor row", seen);
++  });
++
++  it("the cursor refusal vs an unknown-field selector", async () => {
++    const seen = await bothOutcomes("led", "findMany", {
++      where: { nope: 1 } as Record<string, unknown>,
++      orderBy: { lines: { _count: "asc" } },
++      cursor: { id: 1 },
++      take: 2,
++      select: { id: true },
++    });
++    agrees("admission vs cursor refusal", seen);
++  });
++});
+--- a/tests/raptor3/g4/unit02/k-decimal-world.ts
++++ b/tests/raptor3/g4/unit02/k-decimal-world.ts
+@@ -0,0 +1,118 @@
++import { createClient } from "@client/client";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { createModelFieldRefs } from "@schema/field-ref";
++import Database from "better-sqlite3";
++
++/**
++ * Third-review world for the decimal field-reference domain refusal (r5
++ * finding J). Same public arguments asked of the SHIPPED client and of the
++ * candidate over identical data, so any difference is observable.
++ *
++ * The domains are chosen to separate the two halves of the rule: `micros`
++ * differs from `cents` in SCALE only, `wideCents` in PRECISION only.
++ */
++export const led = s
++  .model({
++    id: s.int().id(),
++    cents: s.decimal({ precision: 12, scale: 2 }),
++    alsoCents: s.decimal({ precision: 12, scale: 2 }).map("also_cents"),
++    micros: s.decimal({ precision: 12, scale: 4 }),
++    wideCents: s.decimal({ precision: 10, scale: 2 }).map("wide_cents"),
++    maybeCents: s.decimal({ precision: 12, scale: 2 }).nullable().map("maybe_cents"),
++    count: s.int(),
++    tag: s.string(),
++    lines: s.toMany(() => line).name("ledLines"),
++  })
++  .map("fu3_led");
++
++export const line = s
++  .model({
++    id: s.int().id(),
++    ledId: s.int().nullable().map("led_id"),
++    fee: s.decimal({ precision: 8, scale: 2 }),
++    feeMicros: s.decimal({ precision: 8, scale: 3 }).map("fee_micros"),
++    led: s
++      .toOne(() => led)
++      .fields("ledId")
++      .references("id")
++      .name("ledLines"),
++  })
++  .map("fu3_line");
++
++export const schema = { led, line };
++
++export const ledRefs = createModelFieldRefs("led", led) as Record<string, unknown>;
++export const lineRefs = createModelFieldRefs("line", line) as Record<string, unknown>;
++
++const SEED = `
++  CREATE TABLE fu3_led(
++    id INTEGER PRIMARY KEY,
++    cents TEXT NOT NULL,
++    also_cents TEXT NOT NULL,
++    micros TEXT NOT NULL,
++    wide_cents TEXT NOT NULL,
++    maybe_cents TEXT,
++    count INTEGER NOT NULL,
++    tag TEXT NOT NULL
++  );
++  CREATE TABLE fu3_line(
++    id INTEGER PRIMARY KEY,
++    led_id INTEGER,
++    fee TEXT NOT NULL,
++    fee_micros TEXT NOT NULL
++  );
++  INSERT INTO fu3_led VALUES
++    (1,'1.20','1.20','1.2000','1.20','1.20',1,'x'),
++    (2,'2.00','3.00','9.0000','7.00',NULL,2,'y');
++  INSERT INTO fu3_line VALUES (1,1,'1.20','1.200'),(2,2,'4.00','5.000');
++`;
++
++function build(): { db: Database.Database; driver: SQLite3Driver } {
++  const db = new Database(":memory:");
++  db.exec(SEED);
++  return { db, driver: new SQLite3Driver({ client: db }) };
++}
++
++/** Both answers, each captured as a value or as its thrown message. */
++export async function bothOutcomes(
++  model: "led" | "line",
++  operation: string,
++  args: Record<string, unknown>
++): Promise<{ shipped: unknown; candidate: unknown }> {
++  const left = build();
++  const right = build();
++  const capture = async (run: () => unknown): Promise<unknown> => {
++    try {
++      return { ok: await run() };
++    } catch (error) {
++      return { error: error instanceof Error ? error.message : String(error) };
++    }
++  };
++  try {
++    const client = createClient({
++      schema,
++      driver: left.driver,
++    }) as unknown as Record<
++      string,
++      Record<string, (input: unknown) => unknown>
++    >;
++    const engine = createCommandEngine({ schema, driver: right.driver });
++    return {
++      shipped: await capture(() => client[model]![operation]!(args)),
++      candidate: await capture(() =>
++        engine.execute(
++          model,
++          operation as Parameters<typeof engine.execute>[1],
++          args
++        )
++      ),
++    };
++  } finally {
++    await left.driver.disconnect();
++    left.db.close();
++    await right.driver.disconnect();
++    right.db.close();
++  }
++}
+--- a/tests/raptor3/g4/unit02/k-refusal-order-history.test.ts
++++ b/tests/raptor3/g4/unit02/k-refusal-order-history.test.ts
+@@ -0,0 +1,63 @@
++/**
++ * G4-02 author check — finding K (refusal precedence), copied verbatim from the
++ * G4-01 third-review probe estate
++ * (`/private/tmp/viborm-g4-unit01/tests/raptor3/g4/review/unit01-followup3/`)
++ * except for the one import path below. The integrator delegated finding K to
++ * this unit with these two files as the witness (`g4.md`, G4-01 round 3).
++ */
++import assert from "node:assert/strict";
++import { describe, it } from "vitest";
++import { bothOutcomes, ledRefs, lineRefs } from "./k-decimal-world";
++
++/**
++ * Third review (repair 3). `competing-refusals.test.ts` shows the candidate
++ * answering the WHERE refusal where the shipped engine answers the CURSOR one.
++ * These probes ask whether that ordering is something repair 3 introduced, or a
++ * standing property of the candidate's one-pass preparation: each pairs a
++ * where-owned refusal that existed BEFORE this repair with the same cursor
++ * violation.
++ */
++const both = async (where: Record<string, unknown>) =>
++  await bothOutcomes("led", "findMany", {
++    where,
++    orderBy: { lines: { _count: "asc" } },
++    cursor: { id: 1 },
++    take: 2,
++    select: { id: true },
++  });
++
++const shortName = (seen: { shipped: unknown; candidate: unknown }) => ({
++  candidate: String((seen.candidate as { error?: string }).error).slice(0, 40),
++  shipped: String((seen.shipped as { error?: string }).error).slice(0, 40),
++});
++
++describe("G4-01 repair 3 review — is the refusal ORDER new?", () => {
++  it("cross-model scope refusal (r2 code) beside the cursor violation", async () => {
++    const seen = await both({ cents: { equals: lineRefs.fee } });
++    const names = shortName(seen);
++    assert.deepEqual(
++      seen.candidate,
++      seen.shipped,
++      `pre-existing scope refusal vs cursor refusal\n  candidate ${names.candidate}\n  shipped   ${names.shipped}`
++    );
++  });
++
++  it("GeoPoint-free control: a plain unsatisfiable filter beside the cursor violation", async () => {
++    const seen = await both({ tag: "nothing" });
++    assert.deepEqual(
++      seen.candidate,
++      seen.shipped,
++      `plain filter vs cursor refusal\n  ${JSON.stringify(seen)}`
++    );
++  });
++
++  it("decimal domain refusal (r5 code) beside the cursor violation", async () => {
++    const seen = await both({ cents: { equals: ledRefs.micros } });
++    const names = shortName(seen);
++    assert.deepEqual(
++      seen.candidate,
++      seen.shipped,
++      `r5 decimal refusal vs cursor refusal\n  candidate ${names.candidate}\n  shipped   ${names.shipped}`
++    );
++  });
++});
+--- a/tests/raptor3/g4/unit02/key-arithmetic.test.ts
++++ b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
+@@ -0,0 +1,427 @@
++/**
++ * G4-02 author check (repair round 3) — the symbolic updated-key expression and
++ * the row key's portability contract.
++ *
++ * Two facts the phase-2 round left unpinned, both raised by the independent
++ * review of that round (findings 1 and 2):
++ *
++ * 1. `Queries.updateValue` must NAME the value a key will carry for every
++ *    operator its assignment accepts, because the non-RETURNING readback and
++ *    every dependent's key transition address the row by that name. MySQL is
++ *    the project's only `supportsReturning: false` adapter, so the refusal that
++ *    landed in phase 2 was live for an ordinary request. The cells below run on
++ *    a SQLite driver with `supportsReturning` forced off — MySQL's capability,
++ *    credential-free — and compare the candidate to the shipped engine.
++ *    `native-key-arithmetic.test.ts` runs the same comparison on real MySQL,
++ *    whose `/` is the reason the integer quotient needed an adapter seam.
++ * 2. Implementing `multiply`/`divide` brought the shipped engine's key
++ *    portability contract within reach for the first time. The candidate now
++ *    states the two refusals that cover THOSE operators, in the shipped
++ *    engine's own sentences, where the shipped engine states them: at
++ *    admission for `update`/`updateMany` (`EngineSchema.admit`), and on the
++ *    found arm of a relation-bearing `upsert`, which
++ *    `upsert-key-portability.test.ts` measures (note §R3.1).
++ *
++ * Three shapes stay divergent and are NOT decided here — a decimal key
++ * `increment` (which the candidate supports, pinned by a registered G3
++ * witness), the same `increment` on a `number` key, and `set` winning over an
++ * accompanying operator. All three predate this unit; the third `describe`
++ * pins each engine's answer so the divergence is visible rather than assumed
++ * (note §R2.2, §R3.2).
++ *
++ * The one shape `updateValue` still refuses is an EXACT DECIMAL under
++ * `multiply` or `divide`, whose assignment is a guarded coefficient rewrite
++ * with no expression form. A decimal PRIMARY key never reaches it (the contract
++ * above refuses first); the reachable shape is a decimal RELATION key, recorded
++ * as a decision in note §R2.1 and pinned here by its identity.
++ */
++import assert from "node:assert/strict";
++import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
++import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
++import { createClient } from "@client/client";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { Queries } from "@query-engine/raptor3/shared/query";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++/** MySQL's `supportsReturning: false`, on a credential-free driver. */
++class NonReturningDriver extends SQLite3Driver {
++  constructor(options: { client: Database.Database }) {
++    super(options);
++    this.adapter.capabilities.supportsReturning = false;
++  }
++}
++
++const intKey = s
++  .model({ id: s.int().id(), label: s.string() })
++  .map("g4u2k_int_keys");
++const bigKey = s
++  .model({ id: s.bigInt().id(), label: s.string() })
++  .map("g4u2k_big_keys");
++const decKey = s
++  .model({ id: s.decimal({ precision: 8, scale: 2 }).id(), label: s.string() })
++  .map("g4u2k_dec_keys");
++const numKey = s
++  .model({ id: s.number().id(), label: s.string() })
++  .map("g4u2k_num_keys");
++const keySchema = { intKey, bigKey, decKey, numKey };
++
++interface Outcome {
++  readonly answer: string;
++  readonly rows: unknown[];
++}
++
++const SEED = `
++  INSERT INTO g4u2k_int_keys (id,label) VALUES (7,'a');
++  INSERT INTO g4u2k_big_keys (id,label) VALUES (7,'a');
++  INSERT INTO g4u2k_dec_keys (id,label) VALUES ('600','a');
++  INSERT INTO g4u2k_num_keys (id,label) VALUES (6.0,'a');
++`;
++
++async function update(
++  model: keyof typeof keySchema,
++  table: string,
++  where: unknown,
++  data: unknown,
++  engine: "shipped" | "candidate",
++  returning = true
++): Promise<Outcome> {
++  const database = new Database(":memory:");
++  const driver = returning
++    ? new SQLite3Driver({ client: database })
++    : new NonReturningDriver({ client: database });
++  const client = createClient({ schema: keySchema, driver });
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  database.exec(SEED);
++  const candidate = createCommandEngine({ schema: keySchema, driver });
++  let answer: string;
++  try {
++    const value =
++      engine === "shipped"
++        ? await (
++            client as unknown as Record<
++              string,
++              { update(args: unknown): Promise<unknown> }
++            >
++          )[model]!.update({ where, data })
++        : await candidate.execute(model, "update", { where, data });
++    answer = `ok:${JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? `${v}n` : v))}`;
++  } catch (error) {
++    answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++  }
++  const rows = database.prepare(`SELECT * FROM ${table}`).all();
++  await client.$disconnect();
++  database.close();
++  return { answer, rows };
++}
++
++async function bothEngines(
++  model: keyof typeof keySchema,
++  table: string,
++  where: unknown,
++  data: unknown,
++  returning = true
++): Promise<void> {
++  const shipped = await update(model, table, where, data, "shipped", returning);
++  const candidate = await update(
++    model,
++    table,
++    where,
++    data,
++    "candidate",
++    returning
++  );
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.deepEqual(
++    candidate,
++    shipped,
++    `candidate ${JSON.stringify(candidate)}\nshipped   ${JSON.stringify(shipped)}`
++  );
++}
++
++describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () => {
++  it("multiplies an int key the way the shipped engine does", async () => {
++    await bothEngines(
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { multiply: 2 } },
++      false
++    );
++  });
++
++  it("divides an int key with the dialect's truncation, as shipped", async () => {
++    // 7 / 2 is the quotient that distinguishes integer truncation from real
++    // division: the SET clause writes 3 and the readback must address 3.
++    await bothEngines(
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { divide: 2 } },
++      false
++    );
++  });
++
++  it("multiplies and divides a bigint key the way the shipped engine does", async () => {
++    await bothEngines(
++      "bigKey",
++      "g4u2k_big_keys",
++      { id: 7n },
++      { id: { multiply: 3n } },
++      false
++    );
++    await bothEngines(
++      "bigKey",
++      "g4u2k_big_keys",
++      { id: 7n },
++      { id: { divide: 2n } },
++      false
++    );
++  });
++
++  it("still increments and decrements a key as it did", async () => {
++    await bothEngines(
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { increment: 4 } },
++      false
++    );
++    await bothEngines(
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { decrement: 4 } },
++      false
++    );
++  });
++});
++
++describe("G4-02 — the row key's portability contract, as the shipped engine states it", () => {
++  for (const [name, model, table, where, data] of [
++    [
++      "decimal key multiply",
++      "decKey",
++      "g4u2k_dec_keys",
++      { id: "6.00" },
++      { id: { multiply: "2.00" } },
++    ],
++    [
++      "number key multiply",
++      "numKey",
++      "g4u2k_num_keys",
++      { id: 6 },
++      { id: { multiply: 2 } },
++    ],
++    [
++      "decimal key divide",
++      "decKey",
++      "g4u2k_dec_keys",
++      { id: "6.00" },
++      { id: { divide: "2.00" } },
++    ],
++    [
++      "int key divide by zero",
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { divide: 0 } },
++    ],
++  ] as const) {
++    it(`${name}: the candidate answers what the shipped engine answers`, async () => {
++      await bothEngines(model, table, where, data);
++    });
++  }
++});
++
++describe("G4-02 — the two key shapes that stay divergent, and predate this unit", () => {
++  // Recorded as decisions for Arnaud (note §R2.2), NOT decided here. Each cell
++  // states both engines' current answers, so the divergence is visible and this
++  // file goes red the day either side moves.
++  it("supports a decimal key increment where the shipped engine refuses it", async () => {
++    const shipped = await update(
++      "decKey",
++      "g4u2k_dec_keys",
++      { id: "6.00" },
++      { id: { increment: "1.00" } },
++      "shipped"
++    );
++    const candidate = await update(
++      "decKey",
++      "g4u2k_dec_keys",
++      { id: "6.00" },
++      { id: { increment: "1.00" } },
++      "candidate"
++    );
++    assert.equal(
++      shipped.answer,
++      "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value."
++    );
++    // `increment` is exact in coefficient space, so the candidate names it —
++    // the capability `tests/raptor3/g3/review-execution-boundaries.test.ts`
++    // ("reads a supported decimal key increment through its provider
++    // expression") registers, which is why the mirrored contract stops at
++    // `multiply`/`divide`.
++    assert.equal(candidate.answer, 'ok:{"id":"7","label":"a"}');
++  });
++
++  it("lets `set` win over an accompanying operator where the shipped engine refuses both", async () => {
++    const shipped = await update(
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { increment: 1, set: 9 } },
++      "shipped"
++    );
++    const candidate = await update(
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { increment: 1, set: 9 } },
++      "candidate"
++    );
++    assert.equal(
++      shipped.answer,
++      "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment."
++    );
++    assert.equal(candidate.answer, 'ok:{"id":9,"label":"a"}');
++    assert.deepEqual(candidate.rows, [{ id: 9, label: "a" }]);
++  });
++
++  it("supports a number key increment where the shipped engine refuses it", async () => {
++    // The same family as the decimal arm above, named here because the second
++    // review asked for it (follow-up finding B): R-D2 should be decided over
++    // the whole `increment` family at once, not twice. Pre-existing — the
++    // falsifier that removes this unit's contract answers identically.
++    const shipped = await update(
++      "numKey",
++      "g4u2k_num_keys",
++      { id: 6 },
++      { id: { increment: 1 } },
++      "shipped"
++    );
++    const candidate = await update(
++      "numKey",
++      "g4u2k_num_keys",
++      { id: 6 },
++      { id: { increment: 1 } },
++      "candidate"
++    );
++    assert.equal(
++      shipped.answer,
++      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
++    );
++    assert.equal(candidate.answer, 'ok:{"id":7,"label":"a"}');
++  });
++
++  it("keeps `set` winning for the two operators phase 2 added", async () => {
++    // The mirrored refusals must not fire for a payload naming `set`: `set` is
++    // the value `prepareUpdate` takes, so nothing unnameable is ever built.
++    const candidate = await update(
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { divide: 0, set: 9 } },
++      "candidate"
++    );
++    assert.equal(candidate.answer, 'ok:{"id":9,"label":"a"}');
++  });
++});
++
++describe("G4-02 — the integer quotient is the dialect's own spelling", () => {
++  const dialects = [
++    {
++      name: "sqlite",
++      adapter: new SQLiteAdapter(),
++      // SQLite drivers bind a JS number as REAL, so the divisor is cast.
++      sql: "(CAST(? AS INTEGER) / CAST(? AS INTEGER))",
++    },
++    {
++      name: "postgres",
++      adapter: new PostgresAdapter(),
++      // PostgreSQL integer division already truncates toward zero.
++      sql: "(CAST(? AS INTEGER) / ?)",
++    },
++    {
++      name: "mysql",
++      adapter: new MySQLAdapter(),
++      // MySQL `/` yields DECIMAL even for two integers.
++      sql: "TRUNCATE(CAST(? AS SIGNED) / ?, 0)",
++    },
++  ];
++
++  it("names an int key's quotient through expressions.integerDivide", () => {
++    for (const { name, adapter, sql: expected } of dialects) {
++      const queries = new Queries(new EngineSchema(keySchema), adapter);
++      const named = queries.updateValue(
++        intKey,
++        "id",
++        { divide: 2 },
++        queries.fieldValue(intKey, "id", 7)
++      );
++      assert.equal(named.toStatement(), expected, name);
++      assert.deepEqual(named.values, [7, 2], name);
++    }
++  });
++
++  it("names a multiplied key natively on every dialect", () => {
++    for (const { name, adapter } of dialects) {
++      const queries = new Queries(new EngineSchema(keySchema), adapter);
++      const named = queries.updateValue(
++        intKey,
++        "id",
++        { multiply: 3 },
++        queries.fieldValue(intKey, "id", 7)
++      );
++      assert.equal(named.toStatement().includes("*"), true, name);
++      assert.deepEqual(named.values, [7, 3], name);
++    }
++  });
++});
++
++describe("G4-02 — the one shape with no expression form stays refused", () => {
++  it("refuses to name an exact decimal under multiply, with its registered identity", () => {
++    const queries = new Queries(
++      new EngineSchema(keySchema),
++      new SQLiteAdapter()
++    );
++    for (const operator of ["multiply", "divide"] as const) {
++      assert.throws(
++        () =>
++          queries.updateValue(
++            decKey,
++            "id",
++            { [operator]: "2.00" },
++            queries.fieldValue(decKey, "id", "6.00")
++          ),
++        (error: Error) =>
++          error.name === "QueryEngineError" &&
++          error.message ===
++            `Raptor 3 cannot name the updated value of 'decKey.id' under '${operator}': the provider owns that operator's rounding inside its own assignment.`,
++        operator
++      );
++    }
++  });
++
++  it("names an exact decimal under increment and decrement, which are exact", () => {
++    const queries = new Queries(
++      new EngineSchema(keySchema),
++      new SQLiteAdapter()
++    );
++    for (const operator of ["increment", "decrement"] as const) {
++      const named = queries.updateValue(
++        decKey,
++        "id",
++        { [operator]: "2.00" },
++        queries.fieldValue(decKey, "id", "6.00")
++      );
++      assert.equal(named.values.length, 2, operator);
++    }
++  });
++});
+--- a/tests/raptor3/g4/unit02/malformed-result-cuts.test.ts
++++ b/tests/raptor3/g4/unit02/malformed-result-cuts.test.ts
+@@ -0,0 +1,314 @@
++/**
++ * G4-02 author check — the malformed-result property at the cuts that SURROUND
++ * the folded root `create` (raptor3 plan §5.4).
++ *
++ * `tests/raptor3/post-prep/g29-result-progress.test.ts` pins the property on
++ * the statement-atomic form: one `INSERT … RETURNING`, the established
++ * identity, no progress record, the row durable. That form ELIMINATES the cut
++ * "fail between the INSERT and the stored-row read, inside the operation's
++ * transaction", because there is no second statement to fail between. §5.4
++ * requires the same property to be checked at that cut's legal neighbours, with
++ * the atomic strategy recorded rather than assumed — statement count alone
++ * proves nothing about isolation. Those neighbours are here:
++ *
++ *  1. the SAME request on a provider WITHOUT RETURNING — the split trace still
++ *     exists (INSERT, then the stored-row read), the cut is reached, the
++ *     progress record is truthful, and the operation's own transaction rolls
++ *     the write back;
++ *  2. a relation-bearing root `create` — the record route, several statements,
++ *     the cut reached at a read that is not the first statement;
++ *  3. the folded form itself, compared against the SHIPPED engine on the same
++ *     corrupting driver: same class, code, message, meta, and same committed
++ *     state. That comparison is what makes (and keeps) the fold parity rather
++ *     than a choice.
++ */
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { QueryEngineError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import { isRecord } from "@validation/value-guards";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++/** The one fault: the provider answers a row whose `id` is not an integer. */
++function corruptReturnedId<T>(response: QueryResult<T>): boolean {
++  if (response.rows.length === 0) return false;
++  let corrupted = false;
++  for (const row of response.rows) {
++    if (!isRecord(row)) continue;
++    Reflect.set(row, "id", "not-an-integer");
++    corrupted = true;
++  }
++  return corrupted;
++}
++
++class CorruptingDriver extends SQLite3Driver {
++  readonly statements: string[] = [];
++  armed = false;
++  corrupted = false;
++
++  reset(): void {
++    this.statements.length = 0;
++    this.corrupted = false;
++    this.armed = true;
++  }
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push(statement);
++    const response = await super.execute<T>(client, statement, parameters);
++    if (this.armed && corruptReturnedId(response)) this.corrupted = true;
++    return response;
++  }
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>[]> {
++    for (const query of queries) this.statements.push(query.sql);
++    const responses = await super.executeBatch<T>(client, queries, context);
++    if (this.armed)
++      for (const response of responses)
++        if (corruptReturnedId(response)) this.corrupted = true;
++    return responses;
++  }
++}
++
++class NonReturningCorruptingDriver extends CorruptingDriver {
++  constructor(options: { client: Database.Database }) {
++    super(options);
++    this.adapter.capabilities.supportsReturning = false;
++  }
++}
++
++/** The same split trace on a SEGMENT-atomic transport: nothing rolls back. */
++class BatchOnlyNonReturningCorruptingDriver extends NonReturningCorruptingDriver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++}
++
++const entity = s
++  .model({ id: s.int().id(), label: s.string() })
++  .map("g4_unit02_cuts");
++const owner = s
++  .model({
++    id: s.int().id(),
++    label: s.string().map("owner_label"),
++    notes: s.toMany(() => note),
++  })
++  .map("g4_unit02_cut_owners");
++const note = s
++  .model({
++    id: s.int().id(),
++    body: s.string(),
++    ownerId: s.int().nullable().map("owner_id"),
++    owner: s.toOne(() => owner).fields("ownerId").references("id"),
++  })
++  .map("g4_unit02_cut_notes");
++
++const flatSchema = { entity };
++const relationSchema = { owner, note };
++
++interface Observation {
++  readonly failure: unknown;
++  readonly value: unknown;
++}
++
++async function observe(run: () => Promise<unknown>): Promise<Observation> {
++  try {
++    return { value: await run(), failure: undefined };
++  } catch (failure) {
++    return { value: undefined, failure };
++  }
++}
++
++function identity(failure: unknown): object {
++  assert.ok(failure instanceof QueryEngineError, `not a QueryEngineError: ${String(failure)}`);
++  return {
++    name: failure.name,
++    code: failure.code,
++    message: failure.message,
++    meta: { ...failure.meta },
++  };
++}
++
++describe("G4-02 §5.4 — the malformed-result cut around the folded root create", () => {
++  it("1. the split trace on a provider without RETURNING still reaches the cut", async () => {
++    const database = new Database(":memory:");
++    const driver = new NonReturningCorruptingDriver({ client: database });
++    const client = createClient({ schema: flatSchema, driver });
++    assert.equal((await syncLiveSchema(client)).applied, true);
++    driver.reset();
++    const engine = createCommandEngine({ schema: flatSchema, driver });
++    const seen = await observe(() =>
++      engine.execute("entity", "create", { data: { id: 1, label: "written" } })
++    );
++    const statements = [...driver.statements];
++    assert.equal(seen.value, undefined, "nothing is published");
++    assert.equal(driver.corrupted, true, "the cut was reached");
++    assert.ok(
++      statements.length > 1,
++      `the split trace needs more than one statement: ${JSON.stringify(statements)}`
++    );
++    assert.ok(
++      statements.some((statement) => /^SELECT\b/.test(statement)),
++      `the stored row is read back: ${JSON.stringify(statements)}`
++    );
++    const observed = identity(seen.failure);
++    assert.deepEqual(
++      { ...observed, meta: undefined },
++      {
++        name: "QueryEngineError",
++        code: (seen.failure as QueryEngineError).code,
++        message:
++          'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.',
++        meta: undefined,
++      }
++    );
++    assert.deepEqual(
++      (observed as { meta: Record<string, unknown> }).meta,
++      { driver: "sqlite3", operation: "create", scalarType: "int" },
++      "a TRANSACTION rolls back, so there is no committed segment to report"
++    );
++    assert.deepEqual(
++      database.prepare("SELECT id FROM g4_unit02_cuts").all(),
++      [],
++      "the operation's own envelope rolled the write back"
++    );
++    await client.$disconnect();
++    database.close();
++  });
++
++  it("1b. the same split trace on a segment-atomic transport reports truthful progress", async () => {
++    const database = new Database(":memory:");
++    const driver = new BatchOnlyNonReturningCorruptingDriver({
++      client: database,
++    });
++    const client = createClient({ schema: flatSchema, driver });
++    assert.equal((await syncLiveSchema(client)).applied, true);
++    driver.reset();
++    const engine = createCommandEngine({ schema: flatSchema, driver });
++    const seen = await observe(() =>
++      engine.execute("entity", "create", { data: { id: 1, label: "written" } })
++    );
++    assert.equal(seen.value, undefined, "nothing is published");
++    assert.equal(driver.corrupted, true, "the cut was reached");
++    assert.ok(
++      driver.statements.length > 1,
++      `the split trace needs more than one statement: ${JSON.stringify(driver.statements)}`
++    );
++    const observed = identity(seen.failure) as {
++      message: string;
++      meta: Record<string, unknown>;
++    };
++    assert.equal(
++      observed.message,
++      'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.'
++    );
++    assert.deepEqual(
++      observed.meta.recordSeriesProgress,
++      {
++        atomicity: "segment",
++        phase: "result",
++        committedSegments: 1,
++        committedWriteMembers: 1,
++        completedMembers: 0,
++      },
++      `a real series reports its progress: ${JSON.stringify(observed)}`
++    );
++    assert.deepEqual(
++      database.prepare("SELECT id,label FROM g4_unit02_cuts").all(),
++      [{ id: 1, label: "written" }],
++      "a committed segment is durable, and the progress record says so"
++    );
++    await client.$disconnect();
++    database.close();
++  });
++
++  it("2. a relation-bearing create reaches the cut on a later statement", async () => {
++    const database = new Database(":memory:");
++    const driver = new CorruptingDriver({ client: database });
++    const client = createClient({ schema: relationSchema, driver });
++    assert.equal((await syncLiveSchema(client)).applied, true);
++    driver.reset();
++    const engine = createCommandEngine({ schema: relationSchema, driver });
++    const seen = await observe(() =>
++      engine.execute("owner", "create", {
++        data: { id: 1, label: "o", notes: { create: [{ id: 2, body: "n" }] } },
++      })
++    );
++    assert.equal(seen.value, undefined, "nothing is published");
++    assert.equal(driver.corrupted, true, "the cut was reached");
++    assert.ok(
++      driver.statements.length > 1,
++      `a relation-bearing create is a series: ${JSON.stringify(driver.statements)}`
++    );
++    assert.ok(seen.failure instanceof Error);
++    assert.deepEqual(
++      database.prepare("SELECT id FROM g4_unit02_cut_owners").all(),
++      [],
++      "the series rolled back"
++    );
++    await client.$disconnect();
++    database.close();
++  });
++
++  it("3. the folded form answers exactly what the shipped engine answers", async () => {
++    const run = async (engine: "shipped" | "candidate") => {
++      const database = new Database(":memory:");
++      const driver = new CorruptingDriver({ client: database });
++      const client = createClient({ schema: flatSchema, driver });
++      assert.equal((await syncLiveSchema(client)).applied, true);
++      driver.reset();
++      const seen = await observe(() =>
++        engine === "shipped"
++          ? Promise.resolve(
++              (
++                client as unknown as Record<
++                  string,
++                  { create(args: unknown): Promise<unknown> }
++                >
++              ).entity!.create({ data: { id: 1, label: "written" } })
++            )
++          : createCommandEngine({ schema: flatSchema, driver }).execute(
++              "entity",
++              "create",
++              { data: { id: 1, label: "written" } }
++            )
++      );
++      const outcome = {
++        statements: driver.statements.length,
++        corrupted: driver.corrupted,
++        value: seen.value,
++        rows: database.prepare("SELECT id,label FROM g4_unit02_cuts").all(),
++        failure: identity(seen.failure),
++      };
++      await client.$disconnect();
++      database.close();
++      return outcome;
++    };
++    const shipped = await run("shipped");
++    const candidate = await run("candidate");
++    assert.deepEqual(candidate, shipped, "the folded create is shipped parity");
++    assert.equal(shipped.statements, 1, "one statement, no re-read");
++    assert.deepEqual(
++      shipped.rows,
++      [{ id: 1, label: "written" }],
++      "a statement-atomic write commits with its own statement"
++    );
++    assert.deepEqual(
++      (shipped.failure as { meta: Record<string, unknown> }).meta,
++      { driver: "sqlite3", operation: "create", scalarType: "int" },
++      "no series, no progress record"
++    );
++  });
++});
+--- a/tests/raptor3/g4/unit02/native-date-codec.test.ts
++++ b/tests/raptor3/g4/unit02/native-date-codec.test.ts
+@@ -0,0 +1,75 @@
++/**
++ * G4-02 native probe — the PostgreSQL `date` codec, on a driver-owned pool.
++ *
++ * The first native run of the witness suite `g4-read-envelope-pg-contracts`
++ * reported `Driver "pg" returned a malformed date scalar … the Date is invalid
++ * or not UTC midnight`. This probe separates the two candidate explanations:
++ *
++ *  - the candidate's `date` leaf is wrong on PostgreSQL, or
++ *  - the fixture's own `pg.Pool` (built at
++ *    `tests/raptor3/transitions/live-world.ts:363`) bypasses the driver's
++ *    `utcSafeTypes` parser override (`src/drivers/pg/index.ts:46-60`), so DATE
++ *    arrives as a process-local `Date` for BOTH engines.
++ *
++ * It reads the same column through the SHIPPED client and the candidate on a
++ * driver-owned pool, and asserts they agree.
++ *
++ * Registered as `g4-unit02-native-date` and skipped unless
++ * `VIBORM_RAPTOR3_PROVIDER=pg` names a live provider.
++ */
++
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import { PgDriver } from "@drivers/pg";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { randomUUID } from "node:crypto";
++import { describe, it } from "vitest";
++
++const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
++const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
++
++describe.runIf(provider === "pg" && port > 0)(
++  "G4-02 native PostgreSQL date codec",
++  () => {
++    it("decodes a DATE column identically on the shipped and candidate engines", async () => {
++      const table = `g4u2_dates_${randomUUID().replaceAll("-", "")}`;
++      const day = s.model({ id: s.int().id(), at: s.date() }).map(table);
++      const schema = { day };
++      const driver = new PgDriver({
++        options: {
++          host: "127.0.0.1",
++          port,
++          database: "raptor3_g2",
++          user: "postgres",
++          password: "",
++          ssl: false,
++          max: 1,
++          connectionTimeoutMillis: 10_000,
++        },
++      });
++      const client = createClient({ schema, driver });
++      try {
++        await driver._executeRaw(
++          `CREATE TABLE ${table} (id INTEGER PRIMARY KEY, at DATE NOT NULL)`
++        );
++        await driver._executeRaw(
++          `INSERT INTO ${table} (id, at) VALUES (1, DATE '2026-03-05')`
++        );
++        const shipped = await client.day.findMany({ orderBy: { id: "asc" } });
++        const candidate = await createCommandEngine({ schema, driver }).execute(
++          "day",
++          "findMany",
++          { orderBy: { id: "asc" } }
++        );
++        assert.deepEqual(candidate, shipped);
++        assert.deepEqual(shipped, [
++          { id: 1, at: new Date("2026-03-05T00:00:00.000Z") },
++        ]);
++      } finally {
++        await driver._executeRaw(`DROP TABLE IF EXISTS ${table}`);
++        await client.$disconnect();
++      }
++    });
++  }
++);
+--- a/tests/raptor3/g4/unit02/native-key-arithmetic.test.ts
++++ b/tests/raptor3/g4/unit02/native-key-arithmetic.test.ts
+@@ -0,0 +1,87 @@
++/**
++ * G4-02 native probe — the updated key, named on the real non-RETURNING
++ * provider.
++ *
++ * `key-arithmetic.test.ts` runs the same comparison on a SQLite driver with
++ * `supportsReturning` forced off, which is MySQL's capability but not MySQL's
++ * arithmetic: MySQL `/` yields a DECIMAL quotient even for two integers, so it
++ * is the one provider where the readback's name and the `SET` clause could
++ * disagree about `7 / 2`. That is the provider fact
++ * `expressions.integerDivide` was added for, and this is the cell that
++ * measures it end to end.
++ *
++ * Skipped unless `VIBORM_RAPTOR3_PROVIDER=mysql` names a live provider; the
++ * container and port used for a run are recorded in the receipt beside it.
++ */
++
++import assert from "node:assert/strict";
++import { randomUUID } from "node:crypto";
++import { createClient } from "@client/client";
++import { MySQL2Driver } from "@drivers/mysql2";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { describe, it } from "vitest";
++
++const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
++const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
++
++describe.runIf(provider === "mysql" && port > 0)(
++  "G4-02 native MySQL key arithmetic",
++  () => {
++    for (const [name, data, expected] of [
++      ["multiply", { multiply: 3 }, 21],
++      ["divide with a non-exact quotient", { divide: 2 }, 3],
++      ["divide with an exact quotient", { divide: 7 }, 1],
++      ["increment", { increment: 5 }, 12],
++      ["decrement", { decrement: 5 }, 2],
++    ] as const) {
++      it(`names an int key under ${name} exactly as the shipped engine does`, async () => {
++        const table = `g4u2_keys_${randomUUID().replaceAll("-", "")}`;
++        const row = s.model({ id: s.int().id(), label: s.string() }).map(table);
++        const schema = { row };
++        const driver = new MySQL2Driver({
++          options: {
++            host: "127.0.0.1",
++            port,
++            database: "raptor3_g2",
++            user: "root",
++            password: "",
++            connectionLimit: 1,
++            connectTimeout: 10_000,
++          },
++        });
++        const client = createClient({ schema, driver });
++        try {
++          assert.equal(driver.adapter.capabilities.supportsReturning, false);
++          await driver._executeRaw(
++            `CREATE TABLE ${table} (id INT PRIMARY KEY, label VARCHAR(32) NOT NULL)`
++          );
++          const seed = `INSERT INTO ${table} (id, label) VALUES (7, 'a')`;
++          await driver._executeRaw(seed);
++          const shipped = await client.row.update({
++            where: { id: 7 },
++            data: { id: data },
++          });
++          await driver._executeRaw(`DELETE FROM ${table}`);
++          await driver._executeRaw(seed);
++          const candidate = await createCommandEngine({
++            schema,
++            driver,
++          }).execute("row", "update", { where: { id: 7 }, data: { id: data } });
++          assert.deepEqual(candidate, shipped);
++          assert.deepEqual(shipped, { id: expected, label: "a" });
++          const rows = await driver._executeRaw<{ id: number }>(
++            `SELECT id FROM ${table}`
++          );
++          assert.deepEqual(
++            rows.rows.map((entry) => Number(entry.id)),
++            [expected]
++          );
++        } finally {
++          await driver._executeRaw(`DROP TABLE IF EXISTS ${table}`);
++          await client.$disconnect();
++        }
++      });
++    }
++  }
++);
+--- a/tests/raptor3/g4/unit02/packaged-array.test.ts
++++ b/tests/raptor3/g4/unit02/packaged-array.test.ts
+@@ -0,0 +1,205 @@
++/**
++ * G4-02 — a packaged root single-row write keeps the array's atomicity.
++ *
++ * `OperationContext.published` owns the missing-row failure for root `update`
++ * and root `delete`. That is a JavaScript postcondition, and a PACKAGED
++ * operation only reaches its parser after `$transaction([...])` has already
++ * submitted and committed its one batch — so the premise has to travel as a
++ * statement instead. `packagedPresence` queues the same `assertions.exists`
++ * guard the shipped fold puts in front of its mutation
++ * (`DeleteOperation.buildRootPresenceGuard`) and declares it to the array owner,
++ * which aborts the whole batch and reconstructs this operation's own
++ * `NotFoundError`.
++ *
++ * These checks compare the candidate route with the shipped one on the same
++ * batch-only driver: same rejection, same surviving rows.
++ */
++
++import assert from "node:assert/strict";
++import { VibORM, type VibORMClient } from "@client/client";
++import type { BatchQuery, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
++import { s } from "@schema";
++import { createClient } from "@src/index";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { afterEach, describe, it } from "vitest";
++
++const author = s
++  .model({
++    id: s.int().id().increment(),
++    email: s.string().unique(),
++    name: s.string(),
++  })
++  .map("g4u2_packaged_authors");
++
++const schema = { author };
++
++/** No callback transactions, one atomic batch — the `$transaction([...])` shape. */
++class BatchOnlyDriver extends SQLite3Driver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    return this.transaction(client, (transaction) =>
++      super.executeBatch<T>(transaction, queries)
++    );
++  }
++}
++
++interface World {
++  readonly client: VibORMClient<{
++    driver: BatchOnlyDriver;
++    schema: typeof schema;
++  }>;
++  readonly database: Database.Database;
++  readonly driver: BatchOnlyDriver;
++}
++
++const PRESENCE_GUARD = /EXISTS/;
++const ROOT_DELETE = /^DELETE\b/;
++
++const worlds: World[] = [];
++
++afterEach(async () => {
++  for (const world of worlds.splice(0)) {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++async function createWorld(route: "shipped" | "candidate"): Promise<World> {
++  const database = new Database(":memory:");
++  const driver = new BatchOnlyDriver({ client: database });
++  const config = { driver, schema };
++  const client =
++    route === "shipped"
++      ? createClient(config)
++      : VibORM.create(config, createCandidateRoute);
++  const migration = await syncLiveSchema(client);
++  if (!migration.applied) throw new Error("schema did not apply");
++  await client.author.create({
++    data: { email: "present@example.test", name: "Ada" },
++  });
++  const world = { client, database, driver } as World;
++  worlds.push(world);
++  return world;
++}
++
++function stored(world: World): unknown[] {
++  return world.database
++    .prepare("SELECT email FROM g4u2_packaged_authors ORDER BY id")
++    .all();
++}
++
++async function arrayOutcome(
++  world: World,
++  members: (client: World["client"]) => readonly PromiseLike<unknown>[]
++) {
++  let rejection: unknown;
++  try {
++    // biome-ignore lint/suspicious/noExplicitAny: the array seam is structural here.
++    await (world.client as any).$transaction(members(world.client));
++  } catch (error) {
++    rejection = error;
++  }
++  return {
++    rejected: rejection === undefined ? "none" : (rejection as Error).name,
++    code: (rejection as { code?: string } | undefined)?.code,
++    stored: stored(world),
++  };
++}
++
++describe("G4-02 packaged root cardinality", () => {
++  it("a missing root delete aborts the array exactly as the shipped engine does", async () => {
++    const shipped = await arrayOutcome(await createWorld("shipped"), (c) => [
++      c.author.delete({ where: { id: 9999 } }),
++      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
++    ]);
++    const candidate = await arrayOutcome(await createWorld("candidate"), (c) => [
++      c.author.delete({ where: { id: 9999 } }),
++      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
++    ]);
++    assert.equal(candidate.rejected, shipped.rejected);
++    assert.equal(candidate.code, shipped.code);
++    assert.deepEqual(
++      candidate.stored,
++      shipped.stored,
++      `candidate ${JSON.stringify(candidate.stored)} vs shipped ${JSON.stringify(shipped.stored)}`
++    );
++  });
++
++  it("a missing root update aborts the array exactly as the shipped engine does", async () => {
++    const shipped = await arrayOutcome(await createWorld("shipped"), (c) => [
++      c.author.update({ where: { id: 9999 }, data: { name: "X" } }),
++      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
++    ]);
++    const candidate = await arrayOutcome(await createWorld("candidate"), (c) => [
++      c.author.update({ where: { id: 9999 }, data: { name: "X" } }),
++      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
++    ]);
++    assert.equal(candidate.rejected, shipped.rejected);
++    assert.equal(candidate.code, shipped.code);
++    assert.deepEqual(candidate.stored, shipped.stored);
++  });
++
++  it("a present root delete still commits the whole array", async () => {
++    const shipped = await arrayOutcome(await createWorld("shipped"), (c) => [
++      c.author.delete({ where: { email: "present@example.test" } }),
++      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
++    ]);
++    const candidate = await arrayOutcome(await createWorld("candidate"), (c) => [
++      c.author.delete({ where: { email: "present@example.test" } }),
++      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
++    ]);
++    assert.equal(shipped.rejected, "none");
++    assert.equal(candidate.rejected, "none");
++    assert.deepEqual(candidate.stored, shipped.stored);
++  });
++
++  it("the packaged plan is the shipped batch shape: presence guard, then the mutation", async () => {
++    const world = await createWorld("candidate");
++    const engine = createCommandEngine({ schema, driver: world.driver });
++    const packaged = await engine.prepareBatch("author", "delete", {
++      where: { id: 9999 },
++    });
++    assert.ok(packaged, "a folded root delete must stay packageable");
++    assert.equal(packaged.queries.length, 2);
++    assert.match(packaged.queries[0]!.sql, PRESENCE_GUARD);
++    assert.match(packaged.queries[1]!.sql, ROOT_DELETE);
++    assert.deepEqual(
++      (packaged.guards ?? []).map((guard) => ({
++        queryIndex: guard.queryIndex,
++        premise: guard.premise,
++        model: guard.model,
++        operation: guard.operation,
++        kind: guard.failure.kind,
++      })),
++      [
++        {
++          queryIndex: 0,
++          premise: "exists",
++          model: "author",
++          operation: "delete",
++          kind: "notFound",
++        },
++      ]
++    );
++  });
++
++  it("a bulk delete carries no presence premise", async () => {
++    const world = await createWorld("candidate");
++    const engine = createCommandEngine({ schema, driver: world.driver });
++    const packaged = await engine.prepareBatch("author", "deleteMany", {
++      where: { id: 9999 },
++    });
++    assert.ok(packaged);
++    assert.equal(packaged.queries.length, 1);
++    assert.deepEqual(packaged.guards, undefined);
++  });
++});
+--- a/tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts
++++ b/tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts
+@@ -0,0 +1,322 @@
++/**
++ * G4-02 phase 2 — the `operationRegion` grant, the scalar update language, the
++ * folded root `create`, and the single-statement failure meta.
++ *
++ * The route file is G4-03's and still wraps every borrowed write itself
++ * (note §11.3), so the region cells construct the binding the corrected route
++ * will pass and pin the candidate's own side of it.
++ */
++
++import assert from "node:assert/strict";
++import type { AnyDriver, QueryExecutionContext } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { NotFoundError, QueryEngineError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { createClient } from "@client/client";
++import { Decimal } from "@src/index";
++import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { afterEach, describe, it } from "vitest";
++import { cost, createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++function engineOf(current: World) {
++  return createCommandEngine({ schema: worldSchema, driver: current.driver });
++}
++
++/** Regions opened INSIDE a caller's transaction are savepoints, not BEGINs. */
++function savepoints(driver: World["driver"]): number {
++  return driver.control.filter((statement) => /^SAVEPOINT\b/i.test(statement))
++    .length;
++}
++
++/** The array fallback's grant: member isolation only, no operation region. */
++function memberOnly(scoped: AnyDriver) {
++  return {
++    kind: "borrowed-transaction",
++    driver: scoped,
++    memberRollback: <T,>(
++      execute: (driver: AnyDriver) => Promise<T>,
++      context: QueryExecutionContext
++    ) => scoped.withTransaction(execute, undefined, context),
++  } as const;
++}
++
++/** The callback-transaction route's grant: it opened no region of its own. */
++function transferred(caller: AnyDriver) {
++  return {
++    kind: "borrowed-transaction",
++    driver: caller,
++    memberRollback: <T,>(
++      execute: (driver: AnyDriver) => Promise<T>,
++      context: QueryExecutionContext
++    ) => caller.withTransaction(execute, undefined, context),
++    operationRegion: <T,>(
++      execute: (driver: AnyDriver) => Promise<T>,
++      context: QueryExecutionContext
++    ) => caller.withTransaction(execute, undefined, context),
++  } as const;
++}
++
++describe("G4-02 operationRegion — ownership is stated, never inferred", () => {
++  it("opens exactly one region for a multi-statement borrowed write, and none without the grant", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const driver = world.driver;
++    const relationBearing = {
++      where: { id: 1 },
++      data: { name: "Ada+", posts: { create: [{ id: 20, title: "n", rank: 9 }] } },
++    };
++
++    // Granted: the candidate opens ONE region of its own.
++    await driver.withTransaction(async (caller) => {
++      driver.reset();
++      await engine.execute(
++        "author",
++        "update",
++        relationBearing,
++        transferred(caller as AnyDriver)
++      );
++      const granted = cost(driver);
++      assert.ok(granted.statements > 1, "a relation-bearing update is a series");
++      assert.equal(
++        savepoints(driver),
++        1,
++        `exactly one region: ${JSON.stringify(driver.control)}`
++      );
++    });
++
++    // Not granted: the array fallback's member grant opens no operation region,
++    // which is the shipped `runLinearOn` behavior (note §8.4).
++    await driver.withTransaction(async (caller) => {
++      driver.reset();
++      await engine.execute(
++        "author",
++        "update",
++        {
++          where: { id: 2 },
++          data: { name: "Bo+", posts: { create: [{ id: 21, title: "m", rank: 8 }] } },
++        },
++        memberOnly(caller as AnyDriver)
++      );
++      assert.equal(
++        savepoints(driver),
++        0,
++        `a member-only grant is not an operation region: ${JSON.stringify(driver.control)}`
++      );
++    });
++  });
++
++  it("runs a single-statement borrowed write directly even when a region was granted", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const driver = world.driver;
++    await driver.withTransaction(async (caller) => {
++      driver.reset();
++      const value = await engine.execute(
++        "author",
++        "update",
++        { where: { id: 1 }, data: { age: { increment: 1 } } },
++        transferred(caller as AnyDriver)
++      );
++      assert.deepEqual(value, { id: 1, name: "Ada", age: 37, avatar: null });
++      assert.deepEqual(cost(driver), {
++        statements: 1,
++        transactions: 0,
++        control: 0,
++      });
++    });
++  });
++});
++
++const ledger = s
++  .model({
++    id: s.int().id(),
++    count: s.int(),
++    ratio: s.number(),
++    big: s.bigInt(),
++    amount: s.decimal({ precision: 12, scale: 2 }),
++    labels: s.string().array(),
++  })
++  .map("g4u2_ledgers");
++const arithmeticSchema = { ledger };
++
++async function arithmeticWorld() {
++  const database = new Database(":memory:");
++  const driver = new SQLite3Driver({ client: database });
++  const client = createClient({ schema: arithmeticSchema, driver });
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  const engine = createCommandEngine({ schema: arithmeticSchema, driver });
++  await engine.execute("ledger", "create", {
++    data: {
++      id: 1,
++      count: 12,
++      ratio: 2.5,
++      big: 9_007_199_254_740_993n,
++      amount: "10.50",
++      labels: ["a"],
++    },
++  });
++  return {
++    engine,
++    database,
++    async close() {
++      await client.$disconnect();
++      database.close();
++    },
++  };
++}
++
++describe("G4-02 scalar update language (SC-03…SC-06 write side)", () => {
++  it("spells every arithmetic operator in SQL, in the provider's own vocabulary", async () => {
++    const live = await arithmeticWorld();
++    try {
++      const updated = (await live.engine.execute("ledger", "update", {
++        where: { id: 1 },
++        data: {
++          count: { multiply: 3 },
++          ratio: { divide: 2 },
++          big: { decrement: 3n },
++          amount: { multiply: "2.00" },
++        },
++      })) as Record<string, unknown>;
++      assert.equal(updated.count, 36, "int multiply");
++      assert.equal(updated.ratio, 1.25, "float divide");
++      assert.equal(updated.big, 9_007_199_254_740_990n, "bigint decrement");
++      assert.ok(updated.amount instanceof Decimal);
++      assert.equal(
++        canonicalizeDecimal(updated.amount),
++        "21",
++        "decimal multiply, in the field's own domain"
++      );
++      const quantized = (await live.engine.execute("ledger", "update", {
++        where: { id: 1 },
++        data: { amount: { divide: "8.00" } },
++      })) as Record<string, unknown>;
++      assert.equal(
++        canonicalizeDecimal(quantized.amount),
++        "2.62",
++        "21 / 8 = 2.625, quantized to the field's scale half to even"
++      );
++      const truncated = (await live.engine.execute("ledger", "update", {
++        where: { id: 1 },
++        data: { count: { divide: 5 } },
++      })) as Record<string, unknown>;
++      assert.equal(truncated.count, 7, "integer division truncates toward zero");
++      const listed = (await live.engine.execute("ledger", "update", {
++        where: { id: 1 },
++        data: { labels: { push: ["b", "c"] } },
++      })) as Record<string, unknown>;
++      assert.deepEqual(listed.labels, ["a", "b", "c"], "push appends members");
++      const unshifted = (await live.engine.execute("ledger", "update", {
++        where: { id: 1 },
++        data: { labels: { unshift: "z" } },
++      })) as Record<string, unknown>;
++      assert.deepEqual(unshifted.labels, ["z", "a", "b", "c"]);
++    } finally {
++      await live.close();
++    }
++  });
++
++  it("refuses an exact decimal divided by zero before any statement is issued", async () => {
++    const live = await arithmeticWorld();
++    try {
++      let failure: unknown;
++      try {
++        await live.engine.execute("ledger", "update", {
++          where: { id: 1 },
++          data: { amount: { divide: 0 } },
++        });
++      } catch (caught) {
++        failure = caught;
++      }
++      assert.ok(failure instanceof QueryEngineError, String(failure));
++      assert.equal(
++        failure.message,
++        "Cannot divide decimal field 'amount' by zero."
++      );
++      assert.deepEqual(
++        live.database.prepare("SELECT id FROM g4u2_ledgers").all(),
++        [{ id: 1 }],
++        "the row is untouched"
++      );
++    } finally {
++      await live.close();
++    }
++  });
++});
++
++describe("G4-02 root create folds to one statement", () => {
++  it("costs one statement and no envelope, and publishes the created row", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    world.driver.reset();
++    const value = await engine.execute("author", "create", {
++      data: { id: 3, name: "Cy", age: 29 },
++    });
++    assert.deepEqual(value, { id: 3, name: "Cy", age: 29, avatar: null });
++    assert.deepEqual(cost(world.driver), {
++      statements: 1,
++      transactions: 0,
++      control: 0,
++    });
++    assert.equal(world.driver.roundTrips, 1);
++  });
++
++  it("keeps the qualified route when the data names a relation", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    world.driver.reset();
++    await engine.execute("author", "create", {
++      data: {
++        id: 4,
++        name: "Dee",
++        age: 30,
++        posts: { create: [{ id: 30, title: "d", rank: 4 }] },
++      },
++    });
++    const observed = cost(world.driver);
++    assert.ok(observed.statements > 1, "a relation-bearing create is a series");
++    assert.equal(observed.transactions, 1, "and keeps its envelope");
++  });
++});
++
++describe("G4-02 a statement-atomic operation has no record series", () => {
++  it("carries the shipped meta for a missing root delete on a batch-only driver", async () => {
++    const database = new Database(":memory:");
++    class BatchOnly extends SQLite3Driver {
++      override readonly supportsTransactions = false;
++      override readonly supportsBatch = true;
++    }
++    const driver = new BatchOnly({ client: database });
++    const client = createClient({ schema: worldSchema, driver });
++    try {
++      assert.equal((await syncLiveSchema(client)).applied, true);
++      const engine = createCommandEngine({ schema: worldSchema, driver });
++      await engine.execute("author", "create", { data: { id: 1, name: "A", age: 1 } });
++      let failure: unknown;
++      try {
++        await engine.execute("author", "delete", { where: { id: 99 } });
++      } catch (caught) {
++        failure = caught;
++      }
++      assert.ok(failure instanceof NotFoundError, String(failure));
++      assert.deepEqual(
++        { ...failure.meta },
++        { model: "author", operation: "delete" },
++        "no series, no progress record"
++      );
++    } finally {
++      await client.$disconnect();
++      database.close();
++    }
++  });
++});
+--- a/tests/raptor3/g4/unit02/physical-envelope.test.ts
++++ b/tests/raptor3/g4/unit02/physical-envelope.test.ts
+@@ -0,0 +1,285 @@
++/**
++ * G4-02 — the one physical-envelope rule, and the frozen fast paths.
++ *
++ * The rule (`OperationContext.run`): an operation's envelope opens at the first
++ * statement that is not the operation's only statement. This file pins the
++ * consequence for the frozen scalar/bulk workloads of
++ * `benchmarks/operation-pipeline-catalog.mjs` and, in the same table, the
++ * SHIPPED engine's cost for the same public request — so the candidate's
++ * single-statement classification and the shipped `canExecuteDirectly`
++ * classification are pinned side by side and either column moving fails.
++ */
++
++import assert from "node:assert/strict";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
++import { afterEach, describe, it } from "vitest";
++import { cost, createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++interface Cost {
++  readonly statements: number;
++  readonly transactions: number;
++}
++
++async function measure(run: () => PromiseLike<unknown>): Promise<{
++  readonly value: unknown;
++  readonly cost: Cost;
++}> {
++  const driver = world!.driver;
++  driver.reset();
++  const value = await run();
++  const observed = cost(driver);
++  return {
++    value,
++    cost: { statements: observed.statements, transactions: observed.transactions },
++  };
++}
++
++describe("G4-02 physical envelope", () => {
++  it("scalar-find-unique: one statement, no envelope, on both engines", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const shipped = await measure(() =>
++      world!.client.author.findUnique({ where: { id: 1 } })
++    );
++    const candidate = await measure(() =>
++      engine.execute("author", "findUnique", { where: { id: 1 } })
++    );
++    assert.deepEqual(shipped.cost, { statements: 1, transactions: 0 });
++    assert.deepEqual(candidate.cost, { statements: 1, transactions: 0 });
++    assert.deepEqual(candidate.value, shipped.value);
++  });
++
++  it("fixed-collection-rowref-20: one statement, no envelope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const candidate = await measure(() =>
++      engine.execute("author", "findMany", {
++        orderBy: { id: "asc" },
++        include: { posts: { orderBy: { id: "asc" } } },
++      })
++    );
++    assert.deepEqual(candidate.cost, { statements: 1, transactions: 0 });
++    assert.equal((candidate.value as unknown[]).length, 2);
++  });
++
++  it("flat-scalar-update: one statement, no envelope, same row as shipped", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const shipped = await measure(() =>
++      world!.client.author.update({
++        where: { id: 1 },
++        data: { age: { increment: 1 } },
++      })
++    );
++    const candidate = await measure(() =>
++      engine.execute("author", "update", {
++        where: { id: 2 },
++        data: { age: { increment: 1 } },
++      })
++    );
++    assert.deepEqual(shipped.cost, { statements: 1, transactions: 0 });
++    assert.deepEqual(candidate.cost, { statements: 1, transactions: 0 });
++    assert.deepEqual(shipped.value, {
++      id: 1,
++      name: "Ada",
++      age: 37,
++      avatar: null,
++    });
++    assert.deepEqual(candidate.value, {
++      id: 2,
++      name: "Bo",
++      age: 42,
++      avatar: null,
++    });
++  });
++
++  it("bulk-update-returning: one statement, no envelope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const candidate = await measure(() =>
++      engine.execute("post", "updateMany", {
++        where: { rank: { gte: 1 } },
++        data: { rank: { increment: 10 } },
++        select: { id: true, rank: true },
++      })
++    );
++    assert.deepEqual(candidate.cost, { statements: 1, transactions: 0 });
++    assert.deepEqual(candidate.value, [
++      { id: 10, rank: 11 },
++      { id: 11, rank: 12 },
++      { id: 12, rank: 13 },
++    ]);
++  });
++
++  it("a counting read opens no transaction and runs one statement", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const candidate = await measure(() => engine.execute("post", "count", {}));
++    assert.deepEqual(candidate.cost, { statements: 1, transactions: 0 });
++    assert.equal(candidate.value, 3);
++  });
++
++  it("a multi-statement write keeps its envelope and is constructed once", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const candidate = await measure(() =>
++      engine.execute("author", "update", {
++        where: { id: 1 },
++        data: { name: "Ada II", posts: { update: { where: { id: 10 }, data: { title: "renamed" } } } },
++      })
++    );
++    assert.equal(candidate.cost.transactions, 1);
++    assert.ok(
++      candidate.cost.statements > 1,
++      `a relation-bearing update is multi-statement, saw ${candidate.cost.statements}`
++    );
++    assert.equal(
++      world.database
++        .prepare("SELECT title FROM g4u2_posts WHERE id = 10")
++        .pluck()
++        .get(),
++      "renamed"
++    );
++  });
++
++  it("an update that names a relation projection keeps its qualified route", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const candidate = await measure(() =>
++      engine.execute("author", "update", {
++        where: { id: 1 },
++        data: { age: { increment: 1 } },
++        select: { id: true, posts: { select: { id: true } } },
++      })
++    );
++    assert.equal(candidate.cost.transactions, 1);
++    assert.ok(candidate.cost.statements > 1);
++    assert.deepEqual(candidate.value, {
++      id: 1,
++      posts: [{ id: 10 }, { id: 11 }],
++    });
++  });
++
++  // The two cells below share ONE plan admissibility (`createMany` with no
++  // projection on a RETURNING adapter answers `single: true` for both), so the
++  // difference between them can only come from the envelope rule itself: the
++  // construction's own statement count, enforced at `OperationContext.dispatch`.
++  it("two rows sharing a column set are one statement with no envelope, as shipped", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const shipped = await measure(() =>
++      world!.client.author.createMany({
++        data: [
++          { id: 20, name: "F", age: 1 },
++          { id: 21, name: "G", age: 2 },
++        ],
++      })
++    );
++    const candidate = await measure(() =>
++      engine.execute("author", "createMany", {
++        data: [
++          { id: 30, name: "H", age: 1 },
++          { id: 31, name: "I", age: 2 },
++        ],
++      })
++    );
++    assert.deepEqual(shipped.cost, { statements: 1, transactions: 0 });
++    assert.deepEqual(candidate.cost, shipped.cost);
++    assert.deepEqual(candidate.value, { count: 2 });
++  });
++
++  it("rows that exceed the bind budget raise the envelope sentinel and are constructed once", async () => {
++    // A LOW bind cap (brief item 3's "including low bind caps") splits the one
++    // grouped INSERT the plan admitted into two chunks inside the existing
++    // `compileBindBudgetChunks` owner. Nothing about the plan changed — the
++    // construction's own statement count did, and the sentinel is what turns
++    // that into the envelope.
++    world = await createWorld({ maxBindParameters: 8 });
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // biome-ignore lint/suspicious/noExplicitAny: observing the private sentinel is the point.
++    const prototype = OperationContext.prototype as any;
++    const original = prototype.restart;
++    let restarts = 0;
++    prototype.restart = function counted(this: unknown, ...rest: unknown[]) {
++      restarts++;
++      return original.apply(this, rest);
++    };
++    let candidate: Awaited<ReturnType<typeof measure>>;
++    try {
++      candidate = await measure(() =>
++        engine.execute("author", "createMany", {
++          data: [
++            { id: 40, name: "J", age: 1 },
++            { id: 41, name: "K", age: 2 },
++            { id: 42, name: "L", age: 3 },
++          ],
++        })
++      );
++    } finally {
++      prototype.restart = original;
++    }
++    assert.equal(restarts, 1, "the envelope sentinel recovered exactly once");
++    assert.deepEqual(candidate.cost, { statements: 2, transactions: 1 });
++    assert.deepEqual(candidate.value, { count: 3 });
++    // Each row written exactly once: the re-run repeated construction only.
++    assert.equal(
++      world.database
++        .prepare("SELECT COUNT(*) FROM g4u2_authors WHERE id IN (40, 41, 42)")
++        .pluck()
++        .get(),
++      3
++    );
++  });
++
++  it("a bulk verb with no rows reaches the provider not at all", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const candidate = await measure(() =>
++      engine.execute("post", "updateMany", {
++        where: { rank: { gte: 1 } },
++        data: { rank: { increment: 1 } },
++        limit: 0,
++      })
++    );
++    assert.deepEqual(candidate.cost, { statements: 0, transactions: 0 });
++    assert.deepEqual(candidate.value, { count: 0 });
++  });
++});
+--- a/tests/raptor3/g4/unit02/prepared-operation.test.ts
++++ b/tests/raptor3/g4/unit02/prepared-operation.test.ts
+@@ -0,0 +1,174 @@
++/**
++ * G4-02 — the prepared operation boundary (brief item 8, g4/unit03 blocker B-1)
++ * and packageable reads (item 12, divergence D-2).
++ *
++ * `prepare()` admits once and publishes the one prepared read shape and
++ * cardinality the client lifecycle needs BEFORE the statement runs; `execute`
++ * and `prepareBatch` are its callers.
++ */
++
++import assert from "node:assert/strict";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { NotFoundError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import type { ReadOperation } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import v from "@validation/primitives/v";
++import Database from "better-sqlite3";
++import { createClient } from "@client/client";
++import { afterEach, describe, it } from "vitest";
++import { createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++describe("G4-02 prepared operation boundary", () => {
++  it("admits exactly once however many times the handle is asked", async () => {
++    let transforms = 0;
++    const note = s
++      .model({
++        id: s.int().id(),
++        label: s.string().schema(
++          v.string({
++            transform(value) {
++              transforms++;
++              return value;
++            },
++          })
++        ),
++      })
++      .map("g4u2_prepared_notes");
++    const schema = { note };
++    const database = new Database(":memory:");
++    const driver = new SQLite3Driver({ client: database });
++    const client = createClient({ schema, driver });
++    try {
++      assert.equal((await syncLiveSchema(client)).applied, true);
++      const engine = createCommandEngine({ schema, driver });
++      const prepared = engine.prepare("note", "create", {
++        data: { id: 1, label: "once" },
++      });
++      assert.deepEqual(prepared.args.data, { id: 1, label: "once" });
++      assert.deepEqual(prepared.args.data, { id: 1, label: "once" });
++      const value = await prepared.execute();
++      assert.deepEqual(value, { id: 1, label: "once" });
++      assert.equal(transforms, 1);
++    } finally {
++      await client.$disconnect();
++      database.close();
++    }
++  });
++
++  it("publishes the prepared read shape and cardinality before the statement runs", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const prepared = engine.prepare("author", "findUnique", {
++      where: { id: 1 },
++      select: { id: true, name: true },
++    });
++    world.driver.reset();
++    assert.ok(prepared.read);
++    assert.equal(prepared.read.single, true);
++    const shape = prepared.read.shape;
++    assert.equal(shape.kind, "object");
++    assert.deepEqual(
++      Object.keys(shape.kind === "object" ? shape.fields : {}),
++      ["id", "name"]
++    );
++    // Publishing the shape reaches no provider.
++    assert.equal(world.driver.statements.length, 0);
++    assert.deepEqual(await prepared.execute(), { id: 1, name: "Ada" });
++    assert.equal(world.driver.statements.length, 1);
++
++    const many = engine.prepare("author", "findMany", {});
++    assert.equal(many.read?.single, false);
++  });
++
++  it("the published facts describe the value every read verb actually publishes", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // EVERY admitted read verb, not a sample: the published facts are what a
++    // cache codec is built from, so a verb whose public value is NOT the row
++    // (`count` publishes a number, `exist` a boolean) must say so here.
++    const requests: readonly (readonly [ReadOperation, unknown])[] = [
++      ["findUnique", { where: { id: 1 } }],
++      ["findFirst", {}],
++      ["findMany", {}],
++      ["count", {}],
++      ["count", { select: { id: true } }],
++      ["exist", {}],
++      ["aggregate", { _count: true }],
++      ["groupBy", { by: ["age"], _count: true }],
++    ];
++    for (const [operation, request] of requests) {
++      const prepared = engine.prepare("author", operation, request);
++      const published = await prepared.execute();
++      const facts = prepared.read;
++      assert.ok(facts, `${operation} published no prepared read`);
++      const rowLike =
++        published !== null &&
++        typeof published === "object" &&
++        !Array.isArray(published);
++      assert.equal(
++        facts.single,
++        rowLike,
++        `${operation}: read.single=${facts.single} but the published value is ${
++          Array.isArray(published) ? "an array" : typeof published
++        }`
++      );
++      assert.equal(
++        typeof facts.empty,
++        typeof published,
++        `${operation}: read.empty is a ${typeof facts.empty} but the published value is a ${typeof published}`
++      );
++      assert.equal(
++        Array.isArray(facts.empty),
++        Array.isArray(published),
++        `${operation}: read.empty and the published value disagree about the set`
++      );
++    }
++  });
++
++  it("a pure read is statically packageable", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const packaged = await engine.prepareBatch("author", "findMany", {
++      where: { id: 1 },
++      select: { id: true, name: true },
++    });
++    assert.ok(packaged, "a pure read must be packageable");
++    assert.equal(packaged.queries.length, 1);
++    assert.match(packaged.queries[0]?.sql ?? "", /^SELECT\b/);
++    const rows = await world.driver._executeBatch(packaged.queries);
++    assert.deepEqual(packaged.parseResult(rows), [{ id: 1, name: "Ada" }]);
++  });
++
++  it("a packaged OrThrow read keeps the not-found identity in its parser", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const packaged = await engine.prepareBatch("author", "findUniqueOrThrow", {
++      where: { id: 99 },
++      select: { id: true },
++    });
++    assert.ok(packaged);
++    const rows = await world.driver._executeBatch(packaged.queries);
++    assert.throws(() => packaged.parseResult(rows), NotFoundError);
++  });
++});
+--- a/tests/raptor3/g4/unit02/recursive-codec-fit.test.ts
++++ b/tests/raptor3/g4/unit02/recursive-codec-fit.test.ts
+@@ -0,0 +1,343 @@
++/**
++ * G4-02 author check — RF-16's property, measured with a traversal-only walk.
++ *
++ * This is `tests/raptor3/g4/read-recursive-fit.test.ts` (the witness estate's
++ * RF-16 cells) with ONE change: the flattening walk descends the traversal
++ * relation (`children`) instead of every nested value. The witness's own walk
++ * adopts each row's `document: { code }` JSON payload as if it were a traversal
++ * row — the payload carries a string `code`, so it lands in `byCode` AFTER the
++ * row it belongs to and overwrites it, and `root.amount` then reads
++ * `undefined`. That is a witness defect, not a candidate gap: with the walk
++ * corrected, all three cells pass on the candidate. The requested one-line
++ * change is recorded in `g4/unit02/note.md` §P.11.
++ */
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
++import type { Input } from "@query-engine/raptor3/shared/schema";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import type { Query, Queries } from "@query-engine/raptor3/shared/query";
++import { DbNull, s } from "@schema";
++import { Decimal } from "@src/index";
++import type { AnyModel } from "@schema/model";
++import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { afterEach, beforeEach, describe, it } from "vitest";
++
++const NODE_TABLE = "g4_recursive_nodes";
++
++type TraversalArgs = {
++  where?: Input;
++  select?: Input;
++  include?: Input;
++  orderBy?: Input | Input[];
++};
++
++interface RecursiveTraversal {
++  readonly seeds: readonly { readonly args: TraversalArgs }[];
++  readonly relation: string;
++  readonly depth: number;
++  readonly args?: TraversalArgs;
++}
++
++interface RecursiveQueries {
++  recursive(model: AnyModel, traversal: RecursiveTraversal): Query;
++}
++
++const node = s
++  .model({
++    tenant: s.string().map("tenant_key"),
++    code: s.string().map("node_code"),
++    label: s.string().map("display_label"),
++    rank: s.int().map("sibling_rank"),
++    amount: s.decimal({ precision: 10, scale: 2 }).map("node_amount"),
++    moment: s.dateTime().map("node_moment"),
++    big: s.bigInt().map("node_big"),
++    status: s.enum(["OPEN", "CLOSED"]).map("node_status"),
++    document: s.json().nullable().map("node_document"),
++    labels: s.string().array().map("node_labels"),
++    parentTenant: s.string().nullable().map("parent_tenant_key"),
++    parentCode: s.string().nullable().map("parent_node_code"),
++    parent: s
++      .toOne(() => node)
++      .fields("parentTenant", "parentCode")
++      .references("tenant", "code")
++      .name("tree"),
++    children: s.toMany(() => node).name("tree"),
++  })
++  .id(["tenant", "code"])
++  .map(NODE_TABLE);
++
++const schema = { node };
++
++interface NodeSeed {
++  readonly tenant: string;
++  readonly code: string;
++  readonly label: string;
++  readonly rank: number;
++  readonly amount: string;
++  readonly moment: Date;
++  readonly big: bigint;
++  readonly status: "OPEN" | "CLOSED";
++  readonly document: unknown;
++  readonly labels: readonly string[];
++  readonly parentTenant: string | null;
++  readonly parentCode: string | null;
++}
++
++function seedNode(
++  code: string,
++  rank: number,
++  parent: string | null,
++  overrides: Partial<NodeSeed> = {}
++): NodeSeed {
++  return {
++    tenant: "tree",
++    code,
++    label: `Label ${code}`,
++    rank,
++    amount: "12.34",
++    moment: new Date("2024-05-06T07:08:09.000Z"),
++    big: 9_007_199_254_740_993n,
++    status: "OPEN",
++    document: { code },
++    labels: [code, "common"],
++    parentTenant: parent === null ? null : "tree",
++    parentCode: parent,
++    ...overrides,
++  };
++}
++
++const NODES: readonly NodeSeed[] = [
++  seedNode("root", 0, null, { amount: "100.05", big: 1n }),
++  seedNode("beta", 10, "root", { status: "CLOSED", document: null }),
++  seedNode("alpha", 20, "root", { labels: ["alpha"] }),
++  seedNode("alpha-1", 20, "alpha", { amount: "-0.01" }),
++  seedNode("alpha-2", 10, "alpha", {
++    moment: new Date("1970-01-01T00:00:00.000Z"),
++  }),
++  seedNode("other", 0, null),
++];
++
++function createRecursiveClient(driver: SQLite3Driver) {
++  return createClient({ schema, driver });
++}
++
++class RecursiveWitnessDriver extends SQLite3Driver {
++  readonly statements: { sql: string; binds: number }[] = [];
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ) {
++    this.statements.push({ sql: statement, binds: parameters.length });
++    return super.execute<T>(client, statement, parameters);
++  }
++}
++
++function assertRecursiveQueries(
++  queries: Queries
++): asserts queries is Queries & RecursiveQueries {
++  assert.equal(
++    typeof Reflect.get(queries, "recursive"),
++    "function",
++    "the private Queries.recursive fit capability is missing"
++  );
++}
++
++describe("G4 RF-16 recursive-read fit on the fuller codec set", () => {
++  let database: Database.Database;
++  let driver: RecursiveWitnessDriver;
++  let client: ReturnType<typeof createRecursiveClient>;
++  let engineSchema: EngineSchema;
++
++  beforeEach(async () => {
++    database = new Database(":memory:");
++    database.pragma("foreign_keys = OFF");
++    driver = new RecursiveWitnessDriver({ client: database });
++    client = createRecursiveClient(driver);
++    const migration = await syncLiveSchema(client);
++    assert.equal(migration.applied, true);
++    const writer = client as unknown as Record<
++      string,
++      { create(args: unknown): Promise<unknown> }
++    >;
++    for (const seed of NODES) {
++      await writer.node?.create({
++        data: { ...seed, document: seed.document ?? DbNull },
++      });
++    }
++    engineSchema = new EngineSchema(schema);
++    driver.statements.length = 0;
++  });
++
++  afterEach(async () => {
++    await client?.$disconnect();
++    database?.close();
++  });
++
++  async function traverse(traversal: RecursiveTraversal): Promise<Input[]> {
++    const context = new OperationContext(
++      engineSchema,
++      driver,
++      "node",
++      "findMany"
++    );
++    assertRecursiveQueries(context.queries);
++    const query = context.queries.recursive(node, traversal);
++    const before = driver.statements.length;
++    const rows = await context.run(() => context.read(query));
++    assert.equal(
++      driver.statements.length,
++      before + 1,
++      "one traversal must execute exactly one provider statement"
++    );
++    return rows;
++  }
++
++  it("RF-16 projects the fuller codec set at every depth", async () => {
++    const rows = await traverse({
++      seeds: [
++        {
++          args: {
++            where: { tenant: "tree", code: "root" },
++            select: {
++              code: true,
++              amount: true,
++              moment: true,
++              big: true,
++              status: true,
++              document: true,
++              labels: true,
++            },
++          },
++        },
++      ],
++      relation: "children",
++      depth: 2,
++      args: {
++        orderBy: [{ rank: "asc" }, { code: "asc" }],
++        select: {
++          code: true,
++          amount: true,
++          moment: true,
++          big: true,
++          status: true,
++          document: true,
++          labels: true,
++        },
++      },
++    });
++    const flat: Record<string, unknown>[] = [];
++    const walk = (value: unknown) => {
++      if (Array.isArray(value)) {
++        for (const member of value) walk(member);
++        return;
++      }
++      if (value === null || typeof value !== "object") return;
++      const row = value as Record<string, unknown>;
++      if (typeof row.code === "string") flat.push(row);
++      walk(row.children);
++    };
++    walk(rows);
++    const byCode = new Map(flat.map((row) => [String(row.code), row]));
++    assert.deepEqual(
++      [...byCode.keys()].sort(),
++      ["alpha", "alpha-1", "alpha-2", "beta", "root"],
++      "the traversal reached every node within the depth bound"
++    );
++    const root = byCode.get("root");
++    assert.ok(root);
++    assert.equal(canonicalizeDecimal(root.amount), "100.05");
++    assert.ok(root.amount instanceof Decimal);
++    assert.ok(root.moment instanceof Date);
++    assert.equal(
++      (root.moment as Date).toISOString(),
++      "2024-05-06T07:08:09.000Z"
++    );
++    assert.equal(root.big, 1n);
++    assert.equal(root.status, "OPEN");
++    assert.deepEqual(root.document, { code: "root" });
++    assert.deepEqual(root.labels, ["root", "common"]);
++    const beta = byCode.get("beta");
++    assert.ok(beta);
++    assert.equal(beta.status, "CLOSED");
++    assert.equal(beta.document, null);
++    const epoch = byCode.get("alpha-2");
++    assert.ok(epoch);
++    assert.equal(
++      (epoch.moment as Date).toISOString(),
++      "1970-01-01T00:00:00.000Z"
++    );
++  });
++
++  it("RF-16 applies descendant where, select and orderBy at every level", async () => {
++    const rows = await traverse({
++      seeds: [
++        {
++          args: {
++            where: { tenant: "tree", code: "root" },
++            select: { code: true },
++          },
++        },
++      ],
++      relation: "children",
++      depth: 2,
++      args: {
++        where: { status: "OPEN" },
++        orderBy: [{ rank: "asc" }, { code: "asc" }],
++        select: { code: true },
++      },
++    });
++    const codes: string[] = [];
++    const walk = (value: unknown) => {
++      if (Array.isArray(value)) {
++        for (const member of value) walk(member);
++        return;
++      }
++      if (value === null || typeof value !== "object") return;
++      const row = value as Record<string, unknown>;
++      if (typeof row.code === "string") codes.push(row.code);
++      for (const nested of Object.values(row)) walk(nested);
++    };
++    walk(rows);
++    assert.equal(
++      codes.includes("beta"),
++      false,
++      "a descendant filtered out by the traversal where must not appear"
++    );
++    assert.ok(codes.includes("alpha"));
++    assert.ok(codes.includes("alpha-2"));
++  });
++
++  it("RF-16 orders roots by seed and keeps one statement per traversal", async () => {
++    const rows = await traverse({
++      seeds: [
++        {
++          args: {
++            where: { tenant: "tree", code: "other" },
++            select: { code: true },
++          },
++        },
++        {
++          args: {
++            where: { tenant: "tree", code: "root" },
++            select: { code: true },
++          },
++        },
++      ],
++      relation: "children",
++      depth: 0,
++      args: { select: { code: true } },
++    });
++    assert.deepEqual(
++      rows.map((row) => row.code),
++      ["other", "root"],
++      "roots follow seed order, not the physical row order"
++    );
++    assert.equal(driver.statements.length, 1);
++  });
++});
+--- a/tests/raptor3/g4/unit02/returning-safety-gate.test.ts
++++ b/tests/raptor3/g4/unit02/returning-safety-gate.test.ts
+@@ -0,0 +1,104 @@
++/**
++ * G4-02 author check (repair round 3) — what `returningSafeProjection` answers,
++ * kind by kind.
++ *
++ * The phase-2 note described a per-field `PreparedProjectionField.returningSafe`
++ * that never landed, and the function that did land widened the deleted
++ * `namesRelation` kind-test by one kind (`distance`) that nothing in the
++ * qualified provider set can witness (independent review, finding 5). The
++ * repair keeps the RELOCATION — the projection owner answers, not a physical
++ * owner — and restores the witnessed rule: a projection rides a mutation's
++ * `RETURNING` exactly when every field is a column of the mutated row.
++ *
++ * These cells are the falsifier for that statement. They ask the gate directly,
++ * over prepared projections of every kind the owner can produce, so the
++ * `distance` arm is pinned by what the gate ANSWERS rather than by a fold no
++ * provider here can perform.
++ */
++import assert from "node:assert/strict";
++import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
++import {
++  Queries,
++  returningSafeProjection,
++} from "@query-engine/raptor3/shared/query";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import { describe, it } from "vitest";
++
++const note = s
++  .model({
++    id: s.int().id(),
++    body: s.string(),
++    spotId: s.int(),
++    spot: s
++      .toOne(() => spot)
++      .fields("spotId")
++      .references("id"),
++  })
++  .map("g4u2g_notes");
++
++const spot = s
++  .model({
++    id: s.int().id(),
++    name: s.string(),
++    at: s.point(),
++    notes: s.toMany(() => note),
++  })
++  .map("g4u2g_spots");
++
++const gateSchema = { spot, note };
++
++function gate(select: Record<string, unknown>, postgis = false): boolean {
++  const adapter = postgis
++    ? new PostgresAdapter("public", true)
++    : new SQLiteAdapter();
++  const queries = new Queries(new EngineSchema(gateSchema), adapter);
++  return returningSafeProjection(queries.prepareProjection(spot, { select }));
++}
++
++describe("G4-02 — a projection rides RETURNING when every field is the row's own column", () => {
++  it("admits a scalar-only projection", () => {
++    assert.equal(gate({ id: true, name: true }), true);
++  });
++
++  it("admits the default whole-row projection", () => {
++    const queries = new Queries(
++      new EngineSchema(gateSchema),
++      new SQLiteAdapter()
++    );
++    assert.equal(
++      returningSafeProjection(queries.prepareProjection(spot, {})),
++      true
++    );
++  });
++
++  it("refuses a relation carrier", () => {
++    assert.equal(gate({ id: true, notes: true }), false);
++  });
++
++  it("refuses a _count slot", () => {
++    assert.equal(
++      gate({ id: true, _count: { select: { notes: true } } }),
++      false
++    );
++  });
++
++  it("refuses a _distance field, the one kind no qualified provider can witness", () => {
++    // A `_distance` IS an expression over the mutated row's own columns, so a
++    // wider gate would be defensible — but no provider in the qualified set
++    // declares the distance tier, so nothing could fail if the arm were wrong.
++    // The gate therefore stays where `namesRelation` had it, and this cell is
++    // what goes red the day the arm is widened again.
++    assert.equal(
++      gate(
++        {
++          id: true,
++          at: { _distance: { to: { longitude: 2.35, latitude: 48.85 } } },
++        },
++        true
++      ),
++      false
++    );
++  });
++});
+--- a/tests/raptor3/g4/unit02/root-delete.test.ts
++++ b/tests/raptor3/g4/unit02/root-delete.test.ts
+@@ -0,0 +1,136 @@
++/**
++ * G4-02 — root `delete` (OP-W03) and the whole-value assignment repair.
++ *
++ * Root `delete` is the selected-row removal owner plus ONE cardinality: a
++ * RETURNING adapter carries the removed row on the DELETE itself; a provider
++ * without RETURNING, or a projection that names a relation, keeps the same
++ * owner's locked capture — the row's shape is read BEFORE the removal.
++ */
++
++import assert from "node:assert/strict";
++import { NotFoundError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { afterEach, describe, it } from "vitest";
++import { createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++function engineOf(current: World) {
++  return createCommandEngine({ schema: worldSchema, driver: current.driver });
++}
++
++function remaining(current: World): number {
++  return Number(
++    current.database.prepare("SELECT COUNT(*) FROM g4u2_authors").pluck().get()
++  );
++}
++
++describe("G4-02 root delete", () => {
++  it("removes one located row and publishes its default projection in one statement", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    world.driver.reset();
++    const value = await engine.execute("author", "delete", {
++      where: { id: 2 },
++    });
++    assert.deepEqual(value, { id: 2, name: "Bo", age: 41, avatar: null });
++    assert.equal(world.driver.statements.length, 1);
++    assert.equal(world.driver.transactionCalls, 0);
++    assert.match(world.driver.statements[0]?.sql ?? "", /^DELETE\b/);
++    assert.equal(remaining(world), 1);
++  });
++
++  it("publishes the requested projection, not the whole row", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const value = await engine.execute("author", "delete", {
++      where: { id: 2 },
++      select: { name: true },
++    });
++    assert.deepEqual(value, { name: "Bo" });
++  });
++
++  it("keeps the shipped not-found identity and removes nothing", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const shipped = await world.client.author
++      .delete({ where: { id: 99 } })
++      .then(
++        () => undefined,
++        (error: unknown) => error
++      );
++    const candidate = await engine
++      .execute("author", "delete", { where: { id: 99 } })
++      .then(
++        () => undefined,
++        (error: unknown) => error
++      );
++    assert.ok(shipped instanceof NotFoundError);
++    assert.ok(candidate instanceof NotFoundError);
++    assert.equal(
++      (candidate as NotFoundError).message,
++      (shipped as NotFoundError).message
++    );
++    assert.equal(remaining(world), 2);
++  });
++
++  it("reads a relation projection BEFORE the row is gone", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    world.driver.reset();
++    const value = await engine.execute("author", "delete", {
++      where: { id: 1 },
++      select: { id: true, posts: { orderBy: { id: "asc" }, select: { id: true } } },
++    });
++    assert.deepEqual(value, { id: 1, posts: [{ id: 10 }, { id: 11 }] });
++    const kinds = world.driver.statements.map(
++      (statement) => statement.sql.match(/^\w+/)?.[0]
++    );
++    assert.deepEqual(kinds, ["SELECT", "SELECT", "DELETE"]);
++    assert.equal(world.driver.transactionCalls, 1);
++    assert.equal(remaining(world), 1);
++  });
++
++  it("delete is admitted as a verb and refuses nothing it used to answer", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const shipped = await world.client.post.delete({ where: { id: 12 } });
++    const candidate = await engine.execute("post", "delete", {
++      where: { id: 11 },
++    });
++    assert.deepEqual(shipped, {
++      id: 12,
++      title: "third",
++      rank: 3,
++      authorId: 2,
++    });
++    assert.deepEqual(candidate, {
++      id: 11,
++      title: "second",
++      rank: 2,
++      authorId: 1,
++    });
++  });
++});
++
++describe("G4-02 whole-value assignment", () => {
++  it("writes a Uint8Array as one blob value, not as its inherited set", async () => {
++    world = await createWorld();
++    const engine = engineOf(world);
++    const bytes = new Uint8Array([1, 2, 250]);
++    const created = (await engine.execute("author", "create", {
++      data: { id: 3, name: "Cy", age: 20, avatar: bytes },
++    })) as { avatar: unknown };
++    assert.deepEqual(created.avatar, bytes);
++    const updated = (await engine.execute("author", "update", {
++      where: { id: 3 },
++      data: { avatar: new Uint8Array([9]) },
++    })) as { avatar: unknown };
++    assert.deepEqual(updated.avatar, new Uint8Array([9]));
++  });
++});
+--- a/tests/raptor3/g4/unit02/root-member-cut-trace.test.ts
++++ b/tests/raptor3/g4/unit02/root-member-cut-trace.test.ts
+@@ -0,0 +1,193 @@
++/**
++ * G4-02 author check — the TAPE of a root conditional member, for the harness
++ * reconciliation unit (`g4/briefs/harness-reconciliation.md`, plan §5.4).
++ *
++ * The CS-03 extension campaign reports
++ * `Missing semantic cut choice:found|missing/root-member/0` on ten cells. That
++ * cut is the observation point between a root member's LOCATE statement and the
++ * statement that acts on what the locate found. The candidate no longer issues a
++ * locate for a scalar-only root `update`/`delete`/`create`: the mutation itself
++ * decides found from missing, by the number of rows it returns. So the cut is
++ * ELIMINATED BY AN ATOMIC STRATEGY (one statement, no envelope), not moved to a
++ * different boundary — there is no second statement for a choice to sit between.
++ *
++ * This file records that strategy as a tape a reader can check, and checks the
++ * same semantic property at the cut's legal surrounding cuts:
++ *
++ *   BEFORE the atomic statement — nothing has been written and the premise is
++ *   still open (a failing operation leaves the row set untouched);
++ *   AFTER it — the found branch published the mutated row and the missing
++ *   branch raised the shipped `NotFoundError` with `{model, operation}` and
++ *   nothing else, having written nothing.
++ *
++ * Both branches are also compared against the shipped engine on the same
++ * driver, which is what makes the elimination parity rather than a choice.
++ * The multi-statement neighbours of the same cut (no RETURNING, relation
++ * projection, relation-bearing create) keep their locate and are pinned in
++ * `malformed-result-cuts.test.ts` and `root-delete.test.ts`.
++ */
++
++import assert from "node:assert/strict";
++import { NotFoundError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { afterEach, describe, it } from "vitest";
++import { createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++interface Tape {
++  readonly statements: string[];
++  readonly transactions: number;
++  readonly outcome: string;
++  readonly rows: number;
++}
++
++/** The leading verb of every statement the operation cost, in order. */
++function verbs(statements: readonly { readonly sql: string }[]): string[] {
++  return statements.map((statement) => statement.sql.split(/\s+/)[0] ?? "");
++}
++
++async function tape(
++  current: World,
++  engine: "candidate" | "shipped",
++  run: (invoke: (model: string, operation: string, args: object) => Promise<unknown>) => Promise<unknown>
++): Promise<Tape> {
++  const commands = createCommandEngine({
++    schema: worldSchema,
++    driver: current.driver,
++  });
++  const client = current.client as unknown as Record<
++    string,
++    Record<string, (args: object) => Promise<unknown>>
++  >;
++  const invoke =
++    engine === "candidate"
++      ? (model: string, operation: string, args: object) =>
++          commands.execute(model, operation as never, args)
++      : (model: string, operation: string, args: object) =>
++          client[model]![operation]!(args);
++  current.driver.reset();
++  let outcome = "";
++  try {
++    const value = await run(invoke);
++    outcome = `published ${JSON.stringify(value)}`;
++  } catch (failure) {
++    assert.ok(failure instanceof Error);
++    const meta = (failure as { meta?: unknown }).meta;
++    outcome = `${failure.constructor.name}|${failure.message}|${JSON.stringify(meta)}`;
++  }
++  return {
++    statements: verbs(current.driver.statements),
++    transactions: current.driver.transactionCalls,
++    outcome,
++    rows: Number(
++      current.database.prepare("SELECT COUNT(*) FROM g4u2_authors").pluck().get()
++    ),
++  };
++}
++
++describe("G4-02 §5.4 — the root conditional member's found/missing cut", () => {
++  it("update: one statement decides found from missing, and both branches equal shipped", async () => {
++    world = await createWorld();
++    const found = await tape(world, "candidate", (invoke) =>
++      invoke("author", "update", { where: { id: 1 }, data: { age: 37 } })
++    );
++    const foundShipped = await tape(world, "shipped", (invoke) =>
++      invoke("author", "update", { where: { id: 1 }, data: { age: 38 } })
++    );
++    const missing = await tape(world, "candidate", (invoke) =>
++      invoke("author", "update", { where: { id: 99 }, data: { age: 1 } })
++    );
++    const missingShipped = await tape(world, "shipped", (invoke) =>
++      invoke("author", "update", { where: { id: 99 }, data: { age: 1 } })
++    );
++    // The strategy: ONE statement, no envelope, on both branches and on both
++    // engines — so no cut exists between a locate and an act.
++    for (const observed of [found, foundShipped, missing, missingShipped]) {
++      assert.deepEqual(observed.statements, ["UPDATE"]);
++      assert.equal(observed.transactions, 0);
++    }
++    // AFTER the atomic statement: the found branch publishes the mutated row.
++    assert.equal(found.outcome, 'published {"id":1,"name":"Ada","age":37,"avatar":null}');
++    assert.equal(
++      foundShipped.outcome,
++      'published {"id":1,"name":"Ada","age":38,"avatar":null}'
++    );
++    // AFTER it, missing branch: the shipped refusal, meta included.
++    assert.equal(missing.outcome, missingShipped.outcome);
++    assert.match(missing.outcome, /^NotFoundError\|/);
++    assert.equal(
++      missing.outcome,
++      `NotFoundError|No author record found for update|{"model":"author","operation":"update"}`
++    );
++    // BEFORE it, seen from after: the missing branch wrote nothing.
++    assert.equal(missing.rows, 2);
++    assert.equal(missingShipped.rows, 2);
++  });
++
++  it("delete: the same strategy, and the row set is the shipped one on both branches", async () => {
++    world = await createWorld();
++    const missing = await tape(world, "candidate", (invoke) =>
++      invoke("author", "delete", { where: { id: 99 } })
++    );
++    const missingShipped = await tape(world, "shipped", (invoke) =>
++      invoke("author", "delete", { where: { id: 99 } })
++    );
++    assert.deepEqual(missing.statements, ["DELETE"]);
++    assert.deepEqual(missingShipped.statements, ["DELETE"]);
++    assert.equal(missing.outcome, missingShipped.outcome);
++    assert.equal(
++      missing.outcome,
++      `NotFoundError|No author record found for delete|{"model":"author","operation":"delete"}`
++    );
++    assert.equal(missing.rows, 2);
++    const found = await tape(world, "candidate", (invoke) =>
++      invoke("author", "delete", { where: { id: 2 } })
++    );
++    assert.deepEqual(found.statements, ["DELETE"]);
++    assert.equal(found.transactions, 0);
++    assert.equal(found.rows, 1);
++  });
++
++  it("create: the root record is one INSERT … RETURNING, with no re-read to observe", async () => {
++    world = await createWorld();
++    const created = await tape(world, "candidate", (invoke) =>
++      invoke("author", "create", { data: { id: 7, name: "Cy", age: 20 } })
++    );
++    const shipped = await tape(world, "shipped", (invoke) =>
++      invoke("author", "create", { data: { id: 8, name: "Di", age: 21 } })
++    );
++    assert.deepEqual(created.statements, ["INSERT"]);
++    assert.deepEqual(shipped.statements, ["INSERT"]);
++    assert.equal(created.transactions, 0);
++    assert.equal(shipped.transactions, 0);
++    assert.equal(
++      created.outcome,
++      'published {"id":7,"name":"Cy","age":20,"avatar":null}'
++    );
++  });
++
++  it("a relation-bearing root create keeps its statements, so its cuts are NOT eliminated", async () => {
++    world = await createWorld();
++    const nested = await tape(world, "candidate", (invoke) =>
++      invoke("author", "create", {
++        data: {
++          id: 9,
++          name: "Eve",
++          age: 30,
++          posts: { create: [{ id: 90, title: "P", rank: 1 }] },
++        },
++      })
++    );
++    assert.ok(
++      nested.statements.length > 1,
++      `a relation-bearing create is multi-statement, saw ${JSON.stringify(nested.statements)}`
++    );
++    assert.equal(nested.transactions, 1);
++  });
++});
+--- a/tests/raptor3/g4/unit02/unit02.workspace.ts
++++ b/tests/raptor3/g4/unit02/unit02.workspace.ts
+@@ -0,0 +1,27 @@
++/**
++ * Runner for the G4-02 author checks.
++ *
++ * `scripts/credential-free-test-manifest.mjs` excludes
++ * `tests/raptor3/g4/unit02/` from `extended-local` ("still its author's, with
++ * no registered mode; promoting it is that stream's request to make"), so these
++ * files belong to no registered project. This workspace exists only so the
++ * checks run through the ordinary bounded runner and the workspace lock:
++ *
++ *   node scripts/run-vitest-safe.mjs run \
++ *     --workspace=tests/raptor3/g4/unit02/unit02.workspace.ts \
++ *     tests/raptor3/g4/unit02/
++ *
++ * The registration request (a `g4-unit02-author` mode beside `g4-unit01-author`)
++ * is recorded in `g4/unit02/note.md`.
++ */
++import { defineWorkspace } from "vitest/config";
++
++export default defineWorkspace([
++  {
++    extends: "../../../../vitest.config.ts",
++    test: {
++      name: "g4-unit02-author",
++      include: ["tests/raptor3/g4/unit02/*.test.ts"],
++    },
++  },
++]);
+--- a/tests/raptor3/g4/unit02/upsert-key-portability.test.ts
++++ b/tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+@@ -0,0 +1,220 @@
++/**
++ * G4-02 author check (repair round 4) — WHERE the row key's portability
++ * contract applies, measured against the shipped engine on `upsert`.
++ *
++ * Round 3 stated the contract at `EngineSchema.admit` for `update`,
++ * `updateMany` AND `upsert`. The shipped engine reaches
++ * `assertPortablePrimaryKeyUpdateInput` for an upsert's update payload only
++ * through the RELATION-bearing arm (`write-engine/UpsertOperation.ts:496-504`,
++ * inside `updateHasRelations ? … : undefined`), so a scalar-only upsert was
++ * refused by the candidate and performed by the shipped engine — four public
++ * shapes, one of which CREATES a row the arithmetic never touches (the second
++ * independent review of phase 2, finding A).
++ *
++ * Every cell below is differential: it runs the identical request on the
++ * client's shipped engine and on the candidate, in a world of its own, and
++ * compares the answer AND the rows the provider holds afterwards. The first
++ * four are the review's four divergent shapes. The last three are the other
++ * half of the same gate — a relation-bearing update payload, where the shipped
++ * engine DOES assert, on a row that exists, on a row that does not, and ahead
++ * of a conditional that would skip — so neither half of the shipped placement
++ * (`updateHasRelations`, and `compileFoundArm`'s deferral) can be dropped
++ * without this file going red (note §R3.1).
++ */
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++const intKey = s
++  .model({ id: s.int().id(), label: s.string() })
++  .map("g4u2u_int_keys");
++const numKey = s
++  .model({ id: s.number().id(), label: s.string() })
++  .map("g4u2u_num_keys");
++const decKey = s
++  .model({ id: s.decimal({ precision: 8, scale: 2 }).id(), label: s.string() })
++  .map("g4u2u_dec_keys");
++const owner = s
++  .model({
++    id: s.number().id(),
++    label: s.string(),
++    notes: s.toMany(() => note),
++  })
++  .map("g4u2u_owners");
++const note = s
++  .model({
++    id: s.int().id(),
++    ownerId: s.number().nullable(),
++    owner: s
++      .toOne(() => owner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map("g4u2u_notes");
++const upsertSchema = { intKey, numKey, decKey, owner, note };
++
++const SEED = `
++  INSERT INTO g4u2u_int_keys (id,label) VALUES (3,'a');
++  INSERT INTO g4u2u_num_keys (id,label) VALUES (6.0,'a');
++  INSERT INTO g4u2u_dec_keys (id,label) VALUES ('600','a');
++  INSERT INTO g4u2u_owners (id,label) VALUES (6.0,'o');
++`;
++
++interface Outcome {
++  readonly answer: string;
++  readonly rows: unknown[];
++}
++
++async function upsert(
++  model: keyof typeof upsertSchema,
++  table: string,
++  args: Record<string, unknown>,
++  engine: "shipped" | "candidate"
++): Promise<Outcome> {
++  const database = new Database(":memory:");
++  const driver = new SQLite3Driver({ client: database });
++  const client = createClient({ schema: upsertSchema, driver });
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  database.exec(SEED);
++  const candidate = createCommandEngine({ schema: upsertSchema, driver });
++  let answer: string;
++  try {
++    const value =
++      engine === "shipped"
++        ? await (
++            client as unknown as Record<
++              string,
++              { upsert(args: unknown): Promise<unknown> }
++            >
++          )[model]!.upsert(args)
++        : await candidate.execute(model, "upsert", args);
++    answer = `ok:${JSON.stringify(value)}`;
++  } catch (error) {
++    answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++  }
++  const rows = database.prepare(`SELECT * FROM ${table}`).all();
++  await client.$disconnect();
++  database.close();
++  return { answer, rows };
++}
++
++async function bothEngines(
++  model: keyof typeof upsertSchema,
++  table: string,
++  args: Record<string, unknown>
++): Promise<Outcome> {
++  const shipped = await upsert(model, table, args, "shipped");
++  const candidate = await upsert(model, table, args, "candidate");
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.deepEqual(
++    candidate,
++    shipped,
++    `candidate ${JSON.stringify(candidate)}\nshipped   ${JSON.stringify(shipped)}`
++  );
++  return shipped;
++}
++
++describe("G4-02 — a scalar-only upsert carries no key-portability assertion", () => {
++  it("multiplies a NUMBER key on the found arm, as the shipped engine does", async () => {
++    const outcome = await bothEngines("numKey", "g4u2u_num_keys", {
++      where: { id: 6 },
++      create: { id: 6, label: "a" },
++      update: { id: { multiply: 2 } },
++    });
++    // Pinned, so a silent move to a refusal on either engine is visible here.
++    assert.equal(outcome.answer, 'ok:{"id":12,"label":"a"}');
++  });
++
++  it("multiplies a DECIMAL key on the found arm, as the shipped engine does", async () => {
++    const outcome = await bothEngines("decKey", "g4u2u_dec_keys", {
++      where: { id: "6.00" },
++      create: { id: "6.00", label: "a" },
++      update: { id: { multiply: "2.00" } },
++    });
++    assert.equal(outcome.answer, 'ok:{"id":"12","label":"a"}');
++  });
++
++  it("carries an int key divide-by-zero to the provider, as the shipped engine does", async () => {
++    const outcome = await bothEngines("intKey", "g4u2u_int_keys", {
++      where: { id: 3 },
++      create: { id: 3, label: "a" },
++      update: { id: { divide: 0 } },
++    });
++    // The statement IS issued: the refusal identity is the provider's, not the
++    // engine's `Cannot divide primary key field 'id' by zero.`
++    assert.equal(
++      outcome.answer.startsWith("QueryError:"),
++      true,
++      outcome.answer
++    );
++  });
++
++  it("CREATES the missing row whose update names key arithmetic, as shipped does", async () => {
++    const outcome = await bothEngines("numKey", "g4u2u_num_keys", {
++      where: { id: 99 },
++      create: { id: 99, label: "new" },
++      update: { id: { multiply: 2 } },
++    });
++    assert.equal(outcome.answer, 'ok:{"id":99,"label":"new"}');
++    assert.deepEqual(outcome.rows, [
++      { id: 6, label: "a" },
++      { id: 99, label: "new" },
++    ]);
++  });
++});
++
++describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
++  it("refuses a number key multiply beside a relation write, as shipped does", async () => {
++    const outcome = await bothEngines("owner", "g4u2u_owners", {
++      where: { id: 6 },
++      create: { id: 6, label: "o" },
++      update: {
++        id: { multiply: 2 },
++        notes: { create: [{ id: 1 }] },
++      },
++    });
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
++    );
++  });
++
++  it("still CREATES the missing row, because the shipped assertion is found-arm", async () => {
++    // `UpsertOperation.compileFoundArm` runs `updateLegality` only after the
++    // found arm is selected, so an upsert whose row is absent writes its create
++    // arm and never reaches the contract. The candidate carries the refusal on
++    // that same arm rather than at admission, which is why this is parity and
++    // not a recorded divergence.
++    const outcome = await bothEngines("owner", "g4u2u_owners", {
++      where: { id: 99 },
++      create: { id: 99, label: "fresh" },
++      update: { id: { multiply: 2 }, notes: { create: [{ id: 1 }] } },
++    });
++    assert.equal(outcome.answer, 'ok:{"id":99,"label":"fresh"}');
++    assert.deepEqual(outcome.rows, [
++      { id: 6, label: "o" },
++      { id: 99, label: "fresh" },
++    ]);
++  });
++
++  it("refuses ahead of a conditional that would skip, as shipped does", async () => {
++    // Shipped order: found-arm legality runs BEFORE conditional skip/update
++    // selection, so an unmatched `targetWhere` does not hide the refusal.
++    const outcome = await bothEngines("owner", "g4u2u_owners", {
++      where: { id: 6 },
++      create: { id: 6, label: "o" },
++      targetWhere: { label: "absent" },
++      update: { id: { multiply: 2 }, notes: { create: [{ id: 1 }] } },
++    });
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
++    );
++  });
++});
+--- a/tests/raptor3/g4/unit02/vector-capability.test.ts
++++ b/tests/raptor3/g4/unit02/vector-capability.test.ts
+@@ -0,0 +1,133 @@
++/**
++ * G4-02 author check — SC-13's property: the vector crossings of a provider
++ * that declares NO vector tier answer identically on both engines.
++ *
++ * The witness cell `tests/raptor3/g4/read-codecs.test.ts` "SC-13 refuses a
++ * vector write and read identically" also requires the READ to refuse. Neither
++ * engine refuses it: the shipped result parser decodes a vector column with no
++ * capability check, and with both writes refused the witness's table is empty,
++ * so `observeFailure` fails on the SHIPPED read before the candidate is
++ * consulted. That is a witness defect; the requested change is recorded in
++ * `g4/unit02/note.md` §P.11. What SC-13 is about — one identity, not a silent
++ * degradation, and the candidate identical to the shipped engine — is asserted
++ * here on both crossings.
++ */
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { afterEach, beforeEach, describe, it } from "vitest";
++
++const TABLE = "g4_unit02_vectors";
++
++const embedded = s
++  .model({
++    id: s.int().id(),
++    name: s.string().map("embedded_name"),
++    embedding: s.vector().dimension(3).map("embedded_vector"),
++  })
++  .map(TABLE);
++const schema = { embedded };
++
++const createVectorClient = (driver: SQLite3Driver) =>
++  createClient({ schema, driver });
++
++interface Outcome {
++  readonly failed: boolean;
++  readonly constructorName?: string;
++  readonly message?: string;
++  readonly value?: unknown;
++}
++
++async function observe(run: () => Promise<unknown>): Promise<Outcome> {
++  try {
++    return { failed: false, value: await run() };
++  } catch (error) {
++    assert.ok(error instanceof Error);
++    return {
++      failed: true,
++      constructorName: error.constructor.name,
++      message: error.message,
++    };
++  }
++}
++
++describe("G4-02 SC-13 — the vector crossings without a provider tier", () => {
++  let database: Database.Database;
++  let client: ReturnType<typeof createVectorClient>;
++  let driver: SQLite3Driver;
++
++  beforeEach(async () => {
++    database = new Database(":memory:");
++    driver = new SQLite3Driver({ client: database });
++    client = createVectorClient(driver);
++    assert.equal((await syncLiveSchema(client)).applied, true);
++  });
++
++  afterEach(async () => {
++    await client?.$disconnect();
++    database?.close();
++  });
++
++  it("refuses the write with the shipped identity and decodes the read identically", async () => {
++    const write = { id: 1, name: "unit-x", embedding: [1, 0, 0] };
++    const shippedWrite = await observe(() =>
++      Promise.resolve(
++        (
++          client as unknown as Record<
++            string,
++            { create(args: unknown): Promise<unknown> }
++          >
++        ).embedded!.create({ data: write })
++      )
++    );
++    const engine = createCommandEngine({ schema, driver });
++    const candidateWrite = await observe(() =>
++      engine.execute("embedded", "create", { data: write })
++    );
++    assert.equal(shippedWrite.failed, true, "the shipped write must refuse");
++    assert.deepEqual(
++      {
++        failed: candidateWrite.failed,
++        constructorName: candidateWrite.constructorName,
++        message: candidateWrite.message,
++      },
++      {
++        failed: shippedWrite.failed,
++        constructorName: shippedWrite.constructorName,
++        message: shippedWrite.message,
++      },
++      `the candidate raised ${candidateWrite.constructorName} (${candidateWrite.message}) where the shipped engine raises ${shippedWrite.constructorName} (${shippedWrite.message})`
++    );
++    assert.deepEqual(
++      database.prepare(`SELECT id FROM ${TABLE}`).all(),
++      [],
++      "a refused vector write stores nothing on either engine"
++    );
++
++    // The read crossing, over a row the provider already holds.
++    database
++      .prepare(
++        `INSERT INTO ${TABLE} (id, embedded_name, embedded_vector) VALUES (9,'seeded','[1,0,0]')`
++      )
++      .run();
++    const shippedRead = await observe(() =>
++      Promise.resolve(
++        (
++          client as unknown as Record<
++            string,
++            { findMany(args: unknown): Promise<unknown> }
++          >
++        ).embedded!.findMany({ select: { embedding: true } })
++      )
++    );
++    const candidateRead = await observe(() =>
++      engine.execute("embedded", "findMany", { select: { embedding: true } })
++    );
++    assert.deepEqual(shippedRead, { failed: false, value: [{ embedding: [1, 0, 0] }] });
++    assert.deepEqual(candidateRead, shippedRead);
++  });
++});
+--- a/tests/raptor3/g4/unit02/world.ts
++++ b/tests/raptor3/g4/unit02/world.ts
+@@ -0,0 +1,167 @@
++/**
++ * G4-02 author checks — one recording world.
++ *
++ * The world is deliberately small and self-contained: the witness estate under
++ * `tests/raptor3/g4/` belongs to the independent witness author, and these files
++ * are the unit's own checks on the physical envelope, the prepared-operation
++ * boundary and root `delete`.
++ */
++
++import { createClient } from "@client/client";
++import type {
++  BatchQuery,
++  QueryExecutionContext,
++  QueryResult,
++} from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++
++export interface Statement {
++  readonly sql: string;
++  readonly context?: QueryExecutionContext;
++}
++
++/** Records the physical statements and the transaction control an operation costs. */
++export class RecordingSQLiteDriver extends SQLite3Driver {
++  readonly statements: Statement[] = [];
++  readonly control: string[] = [];
++  transactionCalls = 0;
++  batchCalls = 0;
++  /** Mutable so a check can lower it and split one grouped statement into chunks. */
++  override maxBindParametersPerStatement: number | undefined = 999;
++
++  reset(): void {
++    this.statements.length = 0;
++    this.control.length = 0;
++    this.transactionCalls = 0;
++    this.batchCalls = 0;
++  }
++
++  /** Provider round trips: one per statement outside a batch, one per batch. */
++  get roundTrips(): number {
++    return this.statements.length - this.batchedStatements + this.batchCalls;
++  }
++  private batchedStatements = 0;
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push({ sql: statement, context });
++    return super.execute<T>(client, statement, parameters);
++  }
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>[]> {
++    this.batchCalls++;
++    this.batchedStatements += queries.length;
++    for (const query of queries)
++      this.statements.push({ sql: query.sql, context: query.context });
++    return super.executeBatch<T>(client, queries, context);
++  }
++
++  protected override async executeRaw<T>(
++    client: Database.Database,
++    statement: string,
++    parameters?: unknown[]
++  ): Promise<QueryResult<T>> {
++    this.control.push(statement);
++    return super.executeRaw<T>(client, statement, parameters);
++  }
++
++  protected override async transaction<T>(
++    client: Database.Database,
++    body: (transaction: Database.Database) => Promise<T>,
++    context?: QueryExecutionContext
++  ): Promise<T> {
++    this.transactionCalls++;
++    return super.transaction(client, body, context);
++  }
++}
++
++export const author = s
++  .model({
++    id: s.int().id(),
++    name: s.string(),
++    age: s.int(),
++    avatar: s.blob().nullable(),
++    posts: s.toMany(() => post),
++  })
++  .map("g4u2_authors");
++
++export const post = s
++  .model({
++    id: s.int().id(),
++    title: s.string(),
++    rank: s.int(),
++    authorId: s.int().nullable(),
++    author: s.toOne(() => author).fields("authorId").references("id"),
++  })
++  .map("g4u2_posts");
++
++export const worldSchema = { author, post };
++export type WorldSchema = typeof worldSchema;
++
++function buildClient(driver: RecordingSQLiteDriver) {
++  return createClient({ schema: worldSchema, driver });
++}
++
++export interface World {
++  readonly database: Database.Database;
++  readonly driver: RecordingSQLiteDriver;
++  readonly client: ReturnType<typeof buildClient>;
++  close(): Promise<void>;
++}
++
++export async function createWorld(
++  options: { readonly maxBindParameters?: number } = {}
++): Promise<World> {
++  const database = new Database(":memory:");
++  const driver = new RecordingSQLiteDriver({ client: database });
++  if (options.maxBindParameters !== undefined)
++    driver.maxBindParametersPerStatement = options.maxBindParameters;
++  const client = buildClient(driver);
++  const migration = await syncLiveSchema(client);
++  if (!migration.applied) throw new Error("world schema did not apply");
++  await client.author.createMany({
++    data: [
++      { id: 1, name: "Ada", age: 36 },
++      { id: 2, name: "Bo", age: 41 },
++    ],
++  });
++  await client.post.createMany({
++    data: [
++      { id: 10, title: "first", rank: 1, authorId: 1 },
++      { id: 11, title: "second", rank: 2, authorId: 1 },
++      { id: 12, title: "third", rank: 3, authorId: 2 },
++    ],
++  });
++  driver.reset();
++  return {
++    database,
++    driver,
++    client,
++    async close() {
++      await client.$disconnect();
++      database.close();
++    },
++  };
++}
++
++/** The physical cost of one operation: statements, round trips, envelope. */
++export function cost(driver: RecordingSQLiteDriver) {
++  return {
++    statements: driver.statements.length,
++    transactions: driver.transactionCalls,
++    control: driver.control.filter((statement) =>
++      /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i.test(statement)
++    ).length,
++  };
++}
+--- a/tests/raptor3/post-prep/g29-result-progress.test.ts
++++ b/tests/raptor3/post-prep/g29-result-progress.test.ts
+@@ -18,11 +18,27 @@
+   readonly context?: QueryExecutionContext;
+ }
+ 
++/**
++ * The fault cut: the provider answers a row whose `id` is not an integer.
++ *
++ * Stated over ANY row-bearing response, not over `^SELECT` only, because the
++ * statement that carries the stored row is a physical choice and not a property
++ * of this specimen. A scalar-only root `create` folds to one
++ * `INSERT … RETURNING` — which is what the shipped engine emits for this exact
++ * request — so a `^SELECT`-only cut would be ELIMINATED by the fold and this
++ * specimen would silently stop witnessing (raptor3 plan §5.4: an eliminated cut
++ * cannot waive the property's acceptance). The property is unchanged: a
++ * malformed provider result is translated into the established identity, with
++ * truthful progress, and nothing is published. The SPLIT forms of the same
++ * specimen — a provider without RETURNING, on a transaction and on a
++ * segment-atomic transport, and a relation-bearing create — are checked at
++ * `tests/raptor3/g4/unit02/malformed-result-cuts.test.ts`.
++ */
+ function corruptSelectedId<T>(
+-  sqlText: string,
++  _sqlText: string,
+   response: QueryResult<T>
+ ): boolean {
+-  if (!/^SELECT\b/.test(sqlText) || response.rows.length === 0) return false;
++  if (response.rows.length === 0) return false;
+   let corrupted = false;
+   for (const row of response.rows) {
+     if (!isRecord(row)) continue;
+@@ -220,11 +236,13 @@
+     if (driver instanceof CorruptingBatchSQLiteDriver) {
+       assert.equal(driver.acknowledgedInsertBatches, 1, diagnostic);
+     }
+-    assert.deepEqual(
+-      finalDatabase,
+-      profile === "sqlite-atomic-batch" ? [{ id: 1, label: "written" }] : [],
+-      diagnostic
+-    );
++    // The row is durable on BOTH profiles now: a statement-atomic write commits
++    // with its own statement and the failure happens afterwards, while decoding
++    // what the provider already returned. The shipped engine leaves the same
++    // state for the same request (`runStatementAtomic`, no transaction) —
++    // measured in `g4/unit02/receipts/phase2/shipped-malformed-result.log`. The
++    // rolled-back form of this cut is cell 1 of the split specimen named above.
++    assert.deepEqual(finalDatabase, [{ id: 1, label: "written" }], diagnostic);
+   } finally {
+     await client.$disconnect();
+     database.close();
+--- a/tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
++++ b/tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
+@@ -31,10 +31,12 @@
+     }
+     if (!this.corruptionArmed) return responses;
+ 
+-    for (const [index, query] of queries.entries()) {
+-      if (!/^SELECT\b/.test(query.sql)) continue;
+-      const response = responses[index];
+-      assert(response);
++    // The cut is stated over ANY row-bearing response, not over `^SELECT` only:
++    // the statement that carries the generated row is a physical choice. A
++    // scalar-only root `create` folds to one `INSERT … RETURNING`, so a
++    // `^SELECT`-only cut would be ELIMINATED by the fold and this specimen
++    // would silently stop witnessing (raptor3 plan §5.4).
++    for (const response of responses) {
+       for (const row of response.rows) {
+         if (!isRecord(row) || !Object.hasOwn(row, "id")) continue;
+         Reflect.set(row, "id", "not-an-integer");
+--- a/tests/contracts/adapters/dialect-vocabulary.core.test.ts
++++ b/tests/contracts/adapters/dialect-vocabulary.core.test.ts
+@@ -136,6 +136,18 @@
+         expectSql(adapter.expressions.subtract(left, right), "(? - ?)", [2, 3]);
+         expectSql(adapter.expressions.multiply(left, right), "(? * ?)", [2, 3]);
+         expectSql(adapter.expressions.divide(left, right), "(? / ?)", [2, 3]);
++        // The integer quotient is the one arithmetic spelling `/` cannot carry
++        // portably: it must truncate toward zero, which each dialect states in
++        // its own way (the same fact `set.divide`'s `target.integer` carries).
++        expectSql(
++          adapter.expressions.integerDivide(left, right),
++          name === "mysql"
++            ? "TRUNCATE(? / ?, 0)"
++            : name === "sqlite"
++              ? "(? / CAST(? AS INTEGER))"
++              : "(? / ?)",
++          [2, 3]
++        );
+         expectSql(adapter.expressions.upper(left), "UPPER(?)", [2]);
+         expectSql(adapter.expressions.lower(left), "LOWER(?)", [2]);
+         expectSql(

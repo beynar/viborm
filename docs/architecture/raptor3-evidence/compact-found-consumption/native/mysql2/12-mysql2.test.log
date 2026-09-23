@@ -1,0 +1,16 @@
+BEGIN provider=provider-mysql2 ordinal=12/15 file=tests/providers/docker/mysql2.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2.test.ts (85 tests | 1 skipped) 8495ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point values through callback and array transactions  336ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset  358ms
+   ✓ MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates  772ms
+
+ Test Files  1 passed (1)
+      Tests  84 passed | 1 skipped (85)
+   Start at  11:06:04
+   Duration  10.07s (transform 949ms, setup 9ms, collect 1.44s, tests 8.49s, environment 0ms, prepare 30ms)
+
+Vitest resources: 11.78s wall, 654.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-mysql2 ordinal=12/15 file=tests/providers/docker/mysql2.test.ts exit=0

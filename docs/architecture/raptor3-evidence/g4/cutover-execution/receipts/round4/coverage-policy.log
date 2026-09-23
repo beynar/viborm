@@ -1,0 +1,72 @@
+✔ every TypeScript source has exactly one coverage owner (5.484291ms)
+✔ subsystem configs derive includes and thresholds from the manifest (0.209333ms)
+✔ waived sources remain owned and included (0.140625ms)
+✔ test fixtures use the workspace alias instead of root-absolute imports (52.324375ms)
+✔ migration coverage admits every credential-free local contract (1.601459ms)
+✔ migration core contracts open no database outside the named in-memory SQLite exception (9.074458ms)
+✔ client coverage admits the core and audited deterministic contracts (0.174458ms)
+✔ driver coverage isolates provider resources and admits only audited local providers (3.370041ms)
+✔ query coverage admits every core contract exactly once (7.348708ms)
+✔ write coverage admits the core and audited high-signal local contracts (2.607792ms)
+✔ cache coverage admits every deterministic cache contract exactly once (1.2405ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 87.024833
+Node resources: 0.36s wall, 62.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+--- exit1=0
+✔ fails closed where process-tree bounds cannot be verified (0.692333ms)
+✔ process-group RSS sums every member and ignores other groups (0.145666ms)
+✔ process-group teardown ignores zombie-only groups (0.06425ms)
+✔ heap replacement preserves unrelated Node options (0.083292ms)
+✔ RSS limit defaults to the project cap and is configurable (0.380709ms)
+✔ the ordinary ceiling is 1536 MiB and may only ever be lowered (0.0865ms)
+✔ no ordinary caller can reach the 2560 MiB PGlite allowance (0.163708ms)
+✔ the allowlisted typecheck ceiling reaches 8192 MiB and stops there (0.075083ms)
+✔ the allowlisted PGlite ceiling reaches 2560 MiB and stops there (0.066583ms)
+✔ the resource line names the ceiling that was applied (0.515417ms)
+✔ a bounded run reports the ceiling it enforced (119.767541ms)
+✔ heap limits may be lowered but never raised above the caller cap (0.179542ms)
+✔ Vitest arguments end with the enforced single-worker policy (0.047291ms)
+RSS limit witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ the sampled RSS ceiling terminates the complete child group (318.182416ms)
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ RSS teardown verifies a group whose leader and worker exit together (3035.228417ms)
+✔ normal leader exit still tears down inherited descendants (277.687583ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3757.091292
+Node resources: 4.02s wall, 63.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+--- exit2=0
+✔ a bounded descendant inherits its ancestor's workspace lock (62.072542ms)
+✔ parses complete process rows without truncating commands (0.412ms)
+✔ refuses malformed, duplicate, and incomplete process graphs (0.187625ms)
+✔ excludes every direct, pnpm, and coverage-wrapper ancestor (0.134959ms)
+✔ finds stale Vitest, TypeScript, tsdown, and Vitest worker processes (0.180167ms)
+✔ does not confuse a sibling path with the current workspace (0.063458ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 65.89725
+Node resources: 0.32s wall, 0.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+--- exit3=0

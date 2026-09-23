@@ -1,0 +1,6 @@
+
+> viborm@0.1.0 test:all /Users/arnaud/code/viborm
+> node scripts/run-credential-free-tests.mjs
+
+Test command refused: bounded Node command (PID 56672) already owns this workspace.
+ ELIFECYCLE  Command failed with exit code 1.

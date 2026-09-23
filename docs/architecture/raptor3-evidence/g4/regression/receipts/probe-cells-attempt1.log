@@ -1,0 +1,180 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (2 tests | 2 failed) 184ms
+   × G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch answers the shipped meta 173ms
+     → the rejected root create must answer what the shipped engine answers: {
+  "shipped": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create"
+      }
+    }
+  },
+  "candidate": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create",
+        "statementIndex": 0
+      }
+    }
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'create',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    rows: [],
+    value: undefined
+
+   × G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 10ms
+     → a series reports its uncertain outcome: {
+  "driver": "sqlite3",
+  "model": "owner",
+  "operation": "create",
+  "statementIndex": 0
+}
++ actual - expected
+
++ undefined
+- {
+-   atomicity: 'segment',
+-   committedSegments: 0,
+-   committedWriteMembers: 0,
+-   completedMembers: 0,
+-   mayHaveCommittedSegment: true,
+-   phase: 'member'
+- }
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch answers the shipped meta
+AssertionError: the rejected root create must answer what the shipped engine answers: {
+  "shipped": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create"
+      }
+    }
+  },
+  "candidate": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create",
+        "statementIndex": 0
+      }
+    }
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'create',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    rows: [],
+    value: undefined
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,10 +3,11 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "create",[22m
+[31m+       "statementIndex": 0,[39m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "rows": [],[22m
+[2m    "value": undefined,[22m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:162:12
+    160|     const shipped = await run("shipped");
+    161|     const candidate = await run("candidate");
+    162|     assert.deepEqual(
+       |            ^
+    163|       candidate,
+    164|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress
+AssertionError: a series reports its uncertain outcome: {
+  "driver": "sqlite3",
+  "model": "owner",
+  "operation": "create",
+  "statementIndex": 0
+}
++ actual - expected
+
++ undefined
+- {
+-   atomicity: 'segment',
+-   committedSegments: 0,
+-   committedWriteMembers: 0,
+-   completedMembers: 0,
+-   mayHaveCommittedSegment: true,
+-   phase: 'member'
+- }
+
+
+simple
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:193:12
+    191|     const meta = (identity(seen.failure) as { meta: Record<string, unk…
+    192|       .meta;
+    193|     assert.deepEqual(
+       |            ^
+    194|       meta.recordSeriesProgress,
+    195|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  21:09:05
+   Duration  3.83s (transform 2.21s, setup 17ms, collect 3.25s, tests 184ms, environment 0ms, prepare 76ms)
+
+Vitest resources: 8.30s wall, 553.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

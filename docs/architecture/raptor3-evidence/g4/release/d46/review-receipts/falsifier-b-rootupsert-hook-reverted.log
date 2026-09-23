@@ -1,0 +1,32 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46-scratch
+
+ ❯ |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts (12 tests | 1 failed) 76ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > typed direct execution requests object-row full results 2ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > raw direct execution retains named provider rows 1ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > the capability is false, beside the two that are true 2ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > raw and model operations share one native Neon array transaction 6ms
+   × H2 — Neon HTTP declares no ordered committed segments > generated scalar create and upsert return from one native Neon request 7ms
+     → Query execution failed
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a ROOT relation-bearing createMany awaits batch execution while the capability is false 52ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > an ordinary write on the same driver DOES reach the provider 2ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > the native batch acknowledges commit after transaction resolution and before returning 2ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a committed callback precedes result-cardinality failure 1ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a committed callback precedes statement-result parsing failure 0ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a rejected native transaction never acknowledges a commit 0ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > attributes a one-statement provider rejection and keeps an opaque multi-statement rejection at batch scope 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts > H2 — Neon HTTP declares no ordered committed segments > generated scalar create and upsert return from one native Neon request
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  18:42:25
+   Duration  988ms (transform 661ms, setup 12ms, collect 808ms, tests 76ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 3.21s wall, 392.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

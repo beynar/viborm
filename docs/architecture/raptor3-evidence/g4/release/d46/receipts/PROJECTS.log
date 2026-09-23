@@ -1,0 +1,3 @@
+layer-client exit=0  Tests 536 passed (536)
+layer-query-engine exit=1  Tests 1 failed | 646 passed (647)
+layer-write-engine exit=0  Tests 50 passed (50)

@@ -89,10 +89,14 @@ describe("collection quantifier filter", () => {
     ).toBeUndefined();
   });
 
-  test("an empty filter object is accepted and states nothing", () => {
-    const result = parseWhere({});
-    if (result.issues) throw new Error(result.issues[0]?.message);
-    expect(result.value).toEqual({ items: {} });
+  test("an empty filter object is refused", () => {
+    // It used to be admitted and to state nothing, which the engine lowered to
+    // TRUE — so `deleteMany({ where: { items: {} } })` deleted every row. A
+    // collection filter names a quantifier or it is not a filter, the rule the
+    // to-one and to-many relation filters already carry.
+    expect(parseWhere({}).issues?.[0]?.message).toBe(
+      "Polymorphic collection filter 'items' requires one of: some, every, none."
+    );
   });
 
   test("is and isNot together are refused", () => {

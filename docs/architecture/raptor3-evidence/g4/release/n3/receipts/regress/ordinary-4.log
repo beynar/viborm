@@ -1,0 +1,5 @@
+[test:all] extended-local shard 4/13 (3 files; 179 ordinary of 191)
+ ✓ |extended-local| tests/contracts/engine/write/neon-committed-segments-capability.test.ts (12 tests) 72ms
+ Test Files  1 passed | 2 skipped (3)
+      Tests  12 passed | 38 skipped (50)
+[test:all] extended-local shard 4/13 (3 files; 179 ordinary of 191): 3.59s wall, 55.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

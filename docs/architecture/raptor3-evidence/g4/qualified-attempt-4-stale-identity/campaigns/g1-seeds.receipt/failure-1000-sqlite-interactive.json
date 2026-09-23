@@ -1,0 +1,24 @@
+{
+  "identity": {
+    "production": "5bc430bba17b3a2a765ad51ebd290a47199a6c7b41f0da113ffbe07988bc3edc",
+    "harness": "88289cbaa424f4034ed565273b01a3d566b1d4776ec9068431b984b090b70cfd",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "recipe": {
+    "seed": 1000,
+    "verb": "create",
+    "members": [],
+    "decoys": 2,
+    "actors": 2,
+    "fault": "none"
+  },
+  "profile": "sqlite-interactive",
+  "phase": "commands",
+  "failure": "AssertionError [ERR_ASSERTION]: Missing semantic cut generated-root-written; observed outcome: {\"kind\":\"failure\",\"failure\":{\"name\":\"TypeError\",\"message\":\"(intermediate value).execute is not a function\"}}\n    at Object.assert (/private/tmp/viborm-g4-lane-5/tests/raptor3/harness/sqlite-world.ts:417:13)\n    at verifyG0Pair (/private/tmp/viborm-g4-lane-5/tests/raptor3/harness/replay.ts:250:20)\n    at verifyGeneratedCell (/private/tmp/viborm-g4-lane-5/tests/raptor3/generation/campaign.ts:68:12)\n    at runGeneratedBatch (/private/tmp/viborm-g4-lane-5/tests/raptor3/generation/campaign.ts:170:20)\n    at /private/tmp/viborm-g4-lane-5/tests/raptor3/generated-campaign.test.ts:17:20\n    at file:///private/tmp/viborm-g4-lane-5/node_modules/.pnpm/@vitest+runner@3.1.4/node_modules/@vitest/runner/dist/index.js:596:20"
+}

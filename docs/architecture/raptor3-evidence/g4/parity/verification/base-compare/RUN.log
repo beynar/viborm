@@ -1,0 +1,6 @@
+=== 14:51:11 base run on 356254a2d ===
+base provider-pg exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 57 ⎯⎯⎯⎯⎯⎯⎯  Test Files 4 failed (4)  Tests 57 failed | 394 passed | 7 skipped (458) 
+base provider-mysql exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 218 ⎯⎯⎯⎯⎯⎯  Test Files 8 failed (8)  Tests 218 failed | 522 passed | 1 skipped (741) 
+pg: base red=57 parity red=26 REGRESSIONS=0 fixed=31
+mysql: base red=218 parity red=165 REGRESSIONS=1 fixed=54
+=== 14:58:42 base compare done ===

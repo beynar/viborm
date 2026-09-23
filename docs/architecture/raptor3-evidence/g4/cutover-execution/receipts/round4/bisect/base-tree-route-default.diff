@@ -1,0 +1,23 @@
+--- /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/client/client.ts.BASE	2026-09-17 00:47:53
++++ /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/client/client.ts.CANDIDATE	2026-09-17 00:47:58
+@@ -69,7 +69,10 @@
+   readPendingCacheResult,
+ } from "@query-engine/pending-operation";
+ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+-import type { ClientOperationRouteFactory } from "@query-engine/raptor3/route/client-route";
++import {
++  type ClientOperationRouteFactory,
++  createCandidateRoute,
++} from "@query-engine/raptor3/route/client-route";
+ import type { TransactionOperation } from "@query-engine/transaction-operation";
+ import { isWriteOperation } from "@query-engine/write-engine/routing";
+ import { hydrateSchemaNames } from "@schema/hydration";
+@@ -1206,7 +1209,7 @@
+    */
+   static create<C extends VibORMConfig>(
+     config: C,
+-    route?: ClientOperationRouteFactory
++    route: ClientOperationRouteFactory | undefined = createCandidateRoute
+   ): VibORMClient<C> {
+     if (!config.driver) {
+       throw new ClientInitializationError(

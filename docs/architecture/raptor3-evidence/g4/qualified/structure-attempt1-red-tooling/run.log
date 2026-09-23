@@ -1,0 +1,55 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-5
+
+ ❯ |raptor3| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts (1 test | 1 failed) 673ms
+   × collects the frozen CS-02 structural work matrix 673ms
+     → [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "capturedAt"
+    ],
+    "path": [
+      "baseIdentity"
+    ],
+    "message": "Unrecognized key: \"capturedAt\""
+  }
+]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts > collects the frozen CS-02 structural work matrix
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "capturedAt"
+    ],
+    "path": [
+      "baseIdentity"
+    ],
+    "message": "Unrecognized key: \"capturedAt\""
+  }
+]
+ ❯ tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1215:48
+    1213|       const retainedPatch = join(evidenceDirectory, "instrumentation.p…
+    1214|       copyFileSync(resolve(instrumentationPatchFile), retainedPatch);
+    1215|       const receipt = measurementReceiptSchema.parse({
+       |                                                ^
+    1216|         formatVersion: 1,
+    1217|         qualifying: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  20:04:36
+   Duration  2.77s (transform 1.27s, setup 9ms, collect 1.92s, tests 673ms, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-fpYkt8/vitest.json
+Vitest resources: 5.03s wall, 731.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-fpYkt8
+identity restored
+cs02-structure-measure exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-fpYkt8
+=== 20:04:39 group structure finished ===

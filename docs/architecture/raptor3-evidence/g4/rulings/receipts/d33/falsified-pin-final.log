@@ -1,0 +1,164 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ❯ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (6 tests | 6 failed) 38ms
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the live route, once per value 20ms
+     → Expected values to be strictly equal:
+
+0 !== 2
+
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output for a create's RETURNING row 4ms
+     → Expected values to be strictly equal:
+
+1 !== 2
+
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the prepared route, once per value 4ms
+     → Expected values to be strictly equal:
+
+1 !== 5
+
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence 2ms
+     → not a QueryEngineError: undefined
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses one inside an array transaction the way that route refuses the decoder's other malformed values 3ms
+     → not a QueryError: undefined
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > materializes a cached read from its snapshot without a second run 4ms
+     → Expected values to be strictly equal:
+
+0 !== 1
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the live route, once per value
+AssertionError: Expected values to be strictly equal:
+
+0 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:174:12
+    172|     assert.deepEqual(many[1]?.payload, { n: 2, tag: "d33" });
+    173|     // ...and two rows read are two runs: once per decoded VALUE.
+    174|     assert.equal(schemaRuns, 2);
+       |            ^
+    175| 
+    176|     schemaRuns = 0;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output for a create's RETURNING row
+AssertionError: Expected values to be strictly equal:
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:217:12
+    215|       { payload: { n: 4, tag: "d33" } }
+    216|     );
+    217|     assert.equal(schemaRuns, 2);
+       |            ^
+    218|   });
+    219| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the prepared route, once per value
+AssertionError: Expected values to be strictly equal:
+
+1 !== 5
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 5[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:247:12
+    245|     // Two rows, one row and one created row decoded, plus the create'…
+    246|     // admission run: the prepared route asks exactly as often as the …
+    247|     assert.equal(schemaRuns, 5);
+       |            ^
+    248|   });
+    249| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence
+AssertionError: not a QueryEngineError: undefined
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:259:12
+    257|     );
+    258| 
+    259|     assert.ok(
+       |            ^
+    260|       refused instanceof QueryEngineError,
+    261|       `not a QueryEngineError: ${String(refused)}`
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses one inside an array transaction the way that route refuses the decoder's other malformed values
+AssertionError: not a QueryError: undefined
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:296:14
+    294|     // two are indistinguishable, and neither is a raw `Error`.
+    295|     for (const failure of [schemaRefusal, intRefusal]) {
+    296|       assert.ok(
+       |              ^
+    297|         failure instanceof QueryError,
+    298|         `not a QueryError: ${String(failure)}`
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > materializes a cached read from its snapshot without a second run
+AssertionError: Expected values to be strictly equal:
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:365:12
+    363|     assert.deepEqual(await cached.document.findMany(read), transformed…
+    364|     await settle();
+    365|     assert.equal(schemaRuns, 1);
+       |            ^
+    366| 
+    367|     // The HIT answers from the snapshot, which holds the DECODED valu…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed (6)
+   Start at  21:30:21
+   Duration  1.48s (transform 877ms, setup 9ms, collect 1.30s, tests 38ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.65s wall, 474.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

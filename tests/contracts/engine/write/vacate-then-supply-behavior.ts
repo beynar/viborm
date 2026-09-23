@@ -328,34 +328,39 @@ export function registerVacateThenSupplyBehavior(
     // writes. Their behavior — both arms, the vacate-prefixed forms, the recursion, the
     // rollback and the substrate boundary — lives in `supplier-continuation-behavior.ts`,
     // which needs a per-substrate registration this bed's shared client cannot give it.
-    // What stays here is the neighbour E did NOT widen:
+    // What stays here is the neighbour E did not widen and N1 did:
 
-    test("delete beside a supplier and a modify is the own-write ledger's refusal", async () => {
+    // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'update' on relation
+    // 'badge' depends on an earlier 'delete' target write in the same nested write.
+    // Split these operations into separate queries."); the vacate's target set is the
+    // CURRENT member, unknown at construction, and that unknown overlap now buys the
+    // modify's read a PLACEMENT instead of a refusal. The parent-held direction of the
+    // same pair keeps the sentence, because there the read is one the parent's own write
+    // consumes (`vacate-then-supply-parent-held-refused.test.ts`).
+    test("delete beside a supplier and a modify vacates, retargets, then marks the INCOMING member", async () => {
       const client = await connect();
       await resetVacateThenSupply(client);
 
-      // The vacate's target set is the CURRENT member, whose identity is unknown at
-      // construction, so the analyzer cannot rule out that it is the very row the modify
-      // reads. `disconnect` in the same position executes (above): it writes membership,
-      // not the target's existence.
-      await expect(
-        client.station.update({
-          where: { id: "s1" },
-          data: {
-            badge: {
-              delete: true,
-              connect: { id: "b-alt" },
-              update: { tag: "u" },
-            },
+      // The to-one canonical order is `delete, connect, update`, so: the vacate's lookup
+      // runs first, nothing ahead of it can move its answer, and it reads the pre-state
+      // and REMOVES `b1`; the supplier then takes a FREED unique slot, which is why this
+      // shape does not end in the collision the vacate-less `connect + update` above
+      // ends in; the modify's target is an ordered observation behind both writes, so it
+      // is `b-alt` — not the incumbent the delete has already destroyed.
+      await client.station.update({
+        where: { id: "s1" },
+        data: {
+          badge: {
+            delete: true,
+            connect: { id: "b-alt" },
+            update: { tag: "u" },
           },
-        })
-      ).rejects.toThrow(
-        "Nested operation 'update' on relation 'badge' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
-      );
-      expect(await badges(client)).toEqual([
-        ["b-alt", "alt", null],
-        ["b1", "incumbent", "s1"],
-      ]);
+        },
+      });
+
+      // `delete + connect` above, plus the modify's mark on the row the supplier named:
+      // one badge left, holding the slot, tagged by the third verb.
+      expect(await badges(client)).toEqual([["b-alt", "u", "s1"]]);
     });
 
     test("`delete: false` beside a supplier is still a SINGLE-kind payload (N7-U-B)", async () => {

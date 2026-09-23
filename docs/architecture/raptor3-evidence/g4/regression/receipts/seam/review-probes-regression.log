@@ -1,0 +1,75 @@
+▲ [WARNING] Cannot find base config file "astro/tsconfigs/strict" [tsconfig.json]
+
+    docs/tsconfig.json:2:13:
+      2 │   "extends": "astro/tsconfigs/strict",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests | 1 failed) 111ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P1 a root update rejected before dispatch answers the shipped failure 40ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P2 a nested write inside a root create rejected before dispatch answers the shipped failure 13ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P3 an array member rejected before dispatch answers the shipped failure 8ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P4 createMany rejected before dispatch publishes no progress on either engine 9ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P5 updateMany rejected before dispatch publishes no progress on either engine 5ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P6 deleteMany rejected before dispatch publishes no progress on either engine 5ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on shipped and not on the candidate route 10ms
+     → P7 {
+  "candidate": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  }
+}
+
+1 !== 0
+
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P8 a committed set window with a malformed result still publishes progress on the candidate only 4ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.1 a relation-bearing root create faulted after 1 dispatched statement(s) 5ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.2 a relation-bearing root create faulted after 2 dispatched statement(s) 5ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.3 a relation-bearing root create faulted after 3 dispatched statement(s) 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on shipped and not on the candidate route
+AssertionError: P7 {
+  "candidate": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  }
+}
+
+1 !== 0
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:395:12
+    393|     // outcome it cannot prove rolled back; the candidate route does n…
+    394|     assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped })…
+    395|     assert.equal(
+       |            ^
+    396|       candidate.invalidations,
+    397|       0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 passed (11)
+   Start at  22:21:46
+   Duration  3.09s (transform 1.88s, setup 0ms, collect 2.79s, tests 111ms, environment 0ms, prepare 49ms)
+
+Vitest resources: 3.63s wall, 465.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

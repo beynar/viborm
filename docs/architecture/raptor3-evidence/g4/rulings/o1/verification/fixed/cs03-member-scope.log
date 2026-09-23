@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 51ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  01:19:00
+   Duration  2.83s (transform 876ms, setup 10ms, collect 1.33s, tests 51ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-Ajf8ap/vitest.json
+Vitest resources: 7.14s wall, 483.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs03-member-scope contract gate verified. Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-Ajf8ap

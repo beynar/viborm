@@ -92,7 +92,7 @@ arm is the captured root count. The `set-builder` skip is no longer reachable
 with a relation key, and `BulkCountOperation`'s docblock — quoted below as the
 false premise it was — has been corrected. See
 [`limitation-lift-plan.md` §5.2](limitation-lift-plan.md) and
-`write-engine/ATOM.md` §17.
+`docs/architecture/retired/write-engine-ATOM.md` §17.
 
 ```ts
 client.user.updateMany({
@@ -953,7 +953,7 @@ their provider services are available.
 
 **E8. The TypeScript type-instantiation ceiling (~31 levels).** A rich per-level literal create payload type-checks at 30 levels and fails at 32 with TS2321. The runtime carries no depth counter and folds a 40-level chain. A **DX** ceiling on client input inference, not an engine limit. Workaround: build the payload programmatically so the compiler never infers the deep literal.
 
-**E9. Documentation contradictions that make the current state hard to establish.** `ATOM.md:1004` *"(V1 not yet deletable)"* vs `routing.ts:26` *"with V1 deleted"*. `src/query-engine/write-engine/README.md:3` still declares *"Query Engine V1 remains the public implementation"*; its module table lists only `CreateOperation` (25 modules exist); `:291` says *"A future `UpdateOperation` should be implemented concretely first"* (it is 3,300+ lines); its "Deliberate Non-Goals" lists three things that all shipped. `correlation-utils.ts:19` claims M2M junction handling is *"not yet implemented"* while `:62` routes it to a working helper. `src/README.md:110` — *"when the database adapter system is implemented in a future phase"*. Plus the 73 "routes to V1" comments.
+**E9. Documentation contradictions that make the current state hard to establish.** `ATOM.md:1004` *"(V1 not yet deletable)"* vs `routing.ts:26` *"with V1 deleted"*. `docs/architecture/retired/write-engine-README.md:3` still declares *"Query Engine V1 remains the public implementation"*; its module table lists only `CreateOperation` (25 modules exist); `:291` says *"A future `UpdateOperation` should be implemented concretely first"* (it is 3,300+ lines); its "Deliberate Non-Goals" lists three things that all shipped. `correlation-utils.ts:19` claims M2M junction handling is *"not yet implemented"* while `:62` routes it to a working helper. `src/README.md:110` — *"when the database adapter system is implemented in a future phase"*. Plus the 73 "routes to V1" comments.
 
 **E10. Reproducibility.** The benchmark baseline (`benchmarks/baseline.json`) is a **machine-local, untracked artifact**. None of the §3.D numbers is reproducible from a clean clone without regenerating it.
 
@@ -989,7 +989,7 @@ their provider services are available.
 | `README.md:39` | "no `updateManyAndReturn`" | ~~it exists~~ — **resolved by W3-U4** (`c9de15f`, docs `27d8e53`): the method genuinely does not exist; `README.md:37,39` now describe the implicit-returning form instead |
 | `README.md:271-295` | `instrumentation: { tracing: { enabled: true } }` | `TracingConfig` has no `enabled` field |
 | `prisma-core-gaps.md:20-22` | `createManyAndReturn`/`updateManyAndReturn` are non-goals | ~~both implemented~~ — **W3-U4 made the doc right for the wrong reason**: the names are non-goals now by decision D-1, and the capability ships under `createMany`/`updateMany` + `select`. The page still needs that sentence |
-| `src/query-engine/write-engine/README.md:3` + 73 in-file comments | "V1 remains the public implementation" / "routes to V1" | V1 fallback deleted; those errors now propagate |
+| `docs/architecture/retired/write-engine-README.md:3` + 73 in-file comments | "V1 remains the public implementation" / "routes to V1" | V1 fallback deleted; those errors now propagate |
 | `src/client/AGENTS.md:255-260` | `$transaction(cb, { isolationLevel })` | ~~any second argument throws `V5005`~~ — **resolved by W5-U3** (`812a750`): the documented call now works; a *malformed* options object is what raises `V5005` |
 | `src/migrations/AGENTS.md:191` | `viborm push --accept-data-loss` | the flag is `--force` |
 | `AGENTS.md:184` | 13+ drivers including `d1-http` | 11 drivers; `d1-http` does not exist |

@@ -1,0 +1,19 @@
+{
+  "mode": "post-g3-clearability-mysql-contracts",
+  "identity": {
+    "production": "8bceaa85501c3405c5ebc9173da341efc5991afe1a0e93cd982d07f35f054d4c",
+    "harness": "34c7ca0ff455229f2a60b55543c6995f6df020fa460ad7cdfa0c8a43e7509515",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

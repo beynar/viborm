@@ -1,0 +1,1 @@
+{"file":"bulk-update-returning-100-prepare-candidate.gc.json","cpuUsPerOp":31.284,"wallUsPerOp":20.484,"iterations":5000,"scavenges":22,"scavengeMs":19.55,"majorCount":2,"majorMs":2.59,"totalGcMs":22.14,"gcUsPerOp":4.428,"steadyScavengeMsMedian":1.17,"steadyCapMB":90.5,"steadyBeforeMB":57.4,"steadyAfterMB":32.1}

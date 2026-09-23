@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/g4/generation/harness.selftest.test.ts (6 tests) 182ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  21:02:50
+   Duration  2.34s (transform 1.23s, setup 10ms, collect 1.92s, tests 182ms, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-7qDZ3j/vitest.json
+Vitest resources: 4.86s wall, 499.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-generation-selftests contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-7qDZ3j

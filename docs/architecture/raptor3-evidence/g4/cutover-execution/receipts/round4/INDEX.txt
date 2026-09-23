@@ -1,0 +1,57 @@
+Round 4 receipts — g4-cutover-execution (C-01), 2026-09-17 00:45–01:25.
+Every command ran from /Users/arnaud/code/viborm on the pinned runtime, serially,
+under the existing workspace lock. Nothing was committed, staged, reset or stashed.
+captureRaptor3Identity().production after round 4 is
+50c0ee97fb1458333c818735da4c92b7bca89daa65929199c00ef551533b7a63 — byte-equal to
+round 3: round 4 changed no production file.
+
+THE FOUR MISSING LANES (R4.1, R4.2, R4.3)
+  provider-local-cutover.log            provider-sqlite3 + provider-libsql on the cutover
+                                        tree: 61 failed / 703 passed, 5 red files.
+  provider-local-BASE-legacy.log        the same lanes at 5a37bcd7: 0 failed / 1,253 passed.
+  provider-local-BASE-candidate.log     at 5a37bcd7 + the candidate-route default: 71 failed
+                                        / 1,182 passed (the 61, plus 10 in two suites C-01
+                                        deletes). All 61 reproduce; failing sets identical.
+  pg-nested-write-races-cutover.log     13 failed / 82 passed of 95 (PG 127.0.0.1:55729).
+  pg-nested-write-races-BASE-legacy.log 77 / 77 green at the base.
+  pg-nested-write-races-BASE-candidate.log  8 failed at base + candidate route.
+  pg-write-update-BASE-candidate.log    the file C-01 deletes, at base + candidate route:
+                                        19 failed / 148 passed, including all five
+                                        batchPrimaryKeyDataflowContract cells (R4.4).
+  mysql2-cutover.log                    13 failed / 71 passed of 85 (MySQL 127.0.0.1:55730).
+  mysql2-BASE-legacy.log                4 failed / 80 passed (pre-existing namespace four).
+  mysql2-BASE-candidate.log             12 failed at base + candidate route.
+  mysql2-BASE-candidate-buildoracle.log base + candidate route + D-14's publication, so
+                                        QueryEngine.build answers the candidate's SQL:
+                                        13 failed / 71 passed, failing set IDENTICAL to the
+                                        cutover tree's. Closes the bisection's blind spot.
+  bisect/base-tree-route-default.diff   the two-line candidate-route default on the scratch
+                                        base (byte-identical to round 3's).
+  bisect/base-tree-build-oracle.diff    the additional query-engine.ts / pending-operation.ts
+                                        / client-route.ts hunks of the build-oracle base.
+
+CLASS-A RESTORATION (R4.5)
+  classA-restored-run1.log/.json        all 14 deleted .test.ts files restored from 5a37bcd7
+                                        and run on the cutover tree: 536 cells, 208 red,
+                                        328 green. Per-file red counts equal note R3.4's
+                                        table exactly.
+  classA-restored-run3.log              the 12 restored-and-pruned files: 328 / 328 green.
+
+VERIFICATION (R4.8)
+  typecheck-1.txt / typecheck-final.txt exactly the two permitted pattern/pack.ts TS2345.
+  core-round4.log                       core lane: 6 failed files / 11 failed tests of
+                                        464 files / 9,301 tests.
+  modes/g0.log, g1-compare.log, g1-baseline.log, g1-contracts.log,
+  modes/g4-unit01-author.log, g4-unit01-review.log
+                                        33/33, 66/66, 141/141, 143/143, 83/83, 198/198.
+  credential-free-fixed.log             --only "Raptor 3 fixed": 65 files / 758 tests green.
+  coverage-policy.log                   pnpm test:coverage:policy 11/11, 16/16, 6/6.
+  receipts-selftest.log                 raptor3-campaign-receipts.test.mjs 39/39.
+  core-taxonomy-census.log              4/4.
+  census-after.txt                      structure census, identical to round 3.
+  biome-after.txt                       33 errors over the 23 touched files (base: 45); no
+                                        diagnostic class the base does not have.
+  identity-after.json                   production 50c0ee97… (unchanged), harness 02f0489c….
+
+The scratch base trees live outside the repository, under this session's scratchpad
+(.../scratchpad/r4base), and are not evidence.

@@ -1,0 +1,20 @@
+ ❯ |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests | 4 failed) 121ms
+ ❯ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests | 4 failed) 118ms
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ Test Files  2 failed (2)
+      Tests  8 failed | 28 passed (36)

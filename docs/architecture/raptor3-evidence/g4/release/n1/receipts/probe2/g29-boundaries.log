@@ -1,0 +1,12 @@
+ ❯ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests | 2 failed) 39ms
+ ❯ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests | 2 failed) 40ms
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts > G2.9 dependency boundaries [commands] (sqlite-interactive) > refuses an actual member lookup that conflicts with a
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts > G2.9 dependency boundaries [commands] (sqlite-atomic-batch) > refuses an actual member lookup that conflicts with 
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts > G2.9 dependency boundaries [commands] (sqlite-interactive) > refuses an actual member lookup that conflicts with an earlier
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts > G2.9 dependency boundaries [commands] (sqlite-atomic-batch) > refuses an actual member lookup that conflicts with an earlie
+AssertionError: {
+ Test Files  2 failed (2)
+      Tests  4 failed | 4 passed (8)

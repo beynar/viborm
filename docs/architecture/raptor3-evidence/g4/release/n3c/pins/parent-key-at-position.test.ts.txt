@@ -1,0 +1,133 @@
+/**
+ * N3c (the nesting-and-refusals plan) — the parent's key at the statement's
+ * position. A nested lookup runs before its parent's own write, so it names
+ * the parent as the row IS: the located identity, never the assignments the
+ * parent will hold afterwards. Under a key transition those assignments are
+ * the post-write key — on the batch route a scratch reference that no read
+ * dispatched before the batch can carry (42P01, the legality cells' red) and
+ * on the live route a value no child holds yet. Both routes then reach the
+ * legality owner (`requireTransitions`) and refuse the occupied slot alike.
+ */
+
+import assert from "node:assert/strict";
+import { createClient } from "@client/client";
+import type { BatchQuery, QueryResult } from "@drivers";
+import type { PGliteDriver } from "@drivers/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { NestedWriteError } from "@errors";
+import { s } from "@schema";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
+
+const parent = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    child: s.toOne(() => child),
+  })
+  .map("n3c_parents");
+const child = s
+  .model({
+    id: s.int().id(),
+    label: s.string(),
+    parentId: s.int().nullable().unique(),
+    parent: s
+      .toOne(() => parent)
+      .fields("parentId")
+      .references("id")
+      .onUpdate("setNull"),
+  })
+  .map("n3c_children");
+const schema = { parent, child };
+
+const SCRATCH = /__viborm_batch_refs/;
+const CHILD_LOOKUP = /FROM "public"\."n3c_children"/;
+const OCCUPIED = /onUpdate\('setNull'\).*current relation is occupied/;
+
+/** Records every statement the driver runs, batched or not, in order. */
+class RecordingBatchOnlyDriver extends BatchOnlyPGliteDriver {
+  readonly direct: string[] = [];
+  readonly batches: string[][] = [];
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.batches.push(queries.map((query) => query.sql));
+    return super.executeBatch<T>(client, queries);
+  }
+  protected override async execute<T>(
+    client: PGlite | Transaction,
+    statement: string,
+    parameters: unknown[],
+    context?: Parameters<PGliteDriver["execute"]>[3]
+  ): Promise<QueryResult<T>> {
+    this.direct.push(statement);
+    return super.execute<T>(client, statement, parameters, context);
+  }
+}
+
+describe("N3c: a nested lookup names the parent's located identity", () => {
+  const driver = new RecordingBatchOnlyDriver();
+  const client = createClient({ schema, driver });
+  beforeAll(async () => {
+    await syncLiveSchema(client);
+  });
+  afterAll(async () => {
+    await driver.disconnect();
+  });
+  beforeEach(async () => {
+    await client.child.deleteMany({});
+    await client.parent.deleteMany({});
+    await client.parent.create({ data: { id: 1, name: "Parent" } });
+    await client.child.create({ data: { id: 1, label: "Child", parentId: 1 } });
+    driver.direct.length = 0;
+    driver.batches.length = 0;
+  });
+
+  it("reads the child by the parent's current key, not the transitioned one, and refuses the occupied slot", async () => {
+    await assert.rejects(
+      async () => {
+        await client.parent.update({
+          where: { id: 1 },
+          data: {
+            id: { increment: 1 },
+            child: { update: { label: "must not change" } },
+          },
+        });
+      },
+      (error: unknown) =>
+        error instanceof NestedWriteError && OCCUPIED.test(error.message)
+    );
+    const lookup = driver.direct.find((sql) => CHILD_LOOKUP.test(sql));
+    assert.ok(lookup, driver.direct.join("\n"));
+    assert.ok(!SCRATCH.test(lookup), lookup);
+    assert.ok(
+      !driver.direct.some((sql) => SCRATCH.test(sql)),
+      "no statement outside a batch names the scratch"
+    );
+    assert.deepEqual(await client.child.findMany(), [
+      { id: 1, label: "Child", parentId: 1 },
+    ]);
+    assert.deepEqual(await client.parent.findMany(), [
+      { id: 1, name: "Parent" },
+    ]);
+  });
+
+  it("updates the held child when the parent's key does not move", async () => {
+    const updated = await client.parent.update({
+      where: { id: 1 },
+      data: { name: "Renamed", child: { update: { label: "Changed" } } },
+      select: {
+        id: true,
+        name: true,
+        child: { select: { id: true, label: true } },
+      },
+    });
+    assert.deepEqual(updated, {
+      id: 1,
+      name: "Renamed",
+      child: { id: 1, label: "Changed" },
+    });
+  });
+});

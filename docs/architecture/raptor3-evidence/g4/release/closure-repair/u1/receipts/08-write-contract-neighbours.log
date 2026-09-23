@@ -1,0 +1,52 @@
+=== shared-pk-connect-or-create ===
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-connect-or-create.test.ts (29 tests) 987ms
+
+ Test Files  1 passed (1)
+      Tests  29 passed (29)
+   Start at  16:53:45
+   Duration  2.51s (transform 895ms, setup 11ms, collect 1.34s, tests 987ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 4.25s wall, 1510.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+EXIT_shared-pk-connect-or-create=0
+=== upsert-arm-referenced-edge ===
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |extended-local| tests/contracts/engine/write/upsert-arm-referenced-edge.test.ts (18 tests) 1009ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  16:53:50
+   Duration  2.55s (transform 903ms, setup 9ms, collect 1.36s, tests 1.01s, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.30s wall, 1461.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+EXIT_upsert-arm-referenced-edge=0
+=== junction-upsert-arm-probe ===
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |extended-local| tests/contracts/engine/write/junction-upsert-arm-probe.test.ts (10 tests) 888ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  16:53:54
+   Duration  2.39s (transform 884ms, setup 9ms, collect 1.34s, tests 888ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 4.11s wall, 1464.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+EXIT_junction-upsert-arm-probe=0
+=== parent-held-lookup ===
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts (56 tests) 2127ms
+
+ Test Files  1 passed (1)
+      Tests  56 passed (56)
+   Start at  16:53:59
+   Duration  3.66s (transform 904ms, setup 10ms, collect 1.36s, tests 2.13s, environment 0ms, prepare 29ms)
+
+Vitest resources: 5.35s wall, 1674.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+EXIT_parent-held-lookup=0

@@ -1,0 +1,26 @@
+[test:all] extended-local shared-family shard 4/8 (14 suites)
+ ✓ |extended-local| tests/contracts/public-client/all-field-types.test.ts (8 tests) 840ms
+ ❯ |extended-local| tests/contracts/engine/write/inverse-to-one-update-depth.test.ts (33 tests | 2 failed) 854ms
+ ✓ |extended-local| tests/contracts/public-client/official-cache-invalidation.test.ts (11 tests) 658ms
+ ✓ |extended-local| tests/contracts/engine/write/upsert-arm-referenced-edge.test.ts (18 tests) 729ms
+ ✓ |extended-local| tests/contracts/engine/query/bulk-insert-row-shapes.test.ts (8 tests) 587ms
+ ✓ |extended-local| tests/contracts/engine/query/nested-not-filter.test.ts (12 tests) 468ms
+ ✓ |extended-local| tests/contracts/engine/query/relation-key-update-legality-local-fk.test.ts (6 tests) 633ms
+ ✓ |extended-local| tests/unit/migrations/decimal-list-storage-agreement.test.ts (4 tests) 482ms
+ ✓ |extended-local| tests/contracts/engine/write/adopt-family-depth.test.ts (4 tests) 537ms
+ ✓ |extended-local| tests/unit/cache/batch-transaction-invalidation.test.ts (10 tests) 601ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-pk-transition-cascade-ordering.test.ts (6 tests) 501ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-depth-stress.test.ts (7 tests) 596ms
+ ✓ |extended-local| tests/contracts/engine/write/reads.test.ts (54 tests) 782ms
+ ❯ |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts (26 tests | 6 failed) 934ms
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (transaction) > M7: two upsert items on one relation are refused (overlapping
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > M7: two upsert items on one relation are refused (overlappin
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (transaction) > M7: two upsert items are refused even with DISJOINT selectors
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > M7: two upsert items are refused even with DISJOINT selector
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (transaction) > M7: an upsert beside a connectOrCreate on one relation is ref
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > M7: an upsert beside a connectOrCreate on one relation is re
+ FAIL  |extended-local| tests/contracts/engine/write/inverse-to-one-update-depth.test.ts > E2-U1 provenance: the deeper key comes from the row the probe locked > a probe row without the located key fa
+ FAIL  |extended-local| tests/contracts/engine/write/inverse-to-one-update-depth.test.ts > E2-U1 provenance: the deeper key comes from the row the probe locked > a probe row without the located key fa
+ Test Files  2 failed | 12 passed (14)
+      Tests  8 failed | 199 passed (207)
+[test:all] extended-local shared-family shard 4/8 (14 suites): 13.12s wall, 2064.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

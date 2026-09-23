@@ -1,0 +1,117 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |review-cutover| tests/raptor3/g4/review/cutover/d14-publication.review.test.ts (9 tests | 4 failed) 44ms
+   ✓ C-01 round 3 — the statement the engine publishes is the one it runs > publishes the SAME Sql object the execution submits, with no extra round trip 6ms
+   × C-01 round 3 — the statement the engine publishes is the one it runs > answers the same statement through QueryEngine.build, for every read verb 8ms
+     → by.map is not a function
+   ✓ C-01 round 3 — the statement the engine publishes is the one it runs > refuses every write with the pre-cutover sentence, on both accessors 2ms
+   × C-01 round 3 — the statement the engine publishes is the one it runs > keeps the registered refusals around the publication 2ms
+     → The input did not match the regular expression /^Unknown operation 'createManyAndReturn' on model 'author'\. Known operations: aggregate, count, create, createMany, delete, deleteMany, exist, findFirst, findFirstOrThrow, findMany, findUnique, findUniqueOrThrow, groupBy, update, updateMany, upsert\.$/. Input:
+
+"QueryEngineError: Unknown operation 'createManyAndReturn' on model 'author'. Known operations: aggregate, count, create, createMany, delete, deleteMany, exist, findFirst, findFirstOrThrow, findMany, findUnique, findUniqueOrThrow, groupBy, update, updateMany, upsert."
+
+   × C-01 round 3 — the statement the engine publishes is the one it runs > prepareSingle publishes exactly what prepareBatch publishes, for a read 1ms
+     → single.queries[0]?.sql.toStatement is not a function
+   × C-01 round 3 — the statement the engine publishes is the one it runs > an array $transaction member runs the statement the same read builds 21ms
+     → []
+
+0 !== 2
+
+   ✓ C-01 round 3 — the statement the engine publishes is the one it runs > refuses a malformed array member before anything is dispatched 3ms
+   ✓ C-01 round 3 — the statement the engine publishes is the one it runs > the provisioned route reaches every model of a bare engine, .map() names included 0ms
+   ✓ C-01 round 3 — the statement the engine publishes is the one it runs > the deleted direct-runtime arms that carry no shipped result key still hold 1ms
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/routed-operations-authority.review.test.ts (4 tests) 6ms
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/one-owner-every-lineage.review.test.ts (3 tests) 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/d14-publication.review.test.ts > C-01 round 3 — the statement the engine publishes is the one it runs > answers the same statement through QueryEngine.build, for every read verb
+TypeError: by.map is not a function
+ ❯ Queries.grouped src/query-engine/raptor3/shared/query.ts:3432:31
+    3430|     const aggregates = this.prepareAggregates(model, args);
+    3431|     const fields: Record<string, Shape | Leaf> = {};
+    3432|     const columns: Sql[] = by.map((field) => {
+       |                               ^
+    3433|       fields[field] = this.scalarShape(model, field);
+    3434|       return a.identifiers.aliased(
+ ❯ Queries.read src/query-engine/raptor3/shared/query.ts:2599:28
+ ❯ read src/query-engine/raptor3/commands/index.ts:167:36
+ ❯ Object.get read [as read] src/query-engine/raptor3/commands/index.ts:191:23
+ ❯ Object.buildStatement src/query-engine/raptor3/route/client-route.ts:193:27
+ ❯ PendingOperation.buildStatement src/query-engine/pending-operation.ts:745:34
+ ❯ QueryEngine.build src/query-engine/query-engine.ts:136:7
+ ❯ tests/raptor3/g4/review/cutover/d14-publication.review.test.ts:176:32
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/d14-publication.review.test.ts > C-01 round 3 — the statement the engine publishes is the one it runs > keeps the registered refusals around the publication
+AssertionError: The input did not match the regular expression /^Unknown operation 'createManyAndReturn' on model 'author'\. Known operations: aggregate, count, create, createMany, delete, deleteMany, exist, findFirst, findFirstOrThrow, findMany, findUnique, findUniqueOrThrow, groupBy, update, updateMany, upsert\.$/. Input:
+
+"QueryEngineError: Unknown operation 'createManyAndReturn' on model 'author'. Known operations: aggregate, count, create, createMany, delete, deleteMany, exist, findFirst, findFirstOrThrow, findMany, findUnique, findUniqueOrThrow, groupBy, update, updateMany, upsert."
+
+
+[32m- Expected:[39m 
+/^Unknown operation 'createManyAndReturn' on model 'author'\. Known operations: aggregate, count, create, createMany, delete, deleteMany, exist, findFirst, findFirstOrThrow, findMany, findUnique, findUniqueOrThrow, groupBy, update, updateMany, upsert\.$/
+
+[31m+ Received:[39m 
+QueryEngineError {
+  "message": "Unknown operation 'createManyAndReturn' on model 'author'. Known operations: aggregate, count, create, createMany, delete, deleteMany, exist, findFirst, findFirstOrThrow, findMany, findUnique, findUniqueOrThrow, groupBy, update, updateMany, upsert.",
+  "code": "V9001",
+  "originalCause": undefined,
+  "meta": {},
+  "timestamp": 2026-09-16T22:16:45.441Z,
+  "name": "QueryEngineError",
+}
+
+ ❯ tests/raptor3/g4/review/cutover/d14-publication.review.test.ts:221:12
+    219|     const engine = bareEngine(new ProbeDriver());
+    220|     // A removed verb name is still named, from the one vocabulary own…
+    221|     assert.throws(
+       |            ^
+    222|       () =>
+    223|         engine
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/d14-publication.review.test.ts > C-01 round 3 — the statement the engine publishes is the one it runs > prepareSingle publishes exactly what prepareBatch publishes, for a read
+TypeError: single.queries[0]?.sql.toStatement is not a function
+ ❯ tests/raptor3/g4/review/cutover/d14-publication.review.test.ts:262:30
+    260|     assert.equal(batch.queries.length, 1);
+    261|     assert.equal(
+    262|       single.queries[0]?.sql.toStatement("?"),
+       |                              ^
+    263|       batch.queries[0]?.sql.toStatement("?")
+    264|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/d14-publication.review.test.ts > C-01 round 3 — the statement the engine publishes is the one it runs > an array $transaction member runs the statement the same read builds
+AssertionError: []
+
+0 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/review/cutover/d14-publication.review.test.ts:304:12
+    302|     const texts = (driver.sent as Sql[]).map((sql) => sql.toStatement(…
+    303|     const reads = texts.filter((text) => text.startsWith("SELECT"));
+    304|     assert.equal(reads.length, 2, JSON.stringify(texts));
+       |            ^
+    305|     const direct = bareEngine(new ProbeDriver())
+    306|       .build(author, "findMany", args)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  4 failed | 12 passed (16)
+   Start at  00:16:43
+   Duration  2.54s (transform 1.33s, setup 16ms, collect 2.30s, tests 55ms, environment 0ms, prepare 43ms)
+
+Vitest resources: 3.11s wall, 449.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

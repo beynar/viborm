@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 527ms
+   ✓ G2 disputed diagnostic failure — reproducer, not acceptance > records legacy loss of the primary after a diagnostic read fails  377ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:32:38
+   Duration  12.72s (transform 4.59s, setup 23ms, collect 7.39s, tests 527ms, environment 0ms, prepare 91ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-s7gKNp/vitest.json
+Vitest resources: 22.04s wall, 498.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-diagnostics disputed behavior reproduced (not accepted). Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-s7gKNp

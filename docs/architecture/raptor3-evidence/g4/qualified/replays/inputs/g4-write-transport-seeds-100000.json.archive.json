@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "source": "g4-write-transport-seeds-100000.json",
+  "file": "g4-write-transport-seeds-100000.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 64091456,
+  "originalSha256": "924e9acd4eda70447deb8e3e0268f54913bbe2ad76e70c12104f79eb15a7be10",
+  "archiveBytes": 1313383,
+  "archiveSha256": "5b637bad7e71cb50b514d5394a2f75849aea8c61ad5334d38c30f0909ccb75eb",
+  "identity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
+  },
+  "role": "replay input",
+  "restoreWorkingDirectory": "the directory containing this descriptor",
+  "restoreCommand": "g4_replay_restore_dir=$(mktemp -d); gzip -dc \"g4-write-transport-seeds-100000.json.gz\" > \"$g4_replay_restore_dir/g4-write-transport-seeds-100000.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm\"; node scripts/run-raptor3.mjs replay \"$g4_replay_restore_dir/g4-write-transport-seeds-100000.json\""
+}

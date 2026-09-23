@@ -24,7 +24,7 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { instrumentation } from "@instrumentation/extension";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
-import { introspect } from "@migrations/push";
+import { introspect } from "@migrations/push/planner";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   DISTANCE_RESULT_KEY,
@@ -956,40 +956,12 @@ describeIf("MySQL namespace containment", () => {
     await withAdmin(dropFixtureDatabases);
   });
 
-  // `push` deliberately carries no storage owner and never touches tracking
-  // (`src/migrations/push/planner.ts`), so this leg proves DDL and runtime
-  // writes only. The tracking half is the separate `apply` leg below.
-  test("pushes and writes into the target, not the connection's database", async () => {
-    const client = createClient({
-      schema: noteSchema,
-      driver: crossTargetDriver(),
-    });
-    // These clients are NOT disconnected: `MySQL2Driver.closeClient` ends
-    // whatever pool it holds, including a supplied one, so the fixture that
-    // created the pool owns its lifetime and closes it once in `afterAll`.
-    await syncLiveSchema(client);
-    await client.note.create({ data: { id: "n1", title: "alpha only" } });
-    const found = await client.note.findMany({});
-    expect(found.map((row: { id: string }) => row.id)).toEqual(["n1"]);
-
-    expect(await tableNamesIn(ALPHA_DB)).toContain("ns_notes");
-    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
-  });
-
-  test("introspects only the target and converges on a second push", async () => {
-    const client = createClient({
-      schema: noteSchema,
-      driver: crossTargetDriver(),
-    });
-    const snapshot = await introspect(client);
-    const names = snapshot.tables.map((table) => table.name);
-    expect(names).toContain("ns_notes");
-    expect(names).not.toContain("ns_sentinel");
-
-    const second = await syncLiveSchema(client);
-    expect(second.operations).toEqual([]);
-  });
-
+  // THE APPLY LEG RUNS FIRST, and that is a precondition, not a preference:
+  // an ordinary `apply` requires an EMPTY managed target (a non-empty one is
+  // `baseline`'s job, and the command says so), while the two push cells below
+  // deliberately leave `ns_notes` in alpha for the portability cell at the end
+  // to read back. Declared after them, this cell met a target holding another
+  // suite's table and was refused before it could measure anything.
   test("applies into the TARGET's control tables, over a connection pointing elsewhere", async () => {
     const storage = new MemoryEstateStorage();
     const client = createClient({
@@ -1004,12 +976,21 @@ describeIf("MySQL namespace containment", () => {
     // ledger INSERT — must name the target. With the decoy present, "alpha
     // holds the ledger and beta's stays empty" is a claim only correctly
     // qualified statements can satisfy.
+    //
+    // The pair is spelled the way `control.ts` spells it ON MySQL. The decoy
+    // used the dialect-neutral `event_id TEXT PRIMARY KEY` of the other
+    // branch, and MySQL refuses a TEXT key with no prefix length (errno 1170,
+    // SQLSTATE 42000) — on every MySQL there has ever been. The CREATE above it
+    // had already succeeded and this pair is built OUTSIDE the try/finally, so
+    // the abort also left `_viborm_migration_state` behind in beta and the two
+    // cells that read `tableNamesIn(BETA_DB)` back, plus the portable-estate
+    // cell that meets a state table with no log, failed with it.
     await withAdmin(async (admin) => {
       await admin.$executeRawUnsafe(
         `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_STATE}\` (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), payload TEXT NOT NULL)`
       );
       await admin.$executeRawUnsafe(
-        `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_LOG}\` (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)`
+        `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_LOG}\` (event_id VARCHAR(64) PRIMARY KEY, attempt_id VARCHAR(64) NOT NULL, kind VARCHAR(32) NOT NULL, payload TEXT NOT NULL)`
       );
     });
 
@@ -1063,6 +1044,40 @@ describeIf("MySQL namespace containment", () => {
     }
 
     expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  // `push` deliberately carries no storage owner and never touches tracking
+  // (`src/migrations/push/planner.ts`), so this leg proves DDL and runtime
+  // writes only. The tracking half is the separate `apply` leg above.
+  test("pushes and writes into the target, not the connection's database", async () => {
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    // These clients are NOT disconnected: `MySQL2Driver.closeClient` ends
+    // whatever pool it holds, including a supplied one, so the fixture that
+    // created the pool owns its lifetime and closes it once in `afterAll`.
+    await syncLiveSchema(client);
+    await client.note.create({ data: { id: "n1", title: "alpha only" } });
+    const found = await client.note.findMany({});
+    expect(found.map((row: { id: string }) => row.id)).toEqual(["n1"]);
+
+    expect(await tableNamesIn(ALPHA_DB)).toContain("ns_notes");
+    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  test("introspects only the target and converges on a second push", async () => {
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    const snapshot = await introspect(client);
+    const names = snapshot.tables.map((table) => table.name);
+    expect(names).toContain("ns_notes");
+    expect(names).not.toContain("ns_sentinel");
+
+    const second = await syncLiveSchema(client);
+    expect(second.operations).toEqual([]);
   });
 
   test("refuses a configured database the server does not have, before any DDL", async () => {

@@ -1,0 +1,453 @@
+{
+  "definitions": {
+    "functions": "Function-like declarations with bodies, excluding constructors and accessors.",
+    "highParameterFunctions": "Measured functions with at least five parameters.",
+    "branchNodes": "if, ternary, case, loops, catch, &&, and || nodes; excludes ?? and default clauses.",
+    "importCycles": "Strongly connected components of runtime imports internal to the measured directory; type-only imports are excluded.",
+    "lines": "Physical newline count, equivalent to wc -l for these files.",
+    "tokenLines": "Physical lines on which at least one parser-owned TypeScript token starts; comments and blank lines are excluded."
+  },
+  "queryEngine": {
+    "files": 180,
+    "lines": 82524,
+    "tokenLines": 65712,
+    "functions": 3622,
+    "parameters": 6752,
+    "highParameterFunctions": 238,
+    "branchNodes": 8445,
+    "runtimeImportCycleComponents": 2,
+    "runtimeFilesInCycles": 14,
+    "filesOver300Lines": 74,
+    "filesOver600Lines": 33,
+    "largeFiles": [
+      {
+        "file": "src/query-engine/JunctionStatements.ts",
+        "lines": 568
+      },
+      {
+        "file": "src/query-engine/OwnWriteAnalyzer.ts",
+        "lines": 444
+      },
+      {
+        "file": "src/query-engine/OwnWriteLedger.ts",
+        "lines": 329
+      },
+      {
+        "file": "src/query-engine/OwnWriteRelation.ts",
+        "lines": 341
+      },
+      {
+        "file": "src/query-engine/OwnWriteSteps.ts",
+        "lines": 756
+      },
+      {
+        "file": "src/query-engine/TargetConstraint.ts",
+        "lines": 575
+      },
+      {
+        "file": "src/query-engine/builders/include-builder.ts",
+        "lines": 361
+      },
+      {
+        "file": "src/query-engine/builders/include-many-to-many.ts",
+        "lines": 301
+      },
+      {
+        "file": "src/query-engine/builders/json-filter-builder.ts",
+        "lines": 454
+      },
+      {
+        "file": "src/query-engine/builders/many-to-many-utils.ts",
+        "lines": 711
+      },
+      {
+        "file": "src/query-engine/builders/polymorphic-collection-filter-builder.ts",
+        "lines": 384
+      },
+      {
+        "file": "src/query-engine/builders/projection-select.ts",
+        "lines": 1836
+      },
+      {
+        "file": "src/query-engine/builders/relation-data-builder.ts",
+        "lines": 607
+      },
+      {
+        "file": "src/query-engine/builders/relation-filter-builder.ts",
+        "lines": 438
+      },
+      {
+        "file": "src/query-engine/builders/relation-mutation-parser.ts",
+        "lines": 1190
+      },
+      {
+        "file": "src/query-engine/builders/select-builder.ts",
+        "lines": 564
+      },
+      {
+        "file": "src/query-engine/builders/values-builder.ts",
+        "lines": 631
+      },
+      {
+        "file": "src/query-engine/builders/where-builder.ts",
+        "lines": 923
+      },
+      {
+        "file": "src/query-engine/cache-flow.ts",
+        "lines": 309
+      },
+      {
+        "file": "src/query-engine/operations/create.ts",
+        "lines": 352
+      },
+      {
+        "file": "src/query-engine/operations/groupby-having.ts",
+        "lines": 429
+      },
+      {
+        "file": "src/query-engine/operations/groupby.ts",
+        "lines": 321
+      },
+      {
+        "file": "src/query-engine/operations/mutation-identity.ts",
+        "lines": 415
+      },
+      {
+        "file": "src/query-engine/operations/mutation-projection-fold.ts",
+        "lines": 365
+      },
+      {
+        "file": "src/query-engine/pattern/cells.ts",
+        "lines": 334
+      },
+      {
+        "file": "src/query-engine/pattern/construct-read.ts",
+        "lines": 1526
+      },
+      {
+        "file": "src/query-engine/pattern/construct.ts",
+        "lines": 1869
+      },
+      {
+        "file": "src/query-engine/pattern/decode.ts",
+        "lines": 310
+      },
+      {
+        "file": "src/query-engine/pattern/execute/batch.ts",
+        "lines": 620
+      },
+      {
+        "file": "src/query-engine/pattern/execute/segments.ts",
+        "lines": 407
+      },
+      {
+        "file": "src/query-engine/pattern/execute/values.ts",
+        "lines": 440
+      },
+      {
+        "file": "src/query-engine/pattern/match.ts",
+        "lines": 686
+      },
+      {
+        "file": "src/query-engine/pattern/pack.ts",
+        "lines": 3466
+      },
+      {
+        "file": "src/query-engine/pattern/pattern.ts",
+        "lines": 385
+      },
+      {
+        "file": "src/query-engine/pattern/schedule.ts",
+        "lines": 1106
+      },
+      {
+        "file": "src/query-engine/pattern/sugar.ts",
+        "lines": 659
+      },
+      {
+        "file": "src/query-engine/pending-operation.ts",
+        "lines": 874
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/commands.ts",
+        "lines": 1131
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/execution.ts",
+        "lines": 752
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/relation-body.ts",
+        "lines": 852
+      },
+      {
+        "file": "src/query-engine/raptor3/program/program.ts",
+        "lines": 579
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/operation-context.ts",
+        "lines": 1632
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/query.ts",
+        "lines": 1640
+      },
+      {
+        "file": "src/query-engine/result/ResultParser.ts",
+        "lines": 1017
+      },
+      {
+        "file": "src/query-engine/result/cache-value-codecs.ts",
+        "lines": 506
+      },
+      {
+        "file": "src/query-engine/result/polymorphic-result-parser.ts",
+        "lines": 509
+      },
+      {
+        "file": "src/query-engine/result/result-row-parser.ts",
+        "lines": 485
+      },
+      {
+        "file": "src/query-engine/result/result-shape.ts",
+        "lines": 445
+      },
+      {
+        "file": "src/query-engine/result/scalar-result-parser.ts",
+        "lines": 562
+      },
+      {
+        "file": "src/query-engine/types.ts",
+        "lines": 530
+      },
+      {
+        "file": "src/query-engine/write-engine/CreateOperation.ts",
+        "lines": 4315
+      },
+      {
+        "file": "src/query-engine/write-engine/DeleteOperation.ts",
+        "lines": 398
+      },
+      {
+        "file": "src/query-engine/write-engine/ManyAndReturnOperation.ts",
+        "lines": 861
+      },
+      {
+        "file": "src/query-engine/write-engine/NestedSelectedRecordSeries.ts",
+        "lines": 539
+      },
+      {
+        "file": "src/query-engine/write-engine/OperationExecutor.ts",
+        "lines": 3315
+      },
+      {
+        "file": "src/query-engine/write-engine/OperationFragment.ts",
+        "lines": 306
+      },
+      {
+        "file": "src/query-engine/write-engine/ReadOperation.ts",
+        "lines": 336
+      },
+      {
+        "file": "src/query-engine/write-engine/RecordUpdateCompiler.ts",
+        "lines": 5803
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationJunctionPart.ts",
+        "lines": 3464
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationJunctionToOnePart.ts",
+        "lines": 1203
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationLinkPart.ts",
+        "lines": 520
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationUpsertPart.ts",
+        "lines": 1131
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationWritePart.ts",
+        "lines": 1650
+      },
+      {
+        "file": "src/query-engine/write-engine/UpdateManyRecordSeries.ts",
+        "lines": 380
+      },
+      {
+        "file": "src/query-engine/write-engine/UpdateOperation.ts",
+        "lines": 567
+      },
+      {
+        "file": "src/query-engine/write-engine/UpsertOperation.ts",
+        "lines": 1550
+      },
+      {
+        "file": "src/query-engine/write-engine/bulk-polymorphic-connect.ts",
+        "lines": 333
+      },
+      {
+        "file": "src/query-engine/write-engine/junction-singular-transfer.ts",
+        "lines": 400
+      },
+      {
+        "file": "src/query-engine/write-engine/nested-target-parts.ts",
+        "lines": 808
+      },
+      {
+        "file": "src/query-engine/write-engine/relation-membership.ts",
+        "lines": 1047
+      },
+      {
+        "file": "src/query-engine/write-engine/routing.ts",
+        "lines": 466
+      },
+      {
+        "file": "src/query-engine/write-engine/series-result-read.ts",
+        "lines": 458
+      },
+      {
+        "file": "src/query-engine/write-engine/shared.ts",
+        "lines": 759
+      },
+      {
+        "file": "src/query-engine/write-engine/target-projection.ts",
+        "lines": 512
+      }
+    ],
+    "runtimeImportCycles": [
+      [
+        "src/query-engine/builders/correlation-utils.ts",
+        "src/query-engine/builders/many-to-many-utils.ts",
+        "src/query-engine/builders/polymorphic-collection-filter-builder.ts",
+        "src/query-engine/builders/polymorphic-mutation.ts",
+        "src/query-engine/builders/polymorphic-read-builder.ts",
+        "src/query-engine/builders/polymorphic-relation.ts",
+        "src/query-engine/builders/relation-data-builder.ts",
+        "src/query-engine/builders/relation-filter-builder.ts",
+        "src/query-engine/builders/relation-traversal.ts",
+        "src/query-engine/builders/values-builder.ts",
+        "src/query-engine/builders/where-builder.ts",
+        "src/query-engine/builders/where-unique-builder.ts"
+      ],
+      [
+        "src/query-engine/raptor3/commands/commands.ts",
+        "src/query-engine/raptor3/commands/execution.ts"
+      ]
+    ]
+  },
+  "writeEngine": {
+    "files": 43,
+    "lines": 34084,
+    "tokenLines": 25911,
+    "functions": 1318,
+    "parameters": 2324,
+    "highParameterFunctions": 90,
+    "branchNodes": 2651,
+    "runtimeImportCycleComponents": 0,
+    "runtimeFilesInCycles": 0,
+    "filesOver300Lines": 24,
+    "filesOver600Lines": 12,
+    "largeFiles": [
+      {
+        "file": "src/query-engine/write-engine/CreateOperation.ts",
+        "lines": 4315
+      },
+      {
+        "file": "src/query-engine/write-engine/DeleteOperation.ts",
+        "lines": 398
+      },
+      {
+        "file": "src/query-engine/write-engine/ManyAndReturnOperation.ts",
+        "lines": 861
+      },
+      {
+        "file": "src/query-engine/write-engine/NestedSelectedRecordSeries.ts",
+        "lines": 539
+      },
+      {
+        "file": "src/query-engine/write-engine/OperationExecutor.ts",
+        "lines": 3315
+      },
+      {
+        "file": "src/query-engine/write-engine/OperationFragment.ts",
+        "lines": 306
+      },
+      {
+        "file": "src/query-engine/write-engine/ReadOperation.ts",
+        "lines": 336
+      },
+      {
+        "file": "src/query-engine/write-engine/RecordUpdateCompiler.ts",
+        "lines": 5803
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationJunctionPart.ts",
+        "lines": 3464
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationJunctionToOnePart.ts",
+        "lines": 1203
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationLinkPart.ts",
+        "lines": 520
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationUpsertPart.ts",
+        "lines": 1131
+      },
+      {
+        "file": "src/query-engine/write-engine/RelationWritePart.ts",
+        "lines": 1650
+      },
+      {
+        "file": "src/query-engine/write-engine/UpdateManyRecordSeries.ts",
+        "lines": 380
+      },
+      {
+        "file": "src/query-engine/write-engine/UpdateOperation.ts",
+        "lines": 567
+      },
+      {
+        "file": "src/query-engine/write-engine/UpsertOperation.ts",
+        "lines": 1550
+      },
+      {
+        "file": "src/query-engine/write-engine/bulk-polymorphic-connect.ts",
+        "lines": 333
+      },
+      {
+        "file": "src/query-engine/write-engine/junction-singular-transfer.ts",
+        "lines": 400
+      },
+      {
+        "file": "src/query-engine/write-engine/nested-target-parts.ts",
+        "lines": 808
+      },
+      {
+        "file": "src/query-engine/write-engine/relation-membership.ts",
+        "lines": 1047
+      },
+      {
+        "file": "src/query-engine/write-engine/routing.ts",
+        "lines": 466
+      },
+      {
+        "file": "src/query-engine/write-engine/series-result-read.ts",
+        "lines": 458
+      },
+      {
+        "file": "src/query-engine/write-engine/shared.ts",
+        "lines": 759
+      },
+      {
+        "file": "src/query-engine/write-engine/target-projection.ts",
+        "lines": 512
+      }
+    ],
+    "runtimeImportCycles": []
+  }
+}

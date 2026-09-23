@@ -2,15 +2,15 @@ import { SQLiteAdapter } from "@src/adapters/databases/sqlite/sqlite-adapter";
 import { VibORMErrorCode } from "@src/errors";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
+import { isMigrationStorageWriter } from "@src/migrations/storage/contract";
 import { createFsStorageWriter as createFsStorageWriterEntry } from "@src/migrations/storage/fs";
+import { createFsStorageWriter } from "@src/migrations/storage/fs-estate";
+import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import {
-  createFsStorageWriter,
-  isMigrationStorageWriter,
   MemoryConditionalObjectStore,
-  MemoryEstateStorage,
   ObjectStoreEstateStorage,
   refuseWorkersKvWritable,
-} from "@src/migrations/storage/index";
+} from "@src/migrations/storage/object-store";
 import type {
   ColumnDef,
   DiffOperation,
@@ -189,6 +189,12 @@ describe("migration utility surface", () => {
   });
 
   test("executes the intentional storage entry modules", () => {
+    // `storage/fs.ts` is the PACKAGE entry (`tsdown.config.ts`), `fs-estate.ts`
+    // is the owner it re-exports. Follow-up F-5 deleted `storage/index.ts`,
+    // which was reachable from no package entry point and only ever re-exported
+    // the four owners below; each is imported from its owner now, so this cell
+    // still executes every one of them and still proves the package entry
+    // publishes the owner's own function.
     expect(createFsStorageWriterEntry).toBe(createFsStorageWriter);
     expect(isMigrationStorageWriter(new MemoryEstateStorage())).toBe(true);
     expect(MemoryConditionalObjectStore).toBeTypeOf("function");

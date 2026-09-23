@@ -1,0 +1,40 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+(node:26455) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+O2RPROBE pg phase=shipped op=count raw=[{"_count":"2"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=count raw=[{"_count":"1"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=count raw=[{"_all":"2"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=exist raw=[{"_count":"1"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=exist raw=[{"_count":"0"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=aggregate raw=[{"_sum":{"rank":8}}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=findMany raw=[{"id":1,"name":"first","rank":3,"active":true},{"id":2,"name":"second","rank":5,"active":false}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=findUnique raw=[{"id":1,"name":"first","rank":3,"active":true}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=count raw=[{"_count":"2"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=count raw=[{"_count":"1"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=count raw=[{"_all":"2"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=exist raw=[{"_count":"1"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=exist raw=[{"_count":"0"}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=aggregate raw=[{"_sum":{"rank":8}}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=findMany raw=[{"id":1,"name":"first","rank":3,"active":true},{"id":2,"name":"second","rank":5,"active":false}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=findUnique raw=[{"id":1,"name":"first","rank":3,"active":true}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=create raw=[{"id":11,"name":"w11","rank":7,"active":true}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=update raw=[{"id":11,"name":"w11","rank":9,"active":true}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=create raw=[{"id":12,"name":"w12","rank":1,"active":false}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg phase=shipped op=update raw=[{"id":12,"name":"w12","rank":11,"active":false}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE pg shippedLive={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE pg shippedPrepared={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE pg deletedLegLive={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE pg deletedLegPrepared={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE pg shippedWrites={"created":7,"updated":9,"preparedWrites":[1,11]}
+O2RPROBE pg deletedLegWrites={"created":7,"updated":9,"preparedWrites":[1,11]}
+O2RPROBE pg VERDICT asks=20 legWouldHaveDecided=0 liveSame=true preparedSame=true writesSame=true
+ ✓ |provider-pg| tests/providers/docker/pg-o2r-review-probe.test.ts (1 test) 146ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:12:21
+   Duration  1.57s (transform 888ms, setup 9ms, collect 1.30s, tests 146ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.35s wall, 476.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

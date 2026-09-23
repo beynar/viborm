@@ -1,0 +1,1400 @@
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -1,3 +1,4 @@
++import type { ArithmeticTarget } from "@adapters/adapter-core-types";
+ import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
+ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+ import {
+@@ -36,6 +37,7 @@
+   decodePhysicalDecimalList,
+   decodePhysicalWidenedSum,
+   encodePhysicalDecimalListMembers,
++  logicalToCoefficient,
+   materializePhysicalDecimal,
+   materializePhysicalWidenedSum,
+   sameDecimalDescriptor,
+@@ -60,7 +62,7 @@
+   storedFields,
+ } from "./storage";
+ 
+-type Leaf = {
++export type Leaf = {
+   kind: "scalar";
+   type: string;
+   nullable: boolean;
+@@ -120,7 +122,8 @@
+       readonly name: string;
+       readonly counts: readonly {
+         readonly relation: string;
+-        readonly edge: Membership;
++        /** Every membership the slot counts: one edge, or every variant arm. */
++        readonly edges: readonly Membership[];
+         readonly selector?: PreparedSelector;
+       }[];
+     }
+@@ -147,6 +150,27 @@
+   readonly fields: readonly PreparedProjectionField[];
+   readonly shape: Extract<ProjectionShape, { kind: "object" }>;
+ }
++
++/**
++ * May this prepared projection ride a mutation's `RETURNING`?
++ *
++ * The projection owner answers, because the answer is a property of how each
++ * field LOWERS: a scalar is a column of the mutated row, while a relation
++ * carrier, a variant slot and a `_count` all read OTHER rows through a
++ * correlated subquery, which no `RETURNING` carries. A physical owner asking
++ * "does this name a relation?" was the same question answered a second time.
++ *
++ * This is the RELOCATION of that one kind-test into the module that owns the
++ * kinds — not a new per-field fact and not a wider rule. A `_distance` is an
++ * expression over the mutated row's own columns and could ride a `RETURNING`,
++ * but no provider in the qualified set declares the distance tier, so nothing
++ * can witness that arm; it stays outside the gate until one can.
++ */
++export function returningSafeProjection(
++  projection: PreparedProjection,
++): boolean {
++  return projection.fields.every((field) => field.kind === "scalar");
++}
+ export interface Query {
+   sql: Sql;
+   shape: Shape;
+@@ -158,6 +182,17 @@
+ /** One statement plus the operation's own cardinality and public shape. */
+ export interface Read {
+   readonly query: Query;
++  /**
++   * Does this verb publish ONE value rather than the row set? Stated here, by
++   * the owner that decides the cardinality, so no consumer re-derives it.
++   */
++  readonly single: boolean;
++  /**
++   * The PUBLIC value's own shape — which is not always the row shape
++   * `query.shape` decodes: `count` publishes a number and `exist` a boolean
++   * over a row of `{_count}`, and `findMany`/`groupBy` publish the set of rows.
++   */
++  readonly value: ProjectionShape | Leaf;
+   result(rows: Input[]): unknown;
+ }
+ export interface SelectorFacts {
+@@ -297,6 +332,11 @@
+ const DISTANCE_FIELD = "_distance";
+ const AGGREGATES = ["_count", "_avg", "_sum", "_min", "_max"] as const;
+ const AGGREGATE_NAMES: ReadonlySet<string> = new Set(AGGREGATES);
++const BOOLEAN_LEAF: Leaf = Object.freeze({
++  kind: "scalar",
++  type: "boolean",
++  nullable: false,
++});
+ const COUNT_LEAF: Leaf = Object.freeze({
+   kind: "scalar",
+   type: "int",
+@@ -350,6 +390,28 @@
+   return Object.keys(value).some((key) => FILTER_OPERATORS.has(key));
+ }
+ 
++const ARITHMETIC_UPDATES = [
++  "increment",
++  "decrement",
++  "multiply",
++  "divide",
++] as const;
++const LIST_UPDATES = ["push", "unshift"] as const;
++
++/** One admitted scalar update payload, interpreted once and lowered twice. */
++type PreparedUpdate =
++  | { readonly kind: "value"; readonly value: unknown }
++  | {
++      readonly kind: "arithmetic";
++      readonly operator: (typeof ARITHMETIC_UPDATES)[number];
++      readonly by: unknown;
++    }
++  | {
++      readonly kind: "list";
++      readonly operator: (typeof LIST_UPDATES)[number];
++      readonly members: readonly unknown[];
++    };
++
+ /** A plain admitted record, as opposed to one whole value of an object domain. */
+ function isOperatorRecord(value: object): boolean {
+   const prototype = Object.getPrototypeOf(value);
+@@ -423,7 +485,16 @@
+           this.value((value as GeoPoint).latitude),
+         );
+       case "vector":
+-        return a.vector.literal(value as number[]);
++        // The provider's own vector tier spells a vector; a provider that
++        // declares none binds it as an ordinary value, which is the ONE
++        // crossing the shipped engine uses for every vector
++        // (`builders/values-builder.ts` has no vector case at all). The
++        // refusal then comes from the provider, identically on both engines,
++        // instead of from a tier the shipped engine never consults for a value.
++        // This is the same capability the distance owner reads below.
++        return a.capabilities.supportsVector
++          ? a.vector.literal(value as number[])
++          : a.literals.value(value);
+       case "datetime":
+         return typeof value === "string"
+           ? a.literals.dateTime(value, this.nativeType(scalar))
+@@ -613,36 +684,146 @@
+       shape: { kind: "object", fields },
+     };
+   }
+-  updateValue(
++  /**
++   * The ONE interpreter of an admitted scalar update payload.
++   *
++   * It answers WHICH operator the caller spelled and WHAT its operand is, and
++   * nothing about SQL. Two lowerings consume that one answer — the provider's
++   * own `SET` assignment ({@link updateAssignment}) and the same operator named
++   * over an already-known value ({@link updateValue}) — so an operator can
++   * never be admitted in one spelling and refused in the other.
++   */
++  private prepareUpdate(
+     model: AnyModel,
+     field: string,
+     value: unknown,
+-    before = this.column(model, field),
+-  ): Sql {
+-    if (
+-      !(value instanceof Sql) &&
+-      value !== null &&
+-      typeof value === "object"
+-    ) {
+-      const operation = record(value);
+-      // An admitted operator record owns its keys; a Uint8Array, Decimal or
+-      // Date inherits methods with the same names and is one whole value.
+-      if (Object.hasOwn(operation, "increment"))
+-        return this.adapter.expressions.add(
+-          physicalField(this.schema, model, field).scalar["~"].state.type ===
+-            "int"
+-            ? this.adapter.expressions.cast(before, "integer")
+-            : before,
+-          this.fieldValue(model, field, operation.increment),
+-        );
+-      if (Object.hasOwn(operation, "set"))
+-        return this.fieldValue(model, field, operation.set);
+-      if (!isOperatorRecord(value)) return this.fieldValue(model, field, value);
+-      throw new Error(
+-        `Raptor 3 G1 update operator is not implemented: ${Object.keys(operation).join(", ")}`,
++  ): PreparedUpdate {
++    if (value instanceof Sql || value === null || typeof value !== "object")
++      return { kind: "value", value };
++    const operation = record(value);
++    // An admitted operator record owns its keys; a Uint8Array, Decimal or
++    // Date inherits methods with the same names and is one whole value.
++    if (!isOperatorRecord(value)) return { kind: "value", value };
++    if (Object.hasOwn(operation, "set"))
++      return { kind: "value", value: operation.set };
++    for (const operator of ARITHMETIC_UPDATES)
++      if (Object.hasOwn(operation, operator)) {
++        const by = operation[operator];
++        // An exact decimal divided by zero fails HERE, before any statement is
++        // issued: the operand's value is knowable and every dialect answers it
++        // differently otherwise (SQLite NULL, MySQL NULL or an error,
++        // PostgreSQL raises). The shipped refusal, verbatim.
++        if (
++          operator === "divide" &&
++          exactDecimalDomain(
++            physicalField(this.schema, model, field).scalar["~"].state,
++          ) &&
++          canonicalizeDecimal(by) === "0"
++        )
++          throw new QueryEngineError(
++            `Cannot divide decimal field '${field}' by zero.`,
++          );
++        return { kind: "arithmetic", operator, by };
++      }
++    for (const operator of LIST_UPDATES)
++      if (Object.hasOwn(operation, operator)) {
++        const members = operation[operator];
++        return {
++          kind: "list",
++          operator,
++          members: Array.isArray(members) ? members : [members],
++        };
++      }
++    throw new Error(
++      `Raptor 3 G1 update operator is not implemented: ${Object.keys(operation).join(", ")}`,
++    );
++  }
++  /**
++   * The target domain an arithmetic assignment lands back inside: an integer
++   * column divides as an integer, an exact decimal is quantized to its scale.
++   * The adapter owns both spellings; this only names the destination.
++   */
++  private arithmeticTarget(model: AnyModel, field: string): ArithmeticTarget {
++    const state = physicalField(this.schema, model, field).scalar["~"].state;
++    return {
++      integer: state.type === "int" || state.type === "bigint",
++      decimal: exactDecimalDomain(state),
++    };
++  }
++  /**
++   * One admitted update payload as the provider's own `SET` assignment. Every
++   * operator crosses through the adapter's `set` vocabulary, so the dialect owns
++   * integer truncation, decimal quantization and list concatenation, and the
++   * query owner spells no arithmetic of its own.
++   */
++  updateAssignment(model: AnyModel, field: string, value: unknown): Sql {
++    const a = this.adapter;
++    const column = this.column(model, field);
++    const update = this.prepareUpdate(model, field, value);
++    if (update.kind === "value")
++      return a.set.assign(column, this.fieldValue(model, field, update.value));
++    if (update.kind === "list")
++      return a.set[update.operator](
++        column,
++        this.fieldValue(model, field, update.members),
+       );
+-    }
+-    return this.fieldValue(model, field, value);
++    return a.set[update.operator](
++      column,
++      this.fieldValue(model, field, update.by),
++      this.arithmeticTarget(model, field),
++    );
++  }
++  /**
++   * The same admitted update payload named over an ALREADY-KNOWN value: the
++   * key a row will carry after the mutation, which a non-returning readback and
++   * a relation-key transition both have to state in SQL.
++   *
++   * Every operator is named through the SAME adapter vocabulary its assignment
++   * uses, so the expression and the `SET` clause cannot disagree: `+`, `-` and
++   * `*` are the dialect's own native arithmetic in every non-decimal domain,
++   * and an integer `divide` asks `expressions.integerDivide` for the dialect's
++   * truncation — the same provider fact `set.divide`'s `target.integer` flag
++   * carries, in expression form.
++   *
++   * The one shape with no expression form is an EXACT DECIMAL under `multiply`
++   * or `divide`: there the provider's assignment is a guarded coefficient
++   * rewrite that rounds half-even back to the field's scale and refuses an
++   * intermediate the dialect cannot represent, and restating it here would be a
++   * second arithmetic owner. The refusal is registered and recorded as a
++   * decision for Arnaud (note §R2.1). A decimal PRIMARY key never reaches it —
++   * the portability contract mirrored in `EngineSchema.admit` refuses decimal
++   * key arithmetic at admission, exactly as the shipped engine does — so the
++   * reachable shape is a decimal RELATION key.
++   */
++  updateValue(
++    model: AnyModel,
++    field: string,
++    value: unknown,
++    before: Sql,
++  ): Sql {
++    const a = this.adapter;
++    const update = this.prepareUpdate(model, field, value);
++    if (update.kind === "value")
++      return this.fieldValue(model, field, update.value);
++    const state = physicalField(this.schema, model, field).scalar["~"].state;
++    const rounds =
++      exactDecimalDomain(state) !== undefined &&
++      (update.operator === "multiply" || update.operator === "divide");
++    if (update.kind === "list" || rounds)
++      throw new QueryEngineError(
++        `Raptor 3 cannot name the updated value of '${model["~"].names.ts ?? "unknown"}.${field}' under '${update.operator}': the provider owns that operator's rounding inside its own assignment.`,
++      );
++    const base =
++      state.type === "int" ? a.expressions.cast(before, "integer") : before;
++    const operand = this.fieldValue(model, field, update.by);
++    if (update.operator === "increment") return a.expressions.add(base, operand);
++    if (update.operator === "decrement")
++      return a.expressions.subtract(base, operand);
++    if (update.operator === "multiply")
++      return a.expressions.multiply(base, operand);
++    return state.type === "int" || state.type === "bigint"
++      ? a.expressions.integerDivide(base, operand)
++      : a.expressions.divide(base, operand);
+   }
+   prepareSelector(model: AnyModel, where?: Input): PreparedSelector {
+     const facts: SelectorFacts = {
+@@ -1092,16 +1273,42 @@
+             path,
+             negated || quantifier === "none" || quantifier === "every",
+           );
+-          if (quantifier !== undefined)
+-            return Object.freeze({
+-              kind: "relation",
++          if (quantifier !== undefined) {
++            const quantified = Object.freeze({
++              kind: "relation" as const,
+               edge,
+               quantifier,
+               predicate:
+                 negated && inner
+-                  ? Object.freeze({ kind: "not", predicate: inner })
++                  ? Object.freeze({ kind: "not" as const, predicate: inner })
+                   : inner,
+             });
++            // `some` and `none` address the tagged arm and nothing else.
++            // `every` is a statement about the WHOLE collection — "every member
++            // is an arm-`T` member satisfying P" — so a member of any OTHER arm
++            // falsifies it. That is the one tagged quantifier that must also
++            // state the arms it did not name; the shipped engine answers a
++            // board holding two posts and one tag `false` for
++            // `every: { type: "post", … }`, and this is why.
++            if (quantifier !== "every") return quantified;
++            return Object.freeze({
++              kind: "and",
++              predicates: Object.freeze([
++                quantified,
++                ...members
++                  .filter((member) => member.variant !== tagged.type)
++                  .map((member) =>
++                    this.relationPredicate(
++                      variantEdge(member.variant),
++                      "none",
++                      undefined,
++                      facts,
++                      path,
++                    ),
++                  ),
++              ]),
++            });
++          }
+           // A tagged to-one arm: `{ type }` asks only that the slot holds that
+           // variant; `is`/`isNot` keep the ordinary to-one quantifier meaning.
+           return Object.freeze({
+@@ -1241,7 +1448,7 @@
+           : exact(comparable);
+       }
+       const literal = scalar
+-        ? this.scalarValue(scalar.physical.scalar, member.value, scalar.field)
++        ? this.targetValue(target, scalar, member.value)
+         : this.value(member.value);
+       return fold ? a.expressions.asciiCaseFold(literal) : literal;
+     };
+@@ -1385,6 +1592,48 @@
+    * when that scalar's own state is a JSON document, which is why the refusal
+    * below can name the field.
+    */
++  /**
++   * One operand, bound in the domain of the expression it is COMPARED WITH.
++   *
++   * Everything compares inside the field's own domain except a `_sum` over an
++   * exact decimal: the compared expression is `SUM(col)`, whose value is wider
++   * than one column can hold, so the operand's cast widens the PRECISION while
++   * keeping the field's SCALE — every summed row carries that scale, and an
++   * operand at another one would be a different number on SQLite. The adapter
++   * states how wide its exact HAVING cast can be; the refusal below is the
++   * shipped sentence, verbatim.
++   */
++  private targetValue(
++    target: PreparedTarget,
++    scalar: PreparedScalar,
++    value: unknown,
++  ): Sql {
++    const state = scalar.physical.scalar["~"].state;
++    const domain =
++      target.kind === "aggregate" && target.aggregate === "_sum"
++        ? exactDecimalDomain(state)
++        : undefined;
++    const canonical = domain ? canonicalizeDecimal(value) : undefined;
++    // A value that is not an exact decimal is the ordinary binder's refusal.
++    if (!domain || canonical === undefined)
++      return this.scalarValue(scalar.physical.scalar, value, scalar.field);
++    const coefficient = logicalToCoefficient(canonical, domain.scale);
++    const precision =
++      this.adapter.aggregates.decimalSumOperandPrecision(coefficient);
++    if (precision === undefined) {
++      const digits = coefficient.startsWith("-")
++        ? coefficient.length - 1
++        : coefficient.length;
++      throw new QueryEngineError(
++        `The 'having' _sum operand for decimal field '${scalar.field}' needs ${digits} coefficient digits, but its value is outside this provider's exact HAVING operand cast domain. ` +
++          "The provider may compute a wider sum, but VibORM cannot express this operand through its exact decimal cast without changing or refusing the value written.",
++      );
++    }
++    return this.adapter.literals.decimal(canonical, {
++      precision: Math.max(domain.precision, precision),
++      scale: domain.scale,
++    });
++  }
+   private lowerJsonOperation(
+     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+     column: Sql,
+@@ -1704,22 +1953,19 @@
+     alias: string,
+   ): OrderTerm {
+     const a = this.adapter;
+-    const edge = bindMembership(this.schema, model, field);
+-    const childAlias = this.alias();
+-    const correlation = this.correlation(edge, alias, childAlias);
+-    if (edge.many || specification._count !== undefined) {
+-      const count = assembleAdapterSelect(a, {
+-        columns: a.aggregates.count(),
+-        from: this.table(edge.target, childAlias),
+-        where: correlation,
+-      });
++    // A collection orders by `_count`, and that count is the projection's own
++    // count owner — including a variant carrier, which has no single membership.
++    const counted = this.countedMemberships(model, field);
++    if (counted.length > 1 || counted[0]!.many || specification._count !== undefined)
+       return this.sortKey(
+-        a.expressions.coalesce(a.subqueries.scalar(count), this.value(0)),
++        this.correlatedCount(counted, undefined, alias),
+         specification._count === "desc",
+         undefined,
+         false,
+       );
+-    }
++    const edge = counted[0]!;
++    const childAlias = this.alias();
++    const correlation = this.correlation(edge, alias, childAlias);
+     const [nested] = Object.entries(specification);
+     const inner = this.orderTerm(
+       edge.target,
+@@ -2010,6 +2256,14 @@
+     } = {},
+   ): Query {
+     const alias = this.alias();
++    // The shipped owner sequence, and the reason it is stated here: when one
++    // call violates two contracts at once, the refusal the caller sees is the
++    // one whose owner runs first. `buildFind` (`operations/find-common.ts`)
++    // pages before it selects and selects before it builds the `where`, so the
++    // cursor refusal outranks a projection refusal and both outrank a `where`
++    // refusal. Nothing below reads the projection or the selector, so this is
++    // an ORDER, not a dependency (`g4/unit01-review-followup-3.md` finding K).
++    const page = this.page(model, args, alias);
+     const prepared = controls.projection ?? this.prepareProjection(model, args);
+     const projection = this.lowerProjection(prepared, alias);
+     const selector =
+@@ -2020,7 +2274,6 @@
+     const filter = selector
+       ? this.lowerSelector(selector, alias)
+       : undefined;
+-    const page = this.page(model, args, alias);
+     return {
+       sql: assembleAdapterSelect(this.adapter, {
+         columns: sql.join(projection.columns, ", "),
+@@ -2055,22 +2308,39 @@
+    * select, projection and decoder owners.
+    */
+   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
++    const rowSet = (query: Query): ProjectionShape => ({
++      kind: "collection",
++      row: query.shape,
++    });
+     switch (operation) {
+-      case "findUnique":
+-        return { query: this.select(model, args), result: (rows) => rows[0] ?? null };
++      case "findUnique": {
++        const query = this.select(model, args);
++        return {
++          query,
++          single: true,
++          value: query.shape,
++          result: (rows) => rows[0] ?? null,
++        };
++      }
+       case "findFirst": {
+         // A negative take selects from the end of the window: the signed unit
+         // limit flips the total order and still returns one row.
+         const take = args.take === undefined ? 1 : Math.sign(args.take);
++        const query = this.select(model, { ...args, take });
+         return {
+-          query: this.select(model, { ...args, take }),
++          query,
++          single: true,
++          value: query.shape,
+           result: (rows) => rows[0] ?? null,
+         };
+       }
+       case "findMany": {
+         const backward = args.take !== undefined && args.take < 0;
++        const query = this.select(model, args);
+         return {
+-          query: this.select(model, args),
++          query,
++          single: false,
++          value: rowSet(query),
+           result: (rows) => (backward ? rows.reverse() : rows),
+         };
+       }
+@@ -2123,6 +2393,15 @@
+         );
+         return {
+           query,
++          // `count` publishes a number and `exist` a boolean: one VALUE, not one
++          // row, so neither is `single` — the row they decode is scaffolding.
++          single: operation === "count" && selected !== undefined,
++          value:
++            operation === "exist"
++              ? BOOLEAN_LEAF
++              : selected
++                ? query.shape
++                : COUNT_LEAF,
+           result: (rows) =>
+             operation === "exist"
+               ? (rows[0]?._count as number) > 0
+@@ -2140,10 +2419,22 @@
+           (alias) => prepared.columns(alias),
+           () => ({ kind: "object", fields: prepared.fields_ }),
+         );
+-        return { query, result: (rows) => rows[0] ?? {} };
++        return {
++          query,
++          single: true,
++          value: query.shape,
++          result: (rows) => rows[0] ?? {},
++        };
+       }
+-      case "groupBy":
+-        return { query: this.grouped(model, args), result: (rows) => rows };
++      case "groupBy": {
++        const query = this.grouped(model, args);
++        return {
++          query,
++          single: false,
++          value: rowSet(query),
++          result: (rows) => rows,
++        };
++      }
+     }
+   }
+   /** One aggregate window: the same filter/order/cursor/page, then aggregates. */
+@@ -2404,6 +2695,25 @@
+           .keys(model)
+           .map((field) => [field, this.projectedColumn(model, field, alias)]),
+       );
++    /**
++     * One path element: the identity document's own TEXT.
++     *
++     * The path is an ordinary array container and the cycle stop is an ordinary
++     * membership test, so the element has to be a value every dialect can
++     * compare. PostgreSQL's `json` type has no equality operator at all — the
++     * membership test lowers to `element = ANY(path)` and the provider answers
++     * `42883` — while SQLite's `json_each` and MySQL's `JSON_CONTAINS` compare
++     * text and JSON documents alike. Text is the one spelling all three share.
++     */
++    const pathElement = (alias: string) =>
++      a.expressions.cast(a.json.document(identityDocument(alias)), "text");
++    /**
++     * The carried row, through the ONE carrier transport rule
++     * ({@link carriedValue}): a nested carrier stays a document, a `bigint`
++     * crosses as text, a blob as hex, and a value that is already JSON is
++     * wrapped so it survives this one encoding. A recursive carrier is a JSON
++     * carrier like any other and states no rule of its own.
++     */
+     const projectedDocument = (
+       projection: PreparedProjection,
+       lowered: { readonly entries: [string, Sql][] },
+@@ -2411,10 +2721,7 @@
+       a.json.object(
+         lowered.entries.map(([field, expression]) => [
+           field,
+-          projection.shape.kind === "object" &&
+-          projection.shape.fields[field]!.kind !== "scalar"
+-            ? a.json.document(expression)
+-            : expression,
++          this.carriedValue(projection.shape.fields[field]!, expression),
+         ]),
+       );
+     const carried = (alias: string) =>
+@@ -2434,10 +2741,21 @@
+       return assembleAdapterSelect(a, {
+         columns: sql.join(
+           [
+-            a.identifiers.aliased(this.value(index), carriers.seed),
+-            a.identifiers.aliased(this.value(0), carriers.depth),
++            // The anchor states the carrier's TYPE, because it is what the
++            // recursive term's own columns are typed from: an untyped parameter
++            // is `unknown` on PostgreSQL, which resolves to `text`, and the
++            // recursive `depth + 1` then asks for an operator that does not
++            // exist (`42883: operator does not exist: text + unknown`).
+             a.identifiers.aliased(
+-              a.arrays.literal([a.json.document(identityDocument(alias))]),
++              a.expressions.cast(this.value(index), "integer"),
++              carriers.seed,
++            ),
++            a.identifiers.aliased(
++              a.expressions.cast(this.value(0), "integer"),
++              carriers.depth,
++            ),
++            a.identifiers.aliased(
++              a.arrays.literal([pathElement(alias)]),
+               carriers.path,
+             ),
+             a.identifiers.aliased(
+@@ -2458,7 +2776,7 @@
+     const descendant = this.prepareProjection(model, descendantArgs);
+     const loweredDescendant = this.lowerProjection(descendant, childAlias);
+     const walkColumn = (name: string) => a.identifiers.column(walkAlias, name);
+-    const childIdentity = identityDocument(childAlias);
++    const childIdentity = pathElement(childAlias);
+     const recursive = assembleAdapterSelect(a, {
+       columns: sql.join(
+         [
+@@ -2468,10 +2786,7 @@
+             carriers.depth,
+           ),
+           a.identifiers.aliased(
+-            a.arrays.push(
+-              walkColumn(carriers.path),
+-              a.json.document(childIdentity),
+-            ),
++            a.arrays.push(walkColumn(carriers.path), childIdentity),
+             carriers.path,
+           ),
+           a.identifiers.aliased(
+@@ -2491,12 +2806,7 @@
+         ...(descendantArgs.where
+           ? [this.lowerWhere(model, descendantArgs.where, childAlias)!]
+           : []),
+-        a.operators.not(
+-          a.arrays.has(
+-            walkColumn(carriers.path),
+-            a.json.document(childIdentity),
+-          ),
+-        ),
++        a.operators.not(a.arrays.has(walkColumn(carriers.path), childIdentity)),
+       ),
+     });
+     const finalAlias = this.alias();
+@@ -2733,32 +3043,60 @@
+     selection: unknown,
+   ): readonly {
+     readonly relation: string;
+-    readonly edge: Membership;
++    readonly edges: readonly Membership[];
+     readonly selector?: PreparedSelector;
+   }[] {
+     const requested = record(record(selection).select);
+     const counts: {
+       readonly relation: string;
+-      readonly edge: Membership;
++      readonly edges: readonly Membership[];
+       readonly selector?: PreparedSelector;
+     }[] = [];
+     for (const [relation, configuration] of Object.entries(requested)) {
+       if (!configuration) continue;
+-      const edge = bindMembership(this.schema, model, relation);
++      const edges = this.countedMemberships(model, relation);
+       const where =
+         configuration === true ? undefined : record(configuration).where;
+       counts.push(
+         Object.freeze({
+           relation,
+-          edge,
++          edges,
+           selector: where
+-            ? this.prepareSelector(edge.target, record(where))
++            ? this.prepareSelector(edges[0]!.target, record(where))
+             : undefined,
+         }),
+       );
+     }
+     return Object.freeze(counts);
+   }
++  /**
++   * Every membership one relation SLOT counts.
++   *
++   * An ordinary relation is one edge. A variant carrier is not: it has no single
++   * membership — each arm has its own target and its own correlation — so the
++   * slot's population is the union of its arms, and its size is their sum. This
++   * is the one place that fact is stated; the `_count` projection and `_count`
++   * ordering both read it here.
++   */
++  private countedMemberships(
++    model: AnyModel,
++    relation: string,
++  ): readonly Membership[] {
++    const resolved = this.schema.index.get(model)!.get(relation)!;
++    const carrier =
++      resolved.member === undefined &&
++      (resolved.edge.kind === "variantRowCarrier" ||
++        resolved.edge.kind === "variantJunctionCarrier")
++        ? resolved.edge
++        : undefined;
++    return Object.freeze(
++      carrier
++        ? carrier.members.map((member) =>
++            bindMembership(this.schema, model, relation, member.variant),
++          )
++        : [bindMembership(this.schema, model, relation)],
++    );
++  }
+   lowerProjection(
+     projection: PreparedProjection,
+     alias?: string,
+@@ -2780,7 +3118,7 @@
+         expression = a.json.objectFromColumns(
+           field.counts.map((count) => [
+             count.relation,
+-            this.correlatedCount(count.edge, count.selector, alias ?? ""),
++            this.correlatedCount(count.edges, count.selector, alias ?? ""),
+           ]),
+         );
+       } else if (field.kind === "distance") {
+@@ -2805,29 +3143,36 @@
+     }
+     return { columns, entries, names: projection.fields.map((f) => f.name) };
+   }
+-  /** One correlated count, shared by `_count` projection and `_count` ordering. */
++  /**
++   * One slot's correlated count, shared by the `_count` projection and `_count`
++   * ordering. A variant carrier's arms are summed, because the slot's population
++   * is their union ({@link countedMemberships}).
++   */
+   private correlatedCount(
+-    edge: Membership,
++    edges: readonly Membership[],
+     selector: PreparedSelector | undefined,
+     parentAlias: string,
+   ): Sql {
+     const a = this.adapter;
+-    const childAlias = this.alias();
+-    return a.expressions.coalesce(
+-      a.subqueries.scalar(
+-        assembleAdapterSelect(a, {
+-          columns: a.aggregates.count(),
+-          from: this.table(edge.target, childAlias),
+-          where: a.operators.and(
+-            this.correlation(edge, parentAlias, childAlias),
+-            ...(selector
+-              ? [this.lowerSelector(selector, childAlias)!]
+-              : []),
+-          ),
+-        }),
+-      ),
+-      this.value(0),
+-    );
++    const counted = edges.map((edge) => {
++      const childAlias = this.alias();
++      return a.expressions.coalesce(
++        a.subqueries.scalar(
++          assembleAdapterSelect(a, {
++            columns: a.aggregates.count(),
++            from: this.table(edge.target, childAlias),
++            where: a.operators.and(
++              this.correlation(edge, parentAlias, childAlias),
++              ...(selector
++                ? [this.lowerSelector(selector, childAlias)!]
++                : []),
++            ),
++          }),
++        ),
++        this.value(0),
++      );
++    });
++    return counted.reduce((total, arm) => a.expressions.add(total, arm));
+   }
+   lowerProjectionValues(
+     projection: PreparedProjection,
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -36,7 +36,8 @@
+   type PreparedProjection,
+   type PreparedSelector,
+   type Query,
+-  type Read
++  type Read,
++  returningSafeProjection
+ } from "./query";
+ import {
+   type EngineSchema,
+@@ -50,15 +51,6 @@
+ 
+ export type Member = object;
+ 
+-/**
+- * Does this prepared projection name anything but the row's own columns? A
+- * relation carrier, a `_count` and a variant slot all read OTHER rows through a
+- * correlated subquery, which a mutation's RETURNING cannot carry.
+- */
+-export function namesRelation(projection: PreparedProjection): boolean {
+-  return projection.fields.some((field) => field.kind !== "scalar");
+-}
+-
+ export type MemberRollback = <T>(
+   execute: (driver: AnyDriver) => Promise<T>,
+   context: QueryExecutionContext
+@@ -68,7 +60,16 @@
+   | {
+       readonly kind: "borrowed-transaction";
+       readonly driver: AnyDriver;
++      /** MEMBER isolation inside the caller's own scope (array fallback). */
+       readonly memberRollback?: MemberRollback;
++      /**
++       * The caller transferred the OPERATION region: it opened none itself, and
++       * the candidate opens exactly one when the operation needs more than one
++       * statement. Supplied only by the callback-transaction route, never by
++       * the array fallback, which mirrors the shipped `runLinearOn` and opens
++       * no operation envelope at all (note §8.4, brief item 11 revision 4).
++       */
++      readonly operationRegion?: MemberRollback;
+     }
+   | { readonly kind: "atomic-array" };
+ 
+@@ -84,6 +85,9 @@
+   readonly usesBatch: boolean;
+   private readonly ownership: ExecutionOwnership;
+   private readonly memberRollback?: MemberRollback;
++  private readonly operationRegion?: MemberRollback;
++  /** True only while the operation's OWN region is the current transport. */
++  private ownRegionOpen = false;
+   private transport: AnyDriver;
+   private attempt = new TransportAttempt();
+   private readonly committedMembers = new Set<Member>();
+@@ -102,6 +106,8 @@
+   );
+   private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
+   private readonly preparedGuards: PreparedBatchGuard[] = [];
++  /** Failures this operation raised about its OWN premise (see `published`). */
++  private readonly premiseFailures = new WeakSet<object>();
+   private readonly correlationId = crypto.randomUUID();
+   /**
+    * The operation's physical envelope. `deferred` is the only state in which the
+@@ -151,6 +157,10 @@
+       binding?.kind === "borrowed-transaction"
+         ? binding.memberRollback
+         : undefined;
++    this.operationRegion =
++      binding?.kind === "borrowed-transaction"
++        ? binding.operationRegion
++        : undefined;
+     this.transport = this.driver;
+     this.usesBatch =
+       this.ownership === "batch-preparation" ||
+@@ -279,7 +289,12 @@
+         this.transport = outer;
+       }
+     };
+-    return this.memberRollback
++    // One rule: a member rollback opens inside whatever scope the operation is
++    // CURRENTLY running in. While the operation holds a region of its own, the
++    // caller's grant names the caller's scope, and re-entering it while this
++    // nested one is active is the exact `TransactionError: … cannot be used
++    // while its nested transaction is active` that note §8.4 measured.
++    return this.memberRollback && !this.ownRegionOpen
+       ? this.memberRollback(withinRollback, this.attribution)
+       : outer.withTransaction(withinRollback, undefined, this.attribution);
+   }
+@@ -308,6 +323,8 @@
+     phase: RecordSeriesProgress["phase"],
+     member?: Member
+   ): unknown {
++    if (typeof error === "object" && error !== null && this.premiseFailures.has(error))
++      return error;
+     let failure = error;
+     if (error instanceof InvalidScalarResult) {
+       const driver = this.driver.driverName;
+@@ -341,22 +358,31 @@
+    * The operation's own region, or `undefined` when this ownership has none.
+    *
+    * A standalone operation on a transaction-capable driver owns one
+-   * transaction. A BORROWED operation owns none: its caller's scope is the
+-   * unit, so every statement runs directly on the borrowed driver and a failing
+-   * one poisons that scope exactly as the shipped `runStatementAtomic` and
+-   * `runLinearOn` paths leave it. The caller's `memberRollback` grant is
+-   * MEMBER isolation only — `tests/raptor3/g3/suppression-retry-contract.test.ts`
+-   * pins one savepoint per suppressed member and none for the operation, and
++   * transaction. A BORROWED operation owns one only when its caller SAID so, by
++   * granting `operationRegion` — which the callback-transaction route supplies
++   * because it opened no scope of its own. Without that grant a borrowed
++   * operation owns none: its caller's scope is the unit, so every statement
++   * runs directly on the borrowed driver and a failing one poisons that scope
++   * exactly as the shipped `runStatementAtomic` and `runLinearOn` paths leave
++   * it. The `memberRollback` grant is never mistaken for it — it is MEMBER
++   * isolation only: `tests/raptor3/g3/suppression-retry-contract.test.ts` pins
++   * one savepoint per suppressed member and none for the operation, and
+    * `tests/raptor3/g3/scope-composition-native.test.ts` fails outright if this
+-   * operation opens a second scope on the caller's driver. An operation-level
+-   * region for a MULTI-statement borrowed write therefore needs a grant the
+-   * binding does not carry yet; note §8.4 records the exact extension.
++   * operation opens a second scope on the caller's driver while that grant is
++   * the array fallback's (note §8.4, measured).
+    * An atomic batch and a batch preparation are already their own unit.
+    */
+   private region():
+     | ((execute: (driver: AnyDriver) => Promise<unknown>) => Promise<unknown>)
+     | undefined {
+-    if (this.ownership !== "standalone" || this.usesBatch) return undefined;
++    if (this.usesBatch) return undefined;
++    if (this.ownership === "borrowed-transaction") {
++      const granted = this.operationRegion;
++      return granted
++        ? (execute) => granted(execute, this.attribution)
++        : undefined;
++    }
++    if (this.ownership !== "standalone") return undefined;
+     return (execute) =>
+       this.driver.withTransaction(execute, undefined, this.attribution);
+   }
+@@ -367,10 +393,12 @@
+   ): Promise<T> {
+     return (await region(async (transaction) => {
+       this.transport = transaction;
++      this.ownRegionOpen = true;
+       try {
+         return await body();
+       } finally {
+         this.transport = this.driver;
++        this.ownRegionOpen = false;
+       }
+     })) as T;
+   }
+@@ -393,9 +421,14 @@
+    * exactly once. Every other form is admitted optimistically and the COUNT is
+    * answered here, by the construction itself — which is why the rule can be
+    * stated in one place and still be the operative decision. `createMany` is
+-   * the shape that makes the difference observable: two rows sharing a column
+-   * set are one grouped INSERT and run with no envelope, two rows with
+-   * different column sets are two and raise the sentinel.
++   * the shape that makes the difference observable, and the observable split is
++   * the BIND BUDGET, not the spelling of the rows: `schema.scalars` normalizes
++   * every row to one column set first, so rows presenting different keys are
++   * still one grouped INSERT with no envelope (measured — review follow-up N2),
++   * while a batch whose placeholders exceed the provider's limit is constructed
++   * twice and raises the sentinel exactly once
++   * (`g4/unit02/physical-envelope.test.ts`: 2 statements, 1 transaction,
++   * `restarts === 1`, every row written once).
+    */
+   async run<T>(body: () => Promise<T>, single = false): Promise<T> {
+     try {
+@@ -719,7 +752,19 @@
+   private published(rows: Input[], single?: () => Error): unknown {
+     if (!single) return rows;
+     const row = rows[0];
+-    if (!row) throw single();
++    if (!row) {
++      // The operation's own PREMISE failed: the row it addressed is not there.
++      // That is a statement about the world, not a report about the transport,
++      // so it carries no record-series progress — the shipped engine's
++      // `NotFoundError` meta for the same request is exactly
++      // `{model, operation}` on every driver. A provider ANOMALY raised from
++      // the same place (an INSERT that answered no row) throws from inside
++      // `single()` instead of returning, is never marked, and keeps the
++      // progress record its transport owes it.
++      const premise = single();
++      this.premiseFailures.add(premise);
++      throw premise;
++    }
+     return row;
+   }
+   /**
+@@ -759,6 +804,11 @@
+       probe: probe.sql,
+       failure: {
+         kind: "notFound",
++        // Never user-facing: `createFailureError` ignores this message for
++        // `kind: "notFound"` and rebuilds the shipped sentence from the model
++        // and verb below. It is read only by `sameAttribution`
++        // (`batch-error-attribution.ts`), where being CONSTANT per model and
++        // verb is what makes two guards of the same shape agree.
+         message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+         raceable: false
+       },
+@@ -917,8 +967,11 @@
+           firstResult + statements.length
+         );
+         if (window.length !== statements.length) {
++          // One sentence for one condition: `publish` and
++          // `decodeTerminalResults` state it the same way, and a root write now
++          // reaches this owner through the fold.
+           throw new TransactionError(
+-            `Driver '${this.driver.driverName}' omitted a prepared result for operation '${this.operation}'.`,
++            `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
+             { meta: this.errorMeta }
+           );
+         }
+@@ -1130,10 +1183,7 @@
+     const q = this.queries;
+     const adapter = this.driver.adapter;
+     const assignments = Object.entries(values).map(([field, value]) =>
+-      adapter.set.assign(
+-        q.column(model, field),
+-        q.updateValue(model, field, value)
+-      )
++      q.updateAssignment(model, field, value)
+     );
+     if (projection && !adapter.capabilities.supportsReturning) {
+       const identities = await this.captureMutationIdentities(
+@@ -1211,7 +1261,10 @@
+     // removal, under the same locked capture the non-returning branch owns.
+     if (
+       projection &&
+-      (!adapter.capabilities.supportsReturning || namesRelation(projection))
++      !(
++        adapter.capabilities.supportsReturning &&
++        returningSafeProjection(projection)
++      )
+     ) {
+       const identities = await this.captureMutationIdentities(
+         model,
+@@ -1522,10 +1575,7 @@
+       }
+     }
+     const assignments = Object.entries(written).map(([field, value]) =>
+-      adapter.set.assign(
+-        q.column(model, field),
+-        q.updateValue(model, field, value)
+-      )
++      q.updateAssignment(model, field, value)
+     );
+     const statement = adapter.mutations.update(
+       q.table(model),
+--- a/src/query-engine/raptor3/shared/schema.ts
++++ b/src/query-engine/raptor3/shared/schema.ts
+@@ -1,4 +1,5 @@
+ import type { AnyDriver } from "@drivers";
++import { QueryEngineError } from "@errors";
+ import { hydrateSchemaNames, type Schema } from "@schema/hydration";
+ import { getModelKeyCatalog, type AnyModel } from "@schema/model";
+ import {
+@@ -97,6 +98,12 @@
+   _max?: Input;
+ }
+ 
++/**
++ * The two update operators whose result a provider ROUNDS — the ones a row key
++ * cannot carry portably, and the ones phase 2 made reachable.
++ */
++const ROUNDING_KEY_UPDATES = ["multiply", "divide"] as const;
++
+ /** These casts attach the existing admission schema's dynamic model correlation. */
+ export function record(value: unknown): Input {
+   return value as Input;
+@@ -135,7 +142,25 @@
+     this.registry = createResolvedSchemaRegistry(schema, this.index);
+   }
+   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
+-    if (operation === "upsert") return this.upsert(model, raw);
++    const admitted =
++      operation === "upsert"
++        ? this.upsert(model, raw)
++        : this.admitArguments(model, operation, raw);
++    // WHERE the shipped engine states the key's portability contract, mirrored:
++    // `update`/`updateMany` assert at admission (`assertPortablePrimaryKeyUpdateInput`
++    // from their own validator); an `upsert` asserts on its FOUND arm and only
++    // when the update payload names relations, which `Commands` attaches there.
++    if (operation === "update" || operation === "updateMany") {
++      const refusal = this.keyPortabilityRefusal(model, admitted.data);
++      if (refusal) throw refusal;
++    }
++    return admitted;
++  }
++  private admitArguments(
++    model: AnyModel,
++    operation: Operation,
++    raw: unknown
++  ): Arguments {
+     const schema = this.registry.getModelSchemas(model).args[operation];
+     const input =
+       operation === "update" && isRecord(raw) && isRecord(raw.data)
+@@ -153,12 +178,72 @@
+         : raw;
+     return parseValidated(schema, input, operation, "") as Arguments;
+   }
++  /**
++   * Does this payload name a relation of the model? One spelling, asked by the
++   * upsert's create arm below and by the found-arm key-portability gate in
++   * `commands.ts`.
++   */
++  namesRelation(model: AnyModel, data: Input): boolean {
++    return model["~"].relationNames.some((name) => data[name] !== undefined);
++  }
++  /**
++   * The row key's PORTABILITY contract for the two operators phase 2 made
++   * reachable, as one refusal the caller raises where the shipped engine raises
++   * it — never a second walker, never a second sentence.
++   *
++   * A key's post-update value has to be NAMEABLE: a non-returning readback and
++   * every dependent's key transition address the row by it. `multiply` and
++   * `divide` carry a provider-chosen rounding on a `number` or `decimal` key
++   * that no engine can name portably, and a `divide` by zero has no value at
++   * all, so the shipped engine refuses both from its own validator
++   * (`assertPortablePrimaryKeyUpdateInput`). Until phase 2 implemented the two
++   * operators the candidate answered "not implemented" for every one of these
++   * payloads; implementing them is what brought the shapes within reach, so the
++   * refusals arrive with them, in the shipped engine's own sentences.
++   *
++   * WHAT it says is deliberately NARROWER than the shipped assertion, because
++   * the rest of it is not this unit's to change: the candidate SUPPORTS a
++   * decimal key `increment`, which is exact in coefficient space and which the
++   * registered G3 witness
++   * `tests/raptor3/g3/review-execution-boundaries.test.ts` pins, and it lets
++   * `set` win over an accompanying operator, which the shipped engine refuses
++   * as "exactly one update operation". Both predate this unit and are recorded
++   * as decisions for Arnaud (note §R2.2) rather than decided here. A payload
++   * naming `set` therefore never reaches these refusals: `set` is the value
++   * `prepareUpdate` takes, so no unnameable expression is ever built.
++   *
++   * WHERE it is raised belongs to each caller, because the shipped engine does
++   * not raise it in one place: `admit` raises it for `update`/`updateMany`, and
++   * the upsert's found arm carries it (`commands.ts`) exactly when the update
++   * payload names relations — the shipped gate, note §R3.1. A wider placement
++   * refuses requests the shipped engine performs, including an upsert that
++   * CREATES a row the arithmetic never touches.
++   */
++  keyPortabilityRefusal(model: AnyModel, data: unknown): Error | undefined {
++    if (!isRecord(data)) return undefined;
++    for (const keyField of this.keys(model)) {
++      const update = data[keyField];
++      if (!isRecord(update) || Object.hasOwn(update, "set")) continue;
++      const rounded = ROUNDING_KEY_UPDATES.some(
++        (operator) => update[operator] !== undefined
++      );
++      if (!rounded) continue;
++      const scalarType = model["~"].state.scalars[keyField]?.["~"].state.type;
++      if (scalarType === "number" || scalarType === "decimal")
++        return new QueryEngineError(
++          `Arithmetic updates are not portable for ${scalarType} primary key field '${keyField}'. Use an explicit set value.`
++        );
++      if (update.divide === 0 || update.divide === 0n)
++        return new QueryEngineError(
++          `Cannot divide primary key field '${keyField}' by zero.`
++        );
++    }
++    return undefined;
++  }
+   private upsert(model: AnyModel, raw: unknown): Arguments {
+     const envelope = parseValidated(upsertEnvelopeSchema, raw, "upsert", "");
+     const schemas = this.registry.getModelSchemas(model);
+-    const createHasRelations = model["~"].relationNames.some(
+-      (name) => envelope.create[name] !== undefined
+-    );
++    const createHasRelations = this.namesRelation(model, envelope.create);
+     const updateScalars = Object.fromEntries(
+       Object.entries(envelope.update).filter(
+         ([name]) => !model["~"].relationNames.includes(name)
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -5,11 +5,11 @@
+   UnsupportedOperationError,
+ } from "@errors";
+ import type { AnyModel } from "@schema/model";
++import type { OperationContext } from "../shared/operation-context";
+ import {
+-  namesRelation,
+-  type OperationContext,
+-} from "../shared/operation-context";
+-import type { SelectorFacts } from "../shared/query";
++  returningSafeProjection,
++  type SelectorFacts,
++} from "../shared/query";
+ import { type Arguments, entries, type Input, record } from "../shared/schema";
+ import { type Membership, physicalField } from "../shared/storage";
+ import {
+@@ -1025,9 +1025,8 @@
+    * other rows, which no RETURNING can carry, and a provider without RETURNING
+    * keeps the located/mutated/re-read route.
+    *
+-   * Root `create` deliberately keeps its own route: it owns generated-output
+-   * continuations, insert-id scratch and acknowledged-segment progress that the
+-   * set-oriented owner does not reproduce (note §8.3).
++   * Root `create` folds under the same three conditions, through the set-oriented
++   * INSERT owner ({@link rootCreate}).
+    */
+   private rootUpdate(
+     model: AnyModel,
+@@ -1038,7 +1037,7 @@
+       return undefined;
+     if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
+     const projection = ctx.queries.prepareProjection(model, args);
+-    if (namesRelation(projection)) return undefined;
++    if (!returningSafeProjection(projection)) return undefined;
+     const values = ctx.schema.scalars(model, args.data);
+     const selector = ctx.queries.prepareSelector(model, args.where);
+     return () =>
+@@ -1047,6 +1046,34 @@
+       );
+   }
+   /**
++   * A root `create` that writes no relation and publishes no relation is the
++   * set-oriented INSERT owner plus ONE cardinality decision, exactly as
++   * {@link rootUpdate} is for `update`: one `INSERT … RETURNING <projection>`,
++   * the same prepared projection and the same decoder a bulk create uses. It is
++   * the shipped classification too — `canExecuteDirectly` runs this shape
++   * through `runStatementAtomic` with no transaction, measured.
++   *
++   * The gate is the fold's own reachability: a relation in `data` needs the
++   * record route's dependency machinery, a projection that reads other rows has
++   * no RETURNING spelling, and a provider without RETURNING must re-read.
++   */
++  private rootCreate(
++    model: AnyModel,
++    args: Arguments
++  ): (() => Promise<unknown>) | undefined {
++    const ctx = this.context;
++    if (model["~"].relationNames.some((name) => args.data[name] !== undefined))
++      return undefined;
++    if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
++    const projection = ctx.queries.prepareProjection(model, args);
++    if (!returningSafeProjection(projection)) return undefined;
++    const values = ctx.schema.scalars(model, args.data);
++    return () =>
++      ctx.createMany(model, [values], projection, false, () => {
++        throw new TypeError("INSERT did not produce the required record");
++      });
++  }
++  /**
+    * Construct this operation's physical form and answer whether that form MAY
+    * be one statement ({@link PhysicalPlan.single}). Construction reaches no
+    * provider, so the envelope owner can ask before it decides
+@@ -1111,7 +1138,7 @@
+         return { single: true, run: async () => ctx.emptyBulkResult(projection) };
+       const selector = ctx.queries.prepareSelector(model, args.where);
+       return {
+-        single: !projection || (returning && !namesRelation(projection)),
++        single: !projection || (returning && returningSafeProjection(projection)),
+         run: () => ctx.deleteMany(model, selector, args.limit, projection),
+       };
+     }
+@@ -1123,7 +1150,7 @@
+       const projection = ctx.queries.prepareProjection(model, args);
+       const selector = ctx.queries.prepareSelector(model, args.where);
+       return {
+-        single: returning && !namesRelation(projection),
++        single: returning && returningSafeProjection(projection),
+         run: () =>
+           ctx.deleteMany(model, selector, undefined, projection, () =>
+             new NotFoundError(model["~"].names.ts!, "delete")
+@@ -1184,16 +1211,28 @@
+       this.materializePlacement(occurrence);
+       this.bindTree(occurrence);
+       this.analyzeOccurrence(occurrence);
++      // The row key's portability contract, carried where the shipped engine
++      // carries it for an upsert: on the FOUND arm (`UpsertOperation.compileFoundArm`
++      // runs `updateLegality` only once that arm is selected, so a create still
++      // writes its row) and only when the update payload names relations
++      // (`updateHasRelations ? … : undefined`). It outranks a nested-write
++      // refusal on the same arm, as the shipped legality order does.
++      const foundArm = this.choiceArm(occurrence, "found");
++      if (foundArm && ctx.schema.namesRelation(model, args.update!))
++        foundArm.refusal =
++          ctx.schema.keyPortabilityRefusal(model, args.update) ??
++          foundArm.refusal;
+       return {
+         single: false,
+         run: () => this.execution.complete(occurrence, args),
+       };
+     }
+     if (ctx.operation === "create" || ctx.operation === "update") {
+-      if (ctx.operation === "update") {
+-        const folded = this.rootUpdate(model, args);
+-        if (folded) return { single: true, run: folded };
+-      }
++      const folded =
++        ctx.operation === "update"
++          ? this.rootUpdate(model, args)
++          : this.rootCreate(model, args);
++      if (folded) return { single: true, run: folded };
+       const root =
+         ctx.operation === "create"
+           ? this.create(model, args.data, raw.data)
+--- a/src/query-engine/raptor3/commands/index.ts
++++ b/src/query-engine/raptor3/commands/index.ts
+@@ -6,7 +6,7 @@
+   type ExecutionBinding,
+   OperationContext,
+ } from "../shared/operation-context";
+-import type { ProjectionShape, Read } from "../shared/query";
++import type { Leaf, ProjectionShape, Read } from "../shared/query";
+ import { Queries } from "../shared/query";
+ import {
+   type Arguments,
+@@ -60,6 +60,12 @@
+    */
+   readonly shape: ProjectionShape;
+   /**
++   * The PUBLIC value's own shape, which is not always the row shape: `count`
++   * publishes a number and `exist` a boolean, and `findMany`/`groupBy` publish
++   * a collection of rows.
++   */
++  readonly value: ProjectionShape | Leaf;
++  /**
+    * Does this read publish ONE row-like value rather than the row set? True for
+    * `findUnique`, `findFirst`, `aggregate` and a selected `count`; false for
+    * `findMany`, `groupBy`, a plain `count` (a number) and `exist` (a boolean).
+@@ -74,14 +80,17 @@
+   readonly empty: unknown;
+ }
+ 
+-/** The published facts, read from the prepared `Read` itself. */
++/**
++ * The published facts, forwarded from the prepared `Read` itself. The read owner
++ * STATES the cardinality and the public value's shape beside the statement it
++ * decodes (`Queries.read`), so nothing here re-derives either from behavior.
++ */
+ function publishedFacts(value: Read): PreparedRead {
+-  const empty = value.result([]);
+   return {
+     shape: value.query.shape,
+-    single:
+-      empty === null || (typeof empty === "object" && !Array.isArray(empty)),
+-    empty,
++    value: value.value,
++    single: value.single,
++    empty: value.result([]),
+   };
+ }
+ 
+--- a/src/adapters/database-adapter.ts
++++ b/src/adapters/database-adapter.ts
+@@ -279,6 +279,19 @@
+     subtract: (left: Sql, right: Sql) => Sql;
+     multiply: (left: Sql, right: Sql) => Sql;
+     divide: (left: Sql, right: Sql) => Sql;
++    /**
++     * The integer quotient of two integer operands, truncated toward zero.
++     *
++     * The same fact {@link DatabaseAdapter.set.divide}'s `target.integer` flag
++     * already carries, as an EXPRESSION rather than an assignment: naming the
++     * value an integer column will hold after `{ divide }` needs the dialect's
++     * own truncation, and `/` does not agree across dialects. SQLite and
++     * PostgreSQL truncate natively once both operands are integers, while MySQL
++     * `/` yields a DECIMAL quotient and needs `TRUNCATE(…, 0)`. Casting the
++     * quotient afterwards is not a substitute: MySQL and PostgreSQL ROUND on
++     * cast, only SQLite truncates.
++     */
++    integerDivide: (left: Sql, right: Sql) => Sql;
+ 
+     // String operations
+     concat: (...parts: Sql[]) => Sql;
+--- a/src/adapters/databases/sqlite/sqlite-adapter.ts
++++ b/src/adapters/databases/sqlite/sqlite-adapter.ts
+@@ -397,6 +397,13 @@
+     greatest: (...exprs: Sql[]): Sql => sql`MAX(${sql.join(exprs, ", ")})`,
+     least: (...exprs: Sql[]): Sql => sql`MIN(${sql.join(exprs, ", ")})`,
+ 
++    // The expression form of `set.divide`'s integer arm, and for the same
++    // reason: SQLite drivers bind JS numbers as REAL, so `x / ?` would run real
++    // division. Casting the divisor to INTEGER makes it native INT/INT
++    // division, truncating toward zero.
++    integerDivide: (left: Sql, right: Sql): Sql =>
++      sql`(${left} / CAST(${right} AS INTEGER))`,
++
+     // A deferred SQLite decimal is already a captured coefficient. The
+     // descriptor still travels through the common contract so no caller can
+     // select this physical cast without naming the destination domain.
+--- a/src/adapters/databases/postgres/postgres-adapter.ts
++++ b/src/adapters/databases/postgres/postgres-adapter.ts
+@@ -272,6 +272,11 @@
+     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
+     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
+ 
++    // PostgreSQL integer division already truncates toward zero, which is why
++    // `set.divide` ignores `target.integer` here as well. Casting either side
++    // would narrow a `bigint` operand to `int4`.
++    integerDivide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
++
+     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
+       sql`CAST(${expr} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
+ 
+--- a/src/adapters/databases/mysql/mysql-adapter.ts
++++ b/src/adapters/databases/mysql/mysql-adapter.ts
+@@ -575,6 +575,11 @@
+     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
+     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
+ 
++    // The expression form of `set.divide`'s integer arm: MySQL `/` yields a
++    // DECIMAL quotient even for two integers, so the truncation is explicit.
++    integerDivide: (left: Sql, right: Sql): Sql =>
++      sql`TRUNCATE(${left} / ${right}, 0)`,
++
+     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
+       decimalCast(expr, descriptor.precision, descriptor.scale),
+ 

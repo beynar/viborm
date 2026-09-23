@@ -1,0 +1,9 @@
+=== 18:09:50 coverage verify on 54a34e059+wip ===
+validation exit=0 validation thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+errors exit=0 errors thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+adapters exit=0 adapters thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+drivers exit=0 drivers thresholds: statements 96.05% (floor 96%), branches 92.58% (floor 92.5%), functions 96.1% (floor 96%), lines 96.05% (floor 96%)
+policy exit=0
+typecheck exit=0 diagnostics=0
+biome exit=1 Found 1 error 
+=== 18:13:33 done ===

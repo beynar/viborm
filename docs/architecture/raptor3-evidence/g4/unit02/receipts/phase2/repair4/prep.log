@@ -1,0 +1,99 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 36ms
+ ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 266ms
+ ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 707ms
+ ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 64ms
+ ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 26ms
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 471ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/prep/native-clearability-ownership.test.ts [ tests/raptor3/prep/native-clearability-ownership.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/prep/native-clearability-ownership.test.ts:6:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/prep/native-constraint-ownership.test.ts [ tests/raptor3/prep/native-constraint-ownership.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/prep/native-constraint-ownership.test.ts:14:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/prep/native-set-preparation.test.ts [ tests/raptor3/prep/native-set-preparation.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/prep/native-set-preparation.test.ts:10:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/prep/native-suppression-replay.test.ts [ tests/raptor3/prep/native-suppression-replay.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/prep/native-suppression-replay.test.ts:18:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  4 failed | 6 passed (10)
+      Tests  37 passed (37)
+   Start at  12:29:04
+   Duration  23.02s (transform 8.88s, setup 68ms, collect 12.23s, tests 1.57s, environment 0ms, prepare 221ms)
+
+Vitest resources: 26.21s wall, 703.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

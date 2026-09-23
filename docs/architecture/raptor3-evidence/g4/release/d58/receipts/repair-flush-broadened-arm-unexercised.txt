@@ -1,0 +1,34 @@
+Repair round, 2026-09-20 — finding 5.
+
+Probe: `OperationContext.flush`, at the one line that withholds the trailing
+premises, instrumented to log EVERY call with no projections whose
+`withholdPremises()` actually moved statements out of `pending`:
+
+    const __probeBefore = this.attemptStore?.pending.length ?? 0;
+    this.attemptStore?.withholdPremises();
+    const __probeAfter = this.attemptStore?.pending.length ?? 0;
+    if (projections.length === 0 && __probeBefore !== __probeAfter)
+      console.log(`FLUSH-BROADENED before=${__probeBefore} after=${__probeAfter}`);
+
+Engine restored from a backup copy afterwards (no `git checkout`); the diff of
+`src/query-engine/raptor3/shared/operation-context.ts` against the repaired tip
+is empty and `git status` is unchanged.
+
+Corpus and result — `grep -c FLUSH-BROADENED` on each log:
+
+  tests/raptor3/g4/parity/, credential-free half 1 (12 files, 21 file-project
+    pairs, 130 cells, all passed)                                     0 hits
+  tests/raptor3/g4/parity/, credential-free half 2 (12 files, 20 file-project
+    pairs, 215 cells, all passed)                                     0 hits
+  tests/contracts/engine/query/nested-write-conformance-membership.test.ts
+    (30 cells, all passed, worktree launcher)                         0 hits
+
+  total                                                    375 cells, 0 hits
+
+Reading: no boundary in either corpus reaches `flush` with NO projections while
+a trailing premise waits, so the broadened arm is unexercised there and can
+carry no pin. That is a property of the change, not an accident of the corpus:
+restoring `if (projections.length > 0)` on the tip is the equally inert
+alternative. The two pre-existing callers the broadened arm now also covers are
+`executeMember`'s `flush(undefined, member)` (operation-context.ts:547) and
+`answer`'s `flush()` (operation-context.ts:1045).

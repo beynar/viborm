@@ -1,0 +1,58 @@
+--- a/tests/raptor3/g3/generation/transport-plans.ts	2026-09-15 23:19:05
++++ tests/raptor3/g3/generation/transport-plans.ts	2026-09-15 23:20:26
+@@ -230,7 +230,7 @@
+               replies: [
+                 scriptedReply({
+                   name: `${name}:bulk`,
+-                  via: "batch",
++                  via: "execute",
+                   statements: expectedStatements(action, 1, rows[0]!.id),
+                   responses: [
+                     response(
+@@ -347,7 +347,7 @@
+             : [{ id: rows[0]!.id }];
+         const reply = scriptedReply({
+           name: `${name}:scope`,
+-          via: "batch",
++          via: "execute",
+           statements: expectedStatements("INSERT", 1, firstParameter),
+           responses: [response(returned, returned.length)],
+           fault,
+@@ -472,7 +472,7 @@
+         const expected = [{ id }];
+         const reply = scriptedReply({
+           name: `${name}:suffix`,
+-          via: "batch",
++          via: "execute",
+           statements: expectedStatements("INSERT", 1, id),
+           responses: [response(expected, 1)],
+           fault: false,
+@@ -506,11 +506,12 @@
+   name: string,
+   statements: readonly ExpectedStatement[],
+   expected: unknown | undefined,
+-  fault: boolean
++  fault: boolean,
++  via: "batch" | "execute" = "batch"
+ ): Reply {
+   return scriptedReply({
+     name,
+-    via: "batch",
++    via,
+     statements: [...statements],
+     responses: statements.map((statement, index) =>
+       expected !== undefined && index === statements.length - 1
+@@ -545,7 +546,12 @@
+         ...(folded ? [] : expectedStatements("SELECT", 1)),
+       ],
+       expected,
+-      fault
++      fault,
++      // D-7: the folded root `create` is the operation's ONLY statement, so it
++      // needs no batch envelope and runs on the plain execute path — the
++      // shipped `runStatementAtomic` transport. Every other segment here is a
++      // record-series member and stays in its batch.
++      folded ? "execute" : "batch"
+     ),
+   ];
+ }

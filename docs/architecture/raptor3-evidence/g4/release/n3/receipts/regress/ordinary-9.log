@@ -1,0 +1,7 @@
+[test:all] extended-local shard 9/13 (3 files; 179 ordinary of 191)
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-staleness.test.ts (5 tests) 49ms
+ ✓ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (6 tests) 13ms
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-membership-race.test.ts (3 tests) 15ms
+ Test Files  3 passed (3)
+      Tests  14 passed (14)
+[test:all] extended-local shard 9/13 (3 files; 179 ordinary of 191): 3.68s wall, 56.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

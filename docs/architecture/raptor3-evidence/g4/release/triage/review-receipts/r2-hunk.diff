@@ -1,0 +1,31 @@
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 6459e3dbf..45c428cc0 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -4381,12 +4396,22 @@ export class Queries {
+     // before any representation rule: a provider that decodes `'null'` into
+     // the JSON null document has produced a VALUE, and asking the null
+     // question after the chain would refuse it on a NOT NULL json column.
++    //
++    // A json DOCUMENT is the one domain whose values include a null, and two
++    // of the three drivers parse the column themselves (`pg` and `mysql2` hand
++    // back the JS null for the stored `null` document; SQLite hands the text
++    // `'null'` and reaches the chain below). The COLUMN's own nullability is
++    // what tells the two apart there, and it is already on the leaf: a NOT NULL
++    // json column cannot hold the SQL NULL, so this null is the document
++    // `JsonNull` wrote. It continues through the same chain as every other json
++    // value, so a declared output schema still sees it.
+     if (raw === null) {
+       if (leaf.nullable) return null;
+-      throw new InvalidScalarResult(
+-        leaf.type,
+-        leaf.list ? "a required list is null" : "a required scalar is null",
+-      );
++      if (!(leaf.type === "json" && leaf.list !== true))
++        throw new InvalidScalarResult(
++          leaf.type,
++          leaf.list ? "a required list is null" : "a required scalar is null",
++        );
+     }
+     if (raw === undefined)
+       throw new InvalidScalarResult(leaf.type, "the value is absent");

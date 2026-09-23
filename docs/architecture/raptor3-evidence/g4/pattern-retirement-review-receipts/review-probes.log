@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-pattern-retirement| tests/raptor3/g4/review/pattern-retirement/type-anchor-parity.review.test.ts (20 tests) 6ms
+ ✓ |g4-review-pattern-retirement| tests/raptor3/g4/review/pattern-retirement/retirement-closure.review.test.ts (7 tests) 57ms
+ ✓ |g4-review-pattern-retirement| tests/raptor3/g4/review/pattern-retirement/dropped-gate-cells.review.test.ts (2 tests) 309ms
+   ✓ the two deleted gate cells whose subject survived > (e) still has a subject: the census still reports write-engine cycles  308ms
+
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  03:11:43
+   Duration  1.46s (transform 631ms, setup 14ms, collect 952ms, tests 372ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 1.91s wall, 533.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

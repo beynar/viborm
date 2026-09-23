@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/write/type-depth-ceiling.test.ts (2 tests) 761ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:58:25
+   Duration  2.16s (transform 831ms, setup 8ms, collect 1.24s, tests 761ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.83s wall, 1437.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

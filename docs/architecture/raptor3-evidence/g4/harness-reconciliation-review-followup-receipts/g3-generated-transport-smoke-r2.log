@@ -1,0 +1,24 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts (1 test) 109ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  14:55:18
+   Duration  1.97s (transform 1.16s, setup 8ms, collect 1.73s, tests 109ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hBeulK/vitest.json
+Vitest resources: 4.02s wall, 540.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Stale Raptor 3 evidence: executed source or runtime changed
++ actual - expected
+
+  {
++   harness: '4abe564aca50d12b439bcd9f9348f73922eb5cd6d379f4ae332178945cc2939e',
+-   harness: 'fd5b069c41252000c1477ee2a58067239c77b6c649f53c53cf74ce71c2c2adb5',
+    production: '1696696474e97765407dd977be94455b2818680b60dc3b6566f14f69d22a1267',
+    runtime: {
+      architecture: 'arm64',
+      node: 'v24.21.0',
+      platform: 'darwin',
+

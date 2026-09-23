@@ -19,6 +19,7 @@ import type {
   ResolvedVariantRowMember,
 } from "@schema/validation/relation-resolution";
 import type { SchemaRegistryLookup } from "@validation";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 
 // Re-export errors from unified error hierarchy
 export {
@@ -61,12 +62,25 @@ export interface PreparedBatchOperation<T = unknown> {
   parseResult: (results: QueryResult<unknown>[]) => T;
 }
 
+/**
+ * What a prepared guard publishes when its premise does not hold: the typed
+ * failure taxonomy plus the `raceable` bit fixed by the guard's premise class.
+ * `batch-error-attribution.ts` is the one algorithm that reads it, and the one
+ * place it becomes an `Error`.
+ */
+export interface PreparedGuardFailure {
+  readonly kind: "nestedWrite" | "notFound" | "query";
+  readonly message: string;
+  readonly relation?: string;
+  readonly raceable: boolean;
+}
+
 /** Declarative ownership for one assertion query in a prepared operation. */
 export interface PreparedBatchGuard {
   readonly queryIndex: number;
   readonly premise: "exists" | "notExists";
   readonly probe: import("@sql").Sql;
-  readonly failure: import("./write-engine/OperationFragment").Failure;
+  readonly failure: PreparedGuardFailure;
   readonly model: string;
   readonly operation: Operation;
 }
@@ -186,6 +200,13 @@ export interface ExpectedRelationResultShape {
   readonly shape: ExpectedResultShape;
   readonly cardinality: RelationCardinality;
   readonly optional: boolean;
+  /**
+   * The admitted recurrence of a recursive slot, the same normalized value
+   * execution consumes. `shape` is then the ONE repeated node, and the slot's
+   * own key recurs inside every occurrence: absent at a numeric cutoff,
+   * present on every occurrence of an exhaustive traversal.
+   */
+  readonly recurrence?: NormalizedRecurrence;
 }
 
 /** Exact raw columns and nested projections expected for one returned row. */

@@ -1,0 +1,17 @@
+# The captured mutation's INTERACTIVE (non-batch) arm, on the final source
+# — an interactive SQLite driver with RETURNING off, and the set-window meta pins
+
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (18 tests) 121ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 13ms
+ ✓ |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (18 tests) 184ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 13ms
+
+ Test Files  4 passed (4)
+      Tests  44 passed (44)
+   Start at  19:12:24
+   Duration  5.04s (transform 2.63s, setup 32ms, collect 4.20s, tests 330ms, environment 0ms, prepare 95ms)
+
+Vitest resources: 7.15s wall, 585.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

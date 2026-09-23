@@ -1,0 +1,7 @@
+[test:all] extended-local shard 2/13 (3 files; 179 ordinary of 191)
+ ✓ |extended-local| tests/contracts/drivers/sqlite-native-datetime.provider.test.ts (14 tests) 42ms
+ ✓ |extended-local| tests/contracts/drivers/sqlite-integer-safety.provider.test.ts (3 tests) 46ms
+ ✓ |extended-local| tests/contracts/drivers/sqlite-binary-values.provider.test.ts (2 tests) 1ms
+ Test Files  3 passed (3)
+      Tests  19 passed (19)
+[test:all] extended-local shard 2/13 (3 files; 179 ordinary of 191): 3.83s wall, 55.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

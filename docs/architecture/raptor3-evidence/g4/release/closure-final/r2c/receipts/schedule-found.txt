@@ -1,0 +1,6 @@
+# the FOUND arm: the same probe when the row EXISTS (A=conn78 B=conn79)
+A: probe FOR UPDATE -> 1 row(s)
+## locks @ after A probe (row present)
+   A  TABLE IX GRANTED idx=- data=-
+   A  RECORD X,REC_NOT_GAP GRANTED idx=PRIMARY data='seed'
+   A  RECORD X,REC_NOT_GAP GRANTED idx=r2c_sched_tags_name_key data='plain-race', 'seed'

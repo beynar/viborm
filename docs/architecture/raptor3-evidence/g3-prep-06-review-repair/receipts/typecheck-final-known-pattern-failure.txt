@@ -1,0 +1,8 @@
+Command: pnpm test:types
+Runtime: Node v24.21.0
+Result: exit 1; no registration, source, or witness diagnostic
+Resources: 5.84s wall; 5602.5 MiB peak sampled process-group RSS; 8192 MiB ceiling; teardown verified
+
+Historical diagnostics only:
+src/query-engine/pattern/pack.ts(1443,36): TS2345 VariantCarrierSlot is not assignable to VariantJunctionCarrierSlot
+src/query-engine/pattern/pack.ts(2633,58): TS2345 VariantCarrierSlot is not assignable to VariantJunctionCarrierSlot

@@ -1,0 +1,2227 @@
+--- a/src/query-engine/raptor3/commands/assignments.ts
++++ b/src/query-engine/raptor3/commands/assignments.ts
+@@ -1,8 +1,10 @@
+ import { NestedWriteError, UnsupportedOperationError } from "@errors";
+ import type { AnyModel } from "@schema/model";
+ import { Sql } from "@sql";
++import type { SelectorFacts } from "../shared/query";
+ import { type Input, record } from "../shared/schema";
+ import type { Membership } from "../shared/storage";
++import type { CommandOccurrence } from "./commands";
+ 
+ export type Origin = {
+   relation: string;
+@@ -11,9 +13,10 @@
+   slot?: string;
+ };
+ export type MembershipContribution = {
+-  owner: object;
++  owner: CommandOccurrence;
+   origin: Origin;
+   scope: Membership["scope"];
++  identity?: SelectorFacts;
+ };
+ export type FieldValue = (
+   | { kind: "literal"; value: unknown }
+--- a/src/query-engine/raptor3/commands/command-attempt.ts
++++ b/src/query-engine/raptor3/commands/command-attempt.ts
+@@ -1,14 +1,16 @@
+ import { Sql } from "@sql";
+-import type { Input } from "../shared/schema";
+ import type { Query } from "../shared/query";
++import type { Input } from "../shared/schema";
+ import { TransportAttempt } from "../shared/transport-attempt";
+ import type { Assignments, FieldValue } from "./assignments";
+ import type {
+   Choose,
++  CommandOccurrence,
++  Deletion,
+   JunctionCapture,
+-  SelectedSeries,
+-  SelectedSeriesMember,
++  RecordCommand,
+   Selection,
++  SeriesOccurrence,
+ } from "./commands";
+ 
+ /** Database observations and field transports belonging to one command attempt. */
+@@ -20,9 +22,9 @@
+   readonly missingChoices = new Map<object, Choose>();
+   readonly conditionalSkips = new Map<unknown, Choose>();
+   readonly series = new Map<
+-    SelectedSeries,
++    CommandOccurrence<SeriesOccurrence>,
+     {
+-      readonly members: SelectedSeriesMember[];
++      readonly members: CommandOccurrence<RecordCommand | Deletion>[];
+       readonly parentRequirement?: {
+         readonly query: Query;
+         readonly failure: Error;
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -5,8 +5,8 @@
+   UnsupportedOperationError,
+ } from "@errors";
+ import type { AnyModel } from "@schema/model";
++import type { OperationContext } from "../shared/operation-context";
+ import type { SelectorFacts } from "../shared/query";
+-import { OperationContext } from "../shared/operation-context";
+ import { type Arguments, entries, type Input, record } from "../shared/schema";
+ import { type Membership, physicalField } from "../shared/storage";
+ import {
+@@ -16,12 +16,13 @@
+   type Origin,
+ } from "./assignments";
+ import { CommandExecution } from "./execution";
++import { RelationBody } from "./relation-body";
+ import {
+-  Selection,
+   type BoundMembership,
++  Selection,
+   type SelectionSource,
+ } from "./selection";
+-import { RelationBody } from "./relation-body";
++
+ export { Selection } from "./selection";
+ 
+ type Reference = Extract<Membership, { kind: "reference" }>;
+@@ -31,19 +32,17 @@
+   kind: "record";
+   model: AnyModel;
+   fields: Assignments;
+-  before: Command[];
+-  after: Command[];
++  body: CommandOccurrence[];
+   transitions: Reference[];
+   located?: Selection;
+   requirement?: MembershipRequirement;
+   operation?: string;
+   origin?: Origin;
+-  refusal?: Error;
+   suppression?: { readonly kind: "skipDuplicate" };
+ }
+ export interface RecordSeriesCommand {
+   readonly kind: "series";
+-  readonly records: RecordCommand[];
++  readonly records: CommandOccurrence<RecordCommand>[];
+   readonly select?: Input;
+ }
+ export interface MembershipRequirement {
+@@ -77,8 +76,8 @@
+   lookup: Selection;
+   foundRequirement?: MembershipRequirement;
+   operation?: string;
+-  missing?: RecordCommand;
+-  foundRecord?: RecordCommand;
++  missing?: CommandOccurrence<RecordCommand>;
++  found?: CommandOccurrence<RecordCommand>;
+   conditions?: { probes: Condition[]; missingRow: Error };
+ }
+ export interface Link {
+@@ -108,42 +107,62 @@
+     | { readonly kind: "delete" };
+ }
+ export type SelectedSeriesMember = RecordCommand | Deletion;
+-type MutationOccurrence =
+-  | RecordCommand
+-  | Deletion
+-  | Choose
+-  | Selection
+-  | Link
+-  | Removal;
+-interface SeriesOccurrence {
+-  readonly kind: "seriesOccurrence";
++export interface SeriesOccurrence {
++  readonly kind: "selectedSeries";
+   readonly series: SelectedSeries;
++  readonly template: CommandOccurrence<RecordCommand | Deletion>;
+ }
+-type WriteOccurrence = MutationOccurrence | SeriesOccurrence;
+-interface DependencyRead {
++export interface SeriesCapture {
++  readonly kind: "captureSeries";
++  readonly target: CommandOccurrence<SeriesOccurrence>;
++}
++export interface MembershipMutation {
++  readonly kind: "membership";
++}
++export type Placement = "root" | "before" | "capture" | "after";
++export interface CommandOccurrence<C extends Command = Command> {
++  readonly kind: "occurrence";
++  readonly command: C;
++  readonly placement: Placement;
++  readonly order: number;
++  readonly memberships: MembershipPublication[];
++  children: CommandOccurrence[];
++  role?: "found" | "missing" | "template" | "member";
++  captureTarget?: CommandOccurrence<SeriesOccurrence>;
++  parent?: CommandOccurrence;
++  dependencyRead?: DependencyRead;
++  refusal?: Error;
++}
++interface MembershipPublication {
++  readonly carrier: Assignments;
++  readonly identity?: SelectorFacts;
++  readonly contribution: MembershipContribution;
++}
++export interface DependencyRead {
++  readonly occurrence: CommandOccurrence;
+   readonly lookup: Selection;
+-  readonly owner: RecordCommand;
++  readonly owner: CommandOccurrence<RecordCommand>;
+   readonly membership?: BoundMembership;
+   readonly target: boolean;
+ }
+-interface DependencyChoice {
+-  readonly choice: Choose;
+-  readonly found: DependencyObservation[];
+-  readonly missing: DependencyObservation[];
+-}
+-type DependencyObservation = DependencyRead | DependencyChoice;
+-interface AnalysisState {
+-  readonly writes: WriteOccurrence[];
+-  readonly series: SeriesAnalysis[];
++interface DependencyWrite {
++  readonly occurrence: CommandOccurrence;
++  readonly command?: RecordCommand | Deletion | Link | Removal;
++  readonly membership?: MembershipPublication;
+ }
+-interface SeriesAnalysis {
+-  readonly occurrence: SeriesOccurrence;
+-  readonly owner: RecordCommand;
+-  readonly reads: DependencyObservation[];
+-  readonly state: AnalysisState;
+-  readonly provisionalLength: number;
+-  substituted: boolean;
++interface BranchPath {
++  readonly parent?: BranchPath;
++  readonly choice: CommandOccurrence;
++  readonly arm: "found" | "missing";
+ }
++interface ReadVisit {
++  readonly read: DependencyRead;
++  readonly branch?: BranchPath;
++}
++interface WriteVisit {
++  readonly write: DependencyWrite;
++  readonly branch?: BranchPath;
++}
+ interface SeriesRefusal {
+   readonly error: Error;
+   readonly member: SelectedSeriesMember;
+@@ -158,16 +177,26 @@
+   | Removal
+   | Deletion
+   | RecordSeriesCommand
+-  | { kind: "captureSeries"; series: SelectedSeries }
+-  | { kind: "series"; series: SelectedSeries };
++  | SeriesCapture
++  | SeriesOccurrence
++  | MembershipMutation;
+ 
++export function isRecordOccurrence(
++  occurrence: CommandOccurrence
++): occurrence is CommandOccurrence<RecordCommand> {
++  return occurrence.command.kind === "record";
++}
++export function isSeriesOccurrence(
++  occurrence: CommandOccurrence
++): occurrence is CommandOccurrence<SeriesOccurrence> {
++  return occurrence.command.kind === "selectedSeries";
++}
++
+ /** Construction owns branch order; every storage consumer names exact produced fields. */
+ export class Commands {
+   private nextMutation = 0;
+-  private readonly seriesAnalysis = new WeakMap<
+-    SelectedSeries,
+-    SeriesAnalysis[]
+-  >();
++  private nextOccurrence = 0;
++  private readonly placedCommands = new WeakSet<object>();
+   readonly execution: CommandExecution;
+   constructor(readonly context: OperationContext) {
+     this.execution = new CommandExecution(this);
+@@ -185,8 +214,7 @@
+       kind: "record",
+       model,
+       operation,
+-      before: [],
+-      after: [],
++      body: [],
+       transitions: [],
+       fields: new Assignments(
+         model,
+@@ -214,8 +242,7 @@
+       kind: "record",
+       model,
+       located,
+-      before: [],
+-      after: [],
++      body: [],
+       transitions: [],
+       fields: new Assignments(
+         model,
+@@ -246,7 +273,124 @@
+   }
+   createOrigin(relation: string, operation: string, slot = relation): Origin {
+     return { relation, operation, slot, order: this.nextMutation++ };
++  }
++  occurrence<C extends Command>(
++    command: C,
++    placement: Placement = "root"
++  ): CommandOccurrence<C> {
++    const occurrence: CommandOccurrence<C> = {
++      kind: "occurrence",
++      command,
++      placement,
++      order: this.nextOccurrence++,
++      memberships: [],
++      children: [],
++    };
++    return occurrence;
++  }
++  place<C extends Command>(
++    parent: RecordCommand,
++    command: C,
++    placement: Exclude<Placement, "root">,
++    origin = this.origin(command)
++  ): CommandOccurrence<C> {
++    const occurrence = this.occurrence(command, placement);
++    this.materializePlacement(occurrence, this.placedCommands.has(command));
++    this.placedCommands.add(command);
++    const semanticOrder = origin?.order ?? -1;
++    const placementOrder = (value: Placement) =>
++      value === "before" ? 0 : value === "capture" ? 1 : 2;
++    const following = parent.body.findIndex((candidate) => {
++      const candidateOrder = this.origin(candidate.command)?.order ?? -1;
++      return (
++        candidateOrder > semanticOrder ||
++        (candidateOrder === semanticOrder &&
++          placementOrder(candidate.placement) > placementOrder(placement))
++      );
++    });
++    parent.body.splice(
++      following < 0 ? parent.body.length : following,
++      0,
++      occurrence
++    );
++    return occurrence;
+   }
++  private recipeChildren(command: Command): readonly CommandOccurrence[] {
++    if (command.kind === "record") return command.body;
++    if (command.kind === "choose")
++      return [command.found, command.missing].filter(
++        (arm): arm is CommandOccurrence<RecordCommand> => arm !== undefined
++      );
++    if (command.kind === "series") return command.records;
++    if (command.kind === "selectedSeries") return [command.template];
++    return [];
++  }
++  private materializePlacement(
++    occurrence: CommandOccurrence,
++    clone: boolean
++  ): void {
++    if (!clone) {
++      occurrence.children = [...this.recipeChildren(occurrence.command)];
++      for (const child of occurrence.children) {
++        if (!child.children.length && this.recipeChildren(child.command).length)
++          this.materializePlacement(child, false);
++      }
++      if (occurrence.command.kind === "captureSeries")
++        occurrence.captureTarget = occurrence.command.target;
++      else if (occurrence.command.kind === "choose") {
++        if (occurrence.command.found) occurrence.command.found.role = "found";
++        if (occurrence.command.missing)
++          occurrence.command.missing.role = "missing";
++      } else if (occurrence.command.kind === "selectedSeries")
++        occurrence.command.template.role = "template";
++      return;
++    }
++    const replacements = new Map<CommandOccurrence, CommandOccurrence>();
++    const copy = (source: CommandOccurrence): CommandOccurrence => {
++      const replacement = this.occurrence(source.command, source.placement);
++      replacement.memberships.push(...source.memberships);
++      replacement.role = source.role;
++      replacements.set(source, replacement);
++      const children = source.children.length
++        ? source.children
++        : this.recipeChildren(source.command);
++      replacement.children = children.map(copy);
++      return replacement;
++    };
++    occurrence.children = this.recipeChildren(occurrence.command).map(copy);
++    const bindTargets = (source: CommandOccurrence): void => {
++      const replacement = replacements.get(source);
++      if (!replacement) return;
++      if (source.command.kind === "captureSeries") {
++        const target = source.captureTarget ?? source.command.target;
++        const resolved = replacements.get(target) ?? target;
++        if (!isSeriesOccurrence(resolved))
++          throw new Error("Series capture target lost its occurrence kind");
++        replacement.captureTarget = resolved;
++      }
++      for (const child of source.children.length
++        ? source.children
++        : this.recipeChildren(source.command))
++        bindTargets(child);
++    };
++    for (const child of this.recipeChildren(occurrence.command))
++      bindTargets(child);
++  }
++  private origin(command: Command): Origin | undefined {
++    if (command.kind === "choose") return command.lookup.origin;
++    if (command.kind === "captureSeries")
++      return command.target.command.series.selection.origin;
++    if (command.kind === "selectedSeries")
++      return command.series.selection.origin;
++    if (command.kind === "junction") return command.address.origin;
++    if (
++      command.kind === "record" ||
++      command.kind === "delete" ||
++      command.kind === "lookup"
++    )
++      return command.origin;
++    return undefined;
++  }
+   assignMembership(
+     edge: Reference,
+     destination: Assignments,
+@@ -287,87 +431,114 @@
+         `Conflicting stored discriminator for relation '${edge.name}'.`,
+         contribution
+       );
++    if (contribution) this.publishMembership(destination, contribution);
+   }
+-  analyze(root: RecordCommand): WriteOccurrence[] {
+-    const state: AnalysisState = { writes: [], series: [] };
+-    this.analyzeInto(root, state);
+-    return state.writes;
++  publishMembership(
++    carrier: Assignments,
++    contribution: MembershipContribution
++  ): void {
++    contribution.owner.memberships.push({
++      carrier,
++      identity: contribution.identity,
++      contribution,
++    });
+   }
+-  analyzeSeries(series: SelectedSeries, owner: RecordCommand): void {
+-    this.analyzeSeriesInto(series, owner, { writes: [], series: [] });
++  analyze(root: RecordCommand): CommandOccurrence<RecordCommand> {
++    const occurrence = this.occurrence(root);
++    this.materializePlacement(occurrence, false);
++    this.bindTree(occurrence);
++    this.analyzeOccurrence(occurrence);
++    return occurrence;
+   }
+-  private checkRead(state: AnalysisState, read: DependencyRead): void {
+-    this.readMembership(state.writes, read);
+-    if (read.target) this.readTarget(state.writes, read);
++  analyzeSeries(series: SelectedSeries): CommandOccurrence<SeriesOccurrence> {
++    const occurrence = this.occurrence(this.selectedSeries(series));
++    this.materializePlacement(occurrence, false);
++    this.bindTree(occurrence);
++    this.analyzeOccurrence(occurrence);
++    return occurrence;
+   }
+-  private observeRead(state: AnalysisState, read: DependencyRead): void {
+-    this.checkRead(state, read);
+-    for (const scope of state.series) scope.reads.push(read);
++  selectedSeries(series: SelectedSeries): SeriesOccurrence {
++    return {
++      kind: "selectedSeries",
++      series,
++      template: this.occurrence(series.analysis),
++    };
+   }
+-  private checkObservation(
+-    state: AnalysisState,
+-    observation: DependencyObservation
+-  ): Error | undefined {
+-    if (!("choice" in observation)) {
+-      this.checkRead(state, observation);
+-      return observation.owner.refusal;
+-    }
+-    let foundRefusal: Error | undefined;
+-    for (const candidate of observation.found)
+-      foundRefusal ??= this.checkObservation(state, candidate);
+-    for (const candidate of observation.missing)
+-      this.checkObservation(state, candidate);
+-    return this.execution.attempt.rows.has(observation.choice.lookup)
+-      ? foundRefusal
+-      : undefined;
++  childrenOf(occurrence: CommandOccurrence): readonly CommandOccurrence[] {
++    return occurrence.children;
+   }
+-  private readMembership(
+-    writes: WriteOccurrence[],
+-    read: DependencyRead
+-  ): void {
++  choiceArm(
++    occurrence: CommandOccurrence,
++    arm: "found" | "missing"
++  ): CommandOccurrence<RecordCommand> | undefined {
++    if (occurrence.command.kind !== "choose") return undefined;
++    const child = occurrence.children.find(
++      (candidate) => candidate.role === arm
++    );
++    return child && isRecordOccurrence(child) ? child : undefined;
++  }
++  seriesMembers(
++    occurrence: CommandOccurrence<SeriesOccurrence>
++  ): CommandOccurrence<RecordCommand | Deletion>[] {
++    return occurrence.children.filter(
++      (child): child is CommandOccurrence<RecordCommand | Deletion> =>
++        child.role === "member" &&
++        (child.command.kind === "record" || child.command.kind === "delete")
++    );
++  }
++  seriesCaptureTarget(
++    occurrence: CommandOccurrence
++  ): CommandOccurrence<SeriesOccurrence> {
++    if (occurrence.command.kind !== "captureSeries")
++      throw new Error("Command occurrence is not a series capture");
++    const target = occurrence.captureTarget;
++    if (!target) throw new Error("Series capture has no occurrence target");
++    return target;
++  }
++  private readMembership(write: DependencyWrite, read: DependencyRead): void {
+     const { lookup, owner } = read;
+     const membership = read.membership ?? lookup.membership();
+-    if (!lookup.origin || !membership || membership.edge.kind !== "reference")
++    if (!(lookup.origin && membership) || membership.edge.kind !== "reference")
+       return;
+     const edge = membership.edge;
+     const carrier = edge.owner === "source" ? edge.source : edge.target;
+     const observed =
+-      edge.owner === "source" ? owner.located?.facts : lookup.facts;
+-    for (const write of writes) {
+-      if (write.kind !== "record" || write.model !== carrier) continue;
+-      for (const assignment of write.fields.contributions().values()) {
+-        const contribution = assignment.membership;
+-        if (
+-          !contribution ||
+-          contribution.owner === lookup ||
+-          contribution.scope.edge !== edge.scope.edge ||
+-          (contribution.scope.member !== undefined &&
+-            contribution.scope.member !== edge.scope.member) ||
+-          !writes.some((occurrence) => occurrence === contribution.owner)
+-        )
+-          continue;
+-        const disjoint =
+-          observed &&
+-          [...observed.equals].some(
+-            ([key, value]) =>
+-              !write.fields.writesField(key) &&
+-              write.located?.facts.equals.has(key) &&
+-              !Object.is(write.located.facts.equals.get(key), value)
+-          );
+-        if (disjoint) continue;
+-        const relation = lookup.origin.slot ?? lookup.origin.relation;
+-        const operation = lookup.origin.operation;
+-        const earlier = contribution.origin.operation;
+-        owner.refusal ??= new NestedWriteError(
+-          `Nested operation '${operation}' on relation '${relation}' depends on an earlier '${earlier}' membership write in the same nested write. Split these operations into separate queries.`,
+-          relation,
+-          { meta: { operation, conflictsWith: earlier, relation } }
+-        );
+-        return;
++      edge.owner === "source" ? owner.command.located?.facts : lookup.facts;
++    const publication = write.membership;
++    if (!publication || publication.carrier.model !== carrier) return;
++    const contribution = publication.contribution;
++    const ownerDiffers = contribution.owner.command !== lookup;
++    if (!ownerDiffers) return;
++    const sameEdge = contribution.scope.edge === edge.scope.edge;
++    if (!sameEdge) return;
++    const sameMember =
++      contribution.scope.member === undefined ||
++      contribution.scope.member === edge.scope.member;
++    if (!sameMember) return;
++    const identity = publication.identity;
++    let disjoint = false;
++    if (observed && identity)
++      for (const [key, value] of observed.equals) {
++        const conflicts =
++          !publication.carrier.writesField(key) &&
++          identity.equals.has(key) &&
++          !Object.is(identity.equals.get(key), value);
++        if (conflicts) {
++          disjoint = true;
++          break;
++        }
+       }
+-    }
++    if (disjoint) return;
++    const relation = lookup.origin.slot ?? lookup.origin.relation;
++    const operation = lookup.origin.operation;
++    const earlier = contribution.origin.operation;
++    owner.refusal ??= new NestedWriteError(
++      `Nested operation '${operation}' on relation '${relation}' depends on an earlier '${earlier}' membership write in the same nested write. Split these operations into separate queries.`,
++      relation,
++      { meta: { operation, conflictsWith: earlier, relation } }
++    );
+   }
+-  private readTarget(writes: WriteOccurrence[], read: DependencyRead): void {
++  private readTarget(write: DependencyWrite, read: DependencyRead): void {
+     const { lookup, owner } = read;
+     if (
+       !lookup.origin ||
+@@ -385,277 +556,408 @@
+       },
+       ...lookup.facts.reads,
+     ];
++    const mutation = write.command;
++    if (!mutation) return;
+     for (const scope of scopes) {
+-      for (const write of writes) {
+-        if (
+-          write.kind === "choose" ||
+-          write.kind === "lookup" ||
+-          write.kind === "seriesOccurrence"
+-        )
+-          continue;
+-        if (write.kind === "link" || write.kind === "remove") {
+-          const observed = scope.path.at(-1);
+-          if (!observed || observed.scope.edge !== write.edge.scope.edge)
+-            continue;
+-          const origin = lookup.origin;
+-          owner.refusal ??= new NestedWriteError(
+-            `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier membership write in the same nested write. Split these operations into separate queries.`,
+-            origin.relation,
+-            {
+-              meta: {
+-                operation: origin.operation,
+-                conflictsWith: write.kind === "link" ? "connect" : "disconnect",
+-                dependency: "membership",
+-                overlap: "unknown",
+-              },
+-            }
+-          );
+-          return;
+-        }
+-        const model =
+-          write.kind === "delete" ? write.located.model : write.model;
+-        if (model !== scope.model) continue;
+-        if (
+-          write.kind === "record" &&
+-          write.fields.operation !== "create" &&
+-          !write.located?.membership()?.edge.many &&
+-          !write.fields.writtenFields().some((field) => scope.fields.has(field))
+-        )
+-          continue;
+-        let matched = 0;
+-        let disjoint = false;
+-        for (const [field, expected] of scope.equals) {
+-          const value =
+-            write.kind === "record" && write.fields.operation === "create"
+-              ? write.fields.known(field)
+-              : undefined;
+-          const selected =
+-            write.located?.facts.exact &&
+-            !(write.kind === "record" && write.fields.writesField(field))
+-              ? write.located
+-              : undefined;
+-          const known =
+-            value?.kind === "literal"
+-              ? value.value
+-              : selected?.facts.equals.get(field);
+-          const hasKnown =
+-            value?.kind === "literal" || selected?.facts.equals.has(field);
+-          if (!hasKnown || !scope.exact) continue;
+-          if (!Object.is(known, expected)) {
+-            disjoint = true;
+-            break;
+-          }
+-          matched++;
+-        }
+-        if (disjoint) continue;
++      if (mutation.kind === "link" || mutation.kind === "remove") {
++        const observed = scope.path.at(-1);
++        const sameEdge =
++          observed !== undefined &&
++          observed.scope.edge === mutation.edge.scope.edge;
++        if (!sameEdge) continue;
+         const origin = lookup.origin;
+-        const operation =
+-          write.origin?.operation ??
+-          (write.kind === "delete" ? "delete" : write.fields.operation);
+         owner.refusal ??= new NestedWriteError(
+-          `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier '${operation}' target write in the same nested write. Split these operations into separate queries.`,
++          `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier membership write in the same nested write. Split these operations into separate queries.`,
+           origin.relation,
+           {
+             meta: {
+               operation: origin.operation,
+-              conflictsWith: operation,
+-              dependency: "targetExistence",
+-              overlap:
+-                scope.exact && matched > 0 && matched === scope.fields.size
+-                  ? "equal"
+-                  : "unknown",
++              conflictsWith:
++                mutation.kind === "link" ? "connect" : "disconnect",
++              dependency: "membership",
++              overlap: "unknown",
+             },
+           }
+         );
+         return;
+       }
+-    }
+-  }
+-  private analyzeInto(root: RecordCommand, state: AnalysisState): void {
+-    const writes = state.writes;
+-    if (root.suppression) this.context.requireSuppression();
+-    if (
+-      root.fields.operation === "create" ||
+-      root.fields.writtenFields().length
+-    )
+-      writes.push(root);
+-    const origin = (command: Command) =>
+-      command.kind === "choose"
+-        ? command.lookup.origin
+-        : command.kind === "captureSeries" ||
+-            (command.kind === "series" && "series" in command)
+-          ? command.series.selection.origin
+-          : command.kind === "record" ||
+-              command.kind === "delete" ||
+-              command.kind === "lookup"
+-            ? command.origin
++      const model =
++        mutation.kind === "delete" ? mutation.located.model : mutation.model;
++      if (model !== scope.model) continue;
++      if (
++        mutation.kind === "record" &&
++        mutation.fields.operation !== "create" &&
++        !mutation.located?.membership()?.edge.many
++      ) {
++        let hasWrittenOverlap = false;
++        for (const field of mutation.fields.writtenFields()) {
++          hasWrittenOverlap = scope.fields.has(field);
++          if (hasWrittenOverlap) break;
++        }
++        if (!hasWrittenOverlap) continue;
++      }
++      let matched = 0;
++      let disjoint = false;
++      for (const [field, expected] of scope.equals) {
++        const value =
++          mutation.kind === "record" && mutation.fields.operation === "create"
++            ? mutation.fields.known(field)
+             : undefined;
+-    // Logical mutation order differs from physical placement (a replaced parent FK
+-    // must be written before deleting its captured outgoing target).
+-    const children = [...root.before, ...root.after].sort(
+-      (left, right) =>
+-        (origin(left)?.order ?? -1) - (origin(right)?.order ?? -1)
+-    );
+-    for (const command of children) {
+-      if (command.kind === "choose") {
+-        this.observeRead(state, {
+-          lookup: command.lookup,
+-          owner: root,
+-          membership: command.foundRequirement?.membership,
+-          target: true,
+-        });
+-        if (command.foundRecord || command.missing) {
+-          const enclosing = state.series.map((scope) => ({
+-            scope,
+-            start: scope.reads.length,
+-          }));
+-          const commonLength = writes.length;
+-          const commonSeries = state.series.length;
+-          if (command.foundRecord)
+-            this.analyzeInto(command.foundRecord, state);
+-          const foundReads = enclosing.map(({ scope, start }) =>
+-            scope.reads.splice(start)
+-          );
+-          const found = writes.splice(commonLength);
+-          const foundSeries = state.series.splice(commonSeries);
+-          if (command.missing)
+-            this.analyzeInto(command.missing, state);
+-          const missingReads = enclosing.map(({ scope, start }) =>
+-            scope.reads.splice(start)
+-          );
+-          const missing = writes.splice(commonLength);
+-          const missingSeries = state.series.splice(commonSeries);
+-          for (const occurrence of found) writes.push(occurrence);
+-          for (const occurrence of missing) writes.push(occurrence);
+-          for (const scope of foundSeries) state.series.push(scope);
+-          for (const scope of missingSeries) state.series.push(scope);
+-          for (const [index, { scope }] of enclosing.entries())
+-            scope.reads.push({
+-              choice: command,
+-              found: foundReads[index]!,
+-              missing: missingReads[index]!,
+-            });
+-          if (command.foundRecord && !command.missing)
+-            root.refusal ??= command.foundRecord.refusal;
++        const selected =
++          mutation.located?.facts.exact &&
++          !(mutation.kind === "record" && mutation.fields.writesField(field))
++            ? mutation.located
++            : undefined;
++        const known =
++          value?.kind === "literal"
++            ? value.value
++            : selected?.facts.equals.get(field);
++        const hasKnown =
++          value?.kind === "literal" || selected?.facts.equals.has(field);
++        if (!(hasKnown && scope.exact)) continue;
++        const equal = Object.is(known, expected);
++        if (!equal) {
++          disjoint = true;
++          break;
+         }
+-        writes.push(command);
+-      } else if (command.kind === "record") {
+-        this.analyzeInto(command, state);
+-        root.refusal ??= command.refusal;
+-      } else if (command.kind === "delete") {
+-        this.observeRead(state, {
+-          lookup: command.located,
+-          owner: root,
+-          target: true,
+-        });
+-        writes.push(command);
+-      } else if (command.kind === "lookup") {
+-        writes.push(command);
+-      } else if (command.kind === "link" || command.kind === "remove") {
+-        writes.push(command);
+-      } else if (command.kind === "series" && "records" in command) {
+-        for (const record of command.records) {
+-          this.analyzeInto(record, state);
+-          root.refusal ??= record.refusal;
+-        }
+-      } else if (command.kind === "series") {
+-        this.analyzeSeriesInto(command.series, root, state);
++        matched++;
+       }
++      if (disjoint) continue;
++      const origin = lookup.origin;
++      const operation =
++        mutation.origin?.operation ??
++        (mutation.kind === "delete" ? "delete" : mutation.fields.operation);
++      owner.refusal ??= new NestedWriteError(
++        `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier '${operation}' target write in the same nested write. Split these operations into separate queries.`,
++        origin.relation,
++        {
++          meta: {
++            operation: origin.operation,
++            conflictsWith: operation,
++            dependency: "targetExistence",
++            overlap:
++              scope.exact && matched > 0 && matched === scope.fields.size
++                ? "equal"
++                : "unknown",
++          },
++        }
++      );
++      return;
+     }
+   }
+-  private analyzeSeriesInto(
+-    series: SelectedSeries,
+-    owner: RecordCommand,
+-    state: AnalysisState
++  private bindTree(
++    occurrence: CommandOccurrence,
++    parent?: CommandOccurrence
+   ): void {
+-    this.observeRead(state, {
+-      lookup: series.selection,
+-      owner,
+-      target: true,
+-    });
+-    const seriesStart = state.series.length;
+-    const occurrence: SeriesOccurrence = { kind: "seriesOccurrence", series };
+-    state.writes.push(occurrence);
+-    const provisionalStart = state.writes.length;
+-    const analysis = series.analysis;
+-    if (analysis.kind === "record") {
+-      this.analyzeInto(analysis, state);
+-      owner.refusal ??= analysis.refusal;
+-    } else {
+-      state.writes.push(analysis);
++    occurrence.parent = parent;
++    occurrence.dependencyRead ??= this.dependencyRead(occurrence);
++    for (const child of occurrence.children) this.bindTree(child, occurrence);
++  }
++  private dependencyRead(
++    occurrence: CommandOccurrence
++  ): DependencyRead | undefined {
++    const command = occurrence.command;
++    const owner = isSeriesOccurrence(occurrence)
++      ? this.seriesOwner(occurrence)
++      : this.recordOwner(occurrence);
++    if (!owner) return undefined;
++    if (command.kind === "choose")
++      return {
++        occurrence,
++        lookup: command.lookup,
++        owner,
++        membership: command.foundRequirement?.membership,
++        target: true,
++      };
++    if (command.kind === "delete")
++      return {
++        occurrence,
++        lookup: command.located,
++        owner,
++        target: true,
++      };
++    if (command.kind === "selectedSeries")
++      return {
++        occurrence,
++        lookup: command.series.selection,
++        owner,
++        target: true,
++      };
++    return undefined;
++  }
++  private recordOwner(
++    occurrence: CommandOccurrence
++  ): CommandOccurrence<RecordCommand> | undefined {
++    let candidate = occurrence.parent;
++    while (candidate) {
++      if (isRecordOccurrence(candidate)) return candidate;
++      candidate = candidate.parent;
+     }
+-    state.series.splice(seriesStart);
+-    const scope: SeriesAnalysis = {
+-      occurrence,
+-      owner,
+-      reads: [],
+-      state,
+-      provisionalLength: state.writes.length - provisionalStart,
+-      substituted: false,
+-    };
+-    const scopes = this.seriesAnalysis.get(series);
+-    if (scopes) scopes.push(scope);
+-    else this.seriesAnalysis.set(series, [scope]);
+-    state.series.push(scope);
++    return undefined;
+   }
+-  resumeSeries(
+-    series: SelectedSeries,
+-    members: readonly SelectedSeriesMember[]
+-  ): SeriesRefusal | undefined {
+-    const scope = this.seriesAnalysis
+-      .get(series)
+-      ?.find((candidate) => !candidate.substituted);
+-    if (!scope) throw new Error("Selected series has no enclosing analysis");
+-    scope.substituted = true;
+-    const state = scope.state;
+-    const occurrenceIndex = state.writes.indexOf(scope.occurrence);
+-    if (occurrenceIndex < 0)
+-      throw new Error("Selected series analysis occurrence is unavailable");
+-    const provisionalStart = occurrenceIndex + 1;
+-    const suffix = state.writes.splice(
+-      provisionalStart + scope.provisionalLength
++  private seriesOwner(
++    occurrence: CommandOccurrence<SeriesOccurrence>
++  ): CommandOccurrence<RecordCommand> | undefined {
++    const owner = this.recordOwner(occurrence);
++    if (owner) return owner;
++    const template = occurrence.children.find(
++      (child) => child.role === "template"
+     );
+-    state.writes.splice(provisionalStart);
+-    const scopeIndex = state.series.indexOf(scope);
+-    if (scopeIndex < 0)
+-      throw new Error("Selected series analysis scope is unavailable");
+-    const followingScopes = state.series.splice(scopeIndex + 1);
+-    state.series.splice(scopeIndex, 1);
+-    const ownerIndex = series.selection.membership()
+-      ? state.writes.lastIndexOf(scope.owner, occurrenceIndex - 1)
+-      : -1;
+-    const publishedOwner =
+-      ownerIndex < 0 ? undefined : state.writes.splice(ownerIndex, 1)[0];
+-
+-    let refusal: SeriesRefusal | undefined;
+-    for (const member of members) {
+-      if (member.kind === "record") {
+-        this.analyzeInto(member, state);
+-        if (member.refusal) refusal ??= { error: member.refusal, member };
+-      } else {
+-        state.writes.push(member);
+-      }
+-      if (!refusal) {
+-        for (const observation of scope.reads) {
+-          const error = this.checkObservation(state, observation);
+-          if (error) {
+-            refusal = { error, member };
+-            break;
+-          }
++    return template && isRecordOccurrence(template) ? template : undefined;
++  }
++  private rootOf(occurrence: CommandOccurrence): CommandOccurrence {
++    let root = occurrence;
++    while (root.parent) root = root.parent;
++    return root;
++  }
++  private compatible(left?: BranchPath, right?: BranchPath): boolean {
++    for (let a = left; a; a = a.parent)
++      for (let b = right; b; b = b.parent)
++        if (a.choice === b.choice && a.arm !== b.arm) return false;
++    return true;
++  }
++  private visitDirectWrites(
++    occurrence: CommandOccurrence,
++    visit: (write: WriteVisit) => void,
++    branch?: BranchPath
++  ): void {
++    const command = occurrence.command;
++    if (
++      (command.kind === "record" &&
++        (command.fields.operation === "create" ||
++          command.fields.writtenFields().length)) ||
++      command.kind === "delete" ||
++      command.kind === "link" ||
++      command.kind === "remove"
++    ) {
++      const write = { occurrence, command };
++      visit({ write, branch });
++    }
++    for (const membership of occurrence.memberships) {
++      const write = { occurrence, membership };
++      visit({ write, branch });
++    }
++  }
++  private visitWrites(
++    occurrence: CommandOccurrence,
++    visit: (write: WriteVisit) => void,
++    branch = this.branchOf(occurrence)
++  ): void {
++    this.visitDirectWrites(occurrence, visit, branch);
++    for (const child of occurrence.children) {
++      const childBranch: BranchPath | undefined =
++        occurrence.command.kind === "choose"
++          ? {
++              parent: branch,
++              choice: occurrence,
++              arm: child.role === "found" ? "found" : "missing",
++            }
++          : branch;
++      this.visitWrites(child, visit, childBranch);
++    }
++  }
++  private visitReads(
++    occurrence: CommandOccurrence,
++    visit: (read: ReadVisit) => "stop" | void,
++    branch = this.branchOf(occurrence)
++  ): boolean {
++    const read = occurrence.dependencyRead;
++    if (read) {
++      const readVisit = { read, branch };
++      if (visit(readVisit) === "stop") return true;
++    }
++    for (const child of occurrence.children) {
++      const childBranch: BranchPath | undefined =
++        occurrence.command.kind === "choose"
++          ? {
++              parent: branch,
++              choice: occurrence,
++              arm: child.role === "found" ? "found" : "missing",
++            }
++          : branch;
++      if (this.visitReads(child, visit, childBranch)) return true;
++    }
++    return false;
++  }
++  private visitPrecedingWrites(
++    target: CommandOccurrence,
++    visit: (write: WriteVisit) => void
++  ): void {
++    const parent = target.parent;
++    if (!parent) return;
++    this.visitPrecedingWrites(parent, visit);
++    this.visitDirectWrites(parent, visit, this.branchOf(parent));
++    if (parent.command.kind === "choose") return;
++    for (const sibling of parent.children) {
++      if (sibling === target) return;
++      this.visitWrites(sibling, visit);
++    }
++    throw new Error("Command occurrence is missing from its parent");
++  }
++  private analyzeRead(occurrence: CommandOccurrence): void {
++    const read = occurrence.dependencyRead;
++    if (!read) return;
++    const readVisit = { read, branch: this.branchOf(occurrence) };
++    let publishedParent: CommandOccurrence<RecordCommand> | undefined;
++    for (
++      let child: CommandOccurrence | undefined = occurrence;
++      child?.parent;
++      child = child.parent
++    ) {
++      const parent = child.parent;
++      if (!isSeriesOccurrence(parent) || child.role !== "member") continue;
++      if (parent.command.series.selection.membership())
++        publishedParent = this.seriesOwner(parent);
++      break;
++    }
++    this.visitPrecedingWrites(occurrence, (write) => {
++      if (write.write.occurrence === publishedParent) return;
++      this.checkPair(write, readVisit);
++    });
++  }
++  private checkPair(write: WriteVisit, read: ReadVisit): void {
++    if (!this.compatible(write.branch, read.branch)) return;
++    this.readMembership(write.write, read.read);
++    if (read.read.target) this.readTarget(write.write, read.read);
++  }
++  private activeRefusal(read: ReadVisit): Error | undefined {
++    for (let branch = read.branch; branch; branch = branch.parent) {
++      if (branch.arm === "missing") return undefined;
++      const choice = branch.choice.command;
++      if (
++        choice.kind !== "choose" ||
++        !this.execution.attempt.rows.has(choice.lookup)
++      )
++        return undefined;
++    }
++    return read.read.owner.refusal;
++  }
++  private analyzeOccurrence(occurrence: CommandOccurrence): void {
++    this.analyzeRead(occurrence);
++    const command = occurrence.command;
++    if (command.kind === "record") {
++      if (command.suppression) this.context.requireSuppression();
++      for (const child of occurrence.children) this.analyzeOccurrence(child);
++      for (const child of occurrence.children) {
++        const childCommand = child.command;
++        if (childCommand.kind === "record")
++          occurrence.refusal ??= child.refusal;
++        else if (childCommand.kind === "choose") {
++          const found = this.choiceArm(child, "found");
++          const missing = this.choiceArm(child, "missing");
++          if (found && !missing) occurrence.refusal ??= found.refusal;
++        } else if (childCommand.kind === "series")
++          for (const record of child.children)
++            occurrence.refusal ??= record.refusal;
++        else if (childCommand.kind === "selectedSeries") {
++          const template = child.children.find(
++            (candidate) => candidate.role === "template"
++          );
++          if (template && isRecordOccurrence(template))
++            occurrence.refusal ??= template.refusal;
+         }
+       }
++      return;
+     }
+-    if (!refusal) {
+-      for (const observation of scope.reads) {
+-        for (const active of state.series) active.reads.push(observation);
++    if (command.kind === "choose") {
++      for (const child of occurrence.children) this.analyzeOccurrence(child);
++      return;
++    }
++    if (command.kind === "series") {
++      for (const record of occurrence.children) this.analyzeOccurrence(record);
++      return;
++    }
++    if (command.kind === "selectedSeries") {
++      const template = occurrence.children.find(
++        (child) => child.role === "template"
++      );
++      if (template) this.analyzeOccurrence(template);
++    }
++  }
++  private branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
++    const ancestors: CommandOccurrence[] = [];
++    for (let current = occurrence; current.parent; current = current.parent)
++      ancestors.push(current);
++    let branch: BranchPath | undefined;
++    for (let index = ancestors.length - 1; index >= 0; index--) {
++      const child = ancestors[index];
++      const parent = child?.parent;
++      if (!(child && parent?.command.kind === "choose")) continue;
++      branch = {
++        parent: branch,
++        choice: parent,
++        arm: child.role === "found" ? "found" : "missing",
++      };
++    }
++    return branch;
++  }
++  private *children(
++    occurrence: CommandOccurrence,
++    _concreteSeries: boolean
++  ): Generator<CommandOccurrence> {
++    yield* occurrence.children;
++  }
++  private visitFollowingReads(
++    target: CommandOccurrence,
++    visit: (read: ReadVisit) => "stop" | void
++  ): boolean {
++    let current = target;
++    while (current.parent) {
++      const parent = current.parent;
++      let follows = false;
++      for (const sibling of this.children(parent, true)) {
++        if (follows) {
++          const stopped = this.visitReads(sibling, visit);
++          if (stopped) return true;
++        } else if (sibling === current) follows = true;
+       }
++      current = parent;
+     }
+-
+-    if (publishedOwner) state.writes.splice(ownerIndex, 0, publishedOwner);
+-    state.writes.push(...suffix);
+-    state.series.push(...followingScopes);
+-    return refusal;
++    return false;
+   }
++  expandSeries(
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    members: readonly SelectedSeriesMember[]
++  ): SeriesRefusal | undefined {
++    const series = occurrence.command;
++    const root = this.rootOf(occurrence);
++    const owner = this.seriesOwner(occurrence);
++    if (!owner) throw new Error("Selected series has no enclosing analysis");
++    if (this.seriesMembers(occurrence).length)
++      throw new Error("Selected series occurrence was already expanded");
++    occurrence.children = members.map((member) => {
++      const child = this.occurrence(member);
++      child.role = "member";
++      this.materializePlacement(child, false);
++      return child;
++    });
++    const memberOccurrences = this.seriesMembers(occurrence);
++    for (const member of memberOccurrences) this.bindTree(member, occurrence);
++    for (const member of memberOccurrences) {
++      this.analyzeOccurrence(member);
++    }
++    for (const [index, occurrenceMember] of memberOccurrences.entries()) {
++      const member = members[index];
++      if (!member) continue;
++      if (occurrenceMember.command.kind === "record") {
++        const refusal = occurrenceMember.refusal;
++        if (refusal) return { error: refusal, member };
++      }
++      let refusal: Error | undefined;
++      this.visitWrites(occurrenceMember, (write) => {
++        if (
++          this.visitFollowingReads(occurrence, (read) => {
++            this.checkPair(write, read);
++            refusal ??= this.activeRefusal(read);
++            return refusal ? "stop" : undefined;
++          })
++        )
++          return;
++      });
++      if (refusal) return { error: refusal, member };
++    }
++    return undefined;
++  }
+   lookup(
+     model: AnyModel,
+     source: SelectionSource,
+@@ -706,14 +1008,14 @@
+             record.suppression = { kind: "skipDuplicate" };
+           return record;
+         });
+-        for (const record of records) {
++        const occurrences = records.map((record) => {
+           for (const field of ctx.schema.keys(model))
+             record.fields.field(field);
+-          this.analyze(record);
+-        }
++          return this.analyze(record);
++        });
+         const series: RecordSeriesCommand = {
+           kind: "series",
+-          records,
++          records: occurrences,
+           select: args.select,
+         };
+         return this.execution.records(series.records, series.select, series);
+@@ -761,12 +1063,15 @@
+           skip,
+         });
+       }
++      const found = this.occurrence(
++        this.update(lookup, args.update!, raw.update!, true)
++      );
+       const choice: Choose = {
+         kind: "choose",
+         model,
+         lookup,
+         operation: "upsert",
+-        missing,
++        missing: this.occurrence(missing),
+         conditions: {
+           probes,
+           missingRow: new NotFoundError(model["~"].names.ts!, "upsert"),
+@@ -774,14 +1079,16 @@
+         fields: new Assignments(model, "select", {}, {}, undefined, [
+           missing.fields,
+         ]),
+-        foundRecord: this.update(lookup, args.update!, raw.update!, true),
++        found,
+       };
+-      choice.foundRecord!.operation = "upsert";
+-      choice.fields.forward(choice.foundRecord!.fields);
+-      this.analyze(missing);
+-      this.analyze(choice.foundRecord!);
++      found.command.operation = "upsert";
++      choice.fields.forward(found.command.fields);
+       for (const field of ctx.schema.keys(model)) choice.fields.field(field);
+-      return this.execution.complete(choice, args);
++      const occurrence = this.occurrence(choice);
++      this.materializePlacement(occurrence, false);
++      this.bindTree(occurrence);
++      this.analyzeOccurrence(occurrence);
++      return this.execution.complete(occurrence, args);
+     }
+     if (ctx.operation === "create" || ctx.operation === "update") {
+       const root =
+@@ -797,8 +1104,7 @@
+               raw.data
+             );
+       for (const field of ctx.schema.keys(model)) root.fields.field(field);
+-      this.analyze(root);
+-      return this.execution.complete(root, args);
++      return this.execution.complete(this.analyze(root), args);
+     }
+     const updateData = args.data;
+     if (args.limit !== undefined || args.select || args.omit) {
+@@ -827,8 +1133,8 @@
+       analysis,
+       mutation: { kind: "update", raw: raw.data },
+     };
+-    this.analyzeSeries(series, analysis);
+-    const count = await this.execution.series(series);
++    const occurrence = this.analyzeSeries(series);
++    const count = await this.execution.series(occurrence);
+     await ctx.finish();
+     return { count };
+   }
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -6,17 +6,18 @@
+ } from "@errors";
+ import type { Member } from "../shared/operation-context";
+ import type { Query } from "../shared/query";
+-import { record, type Arguments, type Input } from "../shared/schema";
+-import { storedFields, type Membership } from "../shared/storage";
++import type { Arguments, Input } from "../shared/schema";
++import { type Membership, storedFields } from "../shared/storage";
+ import type { Assignments } from "./assignments";
+ import { CommandAttempt } from "./command-attempt";
++import { isRecordOccurrence, isSeriesOccurrence } from "./commands";
+ import type {
+   Choose,
+-  Command,
++  CommandOccurrence,
+   Commands,
+   RecordCommand,
+-  SelectedSeries,
+   SelectedSeriesMember,
++  SeriesOccurrence,
+ } from "./commands";
+ import { membershipFields, type Selection } from "./selection";
+ 
+@@ -127,10 +128,11 @@
+   ): boolean {
+     const key = choice.lookup.selector.uniqueKey;
+     const selected = choice.lookup.selector.uniqueValues;
+-    if (!key || !selected) return false;
++    if (!(key && selected)) return false;
+     if (
+       !key.fields.every((field) => {
+-        const proposed = choice.missing!.fields.known(field);
++        const missing = choice.missing;
++        const proposed = missing?.command.fields.known(field);
+         return (
+           proposed?.kind === "literal" &&
+           Object.is(proposed.value, selected.get(field))
+@@ -188,11 +190,11 @@
+     this.currentAttempt = replacement;
+     this.context.restartRejectedInsert(replacement.transport);
+     // A lost winner is not permission to attempt the missing INSERT again.
+-    await this.run(choice.lookup);
++    await this.runSelection(choice.lookup);
+     return this.attempt.rows.has(choice.lookup);
+   }
+   async complete(
+-    root: RecordCommand | Choose,
++    root: CommandOccurrence<RecordCommand | Choose>,
+     args: Arguments
+   ): Promise<unknown> {
+     while (true) {
+@@ -201,14 +203,14 @@
+         return (
+           await this.context.finish(
+             this.context.queries.select(
+-              root.model,
++              root.command.model,
+               {
+                 select: args.select,
+                 include: args.include,
+                 omit: args.omit,
+               },
+               undefined,
+-              { identity: this.identity(root.fields) }
++              { identity: this.identity(root.command.fields) }
+             )
+           )
+         )[0];
+@@ -217,15 +219,44 @@
+       }
+     }
+   }
+-  async run(command: Command, member: Member = command): Promise<void> {
++  private async runSelection(selection: Selection): Promise<void> {
++    const attempt = this.attempt;
++    if (attempt.rows.has(selection)) return;
++    const source = selection.source;
++    if (
++      source.kind === "producer" &&
++      !this.context.usesBatch &&
++      selection.facts.fields.size === 0
++    ) {
++      const row = attempt.select(source.producer, selection.fields.demands);
++      attempt.rows.set(selection, row);
++      attempt.bind(selection.fields, row);
++      return;
++    }
++    const rows = await this.context.read(selection.query(), true);
++    const found = rows[0];
++    if (!found) {
++      if (selection.required) throw selection.required;
++      return;
++    }
++    attempt.rows.set(selection, found);
++    attempt.bind(selection.fields, found);
++    if (this.context.usesBatch && selection.retained)
++      this.context.requirePresent(selection.captured(), selection.retained);
++  }
++  async run(
++    occurrence: CommandOccurrence,
++    member: Member = occurrence.command
++  ): Promise<void> {
+     const ctx = this.context;
+     const attempt = this.attempt;
++    const command = occurrence.command;
+     switch (command.kind) {
+       case "record": {
+         command.fields.activate();
+-        if (command.refusal) throw command.refusal;
++        if (occurrence.refusal) throw occurrence.refusal;
+         if (command.located && !attempt.rows.has(command.located))
+-          await this.run(command.located, member);
++          await this.runSelection(command.located);
+         if (
+           ctx.usesBatch &&
+           command.located &&
+@@ -244,7 +275,8 @@
+           );
+         }
+         await this.requireTransitions(command);
+-        for (const child of command.before) await this.run(child, member);
++        for (const child of occurrence.children)
++          if (child.placement === "before") await this.run(child, member);
+         attempt.bind(
+           command.fields,
+           command.located
+@@ -266,32 +298,14 @@
+                 command.fields
+               )
+         );
+-        for (const child of command.after) await this.run(child, member);
++        for (const child of occurrence.children)
++          if (child.placement === "capture") await this.run(child, member);
++        for (const child of occurrence.children)
++          if (child.placement === "after") await this.run(child, member);
+         return;
+       }
+       case "lookup": {
+-        if (attempt.rows.has(command)) return;
+-        const source = command.source;
+-        if (
+-          source.kind === "producer" &&
+-          !ctx.usesBatch &&
+-          command.facts.fields.size === 0
+-        ) {
+-          const row = attempt.select(source.producer, command.fields.demands);
+-          attempt.rows.set(command, row);
+-          attempt.bind(command.fields, row);
+-          return;
+-        }
+-        const rows = await ctx.read(command.query(), true);
+-        const found = rows[0];
+-        if (!found) {
+-          if (command.required) throw command.required;
+-          return;
+-        }
+-        attempt.rows.set(command, found);
+-        attempt.bind(command.fields, found);
+-        if (ctx.usesBatch && command.retained)
+-          ctx.requirePresent(command.captured(), command.retained);
++        await this.runSelection(command);
+         return;
+       }
+       case "junction": {
+@@ -359,18 +373,19 @@
+           }
+         }
+         try {
+-          await this.run(command.lookup, member);
++          await this.runSelection(command.lookup);
+           for (const condition of command.conditions?.probes ?? [])
+-            await this.run(condition.lookup, member);
++            await this.runSelection(condition.lookup);
+         } catch (error) {
+           throw supplied ? ctx.failure(error, "capture", member) : error;
+         }
+         const captured = attempt.rows.get(command.lookup);
++        const found = this.commands.choiceArm(occurrence, "found");
++        const missing = this.commands.choiceArm(occurrence, "missing");
+         if (captured) {
+-          if (command.conditions?.probes.length) {
+-            command.foundRecord!.fields.activate();
+-            if (command.foundRecord!.refusal)
+-              throw command.foundRecord!.refusal;
++          if (command.conditions?.probes.length && found) {
++            found.command.fields.activate();
++            if (found.refusal) throw found.refusal;
+             const unmatched = command.conditions.probes.find(
+               (condition) => !attempt.rows.has(condition.lookup)
+             );
+@@ -406,23 +421,22 @@
+             );
+             if (!rows[0]) throw requirement.failure;
+           }
+-          if (command.foundRecord) {
+-            const found = command.foundRecord;
++          if (found) {
+             if (ctx.usesBatch && supplied) {
+-              ctx.prepareMembers(() => [found], member);
+-              await ctx.executeMember(() => this.run(found), found);
++              ctx.prepareMembers(() => [found.command], member);
++              await ctx.executeMember(() => this.run(found), found.command);
+             } else await this.run(found, member);
+             attempt.bind(command.fields, {
+               ...captured,
+-              ...attempt.select(found.fields, command.fields.demands),
++              ...attempt.select(found.command.fields, command.fields.demands),
+             });
+           } else attempt.bind(command.fields, captured);
+-        } else if (command.missing) {
+-          attempt.missingChoices.set(command.missing.fields, command);
+-          await this.run(command.missing, member);
++        } else if (missing) {
++          attempt.missingChoices.set(missing.command.fields, command);
++          await this.run(missing, member);
+           attempt.bind(
+             command.fields,
+-            attempt.select(command.missing.fields, command.fields.demands)
++            attempt.select(missing.command.fields, command.fields.demands)
+           );
+         }
+         return;
+@@ -483,7 +497,7 @@
+         return;
+       }
+       case "delete": {
+-        await this.run(command.located, member);
++        await this.runSelection(command.located);
+         await ctx.delete(
+           command.located.model,
+           attempt.rows.get(command.located)!,
+@@ -492,21 +506,31 @@
+         return;
+       }
+       case "captureSeries": {
+-        await this.captureSeries(command.series, member);
++        await this.captureSeries(
++          this.commands.seriesCaptureTarget(occurrence),
++          member
++        );
+         return;
+       }
+       case "series": {
+-        if ("records" in command) {
+-          await this.records(command.records, command.select, member);
+-          return;
+-        }
+-        await this.executeSeries(command.series, member);
++        await this.records(
++          occurrence.children.filter(isRecordOccurrence),
++          command.select,
++          member
++        );
+         return;
+       }
++      case "selectedSeries": {
++        if (isSeriesOccurrence(occurrence))
++          await this.executeSeries(occurrence);
++        return;
++      }
++      case "membership":
++        return;
+     }
+   }
+   async records(
+-    records: RecordCommand[],
++    records: CommandOccurrence<RecordCommand>[],
+     select: Input | undefined,
+     member: Member
+   ): Promise<unknown> {
+@@ -515,16 +539,17 @@
+     const identities: Input[] = [];
+     let count = 0;
+     for (const record of members) {
+-      const completed = record.suppression
++      const command = record.command;
++      const completed = command.suppression
+         ? await ctx.executeSkippableMember(
+             () => this.run(record),
+-            record.fields,
+-            record
++            command.fields,
++            command
+           )
+-        : (await ctx.executeMember(() => this.run(record), record), true);
++        : (await ctx.executeMember(() => this.run(record), command), true);
+       if (!completed) continue;
+       count++;
+-      if (select) identities.push(this.identity(record.fields));
++      if (select) identities.push(this.identity(command.fields));
+     }
+     if (!select) {
+       await ctx.finish();
+@@ -535,23 +560,24 @@
+       return [];
+     }
+     return ctx.finish(
+-      ctx.queries.selectSeries(records[0]!.model, select, identities)
++      ctx.queries.selectSeries(records[0]!.command.model, select, identities)
+     );
+   }
+   async series(
+-    series: SelectedSeries,
+-    member: Member = series.selection
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    member: Member = occurrence.command.series.selection
+   ): Promise<number> {
+-    await this.captureSeries(series, member);
+-    return this.executeSeries(series, member);
++    await this.captureSeries(occurrence, member);
++    return this.executeSeries(occurrence);
+   }
+   private async captureSeries(
+-    series: SelectedSeries,
++    occurrence: CommandOccurrence<SeriesOccurrence>,
+     member: Member
+   ): Promise<void> {
+     const ctx = this.context;
+     const attempt = this.attempt;
+-    if (attempt.series.has(series)) return;
++    if (attempt.series.has(occurrence)) return;
++    const series = occurrence.command.series;
+     const selection = series.selection;
+     const membership = selection.membership();
+     let parentRequirement: { query: Query; failure: Error } | undefined;
+@@ -639,27 +665,30 @@
+         }),
+       member
+     );
+-    const refusal = this.commands.resumeSeries(series, members);
++    const refusal = this.commands.expandSeries(occurrence, members);
+     if (refusal) throw ctx.failure(refusal.error, "planning", refusal.member);
+-    attempt.series.set(series, { members, parentRequirement });
++    attempt.series.set(occurrence, {
++      members: this.commands.seriesMembers(occurrence),
++      parentRequirement,
++    });
+   }
+   private async executeSeries(
+-    series: SelectedSeries,
+-    member: Member
++    occurrence: CommandOccurrence<SeriesOccurrence>
+   ): Promise<number> {
+     const ctx = this.context;
+-    const prepared = this.attempt.series.get(series);
++    const prepared = this.attempt.series.get(occurrence);
+     if (!prepared) throw new Error("Selected series was not captured");
+     const { members, parentRequirement } = prepared;
+     for (const child of members) {
+-      const located = child.located;
++      const command = child.command;
++      const located = command.located;
+       if (!located) throw new Error("Selected update series has no location");
+       if (ctx.usesBatch) {
+         this.attempt.rows.delete(located);
+         try {
+-          await this.run(located, child);
++          await this.runSelection(located);
+         } catch (error) {
+-          throw ctx.failure(error, "planning", child);
++          throw ctx.failure(error, "planning", command);
+         }
+       }
+       await ctx.executeMember(async () => {
+@@ -669,7 +698,7 @@
+             parentRequirement.failure
+           );
+         await this.run(child);
+-      }, child);
++      }, command);
+     }
+     return members.length;
+   }
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -1,16 +1,17 @@
+ import { NestedWriteError } from "@errors";
+ import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+ import type { PreparedSelector, SelectorFacts } from "../shared/query";
+-import { entries, record, type Input } from "../shared/schema";
++import { entries, type Input, record } from "../shared/schema";
+ import {
+   bindMembership,
+-  storedFields,
+   type Membership,
++  storedFields,
+ } from "../shared/storage";
+ import { Assignments, type FieldValue, type Origin } from "./assignments";
+ import type {
+   AbsenceRequirement,
+   Choose,
++  CommandOccurrence,
+   Commands,
+   Deletion,
+   JunctionCapture,
+@@ -18,12 +19,14 @@
+   RecordCommand,
+   Removal,
+   SelectedSeries,
++  SeriesCapture,
++  SeriesOccurrence,
+ } from "./commands";
+ import {
++  type BoundMembership,
+   membershipFields,
+   type Selection,
+   type SelectionSource,
+-  type BoundMembership,
+ } from "./selection";
+ 
+ type Junction = Extract<Membership, { kind: "junction" }>;
+@@ -124,14 +127,27 @@
+         typeof payload === "boolean"
+       ) {
+         const clearability = schema.clearability(resolved);
+-        if (payload && !this.hasSupply && clearability.kind === "columns")
++        if (payload && !this.hasSupply && clearability.kind === "columns") {
++          const owner = this.commands.place(
++            parent,
++            { kind: "membership" },
++            "before"
++          );
++          const contribution = {
++            owner,
++            origin,
++            scope: resolved,
++            identity: parent.located?.facts,
++          };
+           for (const field of clearability.fields)
+             parent.fields.contribute(
+               field,
+               { kind: "literal", value: null },
+               `Cannot disconnect relation '${name}'.`,
+-              { owner: parent, origin, scope: resolved }
++              contribution
+             );
++          this.commands.publishMembership(parent.fields, contribution);
++        }
+         continue;
+       }
+       if (verb === "set") {
+@@ -147,7 +163,7 @@
+           };
+         });
+         for (const member of carrier.members)
+-          this.clearMembership(membership(member.variant), []);
++          this.clearMembership(membership(member.variant), [], origin);
+         for (const { edge, target } of targets) this.association(edge, target);
+         continue;
+       }
+@@ -205,22 +221,34 @@
+           );
+           outgoing.origin = origin;
+           this.membershipSource(edge, parent.located!.fields);
+-          this.requireLookup(outgoing);
++          const outgoingOccurrence = this.requireLookup(outgoing);
+           if (edge.kind === "reference" && edge.owner === "source") {
+-            if (!hasSupply) {
+-              if (edge.clearability.kind === "columns")
+-                for (const field of edge.clearability.fields)
+-                  parent.fields.contribute(
+-                    field,
+-                    { kind: "literal", value: null },
+-                    `Cannot disconnect relation '${edge.name}'.`,
+-                    { owner: outgoing, origin, scope: edge.scope }
+-                  );
++            if (!hasSupply && edge.clearability.kind === "columns") {
++              const contribution = {
++                owner: outgoingOccurrence,
++                origin,
++                scope: edge.scope,
++                identity: parent.located?.facts,
++              };
++              for (const field of edge.clearability.fields)
++                parent.fields.contribute(
++                  field,
++                  { kind: "literal", value: null },
++                  `Cannot disconnect relation '${edge.name}'.`,
++                  contribution
++                );
++              this.commands.publishMembership(parent.fields, contribution);
+             }
+             if (verb === "delete")
+-              parent.after.push({ kind: "delete", located: outgoing, origin });
++              this.commands.place(
++                parent,
++                { kind: "delete", located: outgoing, origin },
++                "after",
++                origin
++              );
+           } else {
+-            parent.after.push(
++            this.commands.place(
++              parent,
+               verb === "delete"
+                 ? { kind: "delete", located: outgoing, origin }
+                 : {
+@@ -229,7 +257,9 @@
+                     source: parent.fields,
+                     target: outgoing.fields,
+                     keep: [],
+-                  }
++                  },
++              "after",
++              origin
+             );
+           }
+         }
+@@ -270,10 +300,14 @@
+           target.origin = origin;
+           if (body.skipDuplicates)
+             target.suppression = { kind: "skipDuplicate" };
+-          this.association(edge, target, false, target);
+-          return target;
++          return this.association(edge, target, false, target);
+         });
+-        parent.after.push({ kind: "series", records });
++        this.commands.place(
++          parent,
++          { kind: "series", records },
++          "after",
++          origin
++        );
+         break;
+       }
+       case "connect":
+@@ -402,7 +436,9 @@
+             model: edge.target,
+             lookup,
+             foundRequirement,
+-            missing,
++            missing: missing
++              ? this.commands.occurrence(missing, "after")
++              : undefined,
+             fields: new Assignments(
+               edge.target,
+               "select",
+@@ -411,32 +447,37 @@
+               undefined,
+               missing ? [missing.fields] : []
+             ),
+-            foundRecord:
++            found:
+               verb === "upsert" || verb === "update"
+-                ? this.commands.update(
+-                    lookup,
+-                    record(
+-                      verb === "upsert" ? conditional.update : conditional.data
+-                    ),
+-                    record(
+-                      verb === "upsert"
+-                        ? source.update
+-                        : (source.data ?? source)
++                ? this.commands.occurrence(
++                    this.commands.update(
++                      lookup,
++                      record(
++                        verb === "upsert"
++                          ? conditional.update
++                          : conditional.data
++                      ),
++                      record(
++                        verb === "upsert"
++                          ? source.update
++                          : (source.data ?? source)
++                      ),
++                      true
+                     ),
+-                    true
++                    "after"
+                   )
+                 : undefined,
+           };
+-          if (target.foundRecord) {
+-            target.foundRecord.origin = origin;
+-            target.foundRecord.requirement = foundRequirement;
++          if (target.found) {
++            target.found.command.origin = origin;
++            target.found.command.requirement = foundRequirement;
+           }
+           this.association(edge, target, correlated);
+           this.supply(target);
+         }
+         break;
+       case "set": {
+-        this.replaceMembership(edge, entries(payload));
++        this.replaceMembership(edge, entries(payload), origin);
+         break;
+       }
+       case "updateMany":
+@@ -487,11 +528,13 @@
+             analysis,
+             mutation,
+           };
+-          this.requireSeriesCapture(series);
+-          parent.after.push({
+-            kind: "series",
+-            series,
+-          });
++          const target = this.commands.place(
++            parent,
++            this.commands.selectedSeries(series),
++            "after",
++            origin
++          );
++          this.requireSeriesCapture(target);
+         }
+         break;
+       }
+@@ -503,38 +546,27 @@
+   }
+   private requireLookup(
+     lookup: Selection | JunctionCapture | AbsenceRequirement
+-  ): void {
++  ): CommandOccurrence<Selection | JunctionCapture | AbsenceRequirement> {
+     const parent = this.parent;
+     if (lookup.kind === "lookup") lookup.retained ??= lookup.required;
+-    const firstEffect = parent.before.findIndex(
+-      (command) =>
+-        command.kind !== "lookup" &&
+-        command.kind !== "junction" &&
+-        command.kind !== "absent"
+-    );
+-    parent.before.splice(
+-      firstEffect < 0 ? parent.before.length : firstEffect,
+-      0,
+-      lookup
+-    );
++    return this.commands.place(parent, lookup, "before");
+   }
+-  private requireSeriesCapture(series: SelectedSeries): void {
+-    const command: { kind: "captureSeries"; series: SelectedSeries } = {
++  private requireSeriesCapture(
++    target: CommandOccurrence<SeriesOccurrence>
++  ): void {
++    const command: SeriesCapture = {
+       kind: "captureSeries",
+-      series,
++      target,
+     };
+-    const firstEffect = this.parent.after.findIndex(
+-      (candidate) => candidate.kind !== "captureSeries"
+-    );
+-    this.parent.after.splice(
+-      firstEffect < 0 ? this.parent.after.length : firstEffect,
+-      0,
+-      command
+-    );
++    this.commands.place(this.parent, command, "capture");
+   }
+-  private replaceMembership(edge: Membership, selectors: Input[]): void {
++  private replaceMembership(
++    edge: Membership,
++    selectors: Input[],
++    origin: Origin
++  ): void {
+     const targets = this.setTargets(edge, selectors);
+-    this.clearMembership(edge, targets);
++    this.clearMembership(edge, targets, origin);
+     for (const target of targets) this.association(edge, target);
+   }
+   private setTargets(edge: Membership, selectors: Input[]): Choose[] {
+@@ -561,7 +593,11 @@
+       return target;
+     });
+   }
+-  private clearMembership(edge: Membership, targets: Choose[]): void {
++  private clearMembership(
++    edge: Membership,
++    targets: Choose[],
++    origin: Origin
++  ): void {
+     const parent = this.parent;
+     if (edge.kind === "reference") {
+       if (edge.clearability.kind === "none") {
+@@ -572,7 +608,7 @@
+           ...edge.pairs.map((pair) => pair.target),
+         ];
+         this.membershipSource(edge, parent.located!.fields);
+-        this.requireLookup({
++        const requirement: AbsenceRequirement = {
+           kind: "absent",
+           model: edge.target,
+           membership: { edge, parent: parent.located!.fields },
+@@ -581,37 +617,100 @@
+             `Cannot set relation '${edge.name}' because foreign key field(s) ${required.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
+             edge.name
+           ),
+-        });
++        };
++        this.commands.place(
++          parent,
++          requirement,
++          "before",
++          targets.at(-1)?.lookup.origin ?? origin
++        );
+       } else
+-        parent.after.push({
+-          kind: "remove",
+-          edge,
+-          source: parent.fields,
+-          keep: targets.map((target) => target.lookup.fields),
+-        });
++        this.commands.place(
++          parent,
++          {
++            kind: "remove",
++            edge,
++            source: parent.fields,
++            keep: targets.map((target) => target.lookup.fields),
++          },
++          "after",
++          origin
++        );
+     } else
+-      parent.after.push({
+-        kind: "remove",
+-        edge,
+-        source: parent.fields,
+-        keep: [],
+-      });
++      this.commands.place(
++        parent,
++        { kind: "remove", edge, source: parent.fields, keep: [] },
++        "after",
++        origin
++      );
+   }
+   private association(
+     edge: Membership,
++    target: RecordCommand,
++    premise?: boolean,
++    seriesMember?: RecordCommand
++  ): CommandOccurrence<RecordCommand>;
++  private association(
++    edge: Membership,
++    target: Choose,
++    premise?: boolean,
++    seriesMember?: RecordCommand
++  ): CommandOccurrence<Choose>;
++  private association(
++    edge: Membership,
+     target: RecordCommand | Choose,
+     premise = false,
+     seriesMember?: RecordCommand
+-  ): void {
++  ): CommandOccurrence<RecordCommand | Choose> {
+     const source = this.parent;
+-    if (target.kind === "choose" && target.foundRecord)
+-      target.fields.forward(target.foundRecord.fields);
++    const conditionalParentBinding =
++      edge.kind === "reference" &&
++      edge.owner !== "source" &&
++      target.kind === "choose" &&
++      !premise
++        ? { edge, target }
++        : undefined;
++    if (conditionalParentBinding && !conditionalParentBinding.target.found)
++      conditionalParentBinding.target.found = this.commands.occurrence(
++        this.commands.update(
++          conditionalParentBinding.target.lookup,
++          {},
++          {},
++          true
++        ),
++        "after"
++      );
++    if (target.kind === "choose" && target.found)
++      target.fields.forward(target.found.command.fields);
+     const origin =
+       target.kind === "choose" ? target.lookup.origin : target.origin;
+-    const contribution = origin
+-      ? { owner: target, origin, scope: edge.scope }
+-      : undefined;
++    const conditionalFound = conditionalParentBinding?.target.found;
++    if (conditionalParentBinding && conditionalFound) {
++      const { edge: reference, target: conditionalTarget } =
++        conditionalParentBinding;
++      conditionalFound.command.origin ??= conditionalTarget.lookup.origin;
++      for (const pair of reference.pairs)
++        conditionalFound.command.fields.absorb(
++          pair.target,
++          source.fields,
++          pair.source,
++          `Relation '${reference.name}' owns '${reference.pairs.map((member) => member.target).join(", ")}'; omit it from nested create and update data.`
++        );
++    }
++    const placement =
++      edge.kind === "reference" && edge.owner === "source" ? "before" : "after";
++    const occurrence = seriesMember
++      ? this.commands.occurrence(target, "root")
++      : this.commands.place(source, target, placement, origin);
+     if (edge.kind === "reference" && edge.owner === "source") {
++      const contribution = origin
++        ? {
++            owner: occurrence,
++            origin,
++            scope: edge.scope,
++            identity: source.located?.facts,
++          }
++        : undefined;
+       if (!premise || (target.kind === "choose" && target.missing))
+         this.commands.assignMembership(
+           edge,
+@@ -619,31 +718,26 @@
+           target.fields,
+           contribution
+         );
+-      source.before.push(target);
+-      return;
++      return occurrence;
+     }
+-    if (edge.kind === "reference" && target.kind === "choose" && !premise) {
+-      if (!target.foundRecord) {
+-        target.foundRecord = this.commands.update(target.lookup, {}, {}, true);
+-        target.fields.forward(target.foundRecord.fields);
+-      }
+-      target.foundRecord.origin ??= target.lookup.origin;
+-      for (const pair of edge.pairs)
+-        target.foundRecord.fields.absorb(
+-          pair.target,
+-          source.fields,
+-          pair.source,
+-          `Relation '${edge.name}' owns '${edge.pairs.map((member) => member.target).join(", ")}'; omit it from nested create and update data.`
+-        );
++    if (conditionalParentBinding && conditionalFound) {
++      const { edge: reference, target: conditionalTarget } =
++        conditionalParentBinding;
+       this.commands.assignMembership(
+-        edge,
+-        target.foundRecord.fields,
++        reference,
++        conditionalFound.command.fields,
+         source.fields,
+-        contribution
++        origin
++          ? {
++              owner: occurrence,
++              origin,
++              scope: reference.scope,
++              identity: conditionalFound.command.located?.facts,
++            }
++          : undefined
+       );
+-      for (const pair of edge.pairs) source.fields.field(pair.source);
++      for (const pair of reference.pairs) source.fields.field(pair.source);
+     }
+-    if (!seriesMember) source.after.push(target);
+     if (edge.kind === "junction" && !premise) {
+       let captured: JunctionCapture | undefined;
+       const address =
+@@ -670,34 +764,51 @@
+         if (address !== source.located) this.requireLookup(address);
+         this.requireLookup(captured);
+       }
+-      const removals = source.after.filter(
+-        (command): command is Removal & { edge: Junction } =>
+-          command.kind === "remove" &&
+-          command.edge.kind === "junction" &&
+-          command.edge.table === edge.table
+-      );
++      const removals = source.body
++        .map((candidate) => candidate.command)
++        .filter(
++          (command): command is Removal & { edge: Junction } =>
++            command.kind === "remove" &&
++            command.edge.kind === "junction" &&
++            command.edge.table === edge.table
++        );
+       for (const removal of removals) {
+         this.linkFields(removal.edge, removal.source, removal.target);
+         for (const retained of removal.keep)
+           this.linkFields(removal.edge, undefined, retained);
+       }
+-      (seriesMember?.after ?? source.after).push({
+-        kind: "link",
+-        edge,
+-        values: this.linkFields(edge, source.fields, target.fields),
+-        captured,
+-        removals,
+-      });
++      this.commands.place(
++        seriesMember ?? source,
++        {
++          kind: "link",
++          edge,
++          values: this.linkFields(edge, source.fields, target.fields),
++          captured,
++          removals,
++        },
++        "after",
++        origin
++      );
+     } else if (
+       edge.kind === "junction" &&
+       target.kind === "choose" &&
+       target.missing
+     )
+-      target.missing.after.push({
+-        kind: "link",
+-        edge,
+-        values: this.linkFields(edge, source.fields, target.missing.fields),
+-      });
++      this.commands.place(
++        target.missing.command,
++        {
++          kind: "link",
++          edge,
++          values: this.linkFields(
++            edge,
++            source.fields,
++            target.missing.command.fields
++          ),
++        },
++        "after",
++        origin
++      );
++    return occurrence;
+   }
+   private membershipSource(
+     edge: Membership,

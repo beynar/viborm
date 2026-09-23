@@ -1,0 +1,4 @@
+ ❯ |extended-local| tests/contracts/engine/query/relation-key-update-legality-transition-arm.test.ts (7 tests | 1 failed) 881ms
+ FAIL  |extended-local| tests/contracts/engine/query/relation-key-update-legality-transition-arm.test.ts > relation-key update legality > allows primary-key arithmetic transition with cascade upsert
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)

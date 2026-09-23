@@ -1,0 +1,90 @@
+# FALSIFIER F1 — relation-body.ts swapped back to the round-5 (pre-narrowing) identity
+# 2026-09-15T13:53:08Z
+## identity BEFORE the swap
+bbccc1313821e2d75f753ac85b98d7e380a02980d6eac1985b716977463688f5  src/query-engine/raptor3/commands/relation-body.ts
+## identity IN the swap (expect fa7aac3a…)
+fa7aac3aca1d699912e85e5281fbdbede927760454b8f3dd5a94c07e71c11cc8  src/query-engine/raptor3/commands/relation-body.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (4 tests | 1 failed) 607ms
+   ✓ G4-02 unique discriminator > spells the discriminator with the constraint's equality and the filter half with the text contract 42ms
+   ✓ G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does 202ms
+   × G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique 289ms
+     → nested disconnect stays a filter
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"wanted","email":"claim@x","name":"winner"}',
+-   answer: "NestedWriteError: Cannot disconnect relation 'notes': target record was not found for this parent.",
+    notes: [
+      {
+        id: 'n1',
++       ownerId: null
+-       ownerId: 'wanted'
+      }
+    ],
+    owners: [
+      {
+        email: 'claim@x',
+
+   ✓ G4-02 native MySQL discriminator scope > pins R-D4: a collation-equal connect stores the located row's key, the shipped engine the request's literal 40ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique
+AssertionError: nested disconnect stays a filter
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"wanted","email":"claim@x","name":"winner"}',
+-   answer: "NestedWriteError: Cannot disconnect relation 'notes': target record was not found for this parent.",
+    notes: [
+      {
+        id: 'n1',
++       ownerId: null
+-       ownerId: 'wanted'
+      }
+    ],
+    owners: [
+      {
+        email: 'claim@x',
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,11 +1,11 @@[39m
+[2m  {[22m
+[32m-   "answer": "NestedWriteError: Cannot disconnect relation 'notes': target record was not found for this parent.",[39m
+[31m+   "answer": "ok:{\"id\":\"wanted\",\"email\":\"claim@x\",\"name\":\"winner\"}",[39m
+[2m    "notes": [[22m
+[2m      {[22m
+[2m        "id": "n1",[22m
+[32m-       "ownerId": "wanted",[39m
+[31m+       "ownerId": null,[39m
+[2m      },[22m
+[2m    ],[22m
+[2m    "owners": [[22m
+[2m      {[22m
+[2m        "email": "claim@x",[22m
+
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:667:16
+    665|         const shipped = await run("shipped", request);
+    666|         const candidate = await run("candidate", request);
+    667|         assert.deepEqual(candidate, shipped, name);
+       |                ^
+    668|       }
+    669|     }, 180_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  15:53:09
+   Duration  3.73s (transform 1.98s, setup 12ms, collect 2.96s, tests 607ms, environment 0ms, prepare 41ms)
+
+Vitest resources: 4.44s wall, 513.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+## identity AFTER restore (expect bbccc131…)
+bbccc1313821e2d75f753ac85b98d7e380a02980d6eac1985b716977463688f5  src/query-engine/raptor3/commands/relation-body.ts

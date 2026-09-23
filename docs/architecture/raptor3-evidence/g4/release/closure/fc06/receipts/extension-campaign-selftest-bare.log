@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc06
+
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 333ms
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 313ms
+
+ Test Files  2 passed (2)
+      Tests  84 passed (84)
+   Start at  00:31:27
+   Duration  4.14s (transform 2.02s, setup 20ms, collect 3.11s, tests 646ms, environment 0ms, prepare 67ms)
+
+Vitest resources: 6.26s wall, 614.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,317 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-6lykrc
+✖ the same replay command accepts saved fixed, cut/fault and clock corpora (0.442ms)
+✖ the command refuses filtering, missing required cases and profiles (0.050417ms)
+✖ saved evidence with a stale identity, empty corpus or malformed wire fails (0.039666ms)
+✖ the outer watchdog terminates an operation that actually reached its wait (0.032958ms)
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (0.045041ms)
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (0.0355ms)
+✖ the command refuses a filtered G4 mode and an off-boundary G4 child (0.04925ms)
+✖ test:all cannot replace the required lane through inherited specimen variables (0.039916ms)
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (38.272834ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 0
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 19959.34125
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:95:1
+✖ the same replay command accepts saved fixed, cut/fault and clock corpora (0.442ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:114:1
+✖ the command refuses filtering, missing required cases and profiles (0.050417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:124:1
+✖ saved evidence with a stale identity, empty corpus or malformed wire fails (0.039666ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:155:1
+✖ the outer watchdog terminates an operation that actually reached its wait (0.032958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:167:1
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (0.045041ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:179:1
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (0.0355ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:215:1
+✖ the command refuses a filtered G4 mode and an off-boundary G4 child (0.04925ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:225:1
+✖ test:all cannot replace the required lane through inherited specimen variables (0.039916ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:74:10)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26 {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:78:1
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (38.272834ms)
+  AssertionError [ERR_ASSERTION]: Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+      harness: '0627324563440adfa2fa84bbcb6fcaef4dd1daae9842402b3694fa6efcde5be0',
+  +   production: '8a7d1fa2d8c8955db2799e61cbe7da18d4bd69d60ed4f13dd9777800fa7fabc2',
+  -   production: '8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at assertRaptor3Identity (file:///Users/arnaud/code/viborm/scripts/raptor3-manifest.mjs:829:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:92:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.runHook (node:internal/test_runner/test:1289:20)
+      at after (node:internal/test_runner/test:1342:20)
+      at Test.run (node:internal/test_runner/test:1428:13) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+Node resources: 20.76s wall, 193.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

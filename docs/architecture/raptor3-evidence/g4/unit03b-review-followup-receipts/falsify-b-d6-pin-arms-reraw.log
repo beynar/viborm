@@ -1,0 +1,144 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (8 tests | 1 failed) 211ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-01 a model call is lazy and memoizes one preparation, value and failure 93ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-09/LX-11 request transforms run once, before admission, and default omit still applies 19ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-10 the extension chain keeps its order and its collision refusal 29ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-12 a query interceptor owns proceed() and short-circuit, and its input is the admitted payload on both routes 22ms
+   × G4-03 C13 candidate client lifecycle > D-6 PIN the interceptor input for upsert is the caller's raw arms on the shipped route and the ONE admission on the candidate 23ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      create: {
+        email: 'upsert@example.test',
+-       id: undefined,
+        name: 'Created',
+-       score: 0,
+-       secret: 'hidden'
+      },
+      update: {
++       name: 'Updated'
+-       name: {
+-         set: 'Updated'
+-       }
+      }
+    },
+    {
+      create: {
+        email: 'upsert@example.test',
+-       id: undefined,
+        name: 'Created',
+-       score: 0,
+-       secret: 'hidden'
+      },
+      update: {
++       name: 'Updated'
+-       name: {
+-         set: 'Updated'
+-       }
+      }
+    }
+  ]
+
+   ✓ G4-03 C13 candidate client lifecycle > LX-13 statement transforms see the same statements on both routes 10ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-14 every observed unit matches the shipped route, operation and statement alike 7ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-16/LX-17 lifecycle and introspection stay on the existing owners 7ms
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (7 tests) 34ms
+ ✓ |raptor3| tests/raptor3/g4/route-cache.test.ts (7 tests) 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-lifecycle.test.ts > G4-03 C13 candidate client lifecycle > D-6 PIN the interceptor input for upsert is the caller's raw arms on the shipped route and the ONE admission on the candidate
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      create: {
+        email: 'upsert@example.test',
+-       id: undefined,
+        name: 'Created',
+-       score: 0,
+-       secret: 'hidden'
+      },
+      update: {
++       name: 'Updated'
+-       name: {
+-         set: 'Updated'
+-       }
+      }
+    },
+    {
+      create: {
+        email: 'upsert@example.test',
+-       id: undefined,
+        name: 'Created',
+-       score: 0,
+-       secret: 'hidden'
+      },
+      update: {
++       name: 'Updated'
+-       name: {
+-         set: 'Updated'
+-       }
+      }
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "create": {[22m
+[2m        "email": "upsert@example.test",[22m
+[32m-       "id": undefined,[39m
+[2m        "name": "Created",[22m
+[32m-       "score": 0,[39m
+[32m-       "secret": "hidden",[39m
+[2m      },[22m
+[2m      "update": {[22m
+[32m-       "name": {[39m
+[32m-         "set": "Updated",[39m
+[32m-       },[39m
+[31m+       "name": "Updated",[39m
+[2m      },[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "create": {[22m
+[2m        "email": "upsert@example.test",[22m
+[32m-       "id": undefined,[39m
+[2m        "name": "Created",[22m
+[32m-       "score": 0,[39m
+[32m-       "secret": "hidden",[39m
+[2m      },[22m
+[2m      "update": {[22m
+[32m-       "name": {[39m
+[32m-         "set": "Updated",[39m
+[32m-       },[39m
+[31m+       "name": "Updated",[39m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-lifecycle.test.ts:478:12
+    476|       update: { name: { set: "Updated" } },
+    477|     };
+    478|     assert.deepEqual(observations.candidate.seen.map(armsOf), [
+       |            ^
+    479|       candidateArms,
+    480|       candidateArms,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 21 passed (22)
+   Start at  11:50:25
+   Duration  4.31s (transform 2.19s, setup 22ms, collect 3.70s, tests 270ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 7.67s wall, 636.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

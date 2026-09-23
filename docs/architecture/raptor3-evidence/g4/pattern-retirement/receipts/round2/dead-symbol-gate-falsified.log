@@ -1,0 +1,82 @@
+FALSIFICATION: src/query-engine/builders/ recreated (empty) at 2026-09-17T01:27:45Z
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |layer-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (43 tests | 1 failed) 508ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'OperationCompiler' appears in no src file 17ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'OperationResults' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'OperationRuntime' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'OperationBatchRuntime' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'WriteOperations' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'WritePrograms' appears in no src file 14ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'RelationUpdates' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'RelationMutations' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'RelationUpserts' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'RelationBranches' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'RelationCaptures' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'RelationRemovals' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'ManyToManyMutations' appears in no src file 11ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'ManyToManyMemberships' appears in no src file 11ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'MutationStatements' appears in no src file 14ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'constructPattern' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'constructMemberPatterns' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'matchWriteResult' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'ScheduledFragment' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'OperationFragment' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'OperationExecutor' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'FragmentValidator' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'RecordSeriesOperation' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'StepScope' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'createRacePin' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'markRaceable' appears in no src file 11ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'isRetryableRace' appears in no src file 11ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'buildSeriesResultReads' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'buildTargetProjection' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'groupLinkTargets' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'executeSkippableWrite' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'JunctionStatements' appears in no src file 13ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'TargetConstraint' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'uniqueConflictTarget' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'buildSubqueryInclude' appears in no src file 11ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'buildLateralInclude' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'buildMutationProjectionFold' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'ResultParser' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'createRowParser' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'parseResultRows' appears in no src file 12ms
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the deleted symbol 'decodeRelationCarrier' appears in no src file 12ms
+   × dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > leaves no directory of the retired estate on disk 3ms
+     → expected [ 'builders' ] to deeply equal []
+   ✓ dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > the scanner would catch a re-introduced symbol (matcher self-check) 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts > dead-symbol gate: V1's write engine and the retired pattern estate leave no trace in src > leaves no directory of the retired estate on disk
+AssertionError: expected [ 'builders' ] to deeply equal []
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "builders",[39m
+[31m+ ][39m
+
+ ❯ tests/contracts/engine/write/dead-symbol-gate.core.test.ts:144:7
+    142|     expect(
+    143|       RETIRED_DIRECTORIES.filter((name) => existsSync(join(QUERY_ENGIN…
+    144|     ).toEqual([]);
+       |       ^
+    145|     expect(readdirSync(join(QUERY_ENGINE, "write-engine")).sort()).toE…
+    146|       WRITE_ENGINE_ESTATE
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 42 passed (43)
+   Start at  03:27:47
+   Duration  634ms (transform 10ms, setup 8ms, collect 8ms, tests 508ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 2.35s wall, 357.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1
+RESTORED: builders/ removed; exists=no

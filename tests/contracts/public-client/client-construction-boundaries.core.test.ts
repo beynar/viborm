@@ -5,6 +5,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { s } from "@schema";
+import { SchemaValidationError } from "@schema/validation";
 import {
   type PlanningDialect,
   PlanningDriver,
@@ -114,6 +115,38 @@ function captureConstructionFailure(run: () => unknown): unknown {
 }
 
 describe("client construction capability boundaries", () => {
+  test("refuses an ambiguous public selector at client construction", () => {
+    const ambiguous = s
+      .model({
+        id: s.string().id(),
+        lookup: s.string().unique(),
+        tenant: s.string(),
+        code: s.string(),
+      })
+      .unique(["tenant", "code"], { name: "lookup" });
+
+    const failure = captureConstructionFailure(() =>
+      createClient({
+        schema: { record: ambiguous },
+        driver: new PlanningDriver("postgresql"),
+      })
+    );
+
+    expect(failure).toBeInstanceOf(SchemaValidationError);
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.INVALID_INPUT,
+      issues: [
+        {
+          code: "I006",
+          severity: "error",
+          model: "record",
+          message:
+            "Public selector name 'lookup' is ambiguous in 'record'; a compound selector must not reuse a model field, logical filter, or another compound selector name",
+        },
+      ],
+    });
+  });
+
   test.each(
     decimalRefusals
   )("refuses a decimal domain outside the $dialect physical limit before execution", ({

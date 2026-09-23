@@ -7,6 +7,7 @@ import {
   toDecimal,
 } from "@validation/primitives/decimal-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
+import { carriesRepeatedKey } from "@validation/relations/recurrence";
 import { materializeJsonValue, snapshotJsonValue } from "./cache-json-codec";
 import {
   decodeSnapshotCount,
@@ -14,6 +15,7 @@ import {
   defineSnapshotProperty,
   encodeSnapshotCount,
   encodeSnapshotNumber,
+  enterSnapshotObject,
   failCacheSnapshot,
   readSnapshotArray,
   readSnapshotRecord,
@@ -202,6 +204,165 @@ export function nullableCodec(value: ValueCodec): ValueCodec {
       return snapshot === null ? null : value.materialize(snapshot, active);
     },
   };
+}
+
+/** The prepared facts of one recursive relation slot a cache entry keeps. */
+interface RecursiveRelationSlot {
+  /** The asking relation: the key every continued occurrence repeats. */
+  readonly relation: string;
+  /** An array of occurrences, or one occurrence. */
+  readonly many: boolean;
+  /** Whether a singular slot may end in `null`; a collection ends in `[]`. */
+  readonly optional: boolean;
+  /** The numeric cutoff level, or `false` for an exhaustive traversal. */
+  readonly depth: number | false;
+}
+
+/**
+ * One recursive relation slot, stored and restored exactly as it was published.
+ *
+ * The decoder already answered every traversal question — which rows, which
+ * paths, which cycles to refuse or prune — so this codec asks none of them and
+ * never reads an identity. The slot's own occurrences are level 1; an
+ * occurrence at level `L` carries the repeated key exactly when
+ * `depth === false || L < depth`, holding the level `L + 1` slot, and at the
+ * numeric cutoff the key is ABSENT. Its snapshot is a tuple stating the same
+ * fact — `[node]` at the cutoff, `[node, slot]` before it — and both directions
+ * hold their input to it. `node` is the ORDINARY node codec: the repeated key
+ * is separated from the occurrence's own fields, which keep its exact-key
+ * checks, and is defined back onto the fresh node it materializes.
+ *
+ * Data depth is iterated, never recursed: a chain is as deep as its data, and
+ * the call stack holds only the finite projection. One enter/leave discipline
+ * serves both directions — an occurrence joins the SAME active set every
+ * ordinary codec uses and leaves it when its own slot completes — so a cyclic
+ * value or snapshot is refused at its first re-entry, while one row published
+ * as two objects is two occurrences, not a cycle.
+ */
+export function recursiveRelationCodec(
+  slot: RecursiveRelationSlot,
+  node: ValueCodec
+): ValueCodec {
+  return {
+    snapshot: (value, active) =>
+      walkRecursiveSlot(value, active, slot, {
+        read(occurrence) {
+          const own: Record<string, unknown> = {};
+          const successors: unknown[] = [];
+          for (const [key, item] of readSnapshotRecord(occurrence)) {
+            if (key === slot.relation) successors.push(item);
+            else defineSnapshotProperty(own, key, item);
+          }
+          return [node.snapshot(own, active), successors];
+        },
+        write: (row, successors) => [row, ...successors],
+      }),
+    materialize: (snapshot, active) =>
+      walkRecursiveSlot(snapshot, active, slot, {
+        read(occurrence) {
+          const [row, ...successors] = readSnapshotArray(occurrence);
+          return [node.materialize(row, active), successors];
+        },
+        write(row, successors) {
+          // `node` is the ordinary record codec, whose answer is a fresh record.
+          if (successors.length > 0) {
+            defineSnapshotProperty(
+              row as Record<string, unknown>,
+              slot.relation,
+              successors[0]
+            );
+          }
+          return row;
+        },
+      }),
+  };
+}
+
+/** One direction of a recursive slot, over one entered occurrence. */
+interface RecursiveDirection {
+  /** The occurrence's node output, and the slot inputs it holds. */
+  read(
+    occurrence: object
+  ): readonly [node: unknown, successors: readonly unknown[]];
+  /** The occurrence's output: its node output, and its slot output if any. */
+  write(node: unknown, successors: readonly unknown[]): unknown;
+}
+
+/**
+ * One slot on the walk's current path: the occurrences it holds, the outputs
+ * already written for them, and the occurrence that repeats it (none for the
+ * outer slot) with that occurrence's node output.
+ */
+interface RecursiveFrame {
+  readonly level: number;
+  readonly occurrences: readonly unknown[];
+  readonly outputs: unknown[];
+  readonly owner: object | undefined;
+  readonly node: unknown;
+  next: number;
+}
+
+/**
+ * Walk one recursive slot with an explicit stack of the slots on the current
+ * path. An occurrence is entered when it is reached and left when its own slot
+ * completes, so the active set holds exactly the occurrences on the path: every
+ * cycle a slot can close passes through one of them.
+ */
+function walkRecursiveSlot(
+  value: unknown,
+  active: WeakSet<object>,
+  slot: RecursiveRelationSlot,
+  direction: RecursiveDirection
+): unknown {
+  const open = (
+    input: unknown,
+    level: number,
+    owner?: object,
+    node?: unknown
+  ): RecursiveFrame => {
+    let occurrences: readonly unknown[];
+    if (slot.many) occurrences = readSnapshotArray(input);
+    else if (input !== null) occurrences = [input];
+    else occurrences = slot.optional ? [] : failCacheSnapshot();
+    return { level, occurrences, outputs: [], owner, node, next: 0 };
+  };
+  const stack: RecursiveFrame[] = [open(value, 1)];
+  let published: unknown;
+  while (stack.length > 0) {
+    const frame = stack.at(-1) as RecursiveFrame;
+    if (frame.next < frame.occurrences.length) {
+      const occurrence = frame.occurrences[frame.next];
+      frame.next += 1;
+      if (typeof occurrence !== "object" || occurrence === null) {
+        return failCacheSnapshot();
+      }
+      enterSnapshotObject(active, occurrence);
+      const continues = carriesRepeatedKey(slot.depth, frame.level);
+      const [node, successors] = direction.read(occurrence);
+      // The repeated slot exists exactly when the occurrence continues.
+      if (successors.length !== (continues ? 1 : 0)) {
+        return failCacheSnapshot();
+      }
+      if (continues) {
+        stack.push(open(successors[0], frame.level + 1, occurrence, node));
+        continue;
+      }
+      active.delete(occurrence);
+      frame.outputs.push(direction.write(node, successors));
+      continue;
+    }
+    stack.pop();
+    const output = slot.many ? frame.outputs : (frame.outputs[0] ?? null);
+    if (frame.owner === undefined) {
+      published = output;
+      continue;
+    }
+    // A repeated slot's owner sits in the frame beneath it.
+    const parent = stack.at(-1) as RecursiveFrame;
+    active.delete(frame.owner);
+    parent.outputs.push(direction.write(frame.node, [output]));
+  }
+  return published;
 }
 
 export function booleanCodec(): ValueCodec {

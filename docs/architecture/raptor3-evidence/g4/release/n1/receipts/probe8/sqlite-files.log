@@ -1,0 +1,17 @@
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 74ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 35ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 52ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 51ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 169ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 93ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 73ms
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 37ms
+ ✓ |raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 48ms
+ ✓ |raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 17ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 48ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 166ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 95ms
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (9 tests) 64ms
+ Test Files  15 passed (15)
+      Tests  211 passed (211)

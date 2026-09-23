@@ -1,0 +1,96 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-transactions.test.ts (12 tests | 2 failed) 125ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02/NS-05 one callback transaction commits, and a throw rolls every member back 31ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself 19ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-03 a nested transaction is a savepoint that keeps the outer effects 9ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction keeps admission order, per-member results and atomicity 14ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner 12ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction containing a read is packaged on a batch-only driver on both routes 5ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-14 a statement-atomic write inside a callback transaction opens no region on either route 9ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
++   'savepoint:create',
+    'statement:create'
+  ]
+
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-14 a multi-statement write inside a callback transaction opens exactly one region on either route 5ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-02 a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on both routes 6ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'ok'
+- 'UniqueConstraintError'
+
+   ✓ G4-03 C13 candidate transactions, arrays and raw > RF-09 a callback transaction stays refused on a non-interactive transport 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-05/LX-06/NS-03 raw SQL bypasses the route entirely 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > NS-05 two clients over one database keep their own bound drivers 10ms
+ ✓ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (7 tests) 21ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-14 a statement-atomic write inside a callback transaction opens no region on either route
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
++   'savepoint:create',
+    'statement:create'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "transaction:$transaction(callback)",[22m
+[2m    "operation:create",[22m
+[31m+   "savepoint:create",[39m
+[2m    "statement:create",[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:447:12
+    445|     });
+    446| 
+    447|     assert.deepEqual(observations.candidate.units, observations.shippe…
+       |            ^
+    448|     assert.deepEqual(observations.candidate.units, [
+    449|       "transaction:$transaction(callback)",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-02 a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on both routes
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'ok'
+- 'UniqueConstraintError'
+
+
+Expected: [32m"UniqueConstraintError"[39m
+Received: [31m"ok"[39m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:560:12
+    558| 
+    559|     assert.equal(observations.candidate.inner, observations.shipped.in…
+    560|     assert.equal(
+       |            ^
+    561|       observations.candidate.afterWrite,
+    562|       observations.shipped.afterWrite
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 17 passed (19)
+   Start at  11:17:42
+   Duration  2.73s (transform 1.50s, setup 10ms, collect 2.35s, tests 146ms, environment 0ms, prepare 40ms)
+
+Vitest resources: 5.12s wall, 528.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

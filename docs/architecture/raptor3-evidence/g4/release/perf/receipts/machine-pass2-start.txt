@@ -1,0 +1,9 @@
+2026-09-20T16:33:12Z
+18:33  up 20 days, 18:13, 3 users, load averages: 8.22 8.27 8.19
+--- top cpu ---
+ %CPU    RSS COMM
+ 76.0  46512 /usr/libexec/sysmond
+ 61.2 171792 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 57.2  33840 /System/Library/PrivateFrameworks/WorkflowKit.framework/XPCServices/BackgroundShortcutRunner.xpc/Contents/MacOS/BackgroundShortcutRunner
+ 41.7 2330000 /Applications/Devin.app/Contents/Frameworks/Devin Helper (Renderer).app/Contents/MacOS/Devin Helper (Renderer)
+ 31.8  56064 /usr/libexec/duetexpertd

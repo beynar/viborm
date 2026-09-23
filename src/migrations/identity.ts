@@ -63,6 +63,16 @@ export function utf8Bytes(text: string): Uint8Array {
   return UTF8.encode(text);
 }
 
+/**
+ * Exactly the characters the bytes encode — a leading U+FEFF among them.
+ *
+ * These bytes are a VALUE (a catalog default, a blob's text), not a document
+ * with a byte-order mark: the decoder's default of swallowing a leading U+FEFF
+ * would report a value its source does not hold. A caller that refuses a BOM
+ * refuses it as a byte, before this (`validateSqlRanges`).
+ */
 export function decodeUtf8(bytes: Uint8Array): string {
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+    bytes
+  );
 }

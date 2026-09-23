@@ -1,0 +1,27 @@
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with some relation filter affects only matching rows 165ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with every relation filter affects only matching rows 132ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with none relation filter affects only matching rows 145ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with some relation filter deletes only matching rows 157ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with every relation filter deletes only matching rows 137ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with none relation filter deletes only matching rows 127ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and none filters 133ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and every filters 133ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object every and none filters 137ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some, every, and none filters 132ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object is and isNot filters 183ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and some filters 140ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object every and some filters 135ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and every filters 145ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none, every, and some filters 137ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object isNot and is filters 139ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > rolls back a combined-filter mutation when a later operation fails 143ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-many self-relation filter affects only matching rows 146ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-one self-relation filter affects only matching rows 146ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > deleteMany with self-relation filter deletes only matching rows 143ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-many self-relation filter 165ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-one self-relation filter 157ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > an excluding self-relation filter takes the create arm instead 155ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > update by a self-relation-filtered unique where locates or declines 156ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > delete by a self-relation-filtered unique where removes one row 154ms
+ Test Files  1 failed (1)
+      Tests  30 failed | 75 passed (105)

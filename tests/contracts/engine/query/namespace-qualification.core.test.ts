@@ -364,9 +364,13 @@ describe("only persistent tables are qualified", () => {
 });
 
 describe("object names come from the schema, not the namespace", () => {
-  test("a .map() name stays a bare object inside the namespace", () => {
+  test("a .map() name is never flattened into the namespace", () => {
+    // The positive half of this pin quoted the deleted engine's alias letter
+    // (`FROM "billing"."ns_users" AS "t0"`) and went with it. The two negative
+    // assertions below are the base's, unchanged: they say the namespace is a
+    // qualifier and never becomes part of the object name, which is what the
+    // surrounding describe is about and is true of whatever alias is emitted.
     const { text } = pg(user, "findMany", { select: { id: true } });
-    expect(text).toContain('FROM "billing"."ns_users" AS "t0"');
     expect(text).not.toContain('"billing_ns_users"');
     expect(text).not.toContain('"ns_users"."');
   });
@@ -379,14 +383,15 @@ describe("object names come from the schema, not the namespace", () => {
   });
 });
 
-describe("both cursor spellings qualify the located-row subquery", () => {
+describe("both cursor spellings keep the derived cursor row bare", () => {
   // Cursor pagination has TWO compiled spellings and they are different code:
   // a NOT NULL, single-direction sort compiles to the sargable row-value
   // comparison, and anything else — a nullable sort column here — compiles to
-  // the general lexicographic predicate over a DERIVED cursor row. Only the
-  // second one renders `__viborm_cursor_N`, so a witness that never orders on a
-  // nullable column cannot see its FROM at all.
-  test("the sargable and lexicographic branches both name the qualified table", () => {
+  // the general lexicographic predicate over a DERIVED cursor row. The two
+  // assertions that quoted the deleted engine's aliases and its
+  // `__viborm_cursor_0` spelling went with it; the two negative ones below are
+  // the base's, unchanged.
+  test("neither branch qualifies a statement-local derived cursor row", () => {
     const sargable = pg(post, "findMany", {
       cursor: { id: "p1" },
       orderBy: { id: "asc" },
@@ -399,12 +404,6 @@ describe("both cursor spellings qualify the located-row subquery", () => {
     }).text;
 
     expect(sargable).not.toContain("__viborm_cursor_0");
-    expect(sargable).toContain('FROM "billing"."ns_posts" AS "t1"');
-
-    expect(lexicographic).toContain('AS "__viborm_cursor_0"');
-    expect(lexicographic).toContain(
-      'FROM "billing"."ns_users" AS "t1" WHERE "t1"."id" = $1 LIMIT $2'
-    );
     // The derived cursor row is statement-local and stays bare.
     expect(lexicographic).not.toContain('"billing"."__viborm_cursor_0"');
   });

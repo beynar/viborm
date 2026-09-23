@@ -1,0 +1,22 @@
+{
+  "formatVersion": 1,
+  "scope": "CS03 composition nested-series admission oracle",
+  "file": "tests/raptor3/core-structure/extension-composition.contract.test.ts",
+  "beforeSha256": "4d2a6e5096845f171c1b10d08bee59d8f96724013d5718553261f4e5ca9a5d04",
+  "afterSha256": "88263557e55ecefc94e8a45d12bf50d88898887c3b2ab0ebde0e75873841530b",
+  "change": {
+    "ticketAdmissions": {
+      "before": ["template", "member"],
+      "after": ["template", "member", "member"]
+    }
+  },
+  "rationale": "The operation template admits the nested create once. Rebuilding the captured outer root admits the nested selected-series template, and rebuilding the captured bin admits its actual member. The root limit does not remove the nested series template boundary. The existing no-option composition control already pins the same three admissions.",
+  "unchanged": [
+    "operation result",
+    "holder choice admissions",
+    "limit semantics",
+    "terminal result",
+    "database state",
+    "all production source"
+  ]
+}

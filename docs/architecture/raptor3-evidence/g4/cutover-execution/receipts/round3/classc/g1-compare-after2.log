@@ -1,0 +1,227 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 23ms
+ ❯ |raptor3| tests/raptor3/candidate.test.ts (48 tests | 1 failed) 269ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-found 11ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-missing 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-rollback 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-found 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-missing 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-rollback 5ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s2-distinct-defaults 5ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s2-changed-dependency 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s3-grouped 2ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s3-empty 1ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s4-parent-pages 3ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s4-shared-occurrences 2ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-found 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-missing 13ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-rollback 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-found 5ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-missing 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-rollback 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-distinct-defaults 5ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-changed-dependency 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-grouped 2ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-empty 1ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-parent-pages 3ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-shared-occurrences 10ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s1-parent-found 6ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s1-parent-missing 7ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s1-parent-rollback 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s1-child-found 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s1-child-missing 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s1-child-rollback 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s2-distinct-defaults 2ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s2-changed-dependency 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s3-grouped 1ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s3-empty 1ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s4-parent-pages 2ms
+   ✓ Raptor 3 G1-01: program > sqlite-interactive > s4-shared-occurrences 2ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s1-parent-found 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s1-parent-missing 11ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s1-parent-rollback 6ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s1-child-found 4ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s1-child-missing 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s1-child-rollback 5ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s2-distinct-defaults 3ms
+   × Raptor 3 G1-01: program > sqlite-atomic-batch > s2-changed-dependency 5ms
+     → s2-changed-dependency changed outcome
++ actual - expected
+... Skipped lines
+
+  {
+    failure: {
+      code: 'V7001',
+      message: "Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.",
+      meta: [Object: null prototype] {
+...
+          completedMembers: 0,
+-         memberPath: [
+-           1
+-         ],
+          phase: 'planning',
+-         totalMembers: 2
+        },
+        relation: 'targets'
+      },
+      name: 'NestedWriteError'
+    },
+
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s3-grouped 1ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s3-empty 1ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s4-parent-pages 2ms
+   ✓ Raptor 3 G1-01: program > sqlite-atomic-batch > s4-shared-occurrences 3ms
+ ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (8 tests) 7ms
+ ❯ |raptor3| tests/raptor3/candidate-ordering.test.ts (4 tests | 1 failed) 16ms
+   ✓ Raptor 3 relation key order: commands > sqlite-interactive 6ms
+   ✓ Raptor 3 relation key order: commands > sqlite-atomic-batch 3ms
+   ✓ Raptor 3 relation key order: program > sqlite-interactive 4ms
+   × Raptor 3 relation key order: program > sqlite-atomic-batch 3ms
+     → s2-changed-dependency changed outcome
++ actual - expected
+... Skipped lines
+
+  {
+    failure: {
+      code: 'V7001',
+      message: "Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.",
+      meta: [Object: null prototype] {
+...
+          completedMembers: 0,
+-         memberPath: [
+-           1
+-         ],
+          phase: 'planning',
+-         totalMembers: 2
+        },
+        relation: 'targets'
+      },
+      name: 'NestedWriteError'
+    },
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/candidate-ordering.test.ts > Raptor 3 relation key order: program > sqlite-atomic-batch
+AssertionError: s2-changed-dependency changed outcome
++ actual - expected
+... Skipped lines
+
+  {
+    failure: {
+      code: 'V7001',
+      message: "Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.",
+      meta: [Object: null prototype] {
+...
+          completedMembers: 0,
+-         memberPath: [
+-           1
+-         ],
+          phase: 'planning',
+-         totalMembers: 2
+        },
+        relation: 'targets'
+      },
+      name: 'NestedWriteError'
+    },
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -8,15 +8,11 @@[39m
+[2m        "recordSeriesProgress": {[22m
+[2m          "atomicity": "segment",[22m
+[2m          "committedSegments": 1,[22m
+[2m          "committedWriteMembers": 1,[22m
+[2m          "completedMembers": 0,[22m
+[32m-         "memberPath": [[39m
+[32m-           1,[39m
+[32m-         ],[39m
+[2m          "phase": "planning",[22m
+[32m-         "totalMembers": 2,[39m
+[2m        },[22m
+[2m        "relation": "targets",[22m
+[2m      },[22m
+[2m      "name": "NestedWriteError",[22m
+[2m    },[22m
+
+ ❯ assertEquivalentRunObservations benchmarks/operation-pipeline-semantics.mjs:74:20
+     72|       throw new Error(`${label} omitted required observation ${field}`…
+     73|     }
+     74|     deepStrictEqual(
+       |                    ^
+     75|       field === "outcome"
+     76|         ? comparableOutcome(candidate[field])
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:251:3
+ ❯ tests/raptor3/candidate-ordering.test.ts:66:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/candidate.test.ts > Raptor 3 G1-01: program > sqlite-atomic-batch > s2-changed-dependency
+AssertionError: s2-changed-dependency changed outcome
++ actual - expected
+... Skipped lines
+
+  {
+    failure: {
+      code: 'V7001',
+      message: "Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.",
+      meta: [Object: null prototype] {
+...
+          completedMembers: 0,
+-         memberPath: [
+-           1
+-         ],
+          phase: 'planning',
+-         totalMembers: 2
+        },
+        relation: 'targets'
+      },
+      name: 'NestedWriteError'
+    },
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -8,15 +8,11 @@[39m
+[2m        "recordSeriesProgress": {[22m
+[2m          "atomicity": "segment",[22m
+[2m          "committedSegments": 1,[22m
+[2m          "committedWriteMembers": 1,[22m
+[2m          "completedMembers": 0,[22m
+[32m-         "memberPath": [[39m
+[32m-           1,[39m
+[32m-         ],[39m
+[2m          "phase": "planning",[22m
+[32m-         "totalMembers": 2,[39m
+[2m        },[22m
+[2m        "relation": "targets",[22m
+[2m      },[22m
+[2m      "name": "NestedWriteError",[22m
+[2m    },[22m
+
+ ❯ assertEquivalentRunObservations benchmarks/operation-pipeline-semantics.mjs:74:20
+     72|       throw new Error(`${label} omitted required observation ${field}`…
+     73|     }
+     74|     deepStrictEqual(
+       |                    ^
+     75|       field === "outcome"
+     76|         ? comparableOutcome(candidate[field])
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:251:3
+ ❯ tests/raptor3/candidate.test.ts:66:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  2 failed | 64 passed (66)
+   Start at  23:12:59
+   Duration  1.93s (transform 826ms, setup 11ms, collect 1.47s, tests 316ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5uFzRm/vitest.json
+Vitest resources: 3.89s wall, 699.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5uFzRm

@@ -1,0 +1,48 @@
+{
+  "formatVersion": 1,
+  "identity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "qualificationFreeze": "Both selectors ran during the frozen no-edit qualification window. Their launchers emit bounded stdout/resource evidence but no JSON identity companion; this record does not claim the logs embed identity.",
+  "runtimeInvocation": {
+    "node": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node",
+    "pathPrefix": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin"
+  },
+  "selectors": [
+    {
+      "name": "credential-free aggregate",
+      "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"Raptor 3 fixed\"",
+      "evidence": "support/credential-free-fixed.log",
+      "evidenceSha256": "0b0883717b50e27beb24dc70e667d2955b905979cc9e9206be3b700bf97dde18",
+      "selection": { "testFiles": 65, "tests": 758 },
+      "result": {
+        "status": "passed",
+        "wallSeconds": 11.17,
+        "peakRssMiB": 902.5,
+        "rssCeilingMiB": 1536,
+        "teardownVerified": true
+      }
+    },
+    {
+      "name": "PGlite provider selector",
+      "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"raptor3-provider:\"",
+      "evidence": "support/pglite.log",
+      "evidenceSha256": "441e8a740506edc3203609f4f8463add2079ef34078d011ff5125f9792d9e514",
+      "selection": { "testFiles": 5, "tests": 11 },
+      "result": {
+        "status": "passed",
+        "largestChildPeakRssMiB": 1544.8,
+        "perChildRssCeilingMiB": 2560,
+        "teardownVerified": true
+      }
+    }
+  ]
+}

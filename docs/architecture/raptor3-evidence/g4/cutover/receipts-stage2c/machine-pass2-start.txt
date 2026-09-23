@@ -1,0 +1,9 @@
+## recorded at the START of the pass-2 replacement attempt (attempt 2)
+date: 2026-09-16T13:54:42Z (UTC)  /  15:54:42 CEST (local)
+15:54  up 16 days, 15:34, 2 users, load averages: 9.14 39.52 39.44
+ %CPU   PID COMM
+ 99.1 97416 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node
+ 49.4   421 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 47.9 84485 /Applications/Dia.app/Contents/Frameworks/ArcCore.framework/Helpers/Browser Helper (Renderer).app/Contents/MacOS/Browser Helper (Renderer)
+ 27.0 22117 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper
+ 16.0   542 /usr/libexec/cameracaptured

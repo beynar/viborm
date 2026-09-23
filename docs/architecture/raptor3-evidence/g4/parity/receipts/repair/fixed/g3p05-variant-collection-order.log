@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 65ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  15:34:01
+   Duration  1.50s (transform 860ms, setup 12ms, collect 1.29s, tests 65ms, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-bopiyL/vitest.json
+Vitest resources: 3.51s wall, 472.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p05-variant-collection-order contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-bopiyL

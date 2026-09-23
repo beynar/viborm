@@ -1,0 +1,114 @@
+{
+ "unit": "g4-cutover-measurement (stage 2c, frozen identity 3, performance pass)",
+ "generatedAt": "2026-09-16T11:00:25.183Z",
+ "frozenBaseline": "docs/architecture/raptor3-evidence/baseline.json",
+ "candidateReport": "docs/architecture/raptor3-evidence/g4/cutover/bundles-identity3.json",
+ "candidateCommit": "59c44d3c",
+ "measuredAtCommit": "90d4bb47",
+ "frozenProductionIdentity": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+ "targets": {
+  "productionTokenRatio": 0.6,
+  "productionPhysicalRatio": 0.7,
+  "engineGzipRatio": 0.75,
+  "everyPublicPostgresGzipRatio": 1,
+  "qualification": "Size targets require review on a miss, not automatic abandonment"
+ },
+ "fixtures": [
+  {
+   "fixture": "engine",
+   "baselineRuntimeBytes": 603586,
+   "candidateRuntimeBytes": 123093,
+   "baselineGzipBytes": 156771,
+   "candidateGzipBytes": 37260,
+   "gzipRatio": 0.2377,
+   "runtimeRatio": 0.2039,
+   "target": 0.75,
+   "meetsTarget": true,
+   "baselineModules": 241,
+   "candidateModules": 93,
+   "externalPackagesIdentical": true,
+   "identity2GzipBytes": 37260,
+   "identity2RuntimeBytes": 123093,
+   "gzipDeltaVsIdentity2": 0,
+   "runtimeDeltaVsIdentity2": 0,
+   "byteIdenticalToIdentity2": true,
+   "candidateSha256": "b4bbee47d91b75a7b5a9fd3b3af897c51c5672ff86f0a8b084bd3752a261a5e9"
+  },
+  {
+   "fixture": "pg-simple",
+   "baselineRuntimeBytes": 953377,
+   "candidateRuntimeBytes": 622992,
+   "baselineGzipBytes": 262658,
+   "candidateGzipBytes": 183443,
+   "gzipRatio": 0.6984,
+   "runtimeRatio": 0.6535,
+   "target": 1,
+   "meetsTarget": true,
+   "baselineModules": 427,
+   "candidateModules": 311,
+   "externalPackagesIdentical": true,
+   "identity2GzipBytes": 183366,
+   "identity2RuntimeBytes": 622715,
+   "gzipDeltaVsIdentity2": 77,
+   "runtimeDeltaVsIdentity2": 277,
+   "byteIdenticalToIdentity2": false,
+   "candidateSha256": "498fe004a2e32347e1ff41244fdc07cd921036777808b9951227d2f51f679d78"
+  },
+  {
+   "fixture": "pg-relations",
+   "baselineRuntimeBytes": 953658,
+   "candidateRuntimeBytes": 623273,
+   "baselineGzipBytes": 262788,
+   "candidateGzipBytes": 183585,
+   "gzipRatio": 0.6986,
+   "runtimeRatio": 0.6536,
+   "target": 1,
+   "meetsTarget": true,
+   "baselineModules": 427,
+   "candidateModules": 311,
+   "externalPackagesIdentical": true,
+   "identity2GzipBytes": 183508,
+   "identity2RuntimeBytes": 622996,
+   "gzipDeltaVsIdentity2": 77,
+   "runtimeDeltaVsIdentity2": 277,
+   "byteIdenticalToIdentity2": false,
+   "candidateSha256": "ae62aebcf65887450cc91244d36dbcba02b9a8091aa2b2b4b78a3adbf82f9147"
+  }
+ ],
+ "bundleProtocolIdenticalToBaseline": true,
+ "toolVersions": {
+  "baseline": {
+   "node": "v24.20.0",
+   "v8": "13.6.233.17-node.53",
+   "typescript": "5.9.3",
+   "tsdown": "0.19.0-beta.4",
+   "biome": "2.3.11",
+   "platform": "darwin",
+   "arch": "arm64",
+   "rolldown": "1.0.0-beta.58"
+  },
+  "candidate": {
+   "node": "v24.21.0",
+   "v8": "13.6.233.17-node.53",
+   "typescript": "5.9.3",
+   "tsdown": "0.19.0-beta.4",
+   "biome": "2.3.11",
+   "platform": "darwin",
+   "arch": "arm64",
+   "rolldown": "1.0.0-beta.58"
+  },
+  "differences": [
+   {
+    "key": "node",
+    "baseline": "v24.20.0",
+    "candidate": "v24.21.0"
+   }
+  ]
+ },
+ "comparisonToIdentity2": {
+  "report": "docs/architecture/raptor3-evidence/g4/cutover/bundles.json",
+  "ratios": "docs/architecture/raptor3-evidence/g4/cutover/bundle-ratios.json",
+  "summary": "engine is byte-identical to identity 2 (same sha256); both public PostgreSQL fixtures grew by 277 runtime bytes and 77 gzip bytes, with the same module counts (311). Every gzip ratio still meets its plan §7 target."
+ },
+ "note": "Gzip sizes are measured per fixture and are not additive. Same rolldown/tsdown/typescript versions, ESM, tree shaking, minification, one inlined chunk, gzip level 9 and identical externalization on both sides. The only tool difference from the frozen baseline is the Node patch version driving rolldown (v24.20.0 frozen, v24.21.0 here, the pinned measurement runtime); the V8 version is identical."
+}

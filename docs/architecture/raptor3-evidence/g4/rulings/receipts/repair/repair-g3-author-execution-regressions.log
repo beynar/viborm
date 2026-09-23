@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 38ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  21:48:39
+   Duration  1.43s (transform 843ms, setup 9ms, collect 1.24s, tests 38ms, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-7AEyEO/vitest.json
+Vitest resources: 3.35s wall, 474.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-author-execution-regressions contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-7AEyEO

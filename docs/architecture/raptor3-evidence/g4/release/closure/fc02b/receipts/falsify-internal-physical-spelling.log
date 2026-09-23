@@ -1,0 +1,151 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02b
+
+ ❯ |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (17 tests | 7 failed) 100ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a instant key on a transport without RETURNING 23ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a day key on a transport without RETURNING 5ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a count key on a transport without RETURNING 5ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a amount key on a transport without RETURNING 5ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a clock key on a transport without RETURNING 6ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a tick key on a transport without RETURNING 3ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a julian key on a transport without RETURNING 3ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T10:00:00.000Z 4ms
+   × N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T10:00:00Z 7ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   × N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T12:00:00+02:00 4ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   × N5: a captured identity is re-bound through the admitted wire form > FC-02B: two spellings of ONE instant stay two addresses, each captured by its own bytes 6ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   × N5: a captured identity is re-bound through the admitted wire form > FC-02B: a COMPOUND identity whose dateTime member is a non-canonical spelling 3ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   ✓ N5: a captured identity is re-bound through the admitted wire form > FC-02B: an identity that OMITS the dateTime leaves the column an ordinary one 3ms
+   × N5: a captured identity is re-bound through the admitted wire form > FC-02B: a captured non-canonical key is the REFERENCE VALUE a nested create writes 7ms
+     → UPDATE did not produce the required record
+   ✓ N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T10:00:00.000Z on a batch-only RETURNING transport 5ms
+   × N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T10:00:00Z on a batch-only RETURNING transport 7ms
+     → createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+   × N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T12:00:00+02:00 on a batch-only RETURNING transport 4ms
+     → createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+ ❯ |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (17 tests | 7 failed) 104ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a instant key on a transport without RETURNING 24ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a day key on a transport without RETURNING 6ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a count key on a transport without RETURNING 5ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a amount key on a transport without RETURNING 5ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a clock key on a transport without RETURNING 6ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a tick key on a transport without RETURNING 4ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > captures and re-binds a julian key on a transport without RETURNING 3ms
+   ✓ N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T10:00:00.000Z 4ms
+   × N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T10:00:00Z 7ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   × N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T12:00:00+02:00 4ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   × N5: a captured identity is re-bound through the admitted wire form > FC-02B: two spellings of ONE instant stay two addresses, each captured by its own bytes 6ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   × N5: a captured identity is re-bound through the admitted wire form > FC-02B: a COMPOUND identity whose dateTime member is a non-canonical spelling 3ms
+     → updateMany selected-row cardinality changed during its locked mutation.
+   ✓ N5: a captured identity is re-bound through the admitted wire form > FC-02B: an identity that OMITS the dateTime leaves the column an ordinary one 3ms
+   × N5: a captured identity is re-bound through the admitted wire form > FC-02B: a captured non-canonical key is the REFERENCE VALUE a nested create writes 6ms
+     → UPDATE did not produce the required record
+   ✓ N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T10:00:00.000Z on a batch-only RETURNING transport 7ms
+   × N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T10:00:00Z on a batch-only RETURNING transport 8ms
+     → createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+   × N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T12:00:00+02:00 on a batch-only RETURNING transport 3ms
+     → createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T10:00:00Z
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T12:00:00+02:00
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > FC-02B: two spellings of ONE instant stay two addresses, each captured by its own bytes
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > FC-02B: a COMPOUND identity whose dateTime member is a non-canonical spelling
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > FC-02B: a captured non-canonical key is the REFERENCE VALUE a nested create writes
+TypeError: UPDATE did not produce the required record
+ ❯ OperationContext.update src/query-engine/raptor3/shared/operation-context.ts:3037:17
+    3035|         );
+    3036|         if (!rows[0])
+    3037|           throw new TypeError("UPDATE did not produce the required rec…
+       |                 ^
+    3038|         return { ...published, ...rows[0] };
+    3039|       }
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:473:15
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:339:9
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:743:18
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ runTransaction src/drivers/driver-transaction-base.ts:385:16
+ ❯ CapturingSQLiteDriver.runConnectionTransactionLease src/drivers/driver-transaction-base.ts:94:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T10:00:00Z on a batch-only RETURNING transport
+QueryEngineError: createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T12:00:00+02:00 on a batch-only RETURNING transport
+QueryEngineError: createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/14]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T10:00:00Z
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/14]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > re-binds a TEXT dateTime key the payload spelled 2020-03-01T12:00:00+02:00
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/14]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > FC-02B: two spellings of ONE instant stay two addresses, each captured by its own bytes
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/14]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > FC-02B: a COMPOUND identity whose dateTime member is a non-canonical spelling
+TransactionError: updateMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/14]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > FC-02B: a captured non-canonical key is the REFERENCE VALUE a nested create writes
+TypeError: UPDATE did not produce the required record
+ ❯ OperationContext.update src/query-engine/raptor3/shared/operation-context.ts:3037:17
+    3035|         );
+    3036|         if (!rows[0])
+    3037|           throw new TypeError("UPDATE did not produce the required rec…
+       |                 ^
+    3038|         return { ...published, ...rows[0] };
+    3039|       }
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:473:15
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:339:9
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:743:18
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ runTransaction src/drivers/driver-transaction-base.ts:385:16
+ ❯ CapturingSQLiteDriver.runConnectionTransactionLease src/drivers/driver-transaction-base.ts:94:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/14]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T10:00:00Z on a batch-only RETURNING transport
+QueryEngineError: createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts > N5: a captured identity is re-bound through the admitted wire form > reads a to-many through a captured dateTime key spelled 2020-03-01T12:00:00+02:00 on a batch-only RETURNING transport
+QueryEngineError: createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  14 failed | 20 passed (34)
+   Start at  23:11:19
+   Duration  3.13s (transform 1.70s, setup 21ms, collect 2.58s, tests 205ms, environment 0ms, prepare 58ms)
+
+Vitest resources: 4.99s wall, 535.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

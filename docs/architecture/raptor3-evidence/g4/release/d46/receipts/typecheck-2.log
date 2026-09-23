@@ -1,0 +1,2 @@
+src/query-engine/raptor3/commands/commands.ts(1139,23): error TS2341: Property 'prepareUpdate' is private and only accessible within class 'Queries'.
+TypeScript (whole estate, native): 4.87s wall, 4825.1 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

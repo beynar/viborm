@@ -1,0 +1,63 @@
+{
+  "name": "generated-defaults",
+  "pushed": "MigrationError: This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. The last statement that completed was: (none — the failure came before any statement completed). Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run. [V2001  ]",
+  "catalog": [],
+  "differences": [
+    "/tables/0: desired={\"name\":\"r2a_stamped\",\"columns\":[{\"name\":\"createdAt\",\"type\":\"DATETIME(3)\",\"nullable\":false,\"default\":\"CURRENT_TIMESTAMP\",\"autoIncrement\":false,\"decimal\":null},{\"name\":\"flag\",\"type\":\"TINYINT(1)\",\"nullable\":false,\"default\":\"1\",\"autoIncrement\":false,\"decimal\":null},{\"name\":\"id\",\"type\":\"VARCHAR(191)\",\"nullable\":false,\"default\":null,\"autoIncrement\":false,\"decimal\":null},{\"name\":\"quoted\",\"type\":\"TEXT\",\"nullable\":false,\"default\":\"'it''s'\",\"autoIncrement\":false,\"decimal\":null}],\"primaryKey\":{\"columns\":[\"id\"],\"name\":\"r2a_stamped_pkey\"},\"indexes\":[],\"foreignKeys\":[],\"uniqueConstraints\":[]} live=undefined"
+  ],
+  "desired": {
+    "tables": [
+      {
+        "name": "r2a_stamped",
+        "columns": [
+          {
+            "name": "createdAt",
+            "type": "DATETIME(3)",
+            "nullable": false,
+            "default": "CURRENT_TIMESTAMP",
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "flag",
+            "type": "TINYINT(1)",
+            "nullable": false,
+            "default": "1",
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "id",
+            "type": "VARCHAR(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "quoted",
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'it''s'",
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "r2a_stamped_pkey"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  },
+  "live": {
+    "tables": [],
+    "enums": []
+  }
+}

@@ -1,0 +1,12 @@
+ P1 variant trials, same instrument (prof-stage.mjs, 1000 iterations / 200 warmup, candidate worktree only).
+ Each line is one fresh process; the build between trials is the ordinary minified pnpm package:build.
+
+ base tree (Object.entries + .map + Object.fromEntries) : cpu 507.94 / 509.37 us/op
+ A  Object.keys + plain member write                    : cpu 346.23 / 306.96 / 309.32 / 301.93 / 346.15 / 303.49 us/op  -> median ~306  [CHOSEN]
+ B  Object.entries + plain member write                 : cpu 364.76 / 367.23 us/op
+ C  for..in + plain member write                        : cpu 290.96 / 293.79 us/op  [REJECTED]
+
+ C is ~5% faster than A and was rejected on behaviour, not on cost: for..in walks the
+ prototype chain, so an enumerable property on Object.prototype would add a member to
+ every decoded document. A reads OWN keys only, which is the same rule decodeValue
+ already takes on the provider side through own().

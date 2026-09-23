@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (7 tests) 549ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  10:38:40
+   Duration  2.27s (transform 1.05s, setup 10ms, collect 1.50s, tests 549ms, environment 0ms, prepare 42ms)
+
+Vitest resources: 4.34s wall, 538.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

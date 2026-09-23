@@ -201,7 +201,12 @@ const crossRelationTargetScenarios: Scenario<CrossRelationTargetSchema>[] = [
     },
   },
   {
-    name: "sibling create then parent-holds connect rejects same target",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+    // target write"); now both payloads are `before` children of the record's
+    // own UPDATE and run in the model's declaration order, so `secondary`'s
+    // lookup observes the account `primary` just inserted and both keys land on
+    // the parent — the answer the create-family twin below always gave.
+    name: "sibling create then parent-holds connect observes the earlier insert",
     seed: (client) =>
       client.record.create({
         data: { id: 1, primaryId: null, secondaryId: null },
@@ -214,11 +219,9 @@ const crossRelationTargetScenarios: Scenario<CrossRelationTargetSchema>[] = [
           secondary: { connect: { id: 2 } },
         },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'create' target write",
     expected: {
-      accounts: [],
-      records: [{ id: 1, primaryId: null, secondaryId: null }],
+      accounts: [{ id: 2, label: "created" }],
+      records: [{ id: 1, primaryId: 2, secondaryId: 2 }],
     },
   },
   {
@@ -293,7 +296,12 @@ const TRANSITIVE_TARGET_SEED: PersistedState = {
 const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySchema>[] =
   [
     {
-      name: "nested create then later root connectOrCreate rejects",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); now the workspace's relations run in declaration order
+      // — `projects` before `tags` — so the root connectOrCreate's lookup is an
+      // ordered observation of the tag the nested update just created, and its
+      // adopt arm wins.
+      name: "nested create then later root connectOrCreate adopts the created tag",
       seed: (client) =>
         client.workspace.create({
           data: { id: 1, projects: { create: { id: 1 } } },
@@ -316,9 +324,11 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
-      expected: TRANSITIVE_TARGET_SEED,
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }],
+      },
     },
     {
       name: "nested create and disjoint later root connectOrCreate succeed",
@@ -351,6 +361,14 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
       },
     },
     {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); the refusal moved to the database's own integrity
+      // answer. Relations run in declaration order, so `projects` runs first:
+      // the nested connectOrCreate finds no tag 100 and creates it, and the
+      // outer `tags: { create: { id: 100 } }` then meets the primary key.
+      // Nothing commits — rolled back on the tx substrate, the batch aborted on
+      // the other. (This cell was already red at the unit's base commit with
+      // this same measured answer; N1 is what retires the sentence it pinned.)
       name: "outer create then nested connectOrCreate rejects",
       seed: (client) =>
         client.workspace.create({
@@ -377,7 +395,7 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
           },
         }),
       expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
+      expectedError: "Unique constraint violation",
       expected: TRANSITIVE_TARGET_SEED,
     },
     {
@@ -498,6 +516,10 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
       },
     },
     {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); now the selected branch's own linearization answers
+      // it — `projects` before `tags`, so the branch's connectOrCreate observes
+      // the tag its nested create made and adopts it.
       name: "selected top-level upsert create branch gets inherited traversal",
       act: (client) =>
         client.workspace.upsert({
@@ -519,11 +541,17 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
           },
           update: {},
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
-      expected: { workspaces: [], projects: [], tags: [] },
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }],
+      },
     },
     {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); the update branch answers as its `workspace.update`
+      // twin above does — the root connectOrCreate observes the tag the nested
+      // update created and adopts it.
       name: "selected top-level upsert update branch gets inherited traversal",
       seed: (client) =>
         client.workspace.create({
@@ -548,9 +576,11 @@ const transitiveTargetDependencyScenarios: Scenario<TransitiveTargetDependencySc
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
-      expected: TRANSITIVE_TARGET_SEED,
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }],
+      },
     },
   ];
 
@@ -666,7 +696,12 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
       expected: TRANSITIVE_TARGET_SEED,
     },
     {
-      name: "a connectOrCreate create alternative inherits earlier sibling writes",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); now the adopt arm wins — project 1 exists — so the
+      // create alternative and the nested connectOrCreate it carries never run,
+      // and the sibling `tags: { create: { id: 100 } }`, which the workspace's
+      // declaration order puts last, lands on its own.
+      name: "a connectOrCreate create alternative is skipped when its adopt arm wins",
       seed: (client) =>
         client.workspace.create({
           data: { id: 1, projects: { create: { id: 1 } } },
@@ -692,12 +727,18 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
-      expected: TRANSITIVE_TARGET_SEED,
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [] }],
+        tags: [{ id: 100 }],
+      },
     },
     {
-      name: "a later sibling sees writes from a connectOrCreate create alternative",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); the alternative is not taken (project 1 exists), so
+      // there is no earlier write for the later sibling to see: its own
+      // connectOrCreate creates tag 100.
+      name: "a later sibling sees no writes from an untaken connectOrCreate create alternative",
       seed: (client) =>
         client.workspace.create({
           data: { id: 1, projects: { create: { id: 1 } } },
@@ -723,12 +764,18 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
-      expected: TRANSITIVE_TARGET_SEED,
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [] }],
+        tags: [{ id: 100 }],
+      },
     },
     {
-      name: "a later sibling sees writes from an upsert create alternative",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); the upsert finds project 1 and takes its (empty)
+      // update alternative, so the create alternative writes nothing and the
+      // later sibling creates tag 100 itself.
+      name: "a later sibling sees no writes from an untaken upsert create alternative",
       seed: (client) =>
         client.workspace.create({
           data: { id: 1, projects: { create: { id: 1 } } },
@@ -755,12 +802,18 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
-      expected: TRANSITIVE_TARGET_SEED,
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [] }],
+        tags: [{ id: 100 }],
+      },
     },
     {
-      name: "a later sibling sees writes from an upsert update alternative",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); the upsert finds no project 1 and takes its create
+      // alternative, so the update alternative writes nothing and the later
+      // sibling creates tag 100 itself.
+      name: "a later sibling sees no writes from an untaken upsert update alternative",
       seed: (client) => client.workspace.create({ data: { id: 1 } }),
       act: (client) =>
         client.workspace.update({
@@ -781,12 +834,10 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
       expected: {
-        workspaces: [{ id: 1, projects: [], tags: [] }],
-        projects: [],
-        tags: [],
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, tags: [] }],
+        tags: [{ id: 100 }],
       },
     },
     {
@@ -824,6 +875,10 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
       },
     },
     {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'upsert'
+      // target write"); now the second member's lookup is an ordered
+      // observation of the first member's create, so it finds project 101 among
+      // the parent's members and takes its (empty) update alternative.
       name: "upsert array merges a mismatched create identity before the next input",
       seed: (client) => client.workspace.create({ data: { id: 1 } }),
       act: (client) =>
@@ -846,15 +901,17 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'upsert' target write",
       expected: {
-        workspaces: [{ id: 1, projects: [], tags: [] }],
-        projects: [],
+        workspaces: [{ id: 1, projects: [{ id: 101 }], tags: [] }],
+        projects: [{ id: 101, tags: [] }],
         tags: [],
       },
     },
     {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'upsert'
+      // membership write"); now both members observe the membership on their
+      // shared selector, both take the found branch, and both empty updates are
+      // no-ops — the end state the veto's rollback happened to leave.
       name: "upsert array keeps the found branch membership on its selector",
       seed: (client) =>
         client.workspace.create({
@@ -880,8 +937,6 @@ const alternativeBranchDependencyScenarios: Scenario<TransitiveTargetDependencyS
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'upsert' membership write",
       expected: {
         workspaces: [{ id: 1, projects: [{ id: 100 }], tags: [] }],
         projects: [{ id: 100, tags: [] }],
@@ -914,17 +969,14 @@ async function dumpDeepTransitiveTargetDependency(
   return { workspaces, projects, components, tags };
 }
 
-const DEEP_TRANSITIVE_TARGET_SEED: PersistedState = {
-  workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [] }],
-  projects: [{ id: 1, components: [{ id: 1 }] }],
-  components: [{ id: 1, tags: [] }],
-  tags: [],
-};
-
 const deepTransitiveTargetScenarios: Scenario<TransitiveTargetDependencySchema>[] =
   [
     {
-      name: "deep nested update create then root decision rejects",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+      // target write"); depth changes nothing: the root decision observes the
+      // tag created three levels down under `projects` and adopts it, exactly
+      // as the shallow twin does.
+      name: "deep nested update create then root decision adopts the created tag",
       seed: (client) =>
         client.workspace.create({
           data: {
@@ -959,9 +1011,12 @@ const deepTransitiveTargetScenarios: Scenario<TransitiveTargetDependencySchema>[
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'create' target write",
-      expected: DEEP_TRANSITIVE_TARGET_SEED,
+      expected: {
+        workspaces: [{ id: 1, projects: [{ id: 1 }], tags: [{ id: 100 }] }],
+        projects: [{ id: 1, components: [{ id: 1 }] }],
+        components: [{ id: 1, tags: [{ id: 100 }] }],
+        tags: [{ id: 100 }],
+      },
     },
     {
       name: "deep nested update create and disjoint root decision succeed",
@@ -1016,14 +1071,23 @@ async function dumpTransitiveCreateMany(
   const [owners, cohorts, items] = await Promise.all([
     client.owner.findMany({ orderBy: { id: "asc" } }),
     client.cohort.findMany({ orderBy: { id: "asc" } }),
-    client.item.findMany({ orderBy: { id: "asc" } }),
+    // N1 (D-51): the later decision now EXECUTES, so the witness has to carry
+    // the membership it writes, not only the rows it leaves behind.
+    client.item.findMany({
+      orderBy: { id: "asc" },
+      include: { selectedBy: { orderBy: { id: "asc" } } },
+    }),
   ]);
   return { owners, cohorts, items };
 }
 
 const transitiveCreateManyScenarios: Scenario<TransitiveCreateManySchema>[] = [
   {
-    name: "nested createMany then later decision rejects",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'createMany'
+    // target write"); now the owner's `selectedItems` decision observes the row
+    // the nested createMany inserted and adopts it — no second item, and the
+    // membership is written on the created row.
+    name: "nested createMany then later decision adopts the created item",
     seed: (client) =>
       client.owner.create({
         data: { id: 1, cohorts: { create: { id: 1 } } },
@@ -1048,12 +1112,10 @@ const transitiveCreateManyScenarios: Scenario<TransitiveCreateManySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'createMany' target write",
     expected: {
       owners: [{ id: 1 }],
       cohorts: [{ id: 1, ownerId: 1 }],
-      items: [],
+      items: [{ id: 100, groupId: 1, selectedBy: [{ id: 1 }] }],
     },
   },
   {
@@ -1086,8 +1148,8 @@ const transitiveCreateManyScenarios: Scenario<TransitiveCreateManySchema>[] = [
       owners: [{ id: 1 }],
       cohorts: [{ id: 1, ownerId: 1 }],
       items: [
-        { id: 100, groupId: 1 },
-        { id: 101, groupId: null },
+        { id: 100, groupId: 1, selectedBy: [] },
+        { id: 101, groupId: null, selectedBy: [{ id: 1 }] },
       ],
     },
   },
@@ -1146,16 +1208,14 @@ async function seedTransitivePredicateDependency(
   });
 }
 
-const TRANSITIVE_PREDICATE_SEED: PersistedState = {
-  workspaces: [{ id: 1, projectIds: [1], tagIds: [100] }],
-  projects: [{ id: 1, tagIds: [100] }],
-  tags: [{ id: 100, label: "old" }],
-};
-
 const transitivePredicateDependencyScenarios: Scenario<TransitivePredicateDependencySchema>[] =
   [
     {
-      name: "nested predicate update rejects a later overlapping root filter",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+      // target write"); now the root deleteMany's predicate is an ordered
+      // observation taken after the nested update, so it matches the label that
+      // update wrote and removes the tag with both memberships.
+      name: "nested predicate update allows a later overlapping root filter",
       seed: seedTransitivePredicateDependency,
       act: (client) =>
         client.workspace.update({
@@ -1177,9 +1237,11 @@ const transitivePredicateDependencyScenarios: Scenario<TransitivePredicateDepend
             tags: { deleteMany: { label: "after" } },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'update' target write",
-      expected: TRANSITIVE_PREDICATE_SEED,
+      expected: {
+        workspaces: [{ id: 1, projectIds: [1], tagIds: [] }],
+        projects: [{ id: 1, tagIds: [] }],
+        tags: [],
+      },
     },
     {
       name: "nested predicate update allows a later identity-only root filter",
@@ -1240,6 +1302,9 @@ const transitivePredicateDependencyScenarios: Scenario<TransitivePredicateDepend
       },
     },
     {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+      // target write"); the export is real now — the alternative the upsert took
+      // wrote the label, and the later filter observes it.
       name: "upsert update alternative exports its predicate delta to a later filter",
       seed: seedTransitivePredicateDependency,
       act: (client) =>
@@ -1263,9 +1328,11 @@ const transitivePredicateDependencyScenarios: Scenario<TransitivePredicateDepend
             tags: { deleteMany: { label: "after" } },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'update' target write",
-      expected: TRANSITIVE_PREDICATE_SEED,
+      expected: {
+        workspaces: [{ id: 1, projectIds: [1], tagIds: [] }],
+        projects: [{ id: 1, tagIds: [] }],
+        tags: [],
+      },
     },
     {
       name: "upsert update alternative predicate delta ignores an id-only filter",

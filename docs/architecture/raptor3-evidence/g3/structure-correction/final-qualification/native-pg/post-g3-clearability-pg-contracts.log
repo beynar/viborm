@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/prep/native-clearability-ownership.test.ts (2 tests) 115ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  19:15:35
+   Duration  1.51s (transform 873ms, setup 7ms, collect 1.28s, tests 115ms, environment 0ms, prepare 24ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-GC7Sr9/vitest.json
+Vitest resources: 3.33s wall, 502.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-clearability-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-GC7Sr9

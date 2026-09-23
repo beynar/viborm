@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-q
+
+ ✓ |extended-local| tests/contracts/engine/query/decimal-list-surface.test.ts (41 tests) 951ms
+
+ Test Files  1 passed (1)
+      Tests  41 passed (41)
+   Start at  12:39:24
+   Duration  2.62s (transform 999ms, setup 10ms, collect 1.48s, tests 951ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 4.75s wall, 1481.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

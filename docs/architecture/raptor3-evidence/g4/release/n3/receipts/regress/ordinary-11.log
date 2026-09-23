@@ -1,0 +1,7 @@
+[test:all] extended-local shard 11/13 (3 files; 179 ordinary of 191)
+ ✓ |extended-local| tests/unit/migrations/decimal-sqlite-integrity.test.ts (9 tests) 35ms
+ ✓ |extended-local| tests/unit/migrations/polymorphic-push.test.ts (7 tests) 44ms
+ ✓ |extended-local| tests/unit/migrations/decimal-descriptor-ddl.test.ts (2 tests) 6ms
+ Test Files  3 passed (3)
+      Tests  18 passed (18)
+[test:all] extended-local shard 11/13 (3 files; 179 ordinary of 191): 3.86s wall, 56.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

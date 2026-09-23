@@ -1,0 +1,168 @@
+tests/raptor3/g3/author-execution-regressions.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import assert from "node:assert/strict";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { createClient } from "@client/client";
+    3 │ import type {
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     16  16 │   import type { PreparedBatchOperation } from "@query-engine/types";
+     17  17 │   import { s } from "@schema";
+     18     │ - import·{·overrideTransactionOperation·}·from·"@tests/fixtures/transaction-operation";
+     19     │ - import·{·syncLiveSchema·}·from·"@tests/fixtures/sync-schema";
+         18 │ + import·{·syncLiveSchema·}·from·"@tests/fixtures/sync-schema";
+         19 │ + import·{·overrideTransactionOperation·}·from·"@tests/fixtures/transaction-operation";
+     20  20 │   import { isRecord } from "@validation/value-guards";
+     21  21 │   import Database from "better-sqlite3";
+  
+
+tests/raptor3/g3/author-execution-regressions.test.ts:461:41 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    459 │         (failure) => {
+    460 │           assert(failure instanceof TransactionError);
+  > 461 │           assert.match(failure.message, /omitted the prepared result/);
+        │                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    462 │           assert.equal(failure.meta.model, "record");
+    463 │           assert.equal(failure.meta.operation, "create");
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g3/author-execution-regressions.test.ts:477:11 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    475 │       assert.equal(
+    476 │         preparedSeries[0]!.queries.filter(({ sql }) =>
+  > 477 │           /^SELECT\b/i.test(sql.trim())
+        │           ^^^^^^^^^^^^
+    478 │         ).length,
+    479 │         1
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g3/author-execution-regressions.test.ts:497:9 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    495 │       const multiple = preparedSeries[1]!;
+    496 │       const terminalIndexes = multiple.queries.flatMap(({ sql }, index) =>
+  > 497 │         /^SELECT\b/i.test(sql.trim()) ? [index] : []
+        │         ^^^^^^^^^^^^
+    498 │       );
+    499 │       assert(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g3/author-execution-regressions.test.ts:515:41 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    513 │         (failure) => {
+    514 │           assert(failure instanceof TransactionError);
+  > 515 │           assert.match(failure.message, /omitted the prepared result/);
+        │                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    516 │           assert.equal(failure.meta.model, "parent");
+    517 │           assert.equal(failure.meta.operation, "createMany");
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g3/author-execution-regressions.test.ts:33:5 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    31 │     statement: string,
+    32 │     parameters: unknown[],
+  > 33 │     context?: QueryExecutionContext
+       │     ^^^^^^^
+    34 │   ): Promise<QueryResult<T>> {
+    35 │     this.statements.push(statement);
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend context with an underscore.
+  
+     31  31 │       statement: string,
+     32  32 │       parameters: unknown[],
+     33     │ - ····context?:·QueryExecutionContext
+         33 │ + ····_context?:·QueryExecutionContext
+     34  34 │     ): Promise<QueryResult<T>> {
+     35  35 │       this.statements.push(statement);
+  
+
+tests/raptor3/g3/author-execution-regressions.test.ts:178:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    176 │ ): Promise<unknown[]> {
+    177 │   const transaction = Reflect.get(client, "$transaction");
+  > 178 │   assert.equal(typeof transaction, "function");
+        │   ^^^^^^
+    179 │   return Reflect.apply(transaction, client, [operations]);
+    180 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g3/author-execution-regressions.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+      1   1 │   import assert from "node:assert/strict";
+      2   2 │   import { createClient } from "@client/client";
+      3     │ - import·type·{
+      4     │ - ··BatchQuery,
+      5     │ - ··QueryExecutionContext,
+      6     │ - ··QueryResult,
+      7     │ - }·from·"@drivers";
+          3 │ + import·type·{·BatchQuery,·QueryExecutionContext,·QueryResult·}·from·"@drivers";
+      8   4 │   import { SQLite3Driver } from "@drivers/sqlite3";
+      9   5 │   import {
+    ······· │ 
+    144 140 │         label: s.string(),
+    145 141 │         parentId: s.int(),
+    146     │ - ······parent:·s.toOne(()·=>·parent).fields("parentId").references("id"),
+        142 │ + ······parent:·s
+        143 │ + ········.toOne(()·=>·parent)
+        144 │ + ········.fields("parentId")
+        145 │ + ········.references("id"),
+    147 146 │       })
+    148 147 │       .map("g3_author_execution_left_children");
+    ······· │ 
+    152 151 │         label: s.string(),
+    153 152 │         parentId: s.int(),
+    154     │ - ······parent:·s.toOne(()·=>·parent).fields("parentId").references("id"),
+        153 │ + ······parent:·s
+        154 │ + ········.toOne(()·=>·parent)
+        155 │ + ········.fields("parentId")
+        156 │ + ········.references("id"),
+    155 157 │       })
+    156 158 │       .map("g3_author_execution_right_children");
+    ······· │ 
+    521 523 │   
+    522 524 │         assert.deepEqual(
+    523     │ - ········await·transactionArray(client,·[
+    524     │ - ··········relationCreateMany(30,·2,·undefined),
+    525     │ - ········]),
+        525 │ + ········await·transactionArray(client,·[relationCreateMany(30,·2,·undefined)]),
+    526 526 │           [{ count: 2 }]
+    527 527 │         );
+  
+
+Checked 1 file in 52ms. No fixes applied.
+Found 8 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

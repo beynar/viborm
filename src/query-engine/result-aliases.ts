@@ -6,6 +6,16 @@
 export const DISTANCE_RESULT_KEY = "0viborm_distance" as const;
 export const RELATION_COUNTS_RESULT_KEY = "0viborm_relation_counts" as const;
 export const EMPTY_ROW_RESULT_KEY = "0viborm_empty_row" as const;
+/**
+ * The cursor predicate's derived-table carrier, one per requested sort key.
+ *
+ * A nullable sort column's cursor predicate reads the cursor row's own values
+ * out of a derived table, and those values need names that cannot collide with
+ * a model identifier — which is this file's whole subject. It lives here, and
+ * not as a literal in the engine, so a witness can assert the carrier without
+ * pinning a spelling the engine is free to choose (Arnaud's D-21).
+ */
+export const CURSOR_CARRIER_PREFIX = "0viborm_cursor_" as const;
 /** Private envelope tag for one direct polymorphic result carrier. */
 export const POLYMORPHIC_RESULT_STATE_KEY = "__viborm_state" as const;
 export const POLYMORPHIC_RESULT_STATE_LINKED = "linked" as const;
@@ -21,7 +31,18 @@ export const POLYMORPHIC_RESULT_STATE_COLLECTION = "collection" as const;
  */
 export const POLYMORPHIC_COLLECTION_ARMS_KEY = "arms" as const;
 export const POLYMORPHIC_COLLECTION_MEMBERSHIP_KEY = "membership" as const;
-export const POLYMORPHIC_COLLECTION_ORPHANS_KEY = "orphans" as const;
+/**
+ * The variant slot's INTEGRITY carrier: one count per configured member of the
+ * memberships whose target row is gone (Arnaud's D-26).
+ *
+ * It rides the slot's own document beside the arms, so it takes this file's
+ * leading-digit spelling rather than a bare word: the deleted engine could
+ * afford `orphans` because it nested every arm one level down under
+ * `arms`, and this engine keeps the arms at the document's top level, where a
+ * bare carrier name would be reachable by a variant of the same name. A
+ * validated identifier cannot start with a digit, so this one cannot collide.
+ */
+export const POLYMORPHIC_COLLECTION_ORPHANS_KEY = "0viborm_orphans" as const;
 export const POLYMORPHIC_COLLECTION_ROWS_KEY = "rows" as const;
 
 export type AggregateResultName = "_count" | "_avg" | "_sum" | "_min" | "_max";

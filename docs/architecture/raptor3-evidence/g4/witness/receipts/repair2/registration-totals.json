@@ -1,0 +1,17 @@
+{
+  "capturedAt": "2026-09-15T06:49:18.318Z",
+  "registeredFixedFiles": 55,
+  "registeredCells": 392,
+  "nativeFileCells": 5,
+  "nonNativeFiles": 54,
+  "nonNativeCells": 387,
+  "routeTransactions": {
+    "registered": 11,
+    "declaredInFile": 11
+  },
+  "unit01Author": 83,
+  "unit01Review": 200,
+  "registeredButAbsent": [],
+  "extendedLocalTests": 251,
+  "extendedLocalG4Files": 0
+}

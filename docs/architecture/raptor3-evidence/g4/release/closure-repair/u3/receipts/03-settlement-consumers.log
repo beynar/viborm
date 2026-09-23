@@ -1,0 +1,20 @@
+# The settlement rule's other consumers (credential-free), on the final source
+
+## FC-05 composition (incl. D-58 carry decoding), uncertain-outcome meta, author regressions
+
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |coverage-raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 90ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (8 tests) 19ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 13ms
+ ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 46ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (8 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 14ms
+
+ Test Files  6 passed (6)
+      Tests  30 passed (30)
+   Start at  19:11:58
+   Duration  4.39s (transform 2.25s, setup 23ms, collect 3.73s, tests 201ms, environment 0ms, prepare 79ms)
+
+Vitest resources: 6.62s wall, 584.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

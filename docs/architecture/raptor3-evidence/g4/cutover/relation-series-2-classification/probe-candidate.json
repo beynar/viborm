@@ -1,0 +1,212 @@
+{
+ "root": "/private/tmp/viborm-g4-perf-candidate",
+ "outcome": {
+  "kind": "success",
+  "value": {
+   "count": 2
+  }
+ },
+ "defaultsEvaluated": 3,
+ "defaults": [
+  {
+   "order": 1,
+   "name": "generatedChild.id",
+   "value": "series_child_1",
+   "statementsSoFar": 0,
+   "stack": [
+    "at nextChildId (file:///private/tmp/viborm-g4-perf-candidate/benchmarks/operation-pipeline-fixtures.mjs:319:34)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/helpers.ts:135:18)",
+    "at Object.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:721:36)",
+    "at Me (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/helpers.ts:421:38)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/transform.ts:57:22)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/union.ts:42:22)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:640:34)",
+    "at Object.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:640:34)",
+    "at Array.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/lazy.ts:105:60)",
+    "at Object.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:732:32)",
+    "at Object.a (/private/tmp/viborm-g4-perf-candidate/src/validation/model/args/bulk-write-projection.ts:68:21)",
+    "at Object.a (/private/tmp/viborm-g4-perf-candidate/src/validation/model/args/omit.ts:139:29)",
+    "at Ca (/private/tmp/viborm-g4-perf-candidate/src/validation/index.ts:95:40)",
+    "at V (/private/tmp/viborm-g4-perf-candidate/src/query-engine/write-engine/parse-boundary.ts:42:18)",
+    "at or.admitArguments (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/schema.ts:192:12)",
+    "at or.admit (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/schema.ts:161:16)",
+    "at f (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/index.ts:147:28)",
+    "at h (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/index.ts:164:9)",
+    "at Object.execute (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/index.ts:179:16)",
+    "at oi (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/route/client-route.ts:370:21)",
+    "at Object.execute (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/route/client-route.ts:191:31)",
+    "at t.#D (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-operation.ts:649:19)",
+    "at t.#E (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-operation.ts:630:12)",
+    "at t.#w (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-operation.ts:536:14)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-operation.ts:489:16)",
+    "at W (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-execution.ts:6:12)",
+    "at pt.executeDefault (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-execution.ts:35:22)",
+    "at t.#S (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-operation.ts:486:28)",
+    "at t.then (/private/tmp/viborm-g4-perf-candidate/src/query-engine/pending-operation.ts:752:12)"
+   ]
+  },
+  {
+   "order": 2,
+   "name": "generatedChild.id",
+   "value": "series_child_2",
+   "statementsSoFar": 1,
+   "stack": [
+    "at nextChildId (file:///private/tmp/viborm-g4-perf-candidate/benchmarks/operation-pipeline-fixtures.mjs:319:34)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/helpers.ts:135:18)",
+    "at Object.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:721:36)",
+    "at Me (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/helpers.ts:421:38)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/transform.ts:57:22)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/union.ts:42:22)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:640:34)",
+    "at Object.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:640:34)",
+    "at Ca (/private/tmp/viborm-g4-perf-candidate/src/validation/index.ts:95:40)",
+    "at V (/private/tmp/viborm-g4-perf-candidate/src/query-engine/write-engine/parse-boundary.ts:42:18)",
+    "at or.update (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/schema.ts:421:9)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:709:28)",
+    "at Array.map (<anonymous>)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:686:14)",
+    "at Lr.prepareMembers (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/operation-context.ts:295:23)",
+    "at Wr.captureSeries (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:684:49)",
+    "at async Wr.series (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:596:5)",
+    "at async run (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/commands.ts:1306:25)",
+    "at async <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/operation-context.ts:479:16)",
+    "at async <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:629:26)",
+    "at async s (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:365:16)",
+    "at async K (/private/tmp/viborm-g4-perf-candidate/src/drivers/shared/transactions.ts:193:14)",
+    "at async u (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:385:16)",
+    "at async t.runConnectionTransactionLease (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:94:14)",
+    "at async <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/drivers/savepoint-queue.ts:63:19)",
+    "at async F.flush (/private/tmp/viborm-g4-perf-candidate/src/drivers/savepoint-queue.ts:92:9)"
+   ]
+  },
+  {
+   "order": 3,
+   "name": "generatedChild.id",
+   "value": "series_child_3",
+   "statementsSoFar": 1,
+   "stack": [
+    "at nextChildId (file:///private/tmp/viborm-g4-perf-candidate/benchmarks/operation-pipeline-fixtures.mjs:319:34)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/helpers.ts:135:18)",
+    "at Object.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:721:36)",
+    "at Me (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/helpers.ts:421:38)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/transform.ts:57:22)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/union.ts:42:22)",
+    "at Array.<anonymous> (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:640:34)",
+    "at Object.validate (/private/tmp/viborm-g4-perf-candidate/src/validation/primitives/object.ts:640:34)",
+    "at Ca (/private/tmp/viborm-g4-perf-candidate/src/validation/index.ts:95:40)",
+    "at V (/private/tmp/viborm-g4-perf-candidate/src/query-engine/write-engine/parse-boundary.ts:42:18)",
+    "at or.update (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/schema.ts:421:9)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:709:28)",
+    "at Array.map (<anonymous>)",
+    "at <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:686:14)",
+    "at Lr.prepareMembers (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/operation-context.ts:295:23)",
+    "at Wr.captureSeries (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:684:49)",
+    "at async Wr.series (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/execution.ts:596:5)",
+    "at async run (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/commands/commands.ts:1306:25)",
+    "at async <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/query-engine/raptor3/shared/operation-context.ts:479:16)",
+    "at async <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:629:26)",
+    "at async s (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:365:16)",
+    "at async K (/private/tmp/viborm-g4-perf-candidate/src/drivers/shared/transactions.ts:193:14)",
+    "at async u (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:385:16)",
+    "at async t.runConnectionTransactionLease (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:94:14)",
+    "at async <anonymous> (/private/tmp/viborm-g4-perf-candidate/src/drivers/savepoint-queue.ts:63:19)",
+    "at async F.flush (/private/tmp/viborm-g4-perf-candidate/src/drivers/savepoint-queue.ts:92:9)"
+   ]
+  }
+ ],
+ "statementCount": 3,
+ "statements": [
+  {
+   "order": 1,
+   "via": "execute",
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"bench_generated_parents\" AS \"q0\" WHERE \"q0\".\"id\" IN (?, ?) ORDER BY \"q0\".\"id\" ASC",
+   "params": [
+    5000,
+    6000
+   ],
+   "defaultsBefore": 1,
+   "stack": [
+    "at e.execute (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver.ts:839:28)",
+    "at l (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:199:43)",
+    "at e.executeNormalizedStatement (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-instrumentation.ts:921:20)",
+    "at a (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:209:16)"
+   ],
+   "rows": 2,
+   "defaultsAfter": 1
+  },
+  {
+   "order": 2,
+   "via": "execute",
+   "sql": "INSERT INTO \"bench_generated_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, ?)",
+   "params": [
+    "series_child_2",
+    "series-child",
+    5000
+   ],
+   "defaultsBefore": 3,
+   "stack": [
+    "at e.execute (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver.ts:839:28)",
+    "at l (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:199:43)",
+    "at e.executeNormalizedStatement (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-instrumentation.ts:921:20)",
+    "at a (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:209:16)"
+   ],
+   "rows": 0,
+   "defaultsAfter": 3
+  },
+  {
+   "order": 3,
+   "via": "execute",
+   "sql": "INSERT INTO \"bench_generated_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, ?)",
+   "params": [
+    "series_child_3",
+    "series-child",
+    6000
+   ],
+   "defaultsBefore": 3,
+   "stack": [
+    "at e.execute (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver.ts:839:28)",
+    "at l (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:199:43)",
+    "at e.executeNormalizedStatement (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-instrumentation.ts:921:20)",
+    "at a (/private/tmp/viborm-g4-perf-candidate/src/drivers/driver-transaction-base.ts:209:16)"
+   ],
+   "rows": 0,
+   "defaultsAfter": 3
+  }
+ ],
+ "persistedChildren": [
+  {
+   "id": "conditional_found",
+   "parentId": 5000,
+   "label": "existing-child"
+  },
+  {
+   "id": "series_child_2",
+   "parentId": 5000,
+   "label": "series-child"
+  },
+  {
+   "id": "series_child_3",
+   "parentId": 6000,
+   "label": "series-child"
+  },
+  {
+   "id": "transition_child",
+   "parentId": 10000,
+   "label": "cascade-child"
+  }
+ ],
+ "persistedParents": [
+  {
+   "id": 5000,
+   "label": "series-first"
+  },
+  {
+   "id": 6000,
+   "label": "series-second"
+  },
+  {
+   "id": 10000,
+   "label": "transition"
+  }
+ ]
+}

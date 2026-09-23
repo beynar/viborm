@@ -1,0 +1,5 @@
+tests/contracts/architecture/contract-matrix.core.test.ts
+tests/contracts/engine/write/parity-b-upsert-arm.core.test.ts
+tests/contracts/engine/write/parity-e-shared-pk.core.test.ts
+tests/contracts/engine/write/polymorphic-write-plan.core.test.ts
+tests/pattern/corpus/oracle.core.test.ts

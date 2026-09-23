@@ -1,0 +1,550 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts (74 tests | 12 failed) 87ms
+   ✓ 'PostgreSQL' operand callbacks > the callback form and the token form compile identically 7ms
+   ✓ 'PostgreSQL' operand callbacks > every comparison operator takes the callback 5ms
+   ✓ 'PostgreSQL' operand callbacks > the bare shorthand takes the callback too 1ms
+   ✓ 'PostgreSQL' operand callbacks > the callback resolves through .map(), like the token 1ms
+   × 'PostgreSQL' operand callbacks > a fragment operand is spliced parenthesized, its values bound 5ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 + $2)'
+   ✓ 'PostgreSQL' operand callbacks > a fragment operand that carries a hostile string stays a parameter 1ms
+   × 'PostgreSQL' operand callbacks > a fragment, a reference and a literal mix in one where 1ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 - $2)'
+   ✓ 'PostgreSQL' operand callbacks > a bare Sql fragment is accepted without the callback 1ms
+   × 'PostgreSQL' operand callbacks > a subquery fragment compiles as an operand 1ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '(SELECT MAX(v) FROM'
+   ✓ 'PostgreSQL' operand callbacks > `ctx.fields` at depth 2 names the nested model's columns 3ms
+   ✓ 'PostgreSQL' operand callbacks > a nested `ctx.fields` cannot reach the enclosing model's columns 2ms
+   ✓ 'PostgreSQL' operand callbacks > the scope pops back out of a nested relation filter 1ms
+   ✓ 'PostgreSQL' operand callbacks > an extended unique where takes a callback in its filter portion 1ms
+   ✓ 'MySQL' operand callbacks > the callback form and the token form compile identically 1ms
+   ✓ 'MySQL' operand callbacks > every comparison operator takes the callback 3ms
+   ✓ 'MySQL' operand callbacks > the bare shorthand takes the callback too 0ms
+   ✓ 'MySQL' operand callbacks > the callback resolves through .map(), like the token 0ms
+   × 'MySQL' operand callbacks > a fragment operand is spliced parenthesized, its values bound 1ms
+     → expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '($1 + $2)'
+   ✓ 'MySQL' operand callbacks > a fragment operand that carries a hostile string stays a parameter 0ms
+   × 'MySQL' operand callbacks > a fragment, a reference and a literal mix in one where 0ms
+     → expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '($1 - $2)'
+   ✓ 'MySQL' operand callbacks > a bare Sql fragment is accepted without the callback 1ms
+   × 'MySQL' operand callbacks > a subquery fragment compiles as an operand 0ms
+     → expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '(SELECT MAX(v) FROM'
+   ✓ 'MySQL' operand callbacks > `ctx.fields` at depth 2 names the nested model's columns 1ms
+   ✓ 'MySQL' operand callbacks > a nested `ctx.fields` cannot reach the enclosing model's columns 0ms
+   ✓ 'MySQL' operand callbacks > the scope pops back out of a nested relation filter 0ms
+   ✓ 'MySQL' operand callbacks > an extended unique where takes a callback in its filter portion 1ms
+   ✓ 'SQLite' operand callbacks > the callback form and the token form compile identically 1ms
+   ✓ 'SQLite' operand callbacks > every comparison operator takes the callback 3ms
+   ✓ 'SQLite' operand callbacks > the bare shorthand takes the callback too 7ms
+   ✓ 'SQLite' operand callbacks > the callback resolves through .map(), like the token 2ms
+   × 'SQLite' operand callbacks > a fragment operand is spliced parenthesized, its values bound 1ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 + $2)'
+   ✓ 'SQLite' operand callbacks > a fragment operand that carries a hostile string stays a parameter 0ms
+   × 'SQLite' operand callbacks > a fragment, a reference and a literal mix in one where 0ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 - $2)'
+   ✓ 'SQLite' operand callbacks > a bare Sql fragment is accepted without the callback 0ms
+   × 'SQLite' operand callbacks > a subquery fragment compiles as an operand 0ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '(SELECT MAX(v) FROM'
+   ✓ 'SQLite' operand callbacks > `ctx.fields` at depth 2 names the nested model's columns 1ms
+   ✓ 'SQLite' operand callbacks > a nested `ctx.fields` cannot reach the enclosing model's columns 0ms
+   ✓ 'SQLite' operand callbacks > the scope pops back out of a nested relation filter 0ms
+   ✓ 'SQLite' operand callbacks > an extended unique where takes a callback in its filter portion 1ms
+   ✓ what a callback may return > a plain value is refused, naming the operation and the path 0ms
+   ✓ what a callback may return > an async callback is refused as a promise, not awaited 0ms
+   ✓ what a callback may return > a throwing callback surfaces as a validation issue at its path 0ms
+   ✓ what a callback may return > a mistyped `ctx.fields` key throws, naming the field and the model 0ms
+   ✓ what a callback may return > a reference of the wrong scalar type is refused 0ms
+   ✓ what a callback may return > another model's token, smuggled in, is still refused 0ms
+   ✓ surfaces that stay closed > `in` takes values, not fragments 0ms
+   ✓ surfaces that stay closed > a fragment is refused in `having` 3ms
+   ✓ surfaces that stay closed > a fragment is refused in `having` at any `not` depth 2ms
+   ✓ surfaces that stay closed > a callback cannot smuggle a fragment into `having` either 1ms
+   ✓ surfaces that stay closed > a fragment is refused in a JSON filter operand, as non-JSON 0ms
+   × surfaces that stay closed > a fragment is refused in JSON write data, as non-JSON 1ms
+     → expected 'QueryEngineError' to be 'ValidationError' // Object.is equality
+   × surfaces that stay closed > a JSON document that looks like a fragment still writes 2ms
+     → expected [Function] to not throw an error but 'QueryEngineError: Operation \'updateM…' was thrown
+   ✓ surfaces that stay closed > a JSON document that looks like a fragment FILTERS as a value 1ms
+   × surfaces that stay closed > write data takes no callback 1ms
+     → expected 'QueryEngineError' to be 'ValidationError' // Object.is equality
+   ✓ surfaces that stay closed > a text predicate keeps the token but takes no fragment 1ms
+   ✓ the public entry point > exports the token factory the docs teach, and it filters 0ms
+   ✓ every filter position the scope has to reach > a nested write's own `where` scopes to the relation TARGET 1ms
+   ✓ every filter position the scope has to reach > a nested write's `where` cannot reach the PARENT's columns 1ms
+   ✓ every filter position the scope has to reach > a relation `where` under `include` and under `_count` both scope 2ms
+   ✓ every filter position the scope has to reach > the aggregate families take the callback in their `where` 1ms
+   ✓ every filter position the scope has to reach > a selector that is not a filter takes no callback 9ms
+   ✓ operand typing > `ctx` is inferred — the model in scope needs no annotation 1ms
+   ✓ operand typing > a mistyped `ctx.fields` key is a compile error 0ms
+   ✓ operand typing > the callback's return carries the operand's scalar type 0ms
+   ✓ operand typing > a nested `ctx` is the target model's, at the type level 0ms
+   ✓ operand typing > a callback is a compile error in `cursor` and in `orderBy` 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown operator beside a value 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown operator beside a token 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown operator beside a fragment 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown operator beside a callback 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown field beside a value 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown field beside a token 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown field beside a fragment 0ms
+   ✓ an unknown key is refused the same way beside every operand kind > unknown field beside a callback 1ms
+ ❯ |review-cutover| tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts (48 tests | 6 failed) 28ms
+   ✓ SQLite widened decimal sum operand range > admits every pinned in-range 19-digit coefficient 4ms
+   ✓ SQLite widened decimal sum operand range > refuses the first coefficient beyond each signed-int64 endpoint 1ms
+   ✓ SQLite widened decimal sum operand range > refuses a very wide coefficient through the same pre-I/O boundary 0ms
+   ✓ 'PostgreSQL' decimal having operands > the where operand is itself lowered through the decimal literal 1ms
+   ✓ 'PostgreSQL' decimal having operands > having _min binds its operand exactly as where does 1ms
+   ✓ 'PostgreSQL' decimal having operands > having _max binds its operand exactly as where does 1ms
+   ✓ 'PostgreSQL' decimal having operands > having _sum binds its operand exactly as where does 1ms
+   ✓ 'PostgreSQL' decimal having operands > having _avg binds its operand exactly as where does 1ms
+   ✓ 'PostgreSQL' decimal having operands > every element of a having in-list is lowered, not just the first 1ms
+   ✓ 'PostgreSQL' decimal having operands > a _sum operand wider than the field's precision still binds 0ms
+   ✓ 'PostgreSQL' decimal having operands > a _sum operand past the provider's exact cast domain is refused pre-I/O 0ms
+   ✓ 'PostgreSQL' decimal having operands > the widened _sum operand stops at the provider's exact cast boundary 0ms
+   × 'PostgreSQL' decimal having operands > grouped decimal lists project through their transport but group on the physical column 1ms
+     → expected 'CAST("q0"."amounts" AS TEXT[]) AS "am…' to contain 'CAST("t0"."amounts" AS TEXT[]) AS "am…'
+   ✓ 'PostgreSQL' decimal having operands > groupBy ORDER BY _avg orders by the exact average, not AVG() 1ms
+   ✓ 'PostgreSQL' decimal having operands > having _avg filters on the exact average, not AVG() 0ms
+   ✓ 'PostgreSQL' decimal having operands > the projection, the ordering and the filter emit ONE expression 1ms
+   ✓ 'PostgreSQL' decimal having operands > a _sum operand finer than the field's scale is refused 1ms
+   × 'PostgreSQL' decimal having operands > having _count compares a row count, so it does NOT get the cast 0ms
+     → expected 'CAST($1 AS NUMERIC(16,2))' to match /^\$\d+$/
+   ✓ 'MySQL' decimal having operands > the where operand is itself lowered through the decimal literal 0ms
+   ✓ 'MySQL' decimal having operands > having _min binds its operand exactly as where does 1ms
+   ✓ 'MySQL' decimal having operands > having _max binds its operand exactly as where does 0ms
+   ✓ 'MySQL' decimal having operands > having _sum binds its operand exactly as where does 0ms
+   ✓ 'MySQL' decimal having operands > having _avg binds its operand exactly as where does 1ms
+   ✓ 'MySQL' decimal having operands > every element of a having in-list is lowered, not just the first 0ms
+   ✓ 'MySQL' decimal having operands > a _sum operand wider than the field's precision still binds 0ms
+   ✓ 'MySQL' decimal having operands > a _sum operand past the provider's exact cast domain is refused pre-I/O 0ms
+   ✓ 'MySQL' decimal having operands > the widened _sum operand stops at the provider's exact cast boundary 0ms
+   × 'MySQL' decimal having operands > grouped decimal lists project through their transport but group on the physical column 0ms
+     → expected 'CAST(`q0`.`amounts` AS CHAR) AS `amou…' to contain 'CAST(`t0`.`amounts` AS CHAR) AS `amou…'
+   ✓ 'MySQL' decimal having operands > groupBy ORDER BY _avg orders by the exact average, not AVG() 1ms
+   ✓ 'MySQL' decimal having operands > having _avg filters on the exact average, not AVG() 1ms
+   ✓ 'MySQL' decimal having operands > the projection, the ordering and the filter emit ONE expression 1ms
+   ✓ 'MySQL' decimal having operands > a _sum operand finer than the field's scale is refused 0ms
+   × 'MySQL' decimal having operands > having _count compares a row count, so it does NOT get the cast 0ms
+     → expected 'CAST($1 AS DECIMAL(16,2))' to match /^\$\d+$/
+   ✓ 'SQLite' decimal having operands > the where operand is itself lowered through the decimal literal 0ms
+   ✓ 'SQLite' decimal having operands > having _min binds its operand exactly as where does 1ms
+   ✓ 'SQLite' decimal having operands > having _max binds its operand exactly as where does 0ms
+   ✓ 'SQLite' decimal having operands > having _sum binds its operand exactly as where does 0ms
+   ✓ 'SQLite' decimal having operands > having _avg binds its operand exactly as where does 0ms
+   ✓ 'SQLite' decimal having operands > every element of a having in-list is lowered, not just the first 0ms
+   ✓ 'SQLite' decimal having operands > a _sum operand wider than the field's precision still binds 0ms
+   ✓ 'SQLite' decimal having operands > a _sum operand past the provider's exact cast domain is refused pre-I/O 0ms
+   ✓ 'SQLite' decimal having operands > the widened _sum operand stops at the provider's exact cast boundary 0ms
+   × 'SQLite' decimal having operands > grouped decimal lists project through their transport but group on the physical column 0ms
+     → expected 'CAST("q0"."amounts" AS TEXT) AS "amou…' to contain 'CAST("t0"."amounts" AS TEXT) AS "amou…'
+   ✓ 'SQLite' decimal having operands > groupBy ORDER BY _avg orders by the exact average, not AVG() 0ms
+   ✓ 'SQLite' decimal having operands > having _avg filters on the exact average, not AVG() 0ms
+   ✓ 'SQLite' decimal having operands > the projection, the ordering and the filter emit ONE expression 1ms
+   ✓ 'SQLite' decimal having operands > a _sum operand finer than the field's scale is refused 0ms
+   × 'SQLite' decimal having operands > having _count compares a row count, so it does NOT get the cast 0ms
+     → expected 'CAST($1 AS INTEGER)' to match /^\$\d+$/
+ ❯ |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts (18 tests | 7 failed) 10ms
+   ✓ Lateral Joins > Adapter Capabilities > PostgreSQL adapter supports lateral joins 0ms
+   ✓ Lateral Joins > Adapter Capabilities > MySQL adapter supports lateral joins 0ms
+   ✓ Lateral Joins > Adapter Capabilities > SQLite adapter does not support lateral joins 0ms
+   ✓ Lateral Joins > Adapter Join Methods > PostgreSQL lateral join methods > lateral() generates correct SQL 0ms
+   ✓ Lateral Joins > Adapter Join Methods > PostgreSQL lateral join methods > lateralLeft() generates correct SQL 0ms
+   ✓ Lateral Joins > Adapter Join Methods > MySQL lateral join methods > lateral() generates correct SQL 0ms
+   ✓ Lateral Joins > Adapter Join Methods > MySQL lateral join methods > lateralLeft() generates correct SQL 0ms
+   ✓ Lateral Joins > Adapter Join Methods > SQLite lateral join methods > lateral() throws error 0ms
+   ✓ Lateral Joins > Adapter Join Methods > SQLite lateral join methods > lateralLeft() throws error 0ms
+   × Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > to-many include uses lateral join 2ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+   × Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > to-one include uses lateral join 1ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain 'LEFT JOIN LATERAL'
+   × Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > include with where filter 1ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+   × Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > include with orderBy 1ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+   × Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > include with take/skip pagination 1ms
+     → expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+   ✓ Lateral Joins > SQL Generation > SQLite (correlated subquery fallback) > to-many include uses correlated subquery (no lateral) 0ms
+   ✓ Lateral Joins > SQL Generation > SQLite (correlated subquery fallback) > to-one include uses correlated subquery (no lateral) 0ms
+   × Lateral Joins > SQL Generation > MySQL (lateral joins enabled) > to-many include uses lateral join 1ms
+     → expected 'SELECT `q0`.`id` AS `id`, `q0`.`name`…' to contain 'LEFT JOIN LATERAL'
+   × Lateral Joins > SQL Generation > MySQL (lateral joins enabled) > to-one include uses lateral join 1ms
+     → expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain 'LEFT JOIN LATERAL'
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/routed-operations-authority.review.test.ts (4 tests) 22ms
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/one-owner-every-lineage.review.test.ts (3 tests) 9ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 25 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts > 'PostgreSQL' decimal having operands > grouped decimal lists project through their transport but group on the physical column
+AssertionError: expected 'CAST("q0"."amounts" AS TEXT[]) AS "am…' to contain 'CAST("t0"."amounts" AS TEXT[]) AS "am…'
+
+Expected: [32m"CAST("[7mt[27m0"."amounts" AS TEXT[]) AS "amounts""[39m
+Received: [31m"CAST("[7mq[27m0"."amounts" AS TEXT[]) AS "amounts"[7m, COUNT(*) AS "_count"[27m"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts:349:24
+    347|     const groupBy = clauseBetween(grouped.statement, "GROUP BY").trim(…
+    348| 
+    349|     expect(projection).toContain(dialectCase.listProjection);
+       |                        ^
+    350|     expect(groupBy).toBe(dialectCase.groupedList);
+    351|     expect(groupBy).not.toContain("CAST(");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts > 'PostgreSQL' decimal having operands > having _count compares a row count, so it does NOT get the cast
+AssertionError: expected 'CAST($1 AS NUMERIC(16,2))' to match /^\$\d+$/
+
+[32m- Expected:[39m 
+/^\$\d+$/
+
+[31m+ Received:[39m 
+"CAST($1 AS NUMERIC(16,2))"
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts:431:49
+    429|     });
+    430| 
+    431|     expect(operandAfter(having.statement, ">")).toMatch(BARE_PARAMETER…
+       |                                                 ^
+    432|     // A row count is an integer and stays one — no decimal canonicali…
+    433|     expect(having.values).toEqual([1]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts > 'MySQL' decimal having operands > grouped decimal lists project through their transport but group on the physical column
+AssertionError: expected 'CAST(`q0`.`amounts` AS CHAR) AS `amou…' to contain 'CAST(`t0`.`amounts` AS CHAR) AS `amou…'
+
+Expected: [32m"CAST(`[7mt[27m0`.`amounts` AS CHAR) AS `amounts`"[39m
+Received: [31m"CAST(`[7mq[27m0`.`amounts` AS CHAR) AS `amounts`[7m, COUNT(*) AS `_count`[27m"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts:349:24
+    347|     const groupBy = clauseBetween(grouped.statement, "GROUP BY").trim(…
+    348| 
+    349|     expect(projection).toContain(dialectCase.listProjection);
+       |                        ^
+    350|     expect(groupBy).toBe(dialectCase.groupedList);
+    351|     expect(groupBy).not.toContain("CAST(");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts > 'MySQL' decimal having operands > having _count compares a row count, so it does NOT get the cast
+AssertionError: expected 'CAST($1 AS DECIMAL(16,2))' to match /^\$\d+$/
+
+[32m- Expected:[39m 
+/^\$\d+$/
+
+[31m+ Received:[39m 
+"CAST($1 AS DECIMAL(16,2))"
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts:431:49
+    429|     });
+    430| 
+    431|     expect(operandAfter(having.statement, ">")).toMatch(BARE_PARAMETER…
+       |                                                 ^
+    432|     // A row count is an integer and stays one — no decimal canonicali…
+    433|     expect(having.values).toEqual([1]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts > 'SQLite' decimal having operands > grouped decimal lists project through their transport but group on the physical column
+AssertionError: expected 'CAST("q0"."amounts" AS TEXT) AS "amou…' to contain 'CAST("t0"."amounts" AS TEXT) AS "amou…'
+
+Expected: [32m"CAST("[7mt[27m0"."amounts" AS TEXT) AS "amounts""[39m
+Received: [31m"CAST("[7mq[27m0"."amounts" AS TEXT) AS "amounts"[7m, COUNT(*) AS "_count"[27m"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts:349:24
+    347|     const groupBy = clauseBetween(grouped.statement, "GROUP BY").trim(…
+    348| 
+    349|     expect(projection).toContain(dialectCase.listProjection);
+       |                        ^
+    350|     expect(groupBy).toBe(dialectCase.groupedList);
+    351|     expect(groupBy).not.toContain("CAST(");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts > 'SQLite' decimal having operands > having _count compares a row count, so it does NOT get the cast
+AssertionError: expected 'CAST($1 AS INTEGER)' to match /^\$\d+$/
+
+[32m- Expected:[39m 
+/^\$\d+$/
+
+[31m+ Received:[39m 
+"CAST($1 AS INTEGER)"
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-decimal-having-operand-sql.review.test.ts:431:49
+    429|     });
+    430| 
+    431|     expect(operandAfter(having.statement, ">")).toMatch(BARE_PARAMETER…
+       |                                                 ^
+    432|     // A row count is an integer and stays one — no decimal canonicali…
+    433|     expect(having.values).toEqual([1]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts > Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > to-many include uses lateral join
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+
+Expected: [32m"LEFT JOIN LATERAL"[39m
+Received: [31m"SELECT "q0"."id" AS "id", "q0"."name" AS "name", "q0"."email" AS "email", (SELECT COALESCE(COALESCE(json_agg(json_build_object($1::text, "q2"."id", $2::text, "q2"."title", $3::text, "q2"."content", $4::text, "q2"."authorId")), '[]'::json), '[]'::json) FROM (SELECT "q1"."id" AS "id", "q1"."title" AS "title", "q1"."content" AS "content", "q1"."authorId" AS "authorId" FROM "public"."posts" AS "q1" WHERE "q0"."id" = "q1"."authorId") AS "q2") AS "posts" FROM "public"."Author" AS "q0" WHERE TRUE"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts:167:27
+    165| 
+    166|         // Should use lateral join syntax
+    167|         expect(statement).toContain("LEFT JOIN LATERAL");
+       |                           ^
+    168|         expect(statement).toContain("ON TRUE");
+    169|         // Should have JSON aggregation in the lateral subquery
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts > Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > to-one include uses lateral join
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain 'LEFT JOIN LATERAL'
+
+Expected: [32m"LEFT JOIN LATERAL"[39m
+Received: [31m"SELECT "q0"."id" AS "id", "q0"."title" AS "title", "q0"."content" AS "content", "q0"."authorId" AS "authorId", (SELECT json_build_object($1::text, "q2"."id", $2::text, "q2"."name", $3::text, "q2"."email") FROM (SELECT "q1"."id" AS "id", "q1"."name" AS "name", "q1"."email" AS "email" FROM "public"."Author" AS "q1" WHERE "q0"."authorId" = "q1"."id" LIMIT $4) AS "q2") AS "author" FROM "public"."posts" AS "q0" WHERE TRUE"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts:180:27
+    178| 
+    179|         // Should use lateral join syntax
+    180|         expect(statement).toContain("LEFT JOIN LATERAL");
+       |                           ^
+    181|         expect(statement).toContain("ON TRUE");
+    182|         // LIMIT is parameterized (LIMIT $1, $2, etc.)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts > Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > include with where filter
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+
+Expected: [32m"LEFT JOIN LATERAL"[39m
+Received: [31m"SELECT "q0"."id" AS "id", "q0"."name" AS "name", "q0"."email" AS "email", (SELECT COALESCE(COALESCE(json_agg(json_build_object($1::text, "q2"."id", $2::text, "q2"."title", $3::text, "q2"."content", $4::text, "q2"."authorId")), '[]'::json), '[]'::json) FROM (SELECT "q1"."id" AS "id", "q1"."title" AS "title", "q1"."content" AS "content", "q1"."authorId" AS "authorId" FROM "public"."posts" AS "q1" WHERE ("q0"."id" = "q1"."authorId" AND POSITION($5 IN "q1"."title") > 0)) AS "q2") AS "posts" FROM "public"."Author" AS "q0" WHERE TRUE"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts:196:27
+    194|         const statement = result.toStatement("$n");
+    195| 
+    196|         expect(statement).toContain("LEFT JOIN LATERAL");
+       |                           ^
+    197|         expect(statement).toContain("POSITION");
+    198|       });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts > Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > include with orderBy
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+
+Expected: [32m"LE[7mF[27mT [7mJOIN LATERAL[27m"[39m
+Received: [31m"[7mSE[27mLE[7mC[27mT [7m"q0"."id" AS "id", "q0"."name" AS "name", "q0"."email" AS "email", (SELECT COALESCE(COALESCE(json_agg(json_build_object($1::text, "q2"."id", $2::text, "q2"."title", $3::text, "q2"."content", $4::text, "q2"."authorId")), '[]'::json), '[]'::json) FROM (SELECT "q1"."id" AS "id", "q1"."title" AS "title", "q1"."content" AS "content", "q1"."authorId" AS "authorId" FROM "public"."posts" AS "q1" WHERE "q0"."id" = "q1"."authorId" ORDER BY "q1"."title" DESC) AS "q2") AS "posts" FROM "public"."Author" AS "q0" WHERE TRUE[27m"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts:210:27
+    208|         const statement = result.toStatement("$n");
+    209| 
+    210|         expect(statement).toContain("LEFT JOIN LATERAL");
+       |                           ^
+    211|         expect(statement).toContain("ORDER BY");
+    212|         expect(statement).toContain("DESC");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts > Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > include with take/skip pagination
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+
+Expected: [32m"LEFT JOIN LATERAL"[39m
+Received: [31m"SELECT "q0"."id" AS "id", "q0"."name" AS "name", "q0"."email" AS "email", (SELECT COALESCE(COALESCE(json_agg(json_build_object($1::text, "q2"."id", $2::text, "q2"."title", $3::text, "q2"."content", $4::text, "q2"."authorId")), '[]'::json), '[]'::json) FROM (SELECT "q1"."id" AS "id", "q1"."title" AS "title", "q1"."content" AS "content", "q1"."authorId" AS "authorId" FROM "public"."posts" AS "q1" WHERE "q0"."id" = "q1"."authorId" ORDER BY "q1"."id" ASC LIMIT $5 OFFSET $6) AS "q2") AS "posts" FROM "public"."Author" AS "q0" WHERE TRUE"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts:226:27
+    224|         const statement = result.toStatement("$n");
+    225| 
+    226|         expect(statement).toContain("LEFT JOIN LATERAL");
+       |                           ^
+    227|         expect(statement).toContain("LIMIT");
+    228|         expect(statement).toContain("OFFSET");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts > Lateral Joins > SQL Generation > MySQL (lateral joins enabled) > to-many include uses lateral join
+AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`name`…' to contain 'LEFT JOIN LATERAL'
+
+Expected: [32m"LEFT JOIN LATERAL"[39m
+Received: [31m"SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`email` AS `email`, (SELECT COALESCE(COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`title`, ?, `q2`.`content`, ?, `q2`.`authorId`)), JSON_ARRAY()), JSON_ARRAY()) FROM (SELECT `q1`.`id` AS `id`, `q1`.`title` AS `title`, `q1`.`content` AS `content`, `q1`.`authorId` AS `authorId` FROM `posts` AS `q1` WHERE `q0`.`id` = `q1`.`authorId`) AS `q2`) AS `posts` FROM `Author` AS `q0` WHERE TRUE"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts:281:27
+    279| 
+    280|         // Should use lateral join syntax
+    281|         expect(statement).toContain("LEFT JOIN LATERAL");
+       |                           ^
+    282|         expect(statement).toContain("ON TRUE");
+    283|         // Should have JSON aggregation in the lateral subquery
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts > Lateral Joins > SQL Generation > MySQL (lateral joins enabled) > to-one include uses lateral join
+AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain 'LEFT JOIN LATERAL'
+
+Expected: [32m"LEFT JOIN LATERAL"[39m
+Received: [31m"SELECT `q0`.`id` AS `id`, `q0`.`title` AS `title`, `q0`.`content` AS `content`, `q0`.`authorId` AS `authorId`, (SELECT JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`name`, ?, `q2`.`email`) FROM (SELECT `q1`.`id` AS `id`, `q1`.`name` AS `name`, `q1`.`email` AS `email` FROM `Author` AS `q1` WHERE `q0`.`authorId` = `q1`.`id` LIMIT 1) AS `q2`) AS `author` FROM `posts` AS `q0` WHERE TRUE"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-lateral-joins.review.test.ts:294:27
+    292| 
+    293|         // Should use lateral join syntax
+    294|         expect(statement).toContain("LEFT JOIN LATERAL");
+       |                           ^
+    295|         expect(statement).toContain("ON TRUE");
+    296|         // MySQL inlines integer LIMIT values (mysql2 binds numbers as…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'PostgreSQL' operand callbacks > a fragment operand is spliced parenthesized, its values bound
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'SQLite' operand callbacks > a fragment operand is spliced parenthesized, its values bound
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 + $2)'
+
+Expected: [32m"[7m([27m$1 + $2[7m)[27m"[39m
+Received: [31m"[7mSELECT "q0"."id" AS "id", "q0"."title" AS "title", "q0"."slug_column" AS "slug", "q0"."views" AS "views", "q0"."likes" AS "likes", CAST("q0"."fee" AS TEXT) AS "fee", CAST("q0"."discount" AS TEXT) AS "discount", CAST("q0"."rate" AS TEXT) AS "rate", "q0"."status" AS "status", "q0"."review_status" AS "reviewStatus", "q0"."payload" AS "payload", "q0"."authorId" AS "authorId" FROM "public"."fieldref_posts" AS "q0" WHERE "q0"."views" > [27m$1 + $2"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:190:29
+    188|     // compiled statement and parameters beside it — never concatenate…
+    189|     expect(query.values).toEqual([10, 20]);
+    190|     expect(query.statement).toContain("($1 + $2)");
+       |                             ^
+    191|     expect(query.statement).not.toContain("10 + 20");
+    192|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'PostgreSQL' operand callbacks > a fragment, a reference and a literal mix in one where
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'SQLite' operand callbacks > a fragment, a reference and a literal mix in one where
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 - $2)'
+
+Expected: [32m"[7m($1 - $2[27m)"[39m
+Received: [31m"[7mSELECT "q0"."id" AS "id", "q0"."title" AS "title", "q0"."slug_column" AS "slug", "q0"."views" AS "views", "q0"."likes" AS "likes", CAST("q0"."fee" AS TEXT) AS "fee", CAST("q0"."discount" AS TEXT) AS "discount", CAST("q0"."rate" AS TEXT) AS "rate", "q0"."status" AS "status", "q0"."review_status" AS "reviewStatus", "q0"."payload" AS "payload", "q0"."authorId" AS "authorId" FROM "public"."fieldref_posts" AS "q0" WHERE ("q0"."views" > "q0"."likes" AND "q0"."views" < $1 - $2 AND "q0"."views" >= $3[27m)"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:214:29
+    212|     });
+    213|     expect(query.statement).toContain(q("likes"));
+    214|     expect(query.statement).toContain("($1 - $2)");
+       |                             ^
+    215|     expect(query.values).toEqual([1000, 1, 0]);
+    216|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'PostgreSQL' operand callbacks > a subquery fragment compiles as an operand
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'SQLite' operand callbacks > a subquery fragment compiles as an operand
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '(SELECT MAX(v) FROM'
+
+Expected: [32m"(SELECT MAX(v) FROM"[39m
+Received: [31m"SELECT "q0"."id" AS "id", "q0"."title" AS "title", "q0"."slug_column" AS "slug", "q0"."views" AS "views", "q0"."likes" AS "likes", CAST("q0"."fee" AS TEXT) AS "fee", CAST("q0"."discount" AS TEXT) AS "discount", CAST("q0"."rate" AS TEXT) AS "rate", "q0"."status" AS "status", "q0"."review_status" AS "reviewStatus", "q0"."payload" AS "payload", "q0"."authorId" AS "authorId" FROM "public"."fieldref_posts" AS "q0" WHERE "q0"."views" > SELECT MAX(v) FROM (SELECT $1 AS v) AS m"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:238:29
+    236|       },
+    237|     });
+    238|     expect(query.statement).toContain("(SELECT MAX(v) FROM");
+       |                             ^
+    239|     expect(query.values).toEqual([5]);
+    240|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'MySQL' operand callbacks > a fragment operand is spliced parenthesized, its values bound
+AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '($1 + $2)'
+
+Expected: [32m"[7m([27m$1 + $2[7m)[27m"[39m
+Received: [31m"[7mSELECT `q0`.`id` AS `id`, `q0`.`title` AS `title`, `q0`.`slug_column` AS `slug`, `q0`.`views` AS `views`, `q0`.`likes` AS `likes`, CAST(`q0`.`fee` AS CHAR) AS `fee`, CAST(`q0`.`discount` AS CHAR) AS `discount`, CAST(`q0`.`rate` AS CHAR) AS `rate`, `q0`.`status` AS `status`, `q0`.`review_status` AS `reviewStatus`, `q0`.`payload` AS `payload`, `q0`.`authorId` AS `authorId` FROM `fieldref_posts` AS `q0` WHERE `q0`.`views` > [27m$1 + $2"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:190:29
+    188|     // compiled statement and parameters beside it — never concatenate…
+    189|     expect(query.values).toEqual([10, 20]);
+    190|     expect(query.statement).toContain("($1 + $2)");
+       |                             ^
+    191|     expect(query.statement).not.toContain("10 + 20");
+    192|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'MySQL' operand callbacks > a fragment, a reference and a literal mix in one where
+AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '($1 - $2)'
+
+Expected: [32m"[7m($1 - $2[27m)"[39m
+Received: [31m"[7mSELECT `q0`.`id` AS `id`, `q0`.`title` AS `title`, `q0`.`slug_column` AS `slug`, `q0`.`views` AS `views`, `q0`.`likes` AS `likes`, CAST(`q0`.`fee` AS CHAR) AS `fee`, CAST(`q0`.`discount` AS CHAR) AS `discount`, CAST(`q0`.`rate` AS CHAR) AS `rate`, `q0`.`status` AS `status`, `q0`.`review_status` AS `reviewStatus`, `q0`.`payload` AS `payload`, `q0`.`authorId` AS `authorId` FROM `fieldref_posts` AS `q0` WHERE (`q0`.`views` > `q0`.`likes` AND `q0`.`views` < $1 - $2 AND `q0`.`views` >= $3[27m)"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:214:29
+    212|     });
+    213|     expect(query.statement).toContain(q("likes"));
+    214|     expect(query.statement).toContain("($1 - $2)");
+       |                             ^
+    215|     expect(query.values).toEqual([1000, 1, 0]);
+    216|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > 'MySQL' operand callbacks > a subquery fragment compiles as an operand
+AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '(SELECT MAX(v) FROM'
+
+Expected: [32m"(SELECT MAX(v) FROM"[39m
+Received: [31m"SELECT `q0`.`id` AS `id`, `q0`.`title` AS `title`, `q0`.`slug_column` AS `slug`, `q0`.`views` AS `views`, `q0`.`likes` AS `likes`, CAST(`q0`.`fee` AS CHAR) AS `fee`, CAST(`q0`.`discount` AS CHAR) AS `discount`, CAST(`q0`.`rate` AS CHAR) AS `rate`, `q0`.`status` AS `status`, `q0`.`review_status` AS `reviewStatus`, `q0`.`payload` AS `payload`, `q0`.`authorId` AS `authorId` FROM `fieldref_posts` AS `q0` WHERE `q0`.`views` > SELECT MAX(v) FROM (SELECT $1 AS v) AS m"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:238:29
+    236|       },
+    237|     });
+    238|     expect(query.statement).toContain("(SELECT MAX(v) FROM");
+       |                             ^
+    239|     expect(query.values).toEqual([5]);
+    240|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > surfaces that stay closed > a fragment is refused in JSON write data, as non-JSON
+AssertionError: expected 'QueryEngineError' to be 'ValidationError' // Object.is equality
+
+Expected: [32m"[7mValidation[27mError"[39m
+Received: [31m"[7mQueryEngine[27mError"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:486:26
+    484|       })
+    485|     );
+    486|     expect(refusal.name).toBe("ValidationError");
+       |                          ^
+    487|     expect(JSON.stringify(refusal.issues)).toContain(
+    488|       "Expected JSON-compatible value"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > surfaces that stay closed > a JSON document that looks like a fragment still writes
+AssertionError: expected [Function] to not throw an error but 'QueryEngineError: Operation \'updateM…' was thrown
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+"QueryEngineError: Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead."
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:500:11
+    498|         data: { payload: { set: { strings: ["a"], values: [1] } } },
+    499|       })
+    500|     ).not.toThrow();
+       |           ^
+    501|   });
+    502| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/25]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts > surfaces that stay closed > write data takes no callback
+AssertionError: expected 'QueryEngineError' to be 'ValidationError' // Object.is equality
+
+Expected: [32m"[7mValidation[27mError"[39m
+Received: [31m"[7mQueryEngine[27mError"[39m
+
+ ❯ tests/raptor3/g4/review/cutover/resurrect-operand-callback-sql.review.test.ts:526:26
+    524|       })
+    525|     );
+    526|     expect(refusal.name).toBe("ValidationError");
+       |                          ^
+    527|   });
+    528| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/25]⎯
+
+
+ Test Files  3 failed | 2 passed (5)
+      Tests  25 failed | 122 passed (147)
+   Start at  00:14:14
+   Duration  2.77s (transform 1.38s, setup 26ms, collect 2.39s, tests 155ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 3.35s wall, 546.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

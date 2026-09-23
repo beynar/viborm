@@ -1,0 +1,40 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+stdout | tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > a native deadlock > the victim fails visibly, commits nothing, and leaves the survivor correct
+DIAG-VICTIM-A fulfilled [
+ "SAVEPOINT sp_9e7d4aa1e1e945288d651254e0de4f04",
+ "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`slug` AS `slug`, `q0`.`count` AS `count` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ? ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE",
+ "UPDATE `raptor3_g2`.`r2c_policy_tags` SET `count` = ? WHERE `id` = ?",
+ "SELECT `q0`.`id` AS `id` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ?",
+ "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`slug` AS `slug`, `q0`.`count` AS `count` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ?",
+ "RELEASE SAVEPOINT sp_9e7d4aa1e1e945288d651254e0de4f04",
+ "SAVEPOINT sp_0a7608aac3574491b9b9872bbed7fb2e",
+ "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`slug` AS `slug`, `q0`.`count` AS `count` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ? ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE",
+ "UPDATE `raptor3_g2`.`r2c_policy_tags` SET `count` = ? WHERE `id` = ?",
+ "SELECT `q0`.`id` AS `id` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ?",
+ "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`slug` AS `slug`, `q0`.`count` AS `count` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ?",
+ "RELEASE SAVEPOINT sp_0a7608aac3574491b9b9872bbed7fb2e"
+]
+DIAG-VICTIM-B rejected [
+ "SAVEPOINT sp_6c1bcad0df4e400a8a99829e4844bdae",
+ "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`slug` AS `slug`, `q0`.`count` AS `count` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ? ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE",
+ "UPDATE `raptor3_g2`.`r2c_policy_tags` SET `count` = ? WHERE `id` = ?",
+ "SELECT `q0`.`id` AS `id` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ?",
+ "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`slug` AS `slug`, `q0`.`count` AS `count` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ?",
+ "RELEASE SAVEPOINT sp_6c1bcad0df4e400a8a99829e4844bdae",
+ "SAVEPOINT sp_4f1d22e0b7d24f8295968757acb0d878",
+ "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`slug` AS `slug`, `q0`.`count` AS `count` FROM `raptor3_g2`.`r2c_policy_tags` AS `q0` WHERE `q0`.`id` = ? ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE",
+ "ROLLBACK TO SAVEPOINT sp_4f1d22e0b7d24f8295968757acb0d878",
+ "RELEASE SAVEPOINT sp_4f1d22e0b7d24f8295968757acb0d878"
+]
+DIAG-DEADLOCK AggregateError [90mundefined[39m [{"n":"TransactionError","m":"Transaction deadlock detected","c":"V5003"},{"n":"QueryError","m":"Query execution failed","c":"V2001"},{"n":"QueryError","m":"Query execution failed","c":"V2001"}]
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (6 tests | 5 skipped) 138ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+   Start at  10:35:44
+   Duration  1.70s (transform 980ms, setup 9ms, collect 1.43s, tests 138ms, environment 0ms, prepare 39ms)
+
+Vitest resources: 3.46s wall, 488.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

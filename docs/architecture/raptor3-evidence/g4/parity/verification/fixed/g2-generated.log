@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests) 1342ms
+ ✓ |raptor3| tests/raptor3/g2-harness.test.ts (6 tests) 75ms
+
+ Test Files  2 passed (2)
+      Tests  52 passed (52)
+   Start at  14:58:36
+   Duration  5.74s (transform 2.11s, setup 36ms, collect 3.56s, tests 1.42s, environment 1ms, prepare 112ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-DimBwq/vitest.json
+Vitest resources: 9.51s wall, 661.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-generated contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-DimBwq

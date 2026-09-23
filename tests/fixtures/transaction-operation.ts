@@ -11,6 +11,7 @@ import type {
 } from "@query-engine/types";
 
 export interface TransactionOperationOverrides {
+  executeWith?(driver: AnyDriver): Promise<unknown>;
   parseResult?(raw: QueryResult<unknown>): unknown;
   prepare?(driver?: AnyDriver): PreparedQuery | undefined;
   prepareBatch?(
@@ -141,7 +142,9 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
       reserveWith: (operation, driver) =>
         operation.#owner.reserveWith(operation.#capability, driver),
       executeWith: (operation, driver) =>
-        operation.#owner.executeWith(operation.#capability, driver),
+        operation.#overrides.executeWith === undefined
+          ? operation.#owner.executeWith(operation.#capability, driver)
+          : operation.#overrides.executeWith(driver),
       prepare: (operation, driver) =>
         operation.#overrides.prepare === undefined
           ? operation.#owner.prepare(operation.#capability, driver)

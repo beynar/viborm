@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1476ms
+   ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1333ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 40ms
+
+ Test Files  2 passed (2)
+      Tests  33 passed (33)
+   Start at  14:48:56
+   Duration  3.52s (transform 1.08s, setup 11ms, collect 1.74s, tests 1.52s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-KnvevY/vitest.json
+Vitest resources: 5.84s wall, 728.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g0 contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-KnvevY

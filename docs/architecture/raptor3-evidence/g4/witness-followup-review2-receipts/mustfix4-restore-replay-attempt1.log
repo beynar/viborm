@@ -1,0 +1,18 @@
+restored to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/tmp.9uubxAR9lW
+total 121328
+-rw-r--r--@ 1 arnaud  staff  62116444 Sep 15 06:10 generated-corpus.json
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/gate.test.ts (1 test) 917ms
+   ✓ replays the saved corpus against its exact executed-source identity  917ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  06:10:29
+   Duration  2.69s (transform 1.09s, setup 9ms, collect 1.61s, tests 917ms, environment 0ms, prepare 35ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-n36InU/vitest.json
+Vitest resources: 4.68s wall, 807.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-n36InU
+replay exit=0

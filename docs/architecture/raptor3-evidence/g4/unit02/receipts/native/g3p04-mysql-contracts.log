@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/prep/native-suppression-replay.test.ts (4 tests) 215ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  02:53:02
+   Duration  1.87s (transform 1.01s, setup 10ms, collect 1.53s, tests 215ms, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1kqU0K/vitest.json
+Vitest resources: 3.85s wall, 551.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p04-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1kqU0K
+exit=0 (port 65515)

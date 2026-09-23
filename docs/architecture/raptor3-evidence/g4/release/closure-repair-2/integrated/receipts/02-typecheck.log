@@ -1,0 +1,2 @@
+$ node scripts/run-typecheck.mjs
+TypeScript (whole estate, native): 6.38s wall, 5148.8 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

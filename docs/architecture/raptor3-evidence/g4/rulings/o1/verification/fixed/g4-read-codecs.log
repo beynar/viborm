@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 83ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  01:16:33
+   Duration  2.05s (transform 1.03s, setup 9ms, collect 1.52s, tests 83ms, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-iYY2oS/vitest.json
+Vitest resources: 4.23s wall, 476.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-codecs contract gate verified. Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-iYY2oS

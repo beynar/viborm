@@ -1,0 +1,119 @@
+=== 14:48:53 g0 ===
+g0 exit=0 Vitest resources: 5.84s wall, 728.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g0 contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-KnvevY 
+=== 14:48:59 g1-compare ===
+g1-compare exit=0 Vitest resources: 5.16s wall, 707.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g1-compare contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-fvCYx9 
+=== 14:49:05 g1-baseline ===
+g1-baseline exit=0 Vitest resources: 5.45s wall, 585.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g1-baseline contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-cdmMMd 
+=== 14:49:11 g1-contracts ===
+g1-contracts exit=0 Vitest resources: 6.45s wall, 680.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g1-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-GIfg2R 
+=== 14:49:18 g1-generated ===
+g1-generated exit=0 Vitest resources: 5.94s wall, 562.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g1-generated contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-OqFBYb 
+=== 14:49:25 g1-transport ===
+g1-transport exit=0 Vitest resources: 8.00s wall, 624.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g1-transport contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-cSfbno 
+=== 14:49:34 g2-baseline ===
+g2-baseline exit=1 Vitest resources: 12.34s wall, 660.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-XgGn88 
+=== 14:49:47 g2-contracts ===
+g2-contracts exit=1 Vitest resources: 9.92s wall, 716.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ks6dDc 
+=== 14:49:57 g25-contracts ===
+g25-contracts exit=0 Vitest resources: 7.10s wall, 461.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g25-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-opVavH 
+=== 14:50:05 g27-contracts ===
+g27-contracts exit=0 Vitest resources: 6.37s wall, 418.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g27-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-6uEoEw 
+=== 14:50:12 g3p02-contracts ===
+g3p02-contracts exit=0 Vitest resources: 6.15s wall, 417.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p02-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-59upnw 
+=== 14:50:19 g3p03-contracts ===
+g3p03-contracts exit=1 Vitest resources: 5.20s wall, 452.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Vl3EK4 
+=== 14:50:25 g3p04-contracts ===
+g3p04-contracts exit=0 Vitest resources: 10.21s wall, 425.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p04-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-fOwJsQ 
+=== 14:50:35 g3p04-review-contracts ===
+g3p04-review-contracts exit=0 Vitest resources: 16.28s wall, 398.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p04-review-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-IYlFXB 
+=== 14:50:53 g3p05-contracts ===
+g3p05-contracts exit=0 Vitest resources: 12.50s wall, 539.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p05-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-LkS8m1 
+=== 14:51:06 g3p05-selector-dependencies ===
+g3p05-selector-dependencies exit=0 Vitest resources: 5.35s wall, 481.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p05-selector-dependencies contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-nSPl1K 
+=== 14:51:12 g3p05-variant-collection-order ===
+g3p05-variant-collection-order exit=0 Vitest resources: 4.86s wall, 466.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p05-variant-collection-order contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ozFIz5 
+=== 14:51:18 g3p05-recursive-read-fit ===
+g3p05-recursive-read-fit exit=0 Vitest resources: 6.25s wall, 431.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p05-recursive-read-fit contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ol8q3S 
+=== 14:51:25 g3-bulk-series ===
+g3-bulk-series exit=0 Vitest resources: 6.79s wall, 446.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-bulk-series contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-r2S6Q4 
+=== 14:51:33 g3-suppression-retry ===
+g3-suppression-retry exit=0 Vitest resources: 11.64s wall, 463.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-suppression-retry contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-QXS6x7 
+=== 14:51:46 g3-transaction-array ===
+g3-transaction-array exit=0 Vitest resources: 7.46s wall, 464.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-transaction-array contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Adn0O6 
+=== 14:51:54 g3-depth-recurrence ===
+g3-depth-recurrence exit=0 Vitest resources: 15.80s wall, 439.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-depth-recurrence contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-e7AEzy 
+=== 14:52:16 g3-generated-smoke ===
+g3-generated-smoke exit=1 Vitest resources: 15.94s wall, 492.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Gir4Us 
+=== 14:52:35 g3-generated-transport-smoke ===
+g3-generated-transport-smoke exit=1 Vitest resources: 10.92s wall, 485.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-fbYwmV 
+=== 14:52:47 g3-generated-minimization ===
+g3-generated-minimization exit=0 Vitest resources: 11.86s wall, 434.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-generated-minimization contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-aZjr2s 
+=== 14:53:00 g4-read-contracts ===
+g4-read-contracts exit=0 Vitest resources: 20.77s wall, 537.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-8a3v9c 
+=== 14:53:22 g4-read-operations ===
+g4-read-operations exit=0 Vitest resources: 11.93s wall, 432.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-operations contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-S7j4Kp 
+=== 14:53:35 g4-read-filters ===
+g4-read-filters exit=0 Vitest resources: 13.64s wall, 415.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-filters contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-dKiiSV 
+=== 14:53:50 g4-read-ordering ===
+g4-read-ordering exit=0 Vitest resources: 13.51s wall, 452.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-ordering contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-SUBUCf 
+=== 14:54:05 g4-read-pagination ===
+g4-read-pagination exit=0 Vitest resources: 8.04s wall, 467.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-pagination contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-XhKVUu 
+=== 14:54:14 g4-read-projection ===
+g4-read-projection exit=0 Vitest resources: 6.76s wall, 470.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-projection contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-hovtmV 
+=== 14:54:22 g4-read-aggregates ===
+g4-read-aggregates exit=0 Vitest resources: 6.10s wall, 490.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-aggregates contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-zhd3hP 
+=== 14:54:28 g4-read-codecs ===
+g4-read-codecs exit=0 Vitest resources: 11.60s wall, 478.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-codecs contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-fCgA6K 
+=== 14:54:42 g4-read-recursive-fit ===
+g4-read-recursive-fit exit=0 Vitest resources: 10.24s wall, 427.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-recursive-fit contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-66L589 
+=== 14:54:53 g4-generation-selftests ===
+g4-generation-selftests exit=0 Vitest resources: 7.67s wall, 444.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-generation-selftests contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-1uWZh1 
+=== 14:55:02 g4-unit01-author ===
+g4-unit01-author exit=0 Vitest resources: 10.06s wall, 601.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-unit01-author contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-2FpLpW 
+=== 14:55:13 g4-unit01-review ===
+g4-unit01-review exit=0 Vitest resources: 20.88s wall, 569.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-unit01-review contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-D5vhbU 
+=== 14:55:35 g4-unit02-author ===
+g4-unit02-author exit=0 Vitest resources: 16.61s wall, 626.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-unit02-author contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-aTxYBf 
+=== 14:55:53 g3-execution-review ===
+g3-execution-review exit=0 Vitest resources: 7.08s wall, 476.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-execution-review contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-fsOsBQ 
+=== 14:56:01 g3-author-execution-regressions ===
+g3-author-execution-regressions exit=0 Vitest resources: 7.77s wall, 466.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-author-execution-regressions contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-mn9lVf 
+=== 14:56:10 g3-scope-failure ===
+g3-scope-failure exit=0 Vitest resources: 7.01s wall, 464.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-scope-failure contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-E0vneN 
+=== 14:56:18 g3-bulk-result-boundary ===
+g3-bulk-result-boundary exit=0 Vitest resources: 6.90s wall, 470.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-bulk-result-boundary contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-CNBTP8 
+=== 14:56:26 post-g3-clearability-contracts ===
+post-g3-clearability-contracts exit=0 Vitest resources: 8.44s wall, 472.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-clearability-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-jAtEnZ 
+=== 14:56:35 post-g3-schema-views ===
+post-g3-schema-views exit=0 Vitest resources: 6.56s wall, 412.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-schema-views contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-VuxyDp 
+=== 14:56:42 post-g3-projection-preparation ===
+post-g3-projection-preparation exit=0 Vitest resources: 6.86s wall, 443.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-projection-preparation contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-h3Bfeg 
+=== 14:56:50 post-g3-selector-preparation ===
+post-g3-selector-preparation exit=0 Vitest resources: 6.98s wall, 450.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-selector-preparation contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-A1vAbl 
+=== 14:56:58 post-g3-history-analysis ===
+post-g3-history-analysis exit=0 Vitest resources: 7.16s wall, 433.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-history-analysis contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-uQD5t2 
+=== 14:57:06 g29-member-dependency ===
+g29-member-dependency exit=0 Vitest resources: 7.27s wall, 478.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g29-member-dependency contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-WVDegf 
+=== 14:57:14 g29-dependency-boundaries ===
+g29-dependency-boundaries exit=0 Vitest resources: 8.40s wall, 448.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g29-dependency-boundaries contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-AjwDc0 
+=== 14:57:23 g29-dependency-choices ===
+g29-dependency-choices exit=0 Vitest resources: 7.06s wall, 479.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g29-dependency-choices contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Dq5JYH 
+=== 14:57:31 g29-result-progress ===
+g29-result-progress exit=0 Vitest resources: 7.17s wall, 477.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g29-result-progress contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-9QhA1V 
+=== 14:57:40 cs01-structural-reference ===
+cs01-structural-reference exit=0 Vitest resources: 7.55s wall, 465.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 cs01-structural-reference contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-tAVOJa 
+=== 14:57:48 cs01-extension-a ===
+cs01-extension-a exit=1 Vitest resources: 8.97s wall, 456.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-dK791L 
+=== 14:57:58 cs01-extension-b ===
+cs01-extension-b exit=0 Vitest resources: 8.90s wall, 451.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 cs01-extension-b contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-2STbLh 
+=== 14:58:07 cs01-extension-composition ===
+cs01-extension-composition exit=0 Vitest resources: 7.95s wall, 483.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 cs01-extension-composition contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-SrNzcK 
+=== 14:58:16 cs03-member-scope ===
+cs03-member-scope exit=0 Vitest resources: 6.60s wall, 463.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 cs03-member-scope contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Zx1wBV 
+=== 14:58:24 g2-diagnostics ===
+g2-diagnostics exit=0       Tests  2 passed (2) Vitest resources: 7.53s wall, 516.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. 
+=== 14:58:32 g2-generated ===
+g2-generated exit=0 Vitest resources: 9.51s wall, 661.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-generated contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-DimBwq 
+=== 14:58:43 g2-transport ===
+g2-transport exit=1 Vitest resources: 6.17s wall, 479.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-1Ftm78 
+=== 14:58:49 group fixed finished ===

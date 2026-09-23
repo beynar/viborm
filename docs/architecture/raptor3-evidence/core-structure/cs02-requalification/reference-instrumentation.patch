@@ -1,0 +1,973 @@
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -22,6 +22,8 @@
+   type SelectionSource,
+ } from "./selection";
+ import { RelationBody } from "./relation-body";
++import { structuralMeasurementHooks } from "../../../../tests/raptor3/core-structure/measurement/hooks";
++import { overlapPairKey } from "../../../../tests/raptor3/core-structure/measurement/protocol";
+ export { Selection } from "./selection";
+ 
+ type Reference = Extract<Membership, { kind: "reference" }>;
+@@ -136,6 +138,10 @@
+   readonly writes: WriteOccurrence[];
+   readonly series: SeriesAnalysis[];
+ }
++interface MeasurementActivation {
++  readonly occurrence: object;
++  readonly state: "unconditional" | "unobserved" | "found" | "missing";
++}
+ interface SeriesAnalysis {
+   readonly occurrence: SeriesOccurrence;
+   readonly owner: RecordCommand;
+@@ -198,6 +204,11 @@
+         deferred
+       ),
+     };
++    structuralMeasurementHooks()?.deferOccurrenceVisit({
++      analysisEpoch: "epoch:initial",
++      occurrence: command,
++      phase: "construct",
++    });
+     if (incoming)
+       this.assignMembership(incoming.edge, command.fields, incoming.source);
+     this.relations(command, admitted, raw);
+@@ -207,7 +218,8 @@
+     located: Selection,
+     admitted: Input,
+     raw: Input,
+-    deferred = false
++    deferred = false,
++    measurementEpoch = "epoch:initial"
+   ): RecordCommand {
+     const model = located.model;
+     const command: RecordCommand = {
+@@ -227,6 +239,11 @@
+         deferred
+       ),
+     };
++    structuralMeasurementHooks()?.deferOccurrenceVisit({
++      analysisEpoch: measurementEpoch,
++      occurrence: command,
++      phase: "construct",
++    });
+     for (const field of this.context.schema.keys(model))
+       located.fields.field(field);
+     this.relations(command, admitted, raw);
+@@ -290,40 +307,183 @@
+   }
+   analyze(root: RecordCommand): WriteOccurrence[] {
+     const state: AnalysisState = { writes: [], series: [] };
+-    this.analyzeInto(root, state);
++    this.analyzeInto(root, state, "epoch:initial", {
++      occurrence: root,
++      state: "unconditional",
++    });
+     return state.writes;
+   }
+   analyzeSeries(series: SelectedSeries, owner: RecordCommand): void {
+-    this.analyzeSeriesInto(series, owner, { writes: [], series: [] });
++    this.analyzeSeriesInto(
++      series,
++      owner,
++      { writes: [], series: [] },
++      "epoch:initial",
++      { occurrence: series, state: "unconditional" }
++    );
+   }
+-  private checkRead(state: AnalysisState, read: DependencyRead): void {
+-    this.readMembership(state.writes, read);
+-    if (read.target) this.readTarget(state.writes, read);
++  private checkRead(
++    state: AnalysisState,
++    read: DependencyRead,
++    epoch: string,
++    activation: MeasurementActivation
++  ): void {
++    const hooks = structuralMeasurementHooks();
++    if (hooks)
++      hooks.emit({
++        kind: "readVisit",
++        analysisEpoch: epoch,
++        occurrenceId: hooks.identities.readOccurrenceId(read),
++        readId: hooks.identities.readId(read),
++        revision: 0,
++        activationId: hooks.identities.activationStateId(
++          activation.occurrence,
++          activation.state
++        ),
++      });
++    this.readMembership(state.writes, read, epoch, activation);
++    if (read.target)
++      this.readTarget(state.writes, read, epoch, activation);
+   }
+-  private observeRead(state: AnalysisState, read: DependencyRead): void {
+-    this.checkRead(state, read);
++  private observeRead(
++    state: AnalysisState,
++    read: DependencyRead,
++    occurrence: object,
++    epoch: string,
++    activation: MeasurementActivation
++  ): void {
++    structuralMeasurementHooks()?.identities.claimRead(read, occurrence);
++    this.checkRead(state, read, epoch, activation);
+     for (const scope of state.series) scope.reads.push(read);
+   }
+   private checkObservation(
+     state: AnalysisState,
+-    observation: DependencyObservation
++    observation: DependencyObservation,
++    epoch: string,
++    activation: MeasurementActivation
+   ): Error | undefined {
+     if (!("choice" in observation)) {
+-      this.checkRead(state, observation);
++      this.checkRead(state, observation, epoch, activation);
+       return observation.owner.refusal;
+     }
++    const stateName = this.execution.attempt.rows.has(observation.choice.lookup)
++      ? "found"
++      : "missing";
++    const choiceActivation: MeasurementActivation = {
++      occurrence: observation.choice,
++      state: stateName,
++    };
+     let foundRefusal: Error | undefined;
+     for (const candidate of observation.found)
+-      foundRefusal ??= this.checkObservation(state, candidate);
++      foundRefusal ??= this.checkObservation(
++        state,
++        candidate,
++        epoch,
++        choiceActivation
++      );
+     for (const candidate of observation.missing)
+-      this.checkObservation(state, candidate);
++      this.checkObservation(state, candidate, epoch, choiceActivation);
+     return this.execution.attempt.rows.has(observation.choice.lookup)
+       ? foundRefusal
+       : undefined;
++  }
++  private emitOverlap(
++    read: DependencyRead,
++    write: object,
++    epoch: string,
++    activation: MeasurementActivation,
++    predicate: "membership" | "target",
++    disposition: "consumed" | "publishedDeferred" | "discarded",
++    atoms: readonly {
++      component: string;
++      comparison: "equal" | "disjoint" | "unknown";
++    }[]
++  ): void {
++    const hooks = structuralMeasurementHooks();
++    if (!hooks) return;
++    const pair = {
++      analysisEpoch: epoch,
++      readId: hooks.identities.readId(read),
++      readRevision: 0,
++      writeId: hooks.identities.claimWrite(write, write),
++      writeRevision: 0,
++      activationId: hooks.identities.activationStateId(
++        activation.occurrence,
++        activation.state
++      ),
++      predicate,
++    };
++    const pairKey = overlapPairKey(pair);
++    hooks.emit({
++      kind: "writeVisit",
++      analysisEpoch: epoch,
++      occurrenceId: hooks.identities.occurrenceId(write),
++      writeId: pair.writeId,
++      revision: 0,
++      activationId: pair.activationId,
++    });
++    hooks.emit({ kind: "overlapPair", ...pair, pairKey, disposition });
++    for (const atom of atoms)
++      hooks.emit({
++        kind: "overlapAtom",
++        analysisEpoch: epoch,
++        pairKey,
++        ...atom,
++      });
++  }
++  private emitPrefixRead(
++    read: DependencyRead,
++    write: object,
++    epoch: string
++  ): void {
++    const hooks = structuralMeasurementHooks();
++    if (!hooks) return;
++    const occurrence =
++      "kind" in write &&
++      write.kind === "seriesOccurrence" &&
++      "series" in write
++        ? write.series
++        : write;
++    hooks.emit({
++      kind: "prefixRead",
++      analysisEpoch: epoch,
++      consumerOccurrenceId: hooks.identities.readOccurrenceId(read),
++      prefixOccurrenceId: hooks.identities.occurrenceId(occurrence),
++      prefixRevision: 0,
++      purpose: "comparison",
++    });
+   }
++  private emitCopies(
++    occurrences: readonly WriteOccurrence[],
++    epoch: string,
++    destination: string,
++    purpose:
++      | "semanticPublication"
++      | "ancestorPrefix"
++      | "siblingPrefix"
++      | "suffixDetach"
++      | "suffixRestore"
++  ): void {
++    const hooks = structuralMeasurementHooks();
++    if (!hooks) return;
++    for (const occurrence of occurrences)
++      hooks.emit({
++        kind: "referenceCopy",
++        analysisEpoch: epoch,
++        occurrenceId: hooks.identities.occurrenceId(
++          occurrence.kind === "seriesOccurrence"
++            ? occurrence.series
++            : occurrence
++        ),
++        destination,
++        purpose,
++      });
++  }
+   private readMembership(
+     writes: WriteOccurrence[],
+-    read: DependencyRead
++    read: DependencyRead,
++    epoch: string,
++    activation: MeasurementActivation
+   ): void {
+     const { lookup, owner } = read;
+     const membership = read.membership ?? lookup.membership();
+@@ -334,26 +494,107 @@
+     const observed =
+       edge.owner === "source" ? owner.located?.facts : lookup.facts;
+     for (const write of writes) {
++      this.emitPrefixRead(read, write, epoch);
+       if (write.kind !== "record" || write.model !== carrier) continue;
+       for (const assignment of write.fields.contributions().values()) {
+         const contribution = assignment.membership;
+-        if (
+-          !contribution ||
+-          contribution.owner === lookup ||
+-          contribution.scope.edge !== edge.scope.edge ||
+-          (contribution.scope.member !== undefined &&
+-            contribution.scope.member !== edge.scope.member) ||
+-          !writes.some((occurrence) => occurrence === contribution.owner)
+-        )
++        if (!contribution) continue;
++        const atoms: Array<{
++          component: string;
++          comparison: "equal" | "disjoint" | "unknown";
++        }> = [];
++        const ownerDiffers = contribution.owner !== lookup;
++        atoms.push({
++          component: "owner",
++          comparison: ownerDiffers ? "equal" : "disjoint",
++        });
++        let sameEdge = false;
++        if (ownerDiffers) {
++          sameEdge = contribution.scope.edge === edge.scope.edge;
++          atoms.push({
++            component: "edge",
++            comparison: sameEdge ? "equal" : "disjoint",
++          });
++        }
++        let sameMember = false;
++        if (ownerDiffers && sameEdge) {
++          sameMember =
++            contribution.scope.member === undefined ||
++            contribution.scope.member === edge.scope.member;
++          atoms.push({
++            component: "member",
++            comparison: sameMember ? "equal" : "disjoint",
++          });
++        }
++        let ownerPublished = false;
++        if (ownerDiffers && sameEdge && sameMember) {
++          const hooks = structuralMeasurementHooks();
++          for (const occurrence of writes) {
++            if (hooks)
++              hooks.emit({
++                kind: "ownerScanRead",
++                analysisEpoch: epoch,
++                ownerOccurrenceId: hooks.identities.occurrenceId(
++                  contribution.owner
++                ),
++                candidateOccurrenceId: hooks.identities.occurrenceId(
++                  occurrence.kind === "seriesOccurrence"
++                    ? occurrence.series
++                    : occurrence
++                ),
++              });
++            if (occurrence === contribution.owner) {
++              ownerPublished = true;
++              break;
++            }
++          }
++          atoms.push({
++            component: "published-owner",
++            comparison: ownerPublished ? "equal" : "disjoint",
++          });
++        }
++        if (!ownerDiffers || !sameEdge || !sameMember || !ownerPublished) {
++          this.emitOverlap(
++            read,
++            contribution.owner,
++            epoch,
++            activation,
++            "membership",
++            "discarded",
++            atoms
++          );
+           continue;
+-        const disjoint =
+-          observed &&
+-          [...observed.equals].some(
+-            ([key, value]) =>
++        }
++        let disjoint = false;
++        if (observed) {
++          for (const [key, value] of observed.equals) {
++            const conflicts =
+               !write.fields.writesField(key) &&
+               write.located?.facts.equals.has(key) &&
+-              !Object.is(write.located.facts.equals.get(key), value)
+-          );
++              !Object.is(write.located.facts.equals.get(key), value);
++            atoms.push({
++              component: `identity:${key}`,
++              comparison: conflicts ? "disjoint" : "equal",
++            });
++            if (conflicts) {
++              disjoint = true;
++              break;
++            }
++          }
++        }
++        this.emitOverlap(
++          read,
++          contribution.owner,
++          epoch,
++          activation,
++          "membership",
++          disjoint
++            ? "discarded"
++            : activation.state === "unobserved"
++              ? "publishedDeferred"
++              : "consumed",
++          atoms
++        );
+         if (disjoint) continue;
+         const relation = lookup.origin.slot ?? lookup.origin.relation;
+         const operation = lookup.origin.operation;
+@@ -367,7 +608,12 @@
+       }
+     }
+   }
+-  private readTarget(writes: WriteOccurrence[], read: DependencyRead): void {
++  private readTarget(
++    writes: WriteOccurrence[],
++    read: DependencyRead,
++    epoch: string,
++    activation: MeasurementActivation
++  ): void {
+     const { lookup, owner } = read;
+     if (
+       !lookup.origin ||
+@@ -387,6 +633,7 @@
+     ];
+     for (const scope of scopes) {
+       for (const write of writes) {
++        this.emitPrefixRead(read, write, epoch);
+         if (
+           write.kind === "choose" ||
+           write.kind === "lookup" ||
+@@ -395,7 +642,36 @@
+           continue;
+         if (write.kind === "link" || write.kind === "remove") {
+           const observed = scope.path.at(-1);
+-          if (!observed || observed.scope.edge !== write.edge.scope.edge)
++          const atoms: Array<{
++            component: string;
++            comparison: "equal" | "disjoint" | "unknown";
++          }> = [
++            {
++              component: "relation-path",
++              comparison: observed ? "equal" : "disjoint",
++            },
++          ];
++          const sameEdge =
++            observed && observed.scope.edge === write.edge.scope.edge;
++          if (observed)
++            atoms.push({
++              component: "edge",
++              comparison: sameEdge ? "equal" : "disjoint",
++            });
++          this.emitOverlap(
++            read,
++            write,
++            epoch,
++            activation,
++            "target",
++            sameEdge
++              ? activation.state === "unobserved"
++                ? "publishedDeferred"
++                : "consumed"
++              : "discarded",
++            atoms
++          );
++          if (!sameEdge)
+             continue;
+           const origin = lookup.origin;
+           owner.refusal ??= new NestedWriteError(
+@@ -414,14 +690,54 @@
+         }
+         const model =
+           write.kind === "delete" ? write.located.model : write.model;
+-        if (model !== scope.model) continue;
++        const atoms: Array<{
++          component: string;
++          comparison: "equal" | "disjoint" | "unknown";
++        }> = [
++          {
++            component: "model",
++            comparison: model === scope.model ? "equal" : "disjoint",
++          },
++        ];
++        if (model !== scope.model) {
++          this.emitOverlap(
++            read,
++            write,
++            epoch,
++            activation,
++            "target",
++            "discarded",
++            atoms
++          );
++          continue;
++        }
+         if (
+           write.kind === "record" &&
+           write.fields.operation !== "create" &&
+-          !write.located?.membership()?.edge.many &&
+-          !write.fields.writtenFields().some((field) => scope.fields.has(field))
+-        )
+-          continue;
++          !write.located?.membership()?.edge.many
++        ) {
++          let hasWrittenOverlap = false;
++          for (const field of write.fields.writtenFields()) {
++            hasWrittenOverlap = scope.fields.has(field);
++            atoms.push({
++              component: `written:${field}`,
++              comparison: hasWrittenOverlap ? "equal" : "disjoint",
++            });
++            if (hasWrittenOverlap) break;
++          }
++          if (!hasWrittenOverlap) {
++            this.emitOverlap(
++              read,
++              write,
++              epoch,
++              activation,
++              "target",
++              "discarded",
++              atoms
++            );
++            continue;
++          }
++        }
+         let matched = 0;
+         let disjoint = false;
+         for (const [field, expected] of scope.equals) {
+@@ -441,12 +757,30 @@
+           const hasKnown =
+             value?.kind === "literal" || selected?.facts.equals.has(field);
+           if (!hasKnown || !scope.exact) continue;
+-          if (!Object.is(known, expected)) {
++          const equal = Object.is(known, expected);
++          atoms.push({
++            component: `identity:${field}`,
++            comparison: equal ? "equal" : "disjoint",
++          });
++          if (!equal) {
+             disjoint = true;
+             break;
+           }
+           matched++;
+         }
++        this.emitOverlap(
++          read,
++          write,
++          epoch,
++          activation,
++          "target",
++          disjoint
++            ? "discarded"
++            : activation.state === "unobserved"
++              ? "publishedDeferred"
++              : "consumed",
++          atoms
++        );
+         if (disjoint) continue;
+         const origin = lookup.origin;
+         const operation =
+@@ -471,8 +805,21 @@
+       }
+     }
+   }
+-  private analyzeInto(root: RecordCommand, state: AnalysisState): void {
++  private analyzeInto(
++    root: RecordCommand,
++    state: AnalysisState,
++    epoch: string,
++    activation: MeasurementActivation
++  ): void {
+     const writes = state.writes;
++    const hooks = structuralMeasurementHooks();
++    if (hooks)
++      hooks.emit({
++        kind: "occurrenceVisit",
++        analysisEpoch: epoch,
++        occurrenceId: hooks.identities.occurrenceId(root),
++        phase: "logical",
++      });
+     if (root.suppression) this.context.requireSuppression();
+     if (
+       root.fields.operation === "create" ||
+@@ -496,14 +843,46 @@
+       (left, right) =>
+         (origin(left)?.order ?? -1) - (origin(right)?.order ?? -1)
+     );
++    if (hooks)
++      for (const command of children) {
++        const occurrence =
++          command.kind === "series" && "series" in command
++            ? command.series
++            : command;
++        hooks.emit({
++          kind: "referenceCopy",
++          analysisEpoch: epoch,
++          occurrenceId: hooks.identities.occurrenceId(occurrence),
++          destination: "logical-children",
++          purpose: "siblingPrefix",
++        });
++      }
+     for (const command of children) {
+-      if (command.kind === "choose") {
+-        this.observeRead(state, {
+-          lookup: command.lookup,
+-          owner: root,
+-          membership: command.foundRequirement?.membership,
+-          target: true,
++      if (hooks && command.kind !== "record") {
++        const occurrence =
++          command.kind === "series" && "series" in command
++            ? command.series
++            : command;
++        hooks.emit({
++          kind: "occurrenceVisit",
++          analysisEpoch: epoch,
++          occurrenceId: hooks.identities.occurrenceId(occurrence),
++          phase: "logical",
+         });
++      }
++      if (command.kind === "choose") {
++        this.observeRead(
++          state,
++          {
++            lookup: command.lookup,
++            owner: root,
++            membership: command.foundRequirement?.membership,
++            target: true,
++          },
++          command,
++          epoch,
++          activation
++        );
+         if (command.foundRecord || command.missing) {
+           const enclosing = state.series.map((scope) => ({
+             scope,
+@@ -511,20 +890,40 @@
+           }));
+           const commonLength = writes.length;
+           const commonSeries = state.series.length;
+-          if (command.foundRecord) this.analyzeInto(command.foundRecord, state);
++          const branchActivation: MeasurementActivation = {
++            occurrence: command,
++            state: "unobserved",
++          };
++          if (command.foundRecord)
++            this.analyzeInto(
++              command.foundRecord,
++              state,
++              epoch,
++              branchActivation
++            );
+           const foundReads = enclosing.map(({ scope, start }) =>
+             scope.reads.splice(start)
+           );
+           const found = writes.splice(commonLength);
++          this.emitCopies(found, epoch, "choice-found", "suffixDetach");
+           const foundSeries = state.series.splice(commonSeries);
+-          if (command.missing) this.analyzeInto(command.missing, state);
++          if (command.missing)
++            this.analyzeInto(
++              command.missing,
++              state,
++              epoch,
++              branchActivation
++            );
+           const missingReads = enclosing.map(({ scope, start }) =>
+             scope.reads.splice(start)
+           );
+           const missing = writes.splice(commonLength);
++          this.emitCopies(missing, epoch, "choice-missing", "suffixDetach");
+           const missingSeries = state.series.splice(commonSeries);
+           for (const occurrence of found) writes.push(occurrence);
++          this.emitCopies(found, epoch, "choice-found", "suffixRestore");
+           for (const occurrence of missing) writes.push(occurrence);
++          this.emitCopies(missing, epoch, "choice-missing", "suffixRestore");
+           for (const scope of foundSeries) state.series.push(scope);
+           for (const scope of missingSeries) state.series.push(scope);
+           for (const [index, { scope }] of enclosing.entries())
+@@ -538,14 +937,16 @@
+         }
+         writes.push(command);
+       } else if (command.kind === "record") {
+-        this.analyzeInto(command, state);
++        this.analyzeInto(command, state, epoch, activation);
+         root.refusal ??= command.refusal;
+       } else if (command.kind === "delete") {
+-        this.observeRead(state, {
+-          lookup: command.located,
+-          owner: root,
+-          target: true,
+-        });
++        this.observeRead(
++          state,
++          { lookup: command.located, owner: root, target: true },
++          command,
++          epoch,
++          activation
++        );
+         writes.push(command);
+       } else if (command.kind === "lookup") {
+         writes.push(command);
+@@ -553,31 +954,41 @@
+         writes.push(command);
+       } else if (command.kind === "series" && "records" in command) {
+         for (const record of command.records) {
+-          this.analyzeInto(record, state);
++          this.analyzeInto(record, state, epoch, activation);
+           root.refusal ??= record.refusal;
+         }
+       } else if (command.kind === "series") {
+-        this.analyzeSeriesInto(command.series, root, state);
++        this.analyzeSeriesInto(
++          command.series,
++          root,
++          state,
++          epoch,
++          activation
++        );
+       }
+     }
+   }
+   private analyzeSeriesInto(
+     series: SelectedSeries,
+     owner: RecordCommand,
+-    state: AnalysisState
++    state: AnalysisState,
++    epoch: string,
++    activation: MeasurementActivation
+   ): void {
+-    this.observeRead(state, {
+-      lookup: series.selection,
+-      owner,
+-      target: true,
+-    });
++    this.observeRead(
++      state,
++      { lookup: series.selection, owner, target: true },
++      series,
++      epoch,
++      activation
++    );
+     const seriesStart = state.series.length;
+     const occurrence: SeriesOccurrence = { kind: "seriesOccurrence", series };
+     state.writes.push(occurrence);
+     const provisionalStart = state.writes.length;
+     const analysis = series.analysis;
+     if (analysis.kind === "record") {
+-      this.analyzeInto(analysis, state);
++      this.analyzeInto(analysis, state, epoch, activation);
+       owner.refusal ??= analysis.refusal;
+     } else {
+       state.writes.push(analysis);
+@@ -613,7 +1024,7 @@
+     const suffix = state.writes.splice(
+       provisionalStart + scope.provisionalLength
+     );
+-    state.writes.splice(provisionalStart);
++    const provisional = state.writes.splice(provisionalStart);
+     const scopeIndex = state.series.indexOf(scope);
+     if (scopeIndex < 0)
+       throw new Error("Selected series analysis scope is unavailable");
+@@ -624,18 +1035,59 @@
+       : -1;
+     const publishedOwner =
+       ownerIndex < 0 ? undefined : state.writes.splice(ownerIndex, 1)[0];
++    const hooks = structuralMeasurementHooks();
++    const epoch = `epoch:${hooks?.identities.occurrenceId(series) ?? "series"}`;
++    const activation: MeasurementActivation = {
++      occurrence: series,
++      state: "unconditional",
++    };
++    this.emitCopies(suffix, epoch, "resume-suffix", "suffixDetach");
++    this.emitCopies(
++      provisional,
++      epoch,
++      "resume-provisional",
++      "suffixDetach"
++    );
++    if (publishedOwner)
++      this.emitCopies(
++        [publishedOwner],
++        epoch,
++        "published-owner",
++        "suffixDetach"
++      );
++    if (hooks)
++      for (const [captureOrdinal, member] of members.entries())
++        hooks.bindCapturedMember({
++          parentOccurrence: series,
++          occurrence: member,
++          command: member,
++          selection: member.located,
++          captureOrdinal,
++        });
+ 
+     let refusal: SeriesRefusal | undefined;
+     for (const member of members) {
++      if (hooks)
++        hooks.emit({
++          kind: "occurrenceVisit",
++          analysisEpoch: epoch,
++          occurrenceId: hooks.identities.occurrenceId(member),
++          phase: "expand",
++        });
+       if (member.kind === "record") {
+-        this.analyzeInto(member, state);
++        this.analyzeInto(member, state, epoch, activation);
+         if (member.refusal) refusal ??= { error: member.refusal, member };
+       } else {
+         state.writes.push(member);
+       }
+       if (!refusal) {
+         for (const observation of scope.reads) {
+-          const error = this.checkObservation(state, observation);
++          const error = this.checkObservation(
++            state,
++            observation,
++            epoch,
++            activation
++          );
+           if (error) {
+             refusal = { error, member };
+             break;
+@@ -649,8 +1101,17 @@
+       }
+     }
+ 
+-    if (publishedOwner) state.writes.splice(ownerIndex, 0, publishedOwner);
++    if (publishedOwner) {
++      state.writes.splice(ownerIndex, 0, publishedOwner);
++      this.emitCopies(
++        [publishedOwner],
++        epoch,
++        "published-owner",
++        "semanticPublication"
++      );
++    }
+     state.writes.push(...suffix);
++    this.emitCopies(suffix, epoch, "resume-suffix", "suffixRestore");
+     state.series.push(...followingScopes);
+     return refusal;
+   }
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -25,6 +25,7 @@
+   type SelectionSource,
+   type BoundMembership,
+ } from "./selection";
++import { structuralMeasurementHooks } from "../../../../tests/raptor3/core-structure/measurement/hooks";
+ 
+ type Junction = Extract<Membership, { kind: "junction" }>;
+ type Supplier =
+@@ -83,6 +84,13 @@
+         ? { kind: "query", selector: target.lookup.selector }
+         : { kind: "producer", producer: target.fields };
+   }
++  private measureConstruction(occurrence: object): void {
++    structuralMeasurementHooks()?.deferOccurrenceVisit({
++      analysisEpoch: "epoch:initial",
++      occurrence,
++      phase: "construct",
++    });
++  }
+   expand(): void {
+     const parent = this.parent;
+     const resolved = this.slot;
+@@ -432,6 +440,7 @@
+                   )
+                 : undefined,
+           };
++          this.measureConstruction(target);
+           if (target.foundRecord) {
+             target.foundRecord.origin = origin;
+             target.foundRecord.requirement = foundRequirement;
+@@ -509,6 +518,7 @@
+   private requireLookup(
+     lookup: Selection | JunctionCapture | AbsenceRequirement,
+   ): void {
++    this.measureConstruction(lookup);
+     const parent = this.parent;
+     if (lookup.kind === "lookup") lookup.retained ??= lookup.required;
+     const firstEffect = parent.before.findIndex(
+@@ -524,10 +534,12 @@
+     );
+   }
+   private requireSeriesCapture(series: SelectedSeries): void {
++    this.measureConstruction(series);
+     const command: { kind: "captureSeries"; series: SelectedSeries } = {
+       kind: "captureSeries",
+       series,
+     };
++    this.measureConstruction(command);
+     const firstEffect = this.parent.after.findIndex(
+       (candidate) => candidate.kind !== "captureSeries",
+     );
+@@ -560,6 +572,7 @@
+         lookup,
+         fields: new Assignments(edge.target, "select"),
+       };
++      this.measureConstruction(target);
+       target.lookup.fields.select(
+         this.commands.context.schema.keys(edge.target),
+       );
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -19,6 +19,7 @@
+   SelectedSeriesMember,
+ } from "./commands";
+ import { membershipFields, type Selection } from "./selection";
++import { structuralMeasurementHooks } from "../../../../tests/raptor3/core-structure/measurement/hooks";
+ 
+ /** Interprets the prepared command tree through one replaceable execution attempt. */
+ export class CommandExecution {
+@@ -188,7 +189,7 @@
+     this.currentAttempt = replacement;
+     this.context.restartRejectedInsert(replacement.transport);
+     // A lost winner is not permission to attempt the missing INSERT again.
+-    await this.run(choice.lookup);
++    await this.run(choice.lookup, choice.lookup, false);
+     return this.attempt.rows.has(choice.lookup);
+   }
+   async complete(
+@@ -217,15 +218,32 @@
+       }
+     }
+   }
+-  async run(command: Command, member: Member = command): Promise<void> {
++  async run(
++    command: Command,
++    member: Member = command,
++    measureOccurrence = true
++  ): Promise<void> {
+     const ctx = this.context;
+     const attempt = this.attempt;
++    const hooks = structuralMeasurementHooks();
++    if (hooks && measureOccurrence) {
++      const occurrence =
++        command.kind === "series" && "series" in command
++          ? command.series
++          : command;
++      hooks.emit({
++        kind: "occurrenceVisit",
++        analysisEpoch: "epoch:physical",
++        occurrenceId: hooks.identities.occurrenceId(occurrence),
++        phase: "physical",
++      });
++    }
+     switch (command.kind) {
+       case "record": {
+         command.fields.activate();
+         if (command.refusal) throw command.refusal;
+         if (command.located && !attempt.rows.has(command.located))
+-          await this.run(command.located, member);
++          await this.run(command.located, member, false);
+         if (
+           ctx.usesBatch &&
+           command.located &&
+@@ -359,9 +377,9 @@
+           }
+         }
+         try {
+-          await this.run(command.lookup, member);
++          await this.run(command.lookup, member, false);
+           for (const condition of command.conditions?.probes ?? [])
+-            await this.run(condition.lookup, member);
++            await this.run(condition.lookup, member, false);
+         } catch (error) {
+           throw supplied ? ctx.failure(error, "capture", member) : error;
+         }
+@@ -483,7 +501,7 @@
+         return;
+       }
+       case "delete": {
+-        await this.run(command.located, member);
++        await this.run(command.located, member, false);
+         await ctx.delete(
+           command.located.model,
+           attempt.rows.get(command.located)!,
+@@ -551,6 +569,7 @@
+   ): Promise<void> {
+     const ctx = this.context;
+     const attempt = this.attempt;
++    const measurementHooks = structuralMeasurementHooks();
+     if (attempt.series.has(series)) return;
+     const selection = series.selection;
+     const membership = selection.membership();
+@@ -627,7 +646,9 @@
+                   series.mutation.raw
+                 )
+               : ctx.schema.update(selection.model, series.mutation.raw, true),
+-            series.mutation.raw
++            series.mutation.raw,
++            false,
++            `epoch:${measurementHooks?.identities.occurrenceId(series) ?? "series"}`
+           );
+           if (membership)
+             child.requirement = {
+@@ -657,7 +678,7 @@
+       if (ctx.usesBatch) {
+         this.attempt.rows.delete(located);
+         try {
+-          await this.run(located, child);
++          await this.run(located, child, false);
+         } catch (error) {
+           throw ctx.failure(error, "planning", child);
+         }

@@ -1,0 +1,24 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/depth-recurrence-contract.test.ts (6 tests) 69ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  12:19:59
+   Duration  3.01s (transform 1.86s, setup 11ms, collect 2.76s, tests 69ms, environment 0ms, prepare 37ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Loa7xS/vitest.json
+Vitest resources: 5.91s wall, 548.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Stale Raptor 3 evidence: executed source or runtime changed
++ actual - expected
+
+  {
++   harness: 'e4bd5de3a41cd8230ce61061da77cfa174a7246a1a270fbb7d63a05c5b0250c1',
+-   harness: 'c0aa615899ce3a42615e60ab30b6d8b56a7249c72cf73038ab15b10bfc523671',
+    production: '9bca8f018ce6caeed77296c491278821b42b54b833e2a81ffca05380da52c22b',
+    runtime: {
+      architecture: 'arm64',
+      node: 'v24.21.0',
+      platform: 'darwin',
+

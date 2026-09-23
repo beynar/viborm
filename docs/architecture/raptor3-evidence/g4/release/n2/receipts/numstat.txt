@@ -1,0 +1,3 @@
+10	0	src/query-engine/raptor3/AGENTS.md
+5	5	src/query-engine/raptor3/commands/execution.ts
+18	9	src/query-engine/raptor3/commands/relation-body.ts

@@ -1,0 +1,14 @@
+# closure patch round-trip, reviewed independently 2026-09-16 00:50
+# 19 files copied from the working tree, both patches reverse-applied, base hashes:
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  src/query-engine/raptor3/shared/query.ts (expected 5143b7b3…)
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  src/query-engine/raptor3/shared/operation-context.ts (expected 8b25f6fe…)
+# forward-applied again: 19/19 files byte-identical (shasum -c OK count = 19)
+
+# patch identities
+1560808b41b4aeb77add81f4a3fe803c7aec57b9f40baf4e7102a06b743cca3e  docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+f8001d1edd4f27aac097799d33c78d64e3589c332667d372dbc4bab313addae4  docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch
+
+# cost recomputed (countTokenLines, JSDoc/EOF excluded)
+operation-context.ts  bytes 84011  physical 2228  tokenLines 1892
+core (12 files)       bytes 377661 physical 10609 tokenLines 9518
+whole (15 files)      bytes 414566 physical 11645 tokenLines 10400

@@ -1,0 +1,46 @@
+// Read-only probe: the engine's own PostgreSQL statement for the same bounded
+// recursive read (built package; lateral carrier), EXPLAINed on a fresh
+// in-memory PGlite with an empty table.
+import { createRequire } from "node:module";
+import { Driver } from "/Users/arnaud/code/viborm/dist/driver.mjs";
+import { PostgresAdapter } from "/Users/arnaud/code/viborm/dist/adapters.mjs";
+import { createClient, s } from "/Users/arnaud/code/viborm/dist/index.mjs";
+const require = createRequire("/Users/arnaud/code/viborm/package.json");
+const { PGlite } = await import(require.resolve("@electric-sql/pglite"));
+
+const tree = s
+  .model({
+    id: s.string().id(),
+    rank: s.int(),
+    parentId: s.string().nullable(),
+    parent: s.toOne(() => tree).fields("parentId").references("id").name("planTree"),
+    children: s.toMany(() => tree).name("planTree"),
+  })
+  .map("plan_tree");
+const captured = [];
+class CapturingDriver extends Driver {
+  constructor() {
+    super("postgresql", "rq07-plan-probe");
+    this.adapter = new PostgresAdapter("public", false);
+  }
+  async initClient() { return null; }
+  async closeClient() {}
+  async execute(...args) { captured.push(args); return { rows: [], rowCount: 0 }; }
+  async executeRaw(...args) { captured.push(args); return { rows: [], rowCount: 0 }; }
+  async transaction(_client, fn) { return fn(null); }
+}
+const client = createClient({ schema: { tree }, driver: new CapturingDriver() });
+await client.tree.findMany({
+  where: { id: "root" },
+  select: { id: true, children: { recurse: { depth: 40 }, select: { id: true } } },
+});
+await client.$disconnect();
+const call = captured.find((a) => typeof a[1] === "string" && /WITH RECURSIVE/.test(a[1]));
+if (!call) { console.log("no recursive statement captured"); process.exit(1); }
+console.log("lateral:", /JOIN LATERAL/.test(call[1]), "params:", call[2].length);
+const db = new PGlite();
+console.log((await db.query("select version() v")).rows[0].v.split(",")[0]);
+await db.exec('CREATE TABLE "public"."plan_tree" ("id" text PRIMARY KEY, "rank" integer NOT NULL, "parentId" text)');
+const plan = await db.query(`EXPLAIN ${call[1]}`, call[2]);
+for (const row of plan.rows) console.log(row["QUERY PLAN"]);
+await db.close();

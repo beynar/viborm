@@ -1,0 +1,25 @@
+{
+ "workload": "flat-scalar-update",
+ "stage": "full",
+ "engine": "shipped",
+ "checks": [
+  117,
+  117,
+  117,
+  117
+ ],
+ "preparation": {
+  "statementCount": 1,
+  "statements": [
+   {
+    "sql": "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\"",
+    "params": [
+     1,
+     "update_target"
+    ]
+   }
+  ],
+  "preparationSeam": "built-statement",
+  "packageRefusal": "Step 'user.update' carries a postcondition that is not yet enforced in batch mode."
+ }
+}

@@ -1,0 +1,84 @@
+{
+  "measuredAt": "2026-09-14T22:11:35.496Z",
+  "baseCommit": "0cc61e61",
+  "definition": "countTokenLines copied verbatim from scripts/query-engine-structure.mjs (JSDoc excluded, parser-owned tokens only)",
+  "rows": [
+    {
+      "file": "src/query-engine/raptor3/route/client-route.ts",
+      "before": {
+        "bytes": 0,
+        "physicalLines": 0,
+        "tokenLines": 0
+      },
+      "after": {
+        "bytes": 8534,
+        "physicalLines": 222,
+        "tokenLines": 143
+      },
+      "delta": {
+        "bytes": 8534,
+        "physicalLines": 222,
+        "tokenLines": 143
+      }
+    },
+    {
+      "file": "src/query-engine/query-engine.ts",
+      "before": {
+        "bytes": 7164,
+        "physicalLines": 227,
+        "tokenLines": 175
+      },
+      "after": {
+        "bytes": 7594,
+        "physicalLines": 237,
+        "tokenLines": 180
+      },
+      "delta": {
+        "bytes": 430,
+        "physicalLines": 10,
+        "tokenLines": 5
+      }
+    },
+    {
+      "file": "src/query-engine/pending-operation.ts",
+      "before": {
+        "bytes": 30889,
+        "physicalLines": 874,
+        "tokenLines": 760
+      },
+      "after": {
+        "bytes": 34942,
+        "physicalLines": 977,
+        "tokenLines": 828
+      },
+      "delta": {
+        "bytes": 4053,
+        "physicalLines": 103,
+        "tokenLines": 68
+      }
+    },
+    {
+      "file": "src/client/client.ts",
+      "before": {
+        "bytes": 45809,
+        "physicalLines": 1308,
+        "tokenLines": 1020
+      },
+      "after": {
+        "bytes": 46324,
+        "physicalLines": 1330,
+        "tokenLines": 1040
+      },
+      "delta": {
+        "bytes": 515,
+        "physicalLines": 22,
+        "tokenLines": 20
+      }
+    }
+  ],
+  "total": {
+    "bytes": 13532,
+    "physicalLines": 357,
+    "tokenLines": 236
+  }
+}

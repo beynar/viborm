@@ -1,0 +1,5 @@
+# U4 repair round — the credential-free file walk, before and after the one-line
+# extendedLocalExclusions entry. Script: walk-probe.mjs
+before (walk adopts it) | EXTENDED_LOCAL_TESTS=192 | witness collected=true | shards=14 | witness in shard=12
+after  (named, skipped) | EXTENDED_LOCAL_TESTS=191 | witness collected=false | shards=14 | witness in shard=none
+shards whose contents differ between before and after: 12, 13, 14

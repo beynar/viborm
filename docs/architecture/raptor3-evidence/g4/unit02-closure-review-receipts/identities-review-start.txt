@@ -1,0 +1,15 @@
+=== source identities at review start ===
+694cdb8a06e8a00d098c8759acb35b6c59b182327df54a07b7f06e3804184c9f  src/query-engine/raptor3/shared/query.ts
+cfbcffd26ad4c3b5aa6eb2a767ce96366a1bf4970d64338932c3530cc1432469  src/query-engine/raptor3/shared/schema.ts
+820f6204765936568bd23d3381006dd24a82b9eced769fc53ae1a8f2e48cffa5  src/query-engine/raptor3/commands/commands.ts
+ac5213bfd166d0faa8c33d6953352953129c6f4ee662ffbb6987e4207db9cbcf  src/query-engine/raptor3/commands/selection.ts
+fa7aac3aca1d699912e85e5281fbdbede927760454b8f3dd5a94c07e71c11cc8  src/query-engine/raptor3/commands/relation-body.ts
+7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103  src/query-engine/raptor3/route/client-route.ts
+5aef8e7f52ba2b28b6f57cce5ef8a550c5067b5c82429e77bd6baa2357a4876a  src/query-engine/result/cache-value-codecs.ts
+1dd38ed31a23679b247402e5c609179945032df87e1915de44e43bc5fe2beb00  src/adapters/databases/mysql/mysql-adapter.ts
+=== containers ===
+d6da412eec3c viborm-raptor3-g3-mysql-20260914 127.0.0.1:65515->3306/tcp
+7dfda37e8eea viborm-raptor3-g3-pg-20260914 127.0.0.1:65504->5432/tcp
+=== git ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership
+     603

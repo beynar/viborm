@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scope": "OperationContext.referenceProjection assembly ownership",
+  "baseline": {
+    "production": "57ca5aae3a499b4466ea4350a85d03da79a8d5eb848a75045b4b6701de2f5656",
+    "harness": null,
+    "observation": {
+      "discardedSelectAssemblies": 1
+    },
+    "qualification": "Read-only instrumentation against the accepted Unit 2 production source. The harness changed when the Unit 3 witness was created, so no harness digest is assigned retroactively."
+  },
+  "final": {
+    "production": "982c196f1ece7c73d57eb476e70210c739246caae3d9221526a86a930e2610ca",
+    "harness": "b62ab4d6ba1377945bdb80c09d25de9ad3d45c19ae73ef2d54a801b6dbdbd6af",
+    "observation": {
+      "discardedSelectAssemblies": 0,
+      "literalSelectAssemblies": 1
+    },
+    "qualification": "Read-only instrumentation. Projection meaning no longer assembles a disposable internal SELECT; the reference-value query still assembles its required literal SELECT."
+  }
+}

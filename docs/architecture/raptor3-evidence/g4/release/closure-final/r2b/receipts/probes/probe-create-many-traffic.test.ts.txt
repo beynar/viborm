@@ -1,0 +1,129 @@
+/**
+ * R2b diagnostic probe (TEMPORARY, not a registered pin) — createMany traffic.
+ */
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createClient } from "@client/client";
+import type { AnyDriver } from "@drivers";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, it } from "vitest";
+import {
+  createMySQL2Driver,
+  dropEveryLiveTable,
+  TEST_CONNECTION_STRING,
+} from "./mysql2-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+const OUT = process.env.R2B_PROBE_OUT ?? "/private/tmp/viborm-r2ab-tmp/r2b";
+
+const foldRow = s
+  .model({
+    id: s.int().id(),
+    code: s.string().unique(),
+    label: s.string(),
+  })
+  .map("p72_fold_rows");
+
+const foldAutoRow = s
+  .model({ id: s.int().id().increment(), label: s.string() })
+  .map("p72_fold_auto_rows");
+
+const schema = { foldRow, foldAutoRow };
+
+type Seam = (
+  client: unknown,
+  sql: string,
+  params: unknown[] | undefined,
+  context?: unknown,
+) => Promise<unknown>;
+
+function recordStatements(driver: AnyDriver) {
+  const statements: { sql: string; params: unknown[] }[] = [];
+  let recording = false;
+  const seam = driver as unknown as Record<string, Seam>;
+  for (const method of ["execute", "executeRaw"]) {
+    const original = seam[method]?.bind(driver);
+    if (!original) continue;
+    seam[method] = (client, sql, params, context) => {
+      if (recording) statements.push({ sql, params: params ?? [] });
+      return original(client, sql, params, context);
+    };
+  }
+  return {
+    start() {
+      recording = true;
+    },
+    drain() {
+      recording = false;
+      return statements.splice(0, statements.length);
+    },
+  };
+}
+
+describeIf("R2b probe", () => {
+  it("retains the createMany traffic on a non-returning driver", async () => {
+    mkdirSync(OUT, { recursive: true });
+    await dropEveryLiveTable();
+    const driver = createMySQL2Driver();
+    const recorder = recordStatements(driver);
+    const client = createClient({ schema, driver });
+    await syncLiveSchema(client);
+    await client.foldRow.deleteMany({});
+    await client.foldAutoRow.deleteMany({});
+    recorder.start();
+    const rows = await client.foldRow.createMany({
+      data: [
+        { id: 40, code: "c", label: "first" },
+        { id: 10, code: "a", label: "second" },
+        { id: 30, code: "d", label: "third" },
+        { id: 20, code: "b", label: "fourth" },
+      ],
+      select: { id: true, code: true, label: true },
+    });
+    const selectStatements = recorder.drain();
+    recorder.start();
+    const counted = await client.foldRow.createMany({
+      data: [
+        { id: 41, code: "cc", label: "first" },
+        { id: 11, code: "aa", label: "second" },
+      ],
+    });
+    const countStatements = recorder.drain();
+    recorder.start();
+    const auto = await client.foldAutoRow.createMany({
+      data: [
+        { id: 300, label: "explicit-high" },
+        { id: 200, label: "explicit-low" },
+        { label: "generated-first" },
+        { label: "generated-second" },
+      ],
+      select: { id: true, label: true },
+    });
+    const autoStatements = recorder.drain();
+    recorder.start();
+    const single = await client.foldRow.createMany({
+      data: [{ id: 99, code: "z", label: "only" }],
+      select: { id: true, label: true },
+    });
+    const singleStatements = recorder.drain();
+    writeFileSync(
+      `${OUT}/create-many-traffic.json`,
+      `${JSON.stringify(
+        {
+          rows,
+          selectStatements,
+          counted,
+          countStatements,
+          auto,
+          autoStatements,
+          single,
+          singleStatements,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await client.$disconnect();
+  });
+});

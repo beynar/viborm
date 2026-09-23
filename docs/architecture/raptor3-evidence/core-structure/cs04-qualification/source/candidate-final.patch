@@ -1,0 +1,611 @@
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index 6a8e97ef..154a5404 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -102,6 +102,7 @@ export interface Deletion {
+ export interface SelectedSeries {
+   readonly selection: Selection;
+   readonly analysis: RecordCommand | Deletion;
++  readonly limit?: number;
+   readonly mutation:
+     | { readonly kind: "update"; readonly raw: Input }
+     | { readonly kind: "delete" };
+@@ -124,7 +125,6 @@ export interface CommandOccurrence<C extends Command = Command> {
+   readonly kind: "occurrence";
+   readonly command: C;
+   readonly placement: Placement;
+-  readonly order: number;
+   children: CommandOccurrence[];
+   role?: "found" | "missing" | "template" | "member";
+   captureTarget?: CommandOccurrence<SeriesOccurrence>;
+@@ -195,7 +195,6 @@ export function isSeriesOccurrence(
+ /** Construction owns branch order; every storage consumer names exact produced fields. */
+ export class Commands {
+   private nextMutation = 0;
+-  private nextOccurrence = 0;
+   readonly execution: CommandExecution;
+   constructor(readonly context: OperationContext) {
+     this.execution = new CommandExecution(this);
+@@ -281,7 +280,6 @@ export class Commands {
+       kind: "occurrence",
+       command,
+       placement,
+-      order: this.nextOccurrence++,
+       children: [],
+     };
+     return occurrence;
+@@ -322,7 +320,6 @@ export class Commands {
+     return [];
+   }
+   private materializePlacement(occurrence: CommandOccurrence): void {
+-    const replacements = new Map<CommandOccurrence, CommandOccurrence>();
+     const role = (
+       parent: Command,
+       child: CommandOccurrence
+@@ -332,21 +329,14 @@ export class Commands {
+       if (parent.kind === "selectedSeries") return "template";
+       return undefined;
+     };
+-    const instantiate = (
+-      source: CommandOccurrence,
+-      childRole?: CommandOccurrence["role"]
+-    ): CommandOccurrence => {
++    const sources = this.recipeChildren(occurrence.command);
++    const replacements = new Map<CommandOccurrence, CommandOccurrence>();
++    occurrence.children = sources.map((source) => {
+       const replacement = this.occurrence(source.command, source.placement);
+-      replacement.role = childRole;
++      replacement.role = role(occurrence.command, source);
+       replacements.set(source, replacement);
+-      replacement.children = this.recipeChildren(source.command).map((child) =>
+-        instantiate(child, role(source.command, child))
+-      );
+       return replacement;
+-    };
+-    occurrence.children = this.recipeChildren(occurrence.command).map((child) =>
+-      instantiate(child, role(occurrence.command, child))
+-    );
++    });
+     for (const [source, replacement] of replacements) {
+       if (source.command.kind === "captureSeries") {
+         const resolved = replacements.get(source.command.target);
+@@ -355,6 +345,7 @@ export class Commands {
+         replacement.captureTarget = resolved;
+       }
+     }
++    for (const child of occurrence.children) this.materializePlacement(child);
+   }
+   private origin(command: Command): Origin | undefined {
+     if (command.kind === "choose") return command.lookup.origin;
+@@ -690,11 +681,6 @@ export class Commands {
+     );
+     return template && isRecordOccurrence(template) ? template : undefined;
+   }
+-  private rootOf(occurrence: CommandOccurrence): CommandOccurrence {
+-    let root = occurrence;
+-    while (root.parent) root = root.parent;
+-    return root;
+-  }
+   private compatible(left?: BranchPath, right?: BranchPath): boolean {
+     for (let a = left; a; a = a.parent)
+       for (let b = right; b; b = b.parent)
+@@ -726,7 +712,7 @@ export class Commands {
+   private visitWrites(
+     occurrence: CommandOccurrence,
+     visit: (write: WriteVisit) => void,
+-    branch = this.branchOf(occurrence)
++    branch: BranchPath | undefined
+   ): void {
+     this.visitDirectWrites(occurrence, visit, branch);
+     for (const child of occurrence.children) {
+@@ -744,7 +730,7 @@ export class Commands {
+   private visitReads(
+     occurrence: CommandOccurrence,
+     visit: (read: ReadVisit) => "stop" | void,
+-    branch = this.branchOf(occurrence)
++    branch: BranchPath | undefined
+   ): boolean {
+     const read = occurrence.dependencyRead;
+     if (read) {
+@@ -766,24 +752,28 @@ export class Commands {
+   }
+   private visitPrecedingWrites(
+     target: CommandOccurrence,
+-    visit: (write: WriteVisit) => void
++    visit: (write: WriteVisit) => void,
++    branch: BranchPath | undefined
+   ): void {
+     const parent = target.parent;
+     if (!parent) return;
+-    this.visitPrecedingWrites(parent, visit);
+-    this.visitDirectWrites(parent, visit, this.branchOf(parent));
++    const parentBranch =
++      parent.command.kind === "choose" ? branch?.parent : branch;
++    this.visitPrecedingWrites(parent, visit, parentBranch);
++    this.visitDirectWrites(parent, visit, parentBranch);
+     if (parent.command.kind === "choose") return;
+     if (this.isSeriesMember(parent, target)) return;
+     for (const sibling of parent.children) {
+       if (sibling === target) return;
+-      this.visitWrites(sibling, visit);
++      this.visitWrites(sibling, visit, parentBranch);
+     }
+     throw new Error("Command occurrence is missing from its parent");
+   }
+   private analyzeRead(occurrence: CommandOccurrence): void {
+     const read = occurrence.dependencyRead;
+     if (!read) return;
+-    const readVisit = { read, branch: this.branchOf(occurrence) };
++    const branch = this.branchOf(occurrence);
++    const readVisit = { read, branch };
+     let publishedParent: CommandOccurrence<RecordCommand> | undefined;
+     for (
+       let child: CommandOccurrence | undefined = occurrence;
+@@ -796,10 +786,14 @@ export class Commands {
+         publishedParent = this.seriesOwner(parent);
+       break;
+     }
+-    this.visitPrecedingWrites(occurrence, (write) => {
+-      if (write.write.occurrence === publishedParent) return;
+-      this.checkPair(write, readVisit);
+-    });
++    this.visitPrecedingWrites(
++      occurrence,
++      (write) => {
++        if (write.write.occurrence === publishedParent) return;
++        this.checkPair(write, readVisit);
++      },
++      branch
++    );
+   }
+   private checkPair(write: WriteVisit, read: ReadVisit): void {
+     if (!this.compatible(write.branch, read.branch)) return;
+@@ -861,27 +855,15 @@ export class Commands {
+     }
+   }
+   private branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
+-    const ancestors: CommandOccurrence[] = [];
+-    for (let current = occurrence; current.parent; current = current.parent)
+-      ancestors.push(current);
+-    let branch: BranchPath | undefined;
+-    for (let index = ancestors.length - 1; index >= 0; index--) {
+-      const child = ancestors[index];
+-      const parent = child?.parent;
+-      if (!(child && parent?.command.kind === "choose")) continue;
+-      branch = {
+-        parent: branch,
+-        choice: parent,
+-        arm: child.role === "found" ? "found" : "missing",
+-      };
+-    }
+-    return branch;
+-  }
+-  private *children(
+-    occurrence: CommandOccurrence,
+-    _concreteSeries: boolean
+-  ): Generator<CommandOccurrence> {
+-    yield* occurrence.children;
++    const parent = occurrence.parent;
++    if (!parent) return undefined;
++    const branch = this.branchOf(parent);
++    if (parent.command.kind !== "choose") return branch;
++    return {
++      parent: branch,
++      choice: parent,
++      arm: occurrence.role === "found" ? "found" : "missing",
++    };
+   }
+   private isSeriesMember(
+     parent: CommandOccurrence,
+@@ -894,21 +876,33 @@ export class Commands {
+   }
+   private visitFollowingReads(
+     target: CommandOccurrence,
+-    visit: (read: ReadVisit) => "stop" | void
++    visit: (read: ReadVisit) => "stop" | void,
++    branch: BranchPath | undefined
+   ): boolean {
+     let current = target;
+     while (current.parent) {
+       const parent = current.parent;
++      const parentBranch =
++        parent.command.kind === "choose" ? branch?.parent : branch;
+       let follows = false;
+       if (!this.isSeriesMember(parent, current)) {
+-        for (const sibling of this.children(parent, true)) {
++        for (const sibling of parent.children) {
+           if (follows) {
+-            const stopped = this.visitReads(sibling, visit);
++            const siblingBranch: BranchPath | undefined =
++              parent.command.kind === "choose"
++                ? {
++                    parent: parentBranch,
++                    choice: parent,
++                    arm: sibling.role === "found" ? "found" : "missing",
++                  }
++                : parentBranch;
++            const stopped = this.visitReads(sibling, visit, siblingBranch);
+             if (stopped) return true;
+           } else if (sibling === current) follows = true;
+         }
+       }
+       current = parent;
++      branch = parentBranch;
+     }
+     return false;
+   }
+@@ -916,8 +910,6 @@ export class Commands {
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+     members: readonly SelectedSeriesMember[]
+   ): SeriesRefusal | undefined {
+-    const series = occurrence.command;
+-    const root = this.rootOf(occurrence);
+     const owner = this.seriesOwner(occurrence);
+     if (!owner) throw new Error("Selected series has no enclosing analysis");
+     if (this.seriesMembers(occurrence).length)
+@@ -929,6 +921,7 @@ export class Commands {
+       return child;
+     });
+     const memberOccurrences = this.seriesMembers(occurrence);
++    const seriesBranch = this.branchOf(occurrence);
+     for (const member of memberOccurrences) this.bindTree(member, occurrence);
+     for (const member of memberOccurrences) {
+       this.analyzeOccurrence(member);
+@@ -941,16 +934,24 @@ export class Commands {
+         if (refusal) return { error: refusal, member };
+       }
+       let refusal: Error | undefined;
+-      this.visitWrites(occurrenceMember, (write) => {
+-        if (
+-          this.visitFollowingReads(occurrence, (read) => {
+-            this.checkPair(write, read);
+-            refusal ??= this.activeRefusal(read);
+-            return refusal ? "stop" : undefined;
+-          })
+-        )
+-          return;
+-      });
++      this.visitWrites(
++        occurrenceMember,
++        (write) => {
++          if (
++            this.visitFollowingReads(
++              occurrence,
++              (read) => {
++                this.checkPair(write, read);
++                refusal ??= this.activeRefusal(read);
++                return refusal ? "stop" : undefined;
++              },
++              seriesBranch
++            )
++          )
++            return;
++        },
++        seriesBranch
++      );
+       if (refusal) return { error: refusal, member };
+     }
+     return undefined;
+@@ -1024,12 +1025,13 @@ export class Commands {
+       );
+     }
+     if (ctx.operation === "deleteMany") {
+-      if (args.limit !== undefined || args.select || args.omit) {
++      if (args.select || args.omit) {
+         throw new UnsupportedOperationError(
+-          "Raptor 3 G3P-03 deleteMany limit and returning are not implemented."
++          "Raptor 3 G3P-03 deleteMany returning is not implemented."
+         );
+       }
+-      return ctx.deleteMany(model, args.where);
++      if (args.limit === 0) return { count: 0 };
++      return ctx.deleteMany(model, args.where, args.limit);
+     }
+     if (ctx.operation === "upsert") {
+       const missing = this.create(model, args.create!, raw.create!);
+@@ -1104,19 +1106,24 @@ export class Commands {
+       return this.execution.complete(this.analyze(root), args);
+     }
+     const updateData = args.data;
+-    if (args.limit !== undefined || args.select || args.omit) {
++    const relationBearing = model["~"].relationNames.some(
++      (name) => updateData[name] !== undefined
++    );
++    if (
++      raw.omit !== undefined ||
++      (args.select && !relationBearing)
++    ) {
+       throw new UnsupportedOperationError(
+         "Raptor 3 G3P-03 updateMany limit and returning are not implemented."
+       );
+     }
+-    const relationBearing = model["~"].relationNames.some(
+-      (name) => updateData[name] !== undefined
+-    );
++    if (args.limit === 0) return args.select ? [] : { count: 0 };
+     if (!relationBearing) {
+       return ctx.updateMany(
+         model,
+         args.where,
+-        ctx.schema.scalars(model, updateData)
++        ctx.schema.scalars(model, updateData),
++        args.limit
+       );
+     }
+     const selection = this.lookup(
+@@ -1128,11 +1135,13 @@ export class Commands {
+     const series: SelectedSeries = {
+       selection,
+       analysis,
++      limit: args.limit,
+       mutation: { kind: "update", raw: raw.data },
+     };
+     const occurrence = this.analyzeSeries(series);
++    if (args.select)
++      return this.execution.series(occurrence, series.selection, args.select);
+     const count = await this.execution.series(occurrence);
+-    await ctx.finish();
+     return { count };
+   }
+ }
+diff --git a/src/query-engine/raptor3/commands/execution.ts b/src/query-engine/raptor3/commands/execution.ts
+index 962a7fb8..988b1237 100644
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -551,24 +551,67 @@ export class CommandExecution {
+       count++;
+       if (select) identities.push(this.identity(command.fields));
+     }
+-    if (!select) {
+-      await ctx.finish();
+-      return { count };
+-    }
+-    if (identities.length === 0) {
+-      await ctx.finish();
+-      return [];
+-    }
+-    return ctx.finish(
+-      ctx.queries.selectSeries(records[0]!.command.model, select, identities)
++    const selected = await this.completeSeries(
++      select,
++      identities,
++      (selection) =>
++        ctx.queries.selectSeries(
++          records[0]!.command.model,
++          selection,
++          identities
++        )
+     );
++    return selected ?? { count };
+   }
+   async series(
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+-    member: Member = occurrence.command.series.selection
+-  ): Promise<number> {
++    member?: Member
++  ): Promise<number>;
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    member: Member,
++    select: Input
++  ): Promise<Input[]>;
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    member: Member = occurrence.command.series.selection,
++    select?: Input
++  ): Promise<number | Input[]> {
+     await this.captureSeries(occurrence, member);
+-    return this.executeSeries(occurrence);
++    const prepared = this.attempt.series.get(occurrence);
++    if (!prepared) throw new Error("Selected series was not captured");
++    // Only the admitted updateMany boundary supplies select, so captureSeries
++    // has constructed record members for this terminal readback.
++    const updatedMembers =
++      prepared.members as CommandOccurrence<RecordCommand>[];
++    const identityFields = select
++      ? updatedMembers.map(({ command }) => command.fields)
++      : [];
++    const count = await this.executeSeries(occurrence);
++    const identities = identityFields.map((fields) => this.identity(fields));
++    const selected = await this.completeSeries(
++      select,
++      identities,
++      (selection) =>
++        this.context.queries.selectSeries(
++          occurrence.command.series.selection.model,
++          selection,
++          identities,
++          "updateMany"
++        )
++    );
++    return selected ?? count;
++  }
++  private async completeSeries(
++    select: Input | undefined,
++    identities: Input[],
++    query: (select: Input) => Query
++  ): Promise<Input[] | undefined> {
++    if (!select || identities.length === 0) {
++      await this.context.finish();
++      return select ? [] : undefined;
++    }
++    return this.context.finish(query(select));
+   }
+   private async captureSeries(
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+@@ -618,6 +661,7 @@ export class CommandExecution {
+         selection.model,
+         {
+           orderBy: Object.fromEntries(keys.map((field) => [field, "asc"])),
++          take: series.limit,
+         },
+         membership && {
+           edge: membership.edge,
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index ea4fb1aa..89ffd42c 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -535,7 +535,7 @@ export class OperationContext {
+         ? this.queries.decodeQuery(query, responses[resultIndex]!.rows)
+         : [];
+     } catch (error) {
+-      throw this.continuations.length ? this.failure(error, "result") : error;
++      throw query ? this.failure(error, "result") : error;
+     }
+   }
+   isIncompletePreparation(error: unknown): boolean {
+@@ -640,7 +640,8 @@ export class OperationContext {
+   async updateMany(
+     model: AnyModel,
+     where: Input | undefined,
+-    values: Input
++    values: Input,
++    limit?: number
+   ): Promise<unknown> {
+     const q = this.queries;
+     const adapter = this.driver.adapter;
+@@ -650,11 +651,15 @@ export class OperationContext {
+         q.updateValue(model, field, value)
+       )
+     );
+-    const statement = adapter.mutations.update(
++    const limited = q.lowerMutationLimit(model, where, limit);
++    const mutation = adapter.mutations.update(
+       q.table(model),
+       sql.join(assignments, ", "),
+-      q.lowerWhere(model, where)
++      limited.where
+     );
++    const statement = limited.suffix
++      ? sql`${mutation} ${limited.suffix}`
++      : mutation;
+     return this.setMutation(
+       statement,
+       this.statementContext(model, "updateMany"),
+@@ -663,13 +668,16 @@ export class OperationContext {
+   }
+   async deleteMany(
+     model: AnyModel,
+-    where: Input | undefined
++    where: Input | undefined,
++    limit?: number
+   ): Promise<unknown> {
++    const limited = this.queries.lowerMutationLimit(model, where, limit);
++    const mutation = this.driver.adapter.mutations.delete(
++      this.queries.table(model),
++      limited.where
++    );
+     return this.setMutation(
+-      this.driver.adapter.mutations.delete(
+-        this.queries.table(model),
+-        this.queries.lowerWhere(model, where)
+-      ),
++      limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation,
+       this.statementContext(model, "deleteMany"),
+       (result) => ({ count: result.rowCount })
+     );
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 75cd980c..32d0d089 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -1,6 +1,6 @@
+ import type { DatabaseAdapter } from "@adapters/database-adapter";
+ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+-import { QueryEngineError } from "@errors";
++import { QueryEngineError, TransactionError } from "@errors";
+ import {
+   fieldRefPayload,
+   formatFieldRef,
+@@ -96,7 +96,7 @@ export interface Query {
+   shape: Shape;
+   expectedRows?: {
+     readonly count: number;
+-    readonly missing: string;
++    readonly missing: Error;
+   };
+ }
+ export interface SelectorFacts {
+@@ -408,6 +408,39 @@ export class Queries {
+   ): Sql | undefined {
+     return this.lowerSelector(this.prepareSelector(model, where), alias);
+   }
++  lowerMutationLimit(
++    model: AnyModel,
++    where: Input | undefined,
++    limit: number | undefined
++  ): { readonly where?: Sql; readonly suffix?: Sql } {
++    const adapter = this.adapter;
++    const lowered = this.lowerWhere(model, where);
++    if (limit === undefined) return { where: lowered };
++    if (adapter.capabilities.supportsMutationRowLimit)
++      return {
++        where: lowered,
++        suffix: adapter.clauses.limit(this.value(limit)),
++      };
++    const alias = this.alias();
++    const keys = this.schema.keys(model);
++    const targetColumns = keys.map((field) => this.column(model, field));
++    const selectedColumns = keys.map((field) =>
++      this.column(model, field, alias)
++    );
++    const target =
++      targetColumns.length === 1
++        ? targetColumns[0]!
++        : sql`(${sql.join(targetColumns, ", ")})`;
++    const capped = assembleAdapterSelect(adapter, {
++      columns: sql.join(selectedColumns, ", "),
++      from: this.table(model, alias),
++      where: this.lowerWhere(model, where, alias),
++      limit: this.value(limit),
++    });
++    return {
++      where: adapter.operators.in(target, adapter.subqueries.scalar(capped)),
++    };
++  }
+   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
+     return this.adapter.operators.and(
+       ...Object.entries(identity).map(([field, value]) =>
+@@ -915,7 +948,12 @@ export class Queries {
+       shape: prepared.shape,
+     };
+   }
+-  selectSeries(model: AnyModel, select: Input, identities: Input[]): Query {
++  selectSeries(
++    model: AnyModel,
++    select: Input,
++    identities: Input[],
++    operation: "createMany" | "updateMany" = "createMany"
++  ): Query {
+     const alias = this.alias();
+     const prepared = this.prepareProjection(model, { select });
+     const projection = this.lowerProjection(prepared, alias);
+@@ -939,7 +977,19 @@ export class Queries {
+       expectedRows: {
+         count: identities.length,
+         missing:
+-          "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.",
++          operation === "createMany"
++            ? new QueryEngineError(
++                "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls."
++              )
++            : new TransactionError(
++                "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
++                {
++                  meta: {
++                    model: model["~"].names.ts ?? "unknown",
++                    operation: "updateMany",
++                  },
++                }
++              ),
+       },
+     };
+   }
+@@ -1444,7 +1494,7 @@ export class Queries {
+   }
+   decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
+     if (query.expectedRows && rows.length < query.expectedRows.count)
+-      throw new QueryEngineError(query.expectedRows.missing);
++      throw query.expectedRows.missing;
+     if (query.expectedRows && rows.length > query.expectedRows.count)
+       throw new QueryEngineError(
+         "Raptor 3 createMany final read returned inconsistent row counts.",

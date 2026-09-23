@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts (5 tests) 15ms
+ ✓ |raptor3| tests/raptor3/ownership/commands.test.ts (6 tests) 7ms
+ ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 45ms
+
+ Test Files  3 passed (3)
+      Tests  17 passed (17)
+   Start at  02:42:06
+   Duration  2.11s (transform 1.13s, setup 10ms, collect 1.80s, tests 66ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 4.18s wall, 682.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

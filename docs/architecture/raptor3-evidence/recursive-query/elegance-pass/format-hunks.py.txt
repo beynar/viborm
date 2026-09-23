@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""For each file: which of MY added lines (vs HEAD) does Biome's formatter change?"""
+import subprocess, sys, difflib, re
+REPO = "/Users/arnaud/code/viborm"
+BIOME = f"{REPO}/node_modules/.bin/biome"
+def formatted(path, text):
+    r = subprocess.run([BIOME, "format", f"--stdin-file-path={path}"], input=text, capture_output=True, text=True, cwd=REPO)
+    return r.stdout if r.stdout else text
+def added_lines(path):
+    out = subprocess.run(["git", "diff", "-U0", "HEAD", "--", path], capture_output=True, text=True, cwd=REPO).stdout
+    lines = set()
+    for m in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", out, re.M):
+        start = int(m.group(1)); count = int(m.group(2)) if m.group(2) is not None else 1
+        lines.update(range(start, start + count))
+    return lines
+for path in sys.argv[1:]:
+    work = open(f"{REPO}/{path}", encoding="utf8").read()
+    fmt = formatted(path, work)
+    mine = added_lines(path)
+    wl, fl = work.splitlines(), fmt.splitlines()
+    touched = set()
+    sm = difflib.SequenceMatcher(a=wl, b=fl, autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal": continue
+        rng = range(i1 + 1, i2 + 1) if i2 > i1 else range(i1, i1 + 1)
+        for n in rng:
+            if n in mine: touched.add(n)
+    print(f"{path}: my changed lines={len(mine)}, of which the formatter would change {len(touched)}" + (f" -> {sorted(touched)[:40]}" if touched else ""))

@@ -1,0 +1,227 @@
+{
+  "mode": "g2-seeds",
+  "identity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "campaign": {
+    "firstSeed": 2000,
+    "seedCount": 5000,
+    "batchSize": 100,
+    "replayCount": 3,
+    "completionLimit": 5000,
+    "profiles": [
+      "sqlite-interactive",
+      "sqlite-atomic-batch"
+    ]
+  },
+  "batches": [
+    {
+      "firstSeed": 2000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-ulDq4o"
+    },
+    {
+      "firstSeed": 2100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-1KSzmc"
+    },
+    {
+      "firstSeed": 2200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-pObuWR"
+    },
+    {
+      "firstSeed": 2300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-8zbMAC"
+    },
+    {
+      "firstSeed": 2400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-CWDcIs"
+    },
+    {
+      "firstSeed": 2500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-SHVpH4"
+    },
+    {
+      "firstSeed": 2600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-ulWbMW"
+    },
+    {
+      "firstSeed": 2700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-u3Jhuw"
+    },
+    {
+      "firstSeed": 2800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-FSFZvs"
+    },
+    {
+      "firstSeed": 2900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-u2lrOO"
+    },
+    {
+      "firstSeed": 3000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-SkYQlA"
+    },
+    {
+      "firstSeed": 3100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-lylQ2x"
+    },
+    {
+      "firstSeed": 3200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-mX6vlF"
+    },
+    {
+      "firstSeed": 3300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-6XsV7G"
+    },
+    {
+      "firstSeed": 3400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-8ex7sZ"
+    },
+    {
+      "firstSeed": 3500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-MW6kjI"
+    },
+    {
+      "firstSeed": 3600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-RXg2Dc"
+    },
+    {
+      "firstSeed": 3700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-u6jvWN"
+    },
+    {
+      "firstSeed": 3800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-lvzfcG"
+    },
+    {
+      "firstSeed": 3900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-5MPMg5"
+    },
+    {
+      "firstSeed": 4000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-XEEF8o"
+    },
+    {
+      "firstSeed": 4100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-PZAHih"
+    },
+    {
+      "firstSeed": 4200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-nhFhe7"
+    },
+    {
+      "firstSeed": 4300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-cSLyeS"
+    },
+    {
+      "firstSeed": 4400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-F5lY8r"
+    },
+    {
+      "firstSeed": 4500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-sO7OTj"
+    },
+    {
+      "firstSeed": 4600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-C44LG1"
+    },
+    {
+      "firstSeed": 4700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-wSpzHc"
+    },
+    {
+      "firstSeed": 4800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-37giqF"
+    },
+    {
+      "firstSeed": 4900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-YTplK1"
+    },
+    {
+      "firstSeed": 5000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-hKVxxP"
+    },
+    {
+      "firstSeed": 5100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-Yiqz4t"
+    },
+    {
+      "firstSeed": 5200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-yukER9"
+    },
+    {
+      "firstSeed": 5300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-qCQ7P3"
+    },
+    {
+      "firstSeed": 5400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-6Whzds"
+    },
+    {
+      "firstSeed": 5500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-R3GT2z"
+    },
+    {
+      "firstSeed": 5600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-McOZ1A"
+    },
+    {
+      "firstSeed": 5700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-YafPSN"
+    },
+    {
+      "firstSeed": 5800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-rLGhiw"
+    },
+    {
+      "firstSeed": 5900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-5bGKdD"
+    },
+    {
+      "firstSeed": 6000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-bl3Y9P"
+    },
+    {
+      "firstSeed": 6100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-UFiIWF"
+    },
+    {
+      "firstSeed": 6200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-hp6Anw"
+    },
+    {
+      "firstSeed": 6300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-VjRnqe"
+    },
+    {
+      "firstSeed": 6400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-GAVlNk"
+    },
+    {
+      "firstSeed": 6500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-2fJx8N"
+    },
+    {
+      "firstSeed": 6600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-AqzN2U"
+    },
+    {
+      "firstSeed": 6700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-tYXVjK"
+    },
+    {
+      "firstSeed": 6800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-bYHoLu"
+    },
+    {
+      "firstSeed": 6900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-kvZuFJ"
+    }
+  ]
+}

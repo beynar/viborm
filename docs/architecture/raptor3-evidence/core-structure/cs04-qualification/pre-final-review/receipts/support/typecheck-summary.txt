@@ -1,0 +1,3 @@
+The isolated selected-candidate snapshot reports two historical production TS2345 errors in src/query-engine/pattern/pack.ts and one pre-existing snapshot-only TS2532 error in tests/pattern/pack/program-dump.ts. No CS-03 or CS-04 task-owned type error remains.
+The program-dump correction already present in the user's main worktree is excluded from this isolated candidate snapshot and from the Raptor identity; this archive does not claim that unrelated correction as task work.
+Whole-estate native typecheck: 5.46 seconds wall; 5756.2 MiB peak sampled process-group RSS; 8192 MiB ceiling; teardown verified.

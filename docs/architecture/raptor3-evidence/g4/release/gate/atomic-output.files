@@ -1,0 +1,9 @@
+tests/contracts/engine/write/compound-relation-adoption.test.ts
+tests/contracts/engine/write/create-junction-upsert.test.ts
+tests/contracts/engine/write/fresh-create-subtree.test.ts
+tests/contracts/engine/write/generated-output-fallback.test.ts
+tests/contracts/engine/write/junction-produced-identity.test.ts
+tests/contracts/engine/write/junction-upsert-arm-probe.test.ts
+tests/contracts/engine/write/located-target-depth.test.ts
+tests/contracts/engine/write/type-depth-ceiling.test.ts
+tests/contracts/engine/query/nested-mutation-routing.test.ts

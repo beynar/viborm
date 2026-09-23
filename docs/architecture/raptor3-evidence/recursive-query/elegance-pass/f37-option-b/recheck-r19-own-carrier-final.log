@@ -1,0 +1,436 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+OWN-CARRIERS [
+ {
+  "name": "duplicate node",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed duplicate recursive node scalar for operation \"findUnique\": two nodes carry the same identity.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "duplicate recursive node"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "depth past the cutoff",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive depth scalar for operation \"findUnique\": an edge depth is not an integer from 1 to the cutoff.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive depth"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "root of the wrong width",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive identity scalar for operation \"findUnique\": an identity is not a tuple of the key's width.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive identity"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "edge entry not an object",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive edge scalar for operation \"findUnique\": an edge entry is not an object.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive edge"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "node entry not an object",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive node scalar for operation \"findUnique\": a node entry is not an object.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive node"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "edge carried twice",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed duplicate recursive edge scalar for operation \"findUnique\": an edge fact is carried twice.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "duplicate recursive edge"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "unreachable node",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed unreachable recursive node scalar for operation \"findUnique\": a carried node is not reachable from the root.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "unreachable recursive node"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "edge below its parent's only level",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive depth scalar for operation \"findUnique\": an edge is not reachable at its recorded depth.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive depth"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "exhaustive carrier states a depth",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed exhaustive recursive depth scalar for operation \"findUnique\": an exhaustive carrier states an edge depth.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "exhaustive recursive depth"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "singular parent with two successors",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive singular relation scalar for operation \"findUnique\": a singular parent has several successors.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive singular relation"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "edge from an uncarried parent",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive edge endpoint scalar for operation \"findUnique\": an edge's parent is neither the root nor a carried node.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive edge endpoint"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "graph hop at level 2 omits r -> b",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive depth scalar for operation \"findUnique\": a hop below the cutoff omits some of its parent's children.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive depth"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "tree edge misattributed to level 1",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive depth scalar for operation \"findUnique\": a hop below the cutoff omits some of its parent's children.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive depth"
+   }
+  },
+  "statements": 1
+ },
+ {
+  "name": "nodes member not an array",
+  "identity": {
+   "name": "QueryEngineError",
+   "code": "V9001",
+   "message": "Driver \"sqlite3\" returned a malformed recursive carrier scalar for operation \"findUnique\": the carrier's root, nodes or edges member is not an array.",
+   "meta": {
+    "driver": "sqlite3",
+    "operation": "findUnique",
+    "scalarType": "recursive carrier"
+   }
+  },
+  "statements": 1
+ }
+]
+OWN-PROBES {
+ "wellFormedTree": {
+  "id": "r",
+  "children": [
+   {
+    "id": "a",
+    "children": [
+     {
+      "id": "a1"
+     }
+    ]
+   },
+   {
+    "id": "b",
+    "children": []
+   }
+  ]
+ },
+ "nullRow": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed recursive row scalar for operation \"findUnique\": a node's row is null.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "recursive row"
+  }
+ },
+ "carrierNotJson": {
+  "raw": "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+ },
+ "ordinaryNotJson": {
+  "raw": "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+ }
+}
+PLACEMENT-PROBES {
+ "batch-only:array:wellFormed": [
+  {
+   "id": "r",
+   "children": [
+    {
+     "id": "a",
+     "children": [
+      {
+       "id": "a1"
+      }
+     ]
+    },
+    {
+     "id": "b",
+     "children": []
+    }
+   ]
+  }
+ ],
+ "batch-only:array:malformedCarrier:decoderThrows": [
+  {
+   "name": "InvalidScalarResult",
+   "message": "Invalid provider duplicate recursive node",
+   "scalarType": "duplicate recursive node",
+   "reason": "two nodes carry the same identity"
+  }
+ ],
+ "batch-only:array:malformedCarrier": {
+  "name": "QueryError",
+  "code": "V2001",
+  "message": "Query execution failed",
+  "meta": {
+   "driver": "sqlite3",
+   "model": "node",
+   "operation": "findUnique"
+  }
+ },
+ "batch-only:array:malformedCarrier:debug": {
+  "own": [
+   "stack",
+   "message",
+   "code",
+   "originalCause",
+   "meta",
+   "timestamp",
+   "name"
+  ],
+  "causeName": "Error",
+  "causeMessage": "Underlying error details redacted"
+ },
+ "batch-only:array:malformedOrdinaryCollection": {
+  "name": "QueryError",
+  "code": "V2001",
+  "message": "Query execution failed",
+  "meta": {
+   "driver": "sqlite3",
+   "model": "node",
+   "operation": "findUnique"
+  }
+ },
+ "batch-only:array:malformedOrdinaryScalar": {
+  "name": "QueryError",
+  "code": "V2001",
+  "message": "Query execution failed",
+  "meta": {
+   "driver": "sqlite3",
+   "model": "node",
+   "operation": "findUnique"
+  }
+ },
+ "batch-only:single:malformedOrdinaryScalar": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"findUnique\": the value is not a string.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "string"
+  }
+ },
+ "batch-only:single:malformedCarrier": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed duplicate recursive node scalar for operation \"findUnique\": two nodes carry the same identity.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "duplicate recursive node"
+  }
+ },
+ "transactional:array:wellFormed": [
+  {
+   "id": "r",
+   "children": [
+    {
+     "id": "a",
+     "children": [
+      {
+       "id": "a1"
+      }
+     ]
+    },
+    {
+     "id": "b",
+     "children": []
+    }
+   ]
+  }
+ ],
+ "transactional:array:malformedCarrier:decoderThrows": [
+  {
+   "name": "InvalidScalarResult",
+   "message": "Invalid provider duplicate recursive node",
+   "scalarType": "duplicate recursive node",
+   "reason": "two nodes carry the same identity"
+  }
+ ],
+ "transactional:array:malformedCarrier": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed duplicate recursive node scalar for operation \"findUnique\": two nodes carry the same identity.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "duplicate recursive node"
+  }
+ },
+ "transactional:array:malformedCarrier:debug": {
+  "own": [
+   "stack",
+   "message",
+   "code",
+   "originalCause",
+   "meta",
+   "timestamp",
+   "name"
+  ],
+  "causeName": "undefined",
+  "causeMessage": "undefined"
+ },
+ "transactional:array:malformedOrdinaryCollection": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed collection scalar for operation \"findUnique\": a requested relation is not a provider array.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "collection"
+  }
+ },
+ "transactional:array:malformedOrdinaryScalar": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"findUnique\": the value is not a string.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "string"
+  }
+ },
+ "transactional:single:malformedOrdinaryScalar": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"findUnique\": the value is not a string.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "string"
+  }
+ },
+ "transactional:single:malformedCarrier": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed duplicate recursive node scalar for operation \"findUnique\": two nodes carry the same identity.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "duplicate recursive node"
+  }
+ },
+ "transactional:callback:malformedCarrier": {
+  "name": "QueryEngineError",
+  "code": "V9001",
+  "message": "Driver \"sqlite3\" returned a malformed duplicate recursive node scalar for operation \"findUnique\": two nodes carry the same identity.",
+  "meta": {
+   "driver": "sqlite3",
+   "operation": "findUnique",
+   "scalarType": "duplicate recursive node"
+  }
+ }
+}
+ ✓ ../../../../private/tmp/viborm-rq-option-b-recheck/scratch/own-carrier.scratch.test.ts (2 tests) 41ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:04:49
+   Duration  1.56s (transform 932ms, setup 14ms, collect 1.37s, tests 41ms, environment 0ms, prepare 41ms)
+
+Vitest resources: 2.05s wall, 407.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

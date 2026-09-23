@@ -1,0 +1,347 @@
+diff --git a/docs/architecture/raptor3-evidence/g4.md b/docs/architecture/raptor3-evidence/g4.md
+index 0a3e9976f..492caa5f6 100644
+--- a/docs/architecture/raptor3-evidence/g4.md
++++ b/docs/architecture/raptor3-evidence/g4.md
+@@ -2994,6 +2994,81 @@ pin, the push. The verdict itself:
+ `g4/release/closure/fc06/release-verdict-draft.md` (finalised in place).
+ 
+ 
++**Adopted D-66 — MySQL deadlocks (2026-09-21, adopted from the decided final
++closure handoff §1).** The contract, as that handoff words it: preserve native
++transaction-abort semantics; do not introduce automatic whole-transaction
++replay, change global isolation, or retry borrowed work; distinguish a genuine
++provider deadlock from the already-supported recoverable unique-key race, and
++the latter must continue to converge under its existing rules. Adopted here as
++the rule R2C implements; no separate ruling was sought or invented. The number
++is provisional: the handoff's §1 rows carry no identifiers of their own, three
++other units adopt their own rows in parallel, and the integrator renumbers if
++two land on 66.
++
++**R2C — the precise MySQL deadlock policy (2026-09-21, branch closure-r2c from
++cdd787ac8).** The four recorded concurrency failures
++(`Transaction deadlock detected`, `ER_LOCK_DEADLOCK` 1213, in
++`mysql2-writes-raw.test.ts`) were ONE cause, measured on a controlled native
++schedule with `performance_schema.data_locks` and `SHOW ENGINE INNODB STATUS`:
++the plan-time probe of an `upsert` / `connectOrCreate` asked for `FOR UPDATE`,
++and a miss on a unique index leaves InnoDB an X gap lock over the index
++supremum. Both racers were GRANTED that same gap lock (gap locks do not exclude
++each other), and the `X,INSERT_INTENTION` each then requested waited for the
++other's gap — the cycle InnoDB breaks by aborting one whole transaction. The
++counterfactual, same schedule without the lock: no lock at all is taken, the
++loser's INSERT is refused by the unique constraint (`ER_DUP_ENTRY` 1062) and the
++existing recovery converges through the update arm. Cause class: GRATUITOUS
++locking — the lock protected no captured row on the MISS the deadlock is made
++of (a gap, `X GRANTED` on both racers at once), and the create arm's arbiter
++was already the constraint (Pin Rule 2). Repair at its owner: `Selection`
++carries `insertsWhenAbsent`, set where a choose's missing arm exists (root
++upsert's probe-first arm, its interpreted arm and that arm's condition probes
++in `commands.ts`, the nested arm in `relation-body.ts`), and the PROBE read
++(`Selection.query`) asks for no lock — which is what the batch route and
++PostgreSQL already did. Stated precisely, because the repair round corrected
++this record: a statement is chosen before its own answer is known, so the
++probe reads unlocked in BOTH outcomes, on every provider, and the found arm no
++longer inherits a lock from it. What holds the found arm instead is named:
++`Selection.inspectMembership` keeps `forUpdate` (its answer IS the row the
++found arm updates, and the withdrawal reaches `query` alone), and the
++non-RETURNING stored-row read in `OperationContext.update` — the read that asks
++which row the UPDATE just wrote — became a CURRENT read, because under
++REPEATABLE READ a consistent read answers from this transaction's snapshot plus
++its own changes and therefore cannot see that the row it names was deleted and
++its UPDATE affected nothing. Measured before that second repair, this exact
++schedule returned the probe's row, with the update NOT applied, as a SUCCESS;
++after it the operation fails visibly and commits nothing, which the 8th cell of
++the new file pins. Nothing was added to error
++normalization: 1062 → `UniqueConstraintError` and 1213 → `TransactionError`
++with `VibORMErrorCode.DEADLOCK` were already distinct, and only the second is
++unrecoverable. No replay, no isolation change, no borrowed-work retry. The four
++cells are green as written, their unconditional success expectations unchanged.
++New witnesses in `tests/providers/docker/mysql2-concurrency-policy.test.ts`
++(8 cells, 5 of them red on the base tree; it resets with the siblings' approved
++`dropEveryLiveTable`, since the lane shares one database and a sibling's tables
++are the normal state it starts in): the eligible race converging on the
++producer the selector names with one admitted create; a rejection on a
++constraint the selector does NOT name refusing to become a lost race; a forced
++native deadlock through the public client inside `$transaction` (opposite-order
++ROW locks) whose victim fails with the normalized failure, replays nothing and
++commits nothing, beside its same-order success control; borrowed execution
++keeping the caller's ownership — one create attempt, one pooled connection, the
++member's own savepoint triple and nothing else, and a caller that catches the
++rejection and still commits; and the found path's own price, a row DELETED
++between the unlocked probe and the update arm, which fails visibly
++(`UPDATE did not produce the required record`), commits nothing and writes no
++row under either id. One recorded expectation re-expressed, naming this
++decision at the cell: the latch of `competing upserts identify their branches
++and refetch their own updates` waited for the second operation's locking
++probe; that operation's contention point is now its UPDATE, so the latch waits
++for that statement — every assertion of the row unchanged, and the two rows
++that latch on a locking probe (root update, root delete) keep it. Engine cost
++16,040 → 16,053 token-bearing LOC (+13, the repair round included); no deletion
++— the rule replaces no narrower rule, it withdraws a lock from one read and
++states where the two readers that keep one are. Receipts and note:
++`g4/release/closure-final/r2c/`.
++
++
+ **D-16 decided (morning, 2026-09-17).** Arnaud, on the twenty-one families:
+ relation-filtered bulk mutations, operator bags, JSON path filters, the read
+ regressions, decimals and scalars, polymorphic collections ("absolutely"),
+diff --git a/src/query-engine/raptor3/AGENTS.md b/src/query-engine/raptor3/AGENTS.md
+index 44fe2b6cb..ce79a5391 100644
+--- a/src/query-engine/raptor3/AGENTS.md
++++ b/src/query-engine/raptor3/AGENTS.md
+@@ -1585,6 +1585,42 @@ in, and the operation would answer a raceable staleness instead of
+ `parent record changed across a committed segment`. An interactive transaction
+ needs none of this: its plan-time read took `FOR UPDATE`.
+ 
++Addendum (R2c, 2026-09-21, repaired after review), narrowing the sentence
++above: the interactive route's plan-time `FOR UPDATE` is what a read takes when
++its answer is a row this operation will mutate. A `choose` PROBE is not that
++read. It may answer "absent", and the arm it then takes INSERTS the very key it
++looked for, so it reads without locking (`Selection.insertsWhenAbsent`, set
++where the missing arm exists and consumed by `Selection.query` alone). A lock
++cannot protect an absence, and on MySQL asking for one costs the operation its
++convergence: a miss on a unique index leaves an X gap lock over the index
++supremum, two racers are GRANTED that same gap at once, and the
++insert-intention each then requests waits for the other's — the cycle InnoDB
++breaks by aborting a whole transaction (`ER_LOCK_DEADLOCK`, measured both ways
++in `g4/release/closure-final/r2c/receipts/`). The create arm's arbiter was
++never that lock but the unique constraint itself (Pin Rule 2), whose violation
++is the retryable signal `CommandExecution.recover` converges on, and whose
++attribution `matchesSelectedConstraint` still checks against the selector's own
++key. A deadlock stays what the provider called it: `TransactionError` with
++`VibORMErrorCode.DEADLOCK`, recovered by nothing.
++
++State plainly what that withdrawal costs, because a statement is chosen before
++its own answer is known: the probe reads unlocked in BOTH outcomes, on every
++provider, so a row it FINDS is no longer held for the update arm that follows
++either. Two readers answer that, and neither is the probe. A nested `upsert`'s
++found membership confirmation (`Selection.inspectMembership`) keeps
++`forUpdate`: its answer IS the row the found arm updates, and a row deleted
++meanwhile makes that read empty and the arm refuse. Where no such confirmation
++exists — a root `upsert` — the answer is the read the write already issues of
++the row it has just written (`OperationContext.update`, the non-RETURNING
++stored-row read), which is a CURRENT read for this reason: under REPEATABLE
++READ a consistent read answers from the snapshot this transaction opened plus
++its OWN changes, so a statement that affected NO row leaves the snapshot's copy
++standing and a snapshot read would hand back a row that is not there, with the
++update not applied, as a success. It was measured doing exactly that before the
++lock was put on it. Never state the protection as "the plan-time read holds
++it": say which read is current, and never replace a lock with a consistent read
++that cannot see another transaction's commit.
++
+ A premise is proved inside the atomic unit that carries the write it protects,
+ never in an earlier planning batch (Arnaud's D-29). The owner is `flush`, the
+ one place planning reads become batches: a planning read carries no premise of
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index 2169b4b83..395d270a0 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -1615,6 +1615,9 @@ export class Commands {
+       where: args.where,
+       unique: true,
+     });
++    // The arm this probe chooses INSERTS the key it just looked for, so the
++    // probe does not lock the absence it may find (`Selection.insertsWhenAbsent`).
++    lookup.insertsWhenAbsent = true;
+     const key = lookup.selector.uniqueKey;
+     const spelled =
+       capabilities.supportsTargetedUpsert &&
+@@ -1781,6 +1784,9 @@ export class Commands {
+         where: args.where,
+         unique: true,
+       });
++      // As above: the missing arm below inserts this very key
++      // (`Selection.insertsWhenAbsent`).
++      lookup.insertsWhenAbsent = true;
+       const queries = this.context.queries;
+       const probes: Condition[] = [];
+       for (const field of ["targetWhere", "setWhere"] as const) {
+@@ -1794,14 +1800,22 @@ export class Commands {
+           );
+         const skip = failure(false);
+         skip.meta.raceable = true;
++        const probe = this.lookup(model, {
++          kind: "query",
++          selector: queries.andSelectors(model, [
++            lookup.selector,
++            conditionSelector,
++          ]),
++        });
++        // This probe runs before either arm is chosen and its selector is the
++        // locator's own, narrowed by the condition — so it names the key the
++        // missing arm inserts, and a miss here must not lock that absence
++        // either (`Selection.insertsWhenAbsent`). `targetWhere` / `setWhere`
++        // are public arguments and `rootUpsert` declines them, so on MySQL
++        // this is the only spelling of the shape that reaches the provider.
++        probe.insertsWhenAbsent = true;
+         probes.push({
+-          lookup: this.lookup(model, {
+-            kind: "query",
+-            selector: queries.andSelectors(model, [
+-              lookup.selector,
+-              conditionSelector,
+-            ]),
+-          }),
++          lookup: probe,
+           match: failure(true),
+           skip,
+         });
+diff --git a/src/query-engine/raptor3/commands/relation-body.ts b/src/query-engine/raptor3/commands/relation-body.ts
+index a4031104e..808437908 100644
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -590,6 +590,10 @@ export class RelationBody {
+             facts
+           );
+           lookup.origin = origin;
++          // The missing arm inserts the key this probe just looked for, so the
++          // probe does not lock the absence it may find
++          // (`Selection.insertsWhenAbsent`).
++          if (missing) lookup.insertsWhenAbsent = true;
+           if (verb === "connectOrCreate")
+             lookup.retained = () =>
+               new NestedWriteError(
+diff --git a/src/query-engine/raptor3/commands/selection.ts b/src/query-engine/raptor3/commands/selection.ts
+index 951b98429..212a4e44f 100644
+--- a/src/query-engine/raptor3/commands/selection.ts
++++ b/src/query-engine/raptor3/commands/selection.ts
+@@ -124,6 +124,29 @@ export class Selection {
+    * would race a queued write.
+    */
+   dependent?: boolean;
++  /**
++   * THIS operation inserts the key this selector names when the row is absent:
++   * the missing arm of an `upsert` or a `connectOrCreate`. Such a probe reads
++   * without locking — the PROBE alone ({@link query}); the other reads this
++   * selection answers keep the lock their own answer earns.
++   *
++   * A locking read cannot protect an absence, and asking for one costs the
++   * operation its own convergence. MySQL answers a miss on a unique index with
++   * a gap lock over the index supremum; the two racers hold that same gap lock
++   * AT ONCE (gap locks do not exclude each other), and the insert-intention
++   * each of them then requests waits for the other's gap — a cycle InnoDB
++   * breaks by aborting one whole transaction (`ER_LOCK_DEADLOCK`). Measured
++   * both ways under `r2c/receipts/`: with the lock, two `X GRANTED` gaps on the
++   * supremum pseudo-record and a deadlock; without it, no lock at all, and the
++   * loser's INSERT is refused by the unique constraint.
++   *
++   * That refusal is the arbiter the create arm already relies on (Pin Rule 2:
++   * no `notExists` premise precedes the create INSERT), and the retryable
++   * signal {@link CommandExecution.recover} converges on. PostgreSQL locks
++   * nothing for a miss and the batch route asks for no lock at all, so an
++   * unlocked probe is the answer the other two routes already give.
++   */
++  insertsWhenAbsent?: boolean;
+ 
+   constructor(
+     private readonly execution: CommandExecution,
+@@ -170,6 +193,7 @@ export class Selection {
+     selector: PreparedSelector,
+     membership: BoundMembership | undefined,
+     identity?: Input,
++    unlocked = false,
+   ) {
+     const ctx = this.execution.context;
+     return ctx.queries.select(
+@@ -179,13 +203,19 @@ export class Selection {
+       },
+       this.bindMembership(membership),
+       {
+-        forUpdate: !ctx.usesBatch,
++        forUpdate: !(ctx.usesBatch || unlocked),
+         identity,
+         projection: this.rowProjection,
+         selector,
+       },
+     );
+   }
++  /**
++   * The membership confirmation of a found arm, which is a read whose answer is
++   * a row this operation is about to UPDATE: it keeps its lock whatever the
++   * PROBE of the same selection does ({@link insertsWhenAbsent} reaches
++   * {@link query} alone).
++   */
+   inspectMembership(membership: BoundMembership) {
+     return this.rowQuery(
+       this.selector,
+@@ -212,7 +242,12 @@ export class Selection {
+       this.source.kind === "producer"
+         ? this.execution.identity(this.source.producer)
+         : undefined;
+-    return this.rowQuery(this.selector, this.membership(), identity);
++    return this.rowQuery(
++      this.selector,
++      this.membership(),
++      identity,
++      this.insertsWhenAbsent,
++    );
+   }
+   captured(
+     condition: Selection = this,
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index 9f1a96b56..4eaa363f3 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -2998,9 +2998,19 @@ export class OperationContext {
+         await this.dispatch(1, false, () =>
+           this.transport._execute(statement, context)
+         );
+-        // The mutation's locked capture remains protected through this stored-row read.
++        // This read answers "which row did the UPDATE just write?", and only a
++        // CURRENT read can: under REPEATABLE READ a consistent read answers
++        // from the snapshot this transaction opened plus its OWN changes, so a
++        // statement that affected NO row leaves the snapshot's copy standing
++        // and the check below sees a row that is not there. The lock is the
++        // same one the UPDATE itself took on every row it did write, so on the
++        // ordinary path it costs nothing and the comment it replaces — the
++        // mutation's locked capture protects this read — becomes true of this
++        // statement rather than of a plan-time probe that may no longer hold
++        // it (`Selection.insertsWhenAbsent`).
+         const rows = await this.read(
+           q.select(model, {}, undefined, {
++            forUpdate: true,
+             projection,
+             identity: this.updatedIdentity(model, identity, values),
+           }),
+diff --git a/tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts b/tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts
+index d1a92cc78..7954c9ad3 100644
+--- a/tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts
++++ b/tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts
+@@ -286,7 +286,7 @@ export function runNonReturningMutationAtomicityBehavior(
+ 
+         const firstMutated = createDeferred();
+         const releaseFirst = createDeferred();
+-        const secondLockAttempted = createDeferred();
++        const secondContended = createDeferred();
+         const firstDriver = createDriver({
+           afterStatement: async ({ statement }) => {
+             if (!(isItemUpdate(statement) || isNativeUpsert(statement))) return;
+@@ -294,9 +294,19 @@ export function runNonReturningMutationAtomicityBehavior(
+             await releaseFirst.promise;
+           },
+         });
++        // The upsert probe no longer locks (the decided handoff's "MySQL
++        // deadlocks": the arm it chooses INSERTS the key it just looked for,
++        // and locking that absence is a gap lock two racers are granted at
++        // once — see `Selection.insertsWhenAbsent`). So the second operation's
++        // CONTENTION POINT is no longer its probe but the UPDATE its found arm
++        // issues, which is the statement that queues behind the first
++        // operation's row lock. The latch waits for that statement; the
++        // interleaving this row measures, and every assertion below, are
++        // unchanged. The two rows above still latch on `isItemLock`: a root
++        // update and a root delete keep the locate lock they have always had.
+         const secondDriver = createDriver({
+           beforeStatement: ({ statement }) => {
+-            if (isItemLock(statement)) secondLockAttempted.resolve();
++            if (isItemUpdate(statement)) secondContended.resolve();
+           },
+         });
+         const first = boot(firstDriver);
+@@ -315,7 +325,7 @@ export function runNonReturningMutationAtomicityBehavior(
+         const secondPromise = Promise.resolve(
+           upsert(second, "unused-second", "second")
+         );
+-        await secondLockAttempted.promise;
++        await secondContended.promise;
+         releaseFirst.resolve();
+ 
+         const [firstResult, secondResult] = await Promise.all([

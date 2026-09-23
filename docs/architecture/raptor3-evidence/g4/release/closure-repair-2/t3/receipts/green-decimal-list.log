@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ✓ |provider-mysql2| tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts (1 test) 346ms
+   ✓ MySQL decimal-list defaults > populates old rows, serves raw omitted inserts, introspects, and converges  346ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  23:24:50
+   Duration  2.00s (transform 902ms, setup 11ms, collect 1.37s, tests 346ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 3.86s wall, 501.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

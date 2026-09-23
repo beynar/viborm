@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-many.test.ts (6 tests) 880ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  01:16:32
+   Duration  2.43s (transform 903ms, setup 11ms, collect 1.37s, tests 880ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 4.31s wall, 1494.1 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

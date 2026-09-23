@@ -1,0 +1,15 @@
+FC-06 — the registration pin, falsified by restoring ONLY the base's list placement
+(the whole base file cannot be used: it has no assertStructuralMeasurementPatch, so the test file would not load)
+kept manifest md5: 58a554c1137fd34587927a8417a6ccf9
+
+base placement restored
+✖ credential-free registration isolates native Raptor suites and retains local fixed suites (0.280958ms)
+ℹ pass 40
+ℹ fail 1
+✖ credential-free registration isolates native Raptor suites and retains local fixed suites (0.280958ms)
+  AssertionError [ERR_ASSERTION]: tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts
+
+### reconciled placement back in place
+ℹ pass 41
+ℹ fail 0
+restored md5: 58a554c1137fd34587927a8417a6ccf9

@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-captured-answer-settlement.test.ts (4 tests) 47ms
+ ✓ |coverage-drivers| tests/providers/local/sqlite3-captured-answer-settlement.test.ts (4 tests) 29ms
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  19:42:45
+   Duration  2.78s (transform 1.56s, setup 15ms, collect 2.29s, tests 76ms, environment 0ms, prepare 50ms)
+
+Vitest resources: 4.55s wall, 530.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

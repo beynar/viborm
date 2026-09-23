@@ -1,0 +1,5 @@
+Isolated PGlite stage: 5 files, 11 tests passed, 0 failed.
+Per-file counts: produced commands 3, batch produced commands 2, G2.9 result progress 1, produced legacy 3, and batch produced legacy 2.
+Each evidence-capture process used the existing startBoundedProcess owner with heap 768 MiB, the allowlisted isolated-live-PGlite RSS ceiling of 2,560 MiB, wall limit 120,000 ms, workspace vitest.workspace.ts, project raptor3-provider, one exact file, and one worker. Peaks were 1,522.9, 1,466.9, 1,521.1, 1,514.4, and 1,498.3 MiB. Every process exited zero and verified teardown.
+Raw per-file Vitest JSON, exact arguments, resource outcome, stderr, and the shared identity are under raw/pglite/.
+Identity: production 36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377; harness 87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e; Node v24.21.0.

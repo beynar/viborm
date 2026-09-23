@@ -1,0 +1,5 @@
+# repair round 2026-09-20 — whole-estate typecheck after the two doc-only clause edits
+$ node scripts/run-typecheck.mjs
+TypeScript (whole estate, native): 7.31s wall, 5212.7 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+EXIT=0
+error TS count: 0

@@ -1,0 +1,18 @@
+DIRECT (pre-batch) statements: [
+  'SELECT "q0"."id" AS "id", "q0"."title" AS "title", "q0"."shelfId" AS "shelfId" FROM "zzz2_books" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ?',
+  'SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "zzz2_shelves" AS "q0" WHERE "q0"."label" = ? ORDER BY "q0"."id" ASC LIMIT ?'
+]
+BATCHES: []
+OUTCOME: {"ok":false,"error":{"name":"TransactionError","message":"Driver \"sqlite3\" does not support callback transactions and this transaction contains operations that cannot be batched atomically.","code":"V5001","meta":{"driver":"sqlite3","method":"$transaction([...])"},"timestamp":"2026-09-19T16:48:04.801Z"}}
+stored shelves: []
+stored books: [ { id: 'b1', title: 't1', shelfId: null } ]
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+
+(reviewer note: the read narrowing still lets both planning reads run at
+preparation -- same as scope repro 1 -- but this shape still ends up
+unbatchable rather than silently creating a duplicate shelf row. The
+downstream refusal that catches it was not identified; recorded as
+"unverified: full blast radius of the read narrowing across nested-write
+shapes" in review.md.)

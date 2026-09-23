@@ -1,0 +1,1667 @@
+diff --git a/scripts/coverage-policy.test.mjs b/scripts/coverage-policy.test.mjs
+index 7273998bc..73430fa18 100644
+--- a/scripts/coverage-policy.test.mjs
++++ b/scripts/coverage-policy.test.mjs
+@@ -298,7 +298,6 @@ test("client coverage admits the core and audited deterministic contracts", () =
+ test("driver coverage isolates provider resources and admits only audited local providers", () => {
+   const core = coreTests("tests/contracts/drivers");
+   const providerContracts = [
+-    "tests/contracts/drivers/consumable-result-rows.provider.test.ts",
+     "tests/contracts/drivers/sqlite-binary-values.provider.test.ts",
+     "tests/contracts/drivers/sqlite-integer-safety.provider.test.ts",
+     "tests/contracts/drivers/sqlite-native-datetime.provider.test.ts",
+@@ -392,7 +391,6 @@ test("driver coverage isolates provider resources and admits only audited local
+     );
+   }
+   const pgliteCoverageExclusions = [
+-    "tests/contracts/drivers/consumable-result-rows-pglite.provider.test.ts",
+     "tests/contracts/drivers/error-mapping.provider.test.ts",
+     "tests/contracts/drivers/transaction-options-behavior.provider.test.ts",
+     "tests/contracts/drivers/transaction-scope-scheduler.provider.test.ts",
+diff --git a/scripts/driver-test-manifest.mjs b/scripts/driver-test-manifest.mjs
+index d4f7756ef..2e037b29e 100644
+--- a/scripts/driver-test-manifest.mjs
++++ b/scripts/driver-test-manifest.mjs
+@@ -13,7 +13,6 @@ export const DRIVER_CORE_TESTS = Object.freeze(
+ );
+ 
+ const localProviderContracts = Object.freeze([
+-  "tests/contracts/drivers/consumable-result-rows.provider.test.ts",
+   "tests/contracts/drivers/sqlite-binary-values.provider.test.ts",
+   "tests/contracts/drivers/sqlite-integer-safety.provider.test.ts",
+   "tests/contracts/drivers/sqlite-native-datetime.provider.test.ts",
+diff --git a/scripts/query-engine-test-manifest.mjs b/scripts/query-engine-test-manifest.mjs
+index a8ad863c2..28ffee0c7 100644
+--- a/scripts/query-engine-test-manifest.mjs
++++ b/scripts/query-engine-test-manifest.mjs
+@@ -14,11 +14,9 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
+   "tests/contracts/engine/query/batch-attribution-hazard-signature.core.test.ts",
+   "tests/contracts/engine/query/bind-budget.core.test.ts",
+   "tests/contracts/engine/query/blob-result-parser.core.test.ts",
+-  "tests/contracts/engine/query/bound-relation.core.test.ts",
+   "tests/contracts/engine/query/bulk-create-plan.core.test.ts",
+   "tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts",
+   "tests/contracts/engine/query/cache-result-codec-boundaries.core.test.ts",
+-  "tests/contracts/engine/query/cache-result-codec.core.test.ts",
+   "tests/contracts/engine/query/consumable-result-rows.core.test.ts",
+   "tests/contracts/engine/query/count-result-carrier.core.test.ts",
+   "tests/contracts/engine/query/cursor-pagination-sql.core.test.ts",
+@@ -35,7 +33,6 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
+   "tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts",
+   "tests/contracts/engine/query/junction-conflict-target.core.test.ts",
+   "tests/contracts/engine/query/junction-statements.core.test.ts",
+-  "tests/contracts/engine/query/junction-topology-order.core.test.ts",
+   "tests/contracts/engine/query/lateral-joins.core.test.ts",
+   "tests/contracts/engine/query/list-update-container.core.test.ts",
+   "tests/contracts/engine/query/model-key-catalog.core.test.ts",
+@@ -47,8 +44,6 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
+   "tests/contracts/engine/query/operation-equivalence-oracles.core.test.ts",
+   "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
+   "tests/contracts/engine/query/orderby-relation-depth.core.test.ts",
+-  "tests/contracts/engine/query/own-write-dependency.core.test.ts",
+-  "tests/contracts/engine/query/own-write-ledger.core.test.ts",
+   "tests/contracts/engine/query/own-write-target.core.test.ts",
+   "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
+   "tests/contracts/engine/query/polymorphic-collection-bind.core.test.ts",
+@@ -58,14 +53,10 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
+   "tests/contracts/engine/query/polymorphic-result-parser.core.test.ts",
+   "tests/contracts/engine/query/polymorphic-storage-grouping.core.test.ts",
+   "tests/contracts/engine/query/query-builder-coverage-boundaries.core.test.ts",
+-  "tests/contracts/engine/query/query-core-coverage-boundaries.core.test.ts",
+-  "tests/contracts/engine/query/query-engine-boundaries.core.test.ts",
+   "tests/contracts/engine/query/query-inspection.core.test.ts",
+   "tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts",
+-  "tests/contracts/engine/query/query-relation-coverage-boundaries.core.test.ts",
+   "tests/contracts/engine/query/query-result-coverage-boundaries.core.test.ts",
+   "tests/contracts/engine/query/read-traversal-byte-pins.core.test.ts",
+-  "tests/contracts/engine/query/relation-key-legality.core.test.ts",
+   "tests/contracts/engine/query/relation-filter-nullability-planning.core.test.ts",
+   "tests/contracts/engine/query/relation-mutation-program.core.test.ts",
+   "tests/contracts/engine/query/relation-nullability-parity.core.test.ts",
+@@ -82,7 +73,6 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
+   "tests/contracts/engine/query/target-constraint.core.test.ts",
+   "tests/contracts/engine/query/target-predicate-footprint.core.test.ts",
+   "tests/contracts/engine/query/vector-distance-result-parser.core.test.ts",
+-  "tests/contracts/engine/query/vector-orderby.core.test.ts",
+ ]);
+ 
+ /**
+@@ -98,58 +88,17 @@ export const WRITE_ENGINE_CORE_TESTS = Object.freeze([
+   "tests/contracts/engine/query/nested-create-many.core.test.ts",
+   "tests/contracts/engine/write/architecture-gates.core.test.ts",
+   "tests/contracts/engine/write/atomic-unit-batch.core.test.ts",
+-  "tests/contracts/engine/write/bulk-polymorphic-connect-contracts.core.test.ts",
+-  "tests/contracts/engine/write/bulk-write-limit-plan.core.test.ts",
+-  "tests/contracts/engine/write/captured-row-key-decode.core.test.ts",
+   "tests/contracts/engine/write/compound-relation-adoption.core.test.ts",
+-  "tests/contracts/engine/write/create-junction-upsert.core.test.ts",
+-  "tests/contracts/engine/write/create-many-bind-budget.core.test.ts",
+-  "tests/contracts/engine/write/create-many-return-fold.core.test.ts",
+   "tests/contracts/engine/write/create-race-pin.core.test.ts",
+   "tests/contracts/engine/write/dead-symbol-gate.core.test.ts",
+-  "tests/contracts/engine/write/destination-cast.core.test.ts",
+-  "tests/contracts/engine/write/final-root-assignment.core.test.ts",
+   "tests/contracts/engine/write/fragment-validator.core.test.ts",
+-  "tests/contracts/engine/write/generated-identity-demand.core.test.ts",
+   "tests/contracts/engine/write/generated-output-boundary.core.test.ts",
+-  "tests/contracts/engine/write/generated-output-segment-contract.core.test.ts",
+-  "tests/contracts/engine/write/implicit-returning-refusal.core.test.ts",
+-  "tests/contracts/engine/write/inverse-to-one-create.core.test.ts",
+-  "tests/contracts/engine/write/junction-produced-identity.core.test.ts",
+-  "tests/contracts/engine/write/junction-upsert-arm-probe.core.test.ts",
+-  "tests/contracts/engine/write/namespace-write-qualification.core.test.ts",
+-  "tests/contracts/engine/write/nested-series-coverage.core.test.ts",
+-  "tests/contracts/engine/write/non-returning-delete-plan.core.test.ts",
+-  "tests/contracts/engine/write/operation-construction-inventory.core.test.ts",
+-  "tests/contracts/engine/write/operation-construction-witnesses.core.test.ts",
+-  "tests/contracts/engine/write/operation-executor-scenarios.core.test.ts",
+-  "tests/contracts/engine/write/operation-owner-coverage.core.test.ts",
+-  "tests/contracts/engine/write/own-write-linearization.core.test.ts",
+-  "tests/contracts/engine/write/parity-b-upsert-arm.core.test.ts",
+-  "tests/contracts/engine/write/parity-c-selected-identity.core.test.ts",
+-  "tests/contracts/engine/write/parity-d-transition.core.test.ts",
+-  "tests/contracts/engine/write/parity-e-shared-pk.core.test.ts",
+-  "tests/contracts/engine/write/parity-f-fresh-field.core.test.ts",
+-  "tests/contracts/engine/write/parity-h-to-one-lattice.core.test.ts",
+-  "tests/contracts/engine/write/parity-j-create-many.core.test.ts",
+-  "tests/contracts/engine/write/parity-k-update-many.core.test.ts",
+-  "tests/contracts/engine/write/parity-m-create-dag.core.test.ts",
+   "tests/contracts/engine/write/parse-boundary-gate.core.test.ts",
+-  "tests/contracts/engine/write/polymorphic-write-plan.core.test.ts",
+   "tests/contracts/engine/write/race-retry-classification.core.test.ts",
+-  "tests/contracts/engine/write/record-compiler-contract.core.test.ts",
+-  "tests/contracts/engine/write/record-series-coverage.core.test.ts",
+-  "tests/contracts/engine/write/relation-junction-collection-coverage.core.test.ts",
+-  "tests/contracts/engine/write/relation-junction-singular-coverage.core.test.ts",
+   "tests/contracts/engine/write/relation-membership-contracts.core.test.ts",
+-  "tests/contracts/engine/write/relation-mutation-scenario-matrix.core.test.ts",
+-  "tests/contracts/engine/write/relation-record-compiler-coverage.core.test.ts",
+   "tests/contracts/engine/write/relation-target-coverage.core.test.ts",
+-  "tests/contracts/engine/write/relation-write-parity-anchors.core.test.ts",
+   "tests/contracts/engine/write/series-result-read.core.test.ts",
+   "tests/contracts/engine/write/target-projection.core.test.ts",
+-  "tests/contracts/engine/write/unique-where-relation-filter-plan.core.test.ts",
+-  "tests/contracts/engine/write/upsert-planning-scenarios.core.test.ts",
+   "tests/contracts/engine/write/write-shared-coverage.core.test.ts",
+ ]);
+ 
+@@ -184,11 +133,6 @@ export const WRITE_ENGINE_COVERAGE_TESTS = Object.freeze([
+  */
+ export const WRITE_ENGINE_COVERAGE_TEST_GROUPS = Object.freeze([
+   Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(0, 8)),
+-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(8, 16)),
+-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(16, 24)),
+-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(24, 32)),
+-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(32, 40)),
+-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(40, 48)),
+-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(48)),
++  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(8)),
+   Object.freeze([...WRITE_ENGINE_EXTENDED_COVERAGE_TESTS]),
+ ]);
+diff --git a/src/query-engine/AGENTS.md b/src/query-engine/AGENTS.md
+index 5ca7aae26..8f05849de 100644
+--- a/src/query-engine/AGENTS.md
++++ b/src/query-engine/AGENTS.md
+@@ -3,6 +3,20 @@
+ **Location:** `src/query-engine/`  
+ **Layer:** L6 — query structure and semantics
+ 
++> **Since C-01 (the Raptor 3 cutover) this guide is partly historical.** The one
++> operation owner of every client operation is now `src/query-engine/raptor3/`
++> (its guide: [`raptor3/AGENTS.md`](raptor3/AGENTS.md)), built unconditionally in
++> `VibORM`'s constructor and reached through `PendingOperation`'s single route
++> arm. The shipped write/read engine was deleted: 25 of the 43 `write-engine/`
++> files, the seven `query-engine/` root owners (`OwnWriteSteps`,
++> `OwnWriteAnalyzer`, `OwnWriteRelation`, `OwnWriteLedger`, `RelationMembership`,
++> `relation-key-legality`, `validator`) and `builders/to-one-composition.ts` are
++> gone from disk. The 18 `write-engine/` files that remain are kept alive by
++> `src/query-engine/pattern/` alone; nothing on the operation path imports them.
++> Before trusting a sentence below that names a `write-engine/` owner, check that
++> the file exists. The read/write verb vocabulary that `write-engine/routing.ts`
++> exported lives in `routed-operations.ts`.
++
+ ## Purpose
+ 
+ The query engine validates operation inputs, decides query structure, compiles
+@@ -147,15 +161,13 @@ executor's non-read planning fallback.
+ 
+ ### Local terminology
+ 
+-An **operation shell** is the concrete public-operation-family owner that
+-exposes `mode`, `planning`, `compile`, and `parse`. `write-engine/routing.ts`
+-owns route-wide gates and shared-envelope parsing. The routed root shell owns
+-the remaining family- and arm-specific parsing, target, result, and direct
+-folds. `CreateOperation` can also be reused as a delegated fresh-record compiler
+-inside another shell. Files in `write-engine/*Operation.ts` contain these
+-owners. Files in `operations/*.ts` contain operation-specific SQL, plan,
+-identity, and ordering helpers; their historical directory name does not make
+-them operation shells.
++An **operation shell** was the concrete public-operation-family owner that
++exposed `mode`, `planning`, `compile`, and `parse`. C-01 deleted every one of
++them together with `write-engine/routing.ts`, which owned route-wide gates and
++shared-envelope parsing; no `write-engine/*Operation.ts` file exists any more.
++Files in `operations/*.ts` contain operation-specific SQL, plan, identity, and
++ordering helpers; their historical directory name does not make them operation
++shells.
+ 
+ Within relation compilation, **parent** means the current source record at that
+ edge and **child** means its relation target. `position: "parentHeld"` says
+@@ -715,25 +727,16 @@ the existing guard; it does not add a statement or round trip.
+ 
+ | Owner | Responsibility |
+ | --- | --- |
+-| `query-engine.ts` | client-scoped driver, registry, engine composition, and one resolved consumable-result candidate with a candidate-free cache executor |
+-| `pending-operation.ts` | lazy public model-operation routing entry |
++| `query-engine.ts` | client-scoped driver, registry and engine composition; it owns no executor since C-01 |
++| `pending-operation.ts` | lazy public model-operation entry; its one arm is the Raptor 3 route |
+ | `pending-execution.ts` | one-shot default/driver-bound execution lifecycle shared by model and raw operations |
+ | `transaction-operation.ts` | the internal protocol consumed by `$transaction([...])` |
+-| `write-engine/routing.ts` | route-wide operation gates, shared-envelope parsing, and shell construction |
+ | `operations/*.ts` | operation-specific SQL, plan, identity, and ordering helpers; not shells |
+-| `write-engine/CreateOperation.ts` | fresh record compilation and create result |
+-| `write-engine/UpdateOperation.ts` | public update shell and direct folds |
+-| `write-engine/RecordUpdateCompiler.ts` | one selected record mutation |
+-| `write-engine/UpsertOperation.ts` | top-level arm selection and terminal result |
+ | `write-engine/record-series.ts` | the record-series contract and its routed-operation discrimination |
+-| `write-engine/CreateManyRecordSeries.ts` | root relation-bearing `createMany` shell |
+-| `write-engine/UpdateManyRecordSeries.ts` | root relation-bearing `updateMany` shell |
+-| `write-engine/FreshRecordSeriesPart.ts` | nested relation-bearing `createMany` placement |
+-| `write-engine/NestedSelectedRecordSeries.ts` | member compilation for a relation owner's captured selected records — the correlated set of a nested relation-bearing `updateMany`, and the singular member a to-one supplier just produced |
+ | `write-engine/series-result-read.ts` | bounded final set reads and source-order reconstruction |
+ | `write-engine/target-projection.ts` | complete captured row keys and selected-target projections |
+-| relation Parts | child-held/junction selection, membership, guards, pins, and edge effects |
+-| `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution, retry routing, and the lexical execute/prove/parse seam; it depends only on the optional prepared-row capability, never a concrete operation |
++| `write-engine/Part.ts` | the Part base; every concrete relation Part was deleted at C-01 |
++| `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution, retry routing, and the lexical execute/prove/parse seam; since C-01 it is reached only from `pattern/`, never from an operation |
+ | `write-engine/OperationFragment.ts` | step and fragment vocabulary |
+ | `builders/relation-mutation-parser.ts` | parsed mutation programs |
+ | `builders/relation-data-builder.ts` | bound relation topology, and the classifier every entry point goes through |
+@@ -745,9 +748,6 @@ the existing guard; it does not add a statement or round trip.
+ | `builders/polymorphic-mutation.ts` | resolved row-held intent and atomic private storage value |
+ | `builders/polymorphic-collection-mutation.ts` | binds one collection member for a write leaf |
+ | `builders/polymorphic-collection-filter-builder.ts` | `some`/`every`/`none` lowering over member tables (`every` as an explicit two-conjunct `NOT EXISTS`, never `negateInner`) |
+-| `write-engine/PolymorphicCollectionPart.ts` | the ONE direct-collection coordinator: `set` clear-all barrier, cross-verb/cross-variant order, one owner-row publication, empty cache footprint |
+-| `write-engine/RelationJunctionToOnePart.ts` | singular collection inverse: composition order, the four correlated spellings, owner-oriented membership projection |
+-| `write-engine/junction-singular-transfer.ts` | the singular member slot-replacement protocol, both substrates |
+ | `write-engine/relation-membership.ts` | child-held membership and value provenance |
+ | `JunctionStatements.ts` | junction SQL materialization — one owner, every orientation and arity |
+ | `result/ResultParser.ts` | result-boundary middleware chains, compiled row-container policy, and nested row-parser reuse |
+diff --git a/src/query-engine/README.md b/src/query-engine/README.md
+index d138c4fc0..d415f7543 100644
+--- a/src/query-engine/README.md
++++ b/src/query-engine/README.md
+@@ -5,22 +5,34 @@ fragments, executes them atomically through a driver, and parses the declared
+ result. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite share operation semantics;
+ dialect syntax remains adapter-owned.
+ 
++> **Since C-01 (the Raptor 3 cutover) this document is partly historical.** Every
++> client operation is owned by `src/query-engine/raptor3/`, built unconditionally
++> in `VibORM`'s constructor and reached through `PendingOperation`'s single route
++> arm. The shipped write/read engine was deleted (25 of the 43 `write-engine/`
++> files, seven `query-engine/` root owners and `builders/to-one-composition.ts`);
++> the 18 surviving `write-engine/` files are kept alive by `pattern/` alone. The
++> read/write verb vocabulary of `write-engine/routing.ts` lives in
++> `routed-operations.ts`. Check that a `write-engine/` file named below exists
++> before trusting the sentence that names it.
++
+ ## Ownership
+ 
+ ```text
+ QueryEngine
+ └── creates PendingOperation
+-    ├── operation shell → SQL builders → adapter
+-    ├── PlanningFragment → OperationFragment → OperationExecutor → driver
+-    └── declared outputs → strict result parsers
++    └── raptor3 route → command engine → adapter → driver → prepared read/decoder
+ ```
+ 
++Before C-01 the same `PendingOperation` also owned a second path
++(`operation shell → SQL builders → adapter`, `PlanningFragment →
++OperationFragment → OperationExecutor → driver`). That path and its owners were
++deleted; `pattern/` still exercises the fragment vocabulary off the operation
++path.
++
+ | Owner | Responsibility |
+ | --- | --- |
+ | `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
+ | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
+-| `write-engine/routing.ts` | Route-wide operation gates, shared-envelope parsing, and shell construction |
+-| `write-engine/*Operation.ts` | Public-operation-family owners and their executable fragments |
+ | `operations/*.ts` | Operation-specific SQL, plan, identity, and ordering helpers |
+ | relation Parts | Selection, membership, branches, guards, race pins, and edge effects |
+ | `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
+@@ -28,13 +40,8 @@ QueryEngine
+ | `builders/` | Shared SQL and semantic builders, including payload and topology parsing |
+ | `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
+ 
+-An operation shell is the concrete owner of one public operation family. It
+-exposes `mode`, `planning()`, `compile(known)`, and `parse(outputs)`. Routing
+-applies route-wide gates and parses shared envelopes before constructing it.
+-The routed root shell owns the remaining family- and arm-specific parsing,
+-public target, result, and direct folds while delegating SQL leaves,
+-selected-record mutation, and relation-edge policy. `CreateOperation` is also
+-reused as a delegated fresh-record compiler inside an outer shell.
++An operation shell was the concrete owner of one public operation family. Every
++shell, and the routing owner that constructed them, was deleted at C-01.
+ 
+ `QueryEngine` is not a forwarding shell. A transaction-bound engine preserves
+ the originating client identity, receives a new scope identity, and owns the
+@@ -101,10 +108,10 @@ Parent and child are edge-relative roles. Parent is the enclosing source record
+ whose relation field is being compiled; child is its target. A
+ parent-held edge (`position: "parentHeld"`) means that source record stores the FK.
+ 
+-`CreateOperation` compiles fresh record subtrees, including record-series
+-members. `RecordUpdateCompiler` compiles updates for an already-selected record,
+-including selected members of root or nested update series.
+-The record compiler owns scalar assignments, an optional incoming membership,
++`CreateOperation` compiled fresh record subtrees, including record-series
++members, and `RecordUpdateCompiler` compiled updates for an already-selected
++record; both were deleted at C-01, and the paragraphs below describe them as
++they were. The record compiler owned scalar assignments, an optional incoming membership,
+ nested record effects, required target fields, primary-key transitions, and
+ root-write order.
+ 
+@@ -167,7 +174,6 @@ operation shells.
+ | physical read traversal of a relation | `relation-traversal.ts` |
+ | junction SQL — ordinary many-to-many and polymorphic member junctions alike | `many-to-many-utils.ts`, `JunctionStatements.ts` |
+ | polymorphic reads | `polymorphic-read-builder.ts` (row-held), `polymorphic-collection-read-builder.ts` (collection) |
+-| polymorphic collection writes | `write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts` |
+ 
+ The golden rule is absolute: query-engine code decides what a query means;
+ adapters decide how that meaning is written in a dialect.
+@@ -199,10 +205,13 @@ array, count, or null for malformed provider output.
+ 
+ ## Single-statement inspection
+ 
+-`QueryEngine.build()` returns SQL only when an operation is representable as one
+-statement without executor-only behavior. It rejects guards, unresolved
+-references, and multi-step semantics instead of pretending that an atomic
+-operation is one statement.
++`QueryEngine.build()` asked `PendingOperation.buildStatement()` for the one
++statement an operation compiles to. Since C-01 `buildStatement()` returns
++`undefined` for every operation — the candidate's prepared read owns a statement
++but publishes only the read's shape and cardinality (divergence D-4') — so
++`build()` raises "does not compile to one SQL statement" for every operation.
++What that method should publish is an open decision
++(`docs/architecture/raptor3-evidence/g4/cutover-execution/note.md`, follow-up 2).
+ 
+ Use `prepare()` or await the returned `PendingOperation` for general operations.
+ 
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index fc36a2a54..2e3394473 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -1297,14 +1297,15 @@ export class OperationContext {
+    * Say ONE durable write phase on the client's cache rail, keeping the
+    * OPERATION's own failure primary when the client's listener throws.
+    *
+-   * The shipped engine composes the two exactly this way —
+-   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859-871`) at every
+-   * executor site that notifies while holding a failure
+-   * (`write-engine/OperationExecutor.ts:1310`, `:1341`, `:1609`, `:1640`). The
+-   * composition is restated here rather than imported because
+-   * `@extensions/query` imports `write-engine/routing` and with it every
+-   * shipped operation class — the one import this engine may not have. `primary`
+-   * absent means the operation has not failed, which is the shipped
++   * The shipped engine composed the two exactly this way —
++   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859`) at every
++   * executor site that notified while holding a failure. It was restated here
++   * rather than imported because `@extensions/query` then imported
++   * `write-engine/routing` and with it every shipped operation class — the one
++   * import this engine may not have. C-01 deleted those classes and re-pointed
++   * that import at `@query-engine/routed-operations`, so the hazard is gone and
++   * the restatement is simply this engine's own composition. `primary` absent
++   * means the operation has not failed, which was the shipped
+    * `throw outcomeFailure` arm.
+    */
+   private async stateWriteOutcome(
+diff --git a/tests/raptor3/g4/unit02/borrowed-envelope.test.ts b/tests/raptor3/g4/unit02/borrowed-envelope.test.ts
+index 9379891ba..005aa2ccc 100644
+--- a/tests/raptor3/g4/unit02/borrowed-envelope.test.ts
++++ b/tests/raptor3/g4/unit02/borrowed-envelope.test.ts
+@@ -101,7 +101,7 @@ describe("G4-02 borrowed transaction envelope", () => {
+     });
+   });
+ 
+-  it("a failing single-statement write poisons the caller's transaction, as shipped", async () => {
++  it("a failing single-statement write poisons the caller's transaction on both seams", async () => {
+     world = await createWorld();
+     const engine = engineOf(world);
+     const driver = world.driver;
+diff --git a/tests/raptor3/g4/unit02/decimal-having-operand.test.ts b/tests/raptor3/g4/unit02/decimal-having-operand.test.ts
+index 7a7458ade..a41974e43 100644
+--- a/tests/raptor3/g4/unit02/decimal-having-operand.test.ts
++++ b/tests/raptor3/g4/unit02/decimal-having-operand.test.ts
+@@ -9,26 +9,35 @@
+  * column holds an unscaled integer coefficient — a too-narrow cast is a wrong
+  * comparison rather than a rounding difference.
+  *
+- * The property is asserted as an EQUALITY with the shipped lowering on all three
+- * dialects, plus the registered refusal for a coefficient the provider cannot
+- * cast exactly. The shipped side is the oracle
+- * (`tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts` is its
+- * own contract); nothing is imported from the shipped builders into the
+- * candidate.
++ * ## What the C-01 cutover changed here
++ *
++ * Two of this file's three cells asserted an EQUALITY with the SHIPPED lowering
++ * on all three dialects, and reached it through `QueryEngine.build(...)`. The
++ * cutover makes `PendingOperation.buildStatement()` answer `undefined` for
++ * every operation (divergence D-4': the prepared read owns a statement but
++ * publishes only the read's shape and cardinality), so `QueryEngine.build`
++ * raises "Operation 'groupBy' does not compile to one SQL statement" and the
++ * shipped oracle no longer exists. Under the rule recorded in
++ * `g4/cutover-execution/note.md` — remove the shipped arm and every assertion
++ * that referenced it, keep a cell iff at least one assertion survives verbatim
++ * — those two cells are RETIRED:
++ *
++ *   "binds the operand exactly as the shipped engine does, on all three dialects"
++ *   "binds a sum operand WIDER than the column's own precision, as shipped"
++ *
++ * The third cell is KEPT: its `assert.match` pins the REGISTERED REFUSAL for a
++ * coefficient no provider can cast exactly, one-sidedly, and a registered
++ * refusal is a contract. The shipped-side SQL contract those two cells mirrored
++ * lives in `tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts`,
++ * which the cutover deletes with its engine.
+  */
+ 
+ import assert from "node:assert/strict";
+ import type { DatabaseAdapter } from "@adapters/database-adapter";
+-import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+-import type { Dialect } from "@drivers";
+-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+ import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+ import { Queries } from "@query-engine/raptor3/shared/query";
+ import { hydrateSchemaNames, s } from "@schema";
+-import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+-import { createSchemaRegistry } from "@validation";
+ import { beforeAll, describe, it } from "vitest";
+ 
+ const ledger = s
+@@ -43,30 +52,6 @@ const schema = { ledger };
+ 
+ beforeAll(() => hydrateSchemaNames(schema));
+ 
+-const dialects: {
+-  readonly name: string;
+-  readonly dialect: Dialect;
+-  readonly adapter: () => DatabaseAdapter;
+-}[] = [
+-  {
+-    name: "PostgreSQL",
+-    dialect: "postgresql",
+-    adapter: () => new PostgresAdapter(),
+-  },
+-  { name: "MySQL", dialect: "mysql", adapter: () => new MySQLAdapter() },
+-  { name: "SQLite", dialect: "sqlite", adapter: () => new SQLiteAdapter() },
+-];
+-
+-function shipped(
+-  adapter: DatabaseAdapter,
+-  dialect: Dialect,
+-  args: Record<string, unknown>
+-): string {
+-  const registry = createModelRegistry(schema, createSchemaRegistry(schema));
+-  const engine = new QueryEngine(new SqlOnlyDriver(adapter, dialect), registry);
+-  return engine.build(ledger, "groupBy", args).toStatement("$n");
+-}
+-
+ function candidate(
+   adapter: DatabaseAdapter,
+   args: Record<string, unknown>
+@@ -77,13 +62,6 @@ function candidate(
+   return queries.grouped(ledger, admitted).sql.toStatement("$n");
+ }
+ 
+-/** Everything after the last comparison operator: the rendered operand. */
+-function operandAfter(statement: string, operator: string): string {
+-  const index = statement.lastIndexOf(`${operator} `);
+-  assert.ok(index >= 0, `no '${operator}' comparison in: ${statement}`);
+-  return statement.slice(index + operator.length + 1).trim();
+-}
+-
+ const having = (operand: string) => ({
+   by: ["bucket"],
+   having: { amount: { _sum: { gt: operand } } },
+@@ -91,38 +69,6 @@ const having = (operand: string) => ({
+ });
+ 
+ describe("G4-02 decimal having _sum operand (§10.10)", () => {
+-  it("binds the operand exactly as the shipped engine does, on all three dialects", () => {
+-    for (const { name, dialect, adapter } of dialects) {
+-      const args = having("5");
+-      const shippedOperand = operandAfter(
+-        shipped(adapter(), dialect, args),
+-        ">"
+-      );
+-      const candidateOperand = operandAfter(candidate(adapter(), args), ">");
+-      assert.equal(
+-        candidateOperand,
+-        shippedOperand,
+-        `${name}: the _sum operand must be lowered in the widened domain`
+-      );
+-    }
+-  });
+-
+-  it("binds a sum operand WIDER than the column's own precision, as shipped", () => {
+-    // Coefficient 1_500_000_000_000_000_000: nineteen digits, three past the
+-    // column's own precision of 16, legal for a SUM and inside every dialect's
+-    // exact cast domain (it is the shipped contract's own pinned in-range
+-    // value). This is the case a field-domain cast gets wrong.
+-    for (const { name, dialect, adapter } of dialects) {
+-      const args = having("15000000000000000.00");
+-      const shippedOperand = operandAfter(
+-        shipped(adapter(), dialect, args),
+-        ">"
+-      );
+-      const candidateOperand = operandAfter(candidate(adapter(), args), ">");
+-      assert.equal(candidateOperand, shippedOperand, name);
+-    }
+-  });
+-
+   it("raises the registered refusal when the provider cannot cast the coefficient", () => {
+     // SQLite's exact HAVING operand cast domain is bounded; past it the owner
+     // refuses instead of silently changing the value written.
+@@ -134,14 +80,10 @@ describe("G4-02 decimal having _sum operand (§10.10)", () => {
+         return `error:${(error as Error).message}`;
+       }
+     };
+-    const shippedOutcome = observe(() =>
+-      shipped(new SQLiteAdapter(), "sqlite", args)
+-    );
+     const candidateOutcome = observe(() => candidate(new SQLiteAdapter(), args));
+     assert.match(
+       candidateOutcome,
+       /outside this provider's exact HAVING operand cast domain/
+     );
+-    assert.equal(candidateOutcome, shippedOutcome);
+   });
+ });
+diff --git a/tests/raptor3/g4/unit02/key-arithmetic.test.ts b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
+index 372f9fe02..3eb7078e9 100644
+--- a/tests/raptor3/g4/unit02/key-arithmetic.test.ts
++++ b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
+@@ -154,7 +154,7 @@ async function bothEngines(
+ }
+ 
+ describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () => {
+-  it("multiplies an int key the way the shipped engine does", async () => {
++  it("multiplies an int key identically on the client route seam and the command engine", async () => {
+     await bothEngines(
+       "intKey",
+       "g4u2k_int_keys",
+@@ -164,7 +164,7 @@ describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () =>
+     );
+   });
+ 
+-  it("divides an int key with the dialect's truncation, as shipped", async () => {
++  it("divides an int key with the dialect's truncation, identically on both seams", async () => {
+     // 7 / 2 is the quotient that distinguishes integer truncation from real
+     // division: the SET clause writes 3 and the readback must address 3.
+     await bothEngines(
+@@ -176,7 +176,7 @@ describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () =>
+     );
+   });
+ 
+-  it("multiplies and divides a bigint key the way the shipped engine does", async () => {
++  it("multiplies and divides a bigint key identically on both seams", async () => {
+     await bothEngines(
+       "bigKey",
+       "g4u2k_big_keys",
+@@ -211,7 +211,7 @@ describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () =>
+   });
+ });
+ 
+-describe("G4-02 — the row key's portability contract, as the shipped engine states it", () => {
++describe("G4-02 — the row key's portability contract, on the client route seam and the command engine", () => {
+   for (const [name, model, table, where, data] of [
+     [
+       "decimal key multiply",
+@@ -242,7 +242,7 @@ describe("G4-02 — the row key's portability contract, as the shipped engine st
+       { id: { divide: 0 } },
+     ],
+   ] as const) {
+-    it(`${name}: the candidate answers what the shipped engine answers`, async () => {
++    it(`${name}: the command engine answers what the client route seam answers`, async () => {
+       await bothEngines(model, table, where, data);
+     });
+   }
+@@ -275,7 +275,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
+     assert.deepEqual(candidate.rows, [{ id: 700, label: "a" }]);
+   });
+ 
+-  it("R-D2 (c) PARITY: refuses `set` beside an operator with the shipped sentence", async () => {
++  it("R-D2 (c) PARITY: refuses `set` beside an operator with one sentence on both seams", async () => {
+     const shipped = await update(
+       "intKey",
+       "g4u2k_int_keys",
+@@ -326,7 +326,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
+     assert.deepEqual(candidate.rows, [{ id: 7, label: "a" }]);
+   });
+ 
+-  it("R-D2 (b) PARITY: refuses a number key increment with the shipped sentence", async () => {
++  it("R-D2 (b) PARITY: refuses a number key increment with one sentence on both seams", async () => {
+     // The whole `number` arithmetic family, not just `increment`: the rule is
+     // the scalar's, so `decrement` answers it too.
+     for (const data of [
+@@ -493,14 +493,15 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
+    * can tell this deliberate capability boundary from a crash (V9001
+    * INTERNAL_ERROR) without reading the sentence.
+    *
+-   * The divergence from the shipped row answer is the recorded, accepted half of
+-   * the decision: the shipped engine computes the value in JavaScript and
+-   * answers the row. Widening the candidate to match would need a typed scratch
+-   * read per domain, and an answer to the decimal rounding question that
+-   * `Queries.updateValue` refuses — a capability change, not an identity.
++   * The divergence from the shipped row answer was the recorded, accepted half
++   * of the decision: the shipped engine computed the value in JavaScript and
++   * answered the row (`ok:{"id":7,…}` / `ok:{"id":12,…}`). The C-01 cutover
++   * deletes that engine, so the shipped arm of these two cells — and the
++   * `assert.equal(shipped.answer, shippedAnswer)` that recorded the divergence
++   * — is gone; the REGISTERED REFUSAL below is what the cells now pin, and a
++   * registered refusal is a contract (`g4/cutover-execution/note.md`).
+    */
+   async function batchUpsert(
+-    engine: "shipped" | "candidate",
+     update: unknown
+   ): Promise<Outcome & { raised?: unknown }> {
+     const database = new Database(":memory:");
+@@ -514,15 +515,7 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
+     let answer: string;
+     let raised: unknown;
+     try {
+-      const value =
+-        engine === "shipped"
+-          ? await (
+-              client as unknown as Record<
+-                string,
+-                { upsert(args: unknown): Promise<unknown> }
+-              >
+-            ).numKey!.upsert(args)
+-          : await candidate.execute("numKey", "upsert", args);
++      const value = await candidate.execute("numKey", "upsert", args);
+       answer = `ok:${JSON.stringify(value)}`;
+     } catch (error) {
+       raised = error;
+@@ -534,16 +527,12 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
+     return { answer, raised, rows };
+   }
+ 
+-  for (const [name, update, shippedAnswer] of [
+-    ["increment", { id: { increment: 1 } }, 'ok:{"id":7,"label":"a"}'],
+-    ["multiply", { id: { multiply: 2 } }, 'ok:{"id":12,"label":"a"}'],
++  for (const [name, update] of [
++    ["increment", { id: { increment: 1 } }],
++    ["multiply", { id: { multiply: 2 } }],
+   ] as const) {
+     it(`R-D3 refuses a number key ${name} under a batch with its registered identity`, async () => {
+-      const shipped = await batchUpsert("shipped", update);
+-      const candidate = await batchUpsert("candidate", update);
+-      // The accepted divergence, recorded: the shipped engine computes the
+-      // value in JavaScript and answers the row.
+-      assert.equal(shipped.answer, shippedAnswer);
++      const candidate = await batchUpsert(update);
+       // The decided identity: a registered UnsupportedOperationError (R-D3
+       // plus R-D3-class), naming the model, the field and the operation, raised
+       // before any statement is dispatched. It is still a QueryEngineError —
+@@ -552,10 +541,7 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
+         candidate.answer,
+         "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
+       );
+-      assert.equal(
+-        candidate.raised instanceof UnsupportedOperationError,
+-        true
+-      );
++      assert.equal(candidate.raised instanceof UnsupportedOperationError, true);
+       assert.equal(candidate.raised instanceof QueryEngineError, true);
+       assert.deepEqual(
+         { ...(candidate.raised as QueryEngineError).meta },
+diff --git a/tests/raptor3/g4/unit02/lone-statement-transport.test.ts b/tests/raptor3/g4/unit02/lone-statement-transport.test.ts
+index f4585c4c2..db6c777b5 100644
+--- a/tests/raptor3/g4/unit02/lone-statement-transport.test.ts
++++ b/tests/raptor3/g4/unit02/lone-statement-transport.test.ts
+@@ -258,7 +258,7 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
+     "updateMany",
+     "deleteMany",
+   ] as const) {
+-    it(`${verb}: one statement rejected before dispatch answers the shipped failure exactly`, async () => {
++    it(`${verb}: one statement rejected before dispatch answers the same failure on both seams`, async () => {
+       const shipped = await rejectedLoneStatement("shipped", verb);
+       const candidate = await rejectedLoneStatement("candidate", verb);
+       assert.equal(
+@@ -284,7 +284,7 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
+     });
+   }
+ 
+-  it("5. a multi-statement batch is still a batch, and still agrees with the shipped engine", async () => {
++  it("5. a multi-statement batch is still a batch, and the two seams still agree", async () => {
+     // The neighbour the rule must not disturb. Two rows whose bind budget
+     // splits them into two statements stay in ONE batch, so the driver seam
+     // still attributes its index — the change is confined to the one-statement
+@@ -357,42 +357,36 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
+     );
+   });
+ 
+-  it("7. root update/delete: the shipped two-statement fold keeps an index the candidate's one-statement fold has none of", async () => {
++  it("7. root update/delete: the fold is one statement outside any batch", async () => {
+     // RECORDED DIVERGENCE (D-7.1, a decision for Arnaud — `g4/regression/note.md`
+-    // "D-7 round" §D.6). The shipped root `update`/`delete` fold is TWO
+-    // statements on a batch-only driver — `[presence guard, mutation …
++    // "D-7 round" §D.6), now one-sided. The SHIPPED root `update`/`delete` fold
++    // was TWO statements on a batch-only driver — `[presence guard, mutation …
+     // RETURNING]` (`UpdateOperation`/`DeleteOperation` `foldGuard` /
+-    // `buildRootPresenceGuard`) — so it is a batch, and the driver seam
+-    // attributes `statementIndex: 0` to a rejection before dispatch. The
+-    // candidate's fold is ONE statement with a JavaScript postcondition
++    // `buildRootPresenceGuard`) — so it was a batch, and the driver seam
++    // attributed `statementIndex: 0` to a rejection before dispatch. This
++    // engine's fold is ONE statement with a JavaScript postcondition
+     // (`OperationContext.published`), which is the G3-accepted difference, so
+-    // after D-7 it is no batch and has no index to attribute. Before D-7 the
+-    // candidate's one-statement BATCH agreed with shipped by coincidence.
+-    // Pinned as measured so any change in either engine shows up here.
++    // after D-7 it is no batch and has no index to attribute.
++    //
++    // The C-01 cutover deletes the shipped fold, so the cross-engine half of
++    // this cell — the shipped `{ statements: 1, index: 0 }` pin and the
++    // "nothing else diverges" comparison — is retired with it. What is kept
++    // verbatim is the one-sided pin of THIS engine's fold, the fact D-7
++    // decided, which no other cell in this file reaches for a root
++    // `update`/`delete` (cells 1-4 cover the four bulk/create verbs).
+     for (const verb of ["update", "delete"] as const) {
+       const args =
+         verb === "update"
+           ? { where: { id: 1 }, data: { label: "changed" } }
+           : { where: { id: 1 } };
+-      const shipped = await rejectedRootFold("shipped", verb, args);
+       const candidate = await rejectedRootFold("candidate", verb, args);
+-      assert.deepEqual(
+-        { statements: shipped.statements, index: shipped.meta.statementIndex },
+-        { statements: 1, index: 0 },
+-        `the shipped fold batches a presence guard with its mutation: ${JSON.stringify(shipped, undefined, 2)}`
+-      );
+       assert.deepEqual(
+         {
+           statements: candidate.statements,
+           index: candidate.meta.statementIndex,
+         },
+         { statements: 1, index: undefined },
+-        `the candidate fold is one statement outside any batch: ${JSON.stringify(candidate, undefined, 2)}`
+-      );
+-      assert.deepEqual(
+-        { ...candidate.meta, statementIndex: undefined },
+-        { ...shipped.meta, statementIndex: undefined },
+-        `nothing else diverges: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
++        `the fold is one statement outside any batch: ${JSON.stringify(candidate, undefined, 2)}`
+       );
+     }
+   });
+diff --git a/tests/raptor3/g4/unit02/malformed-result-cuts.test.ts b/tests/raptor3/g4/unit02/malformed-result-cuts.test.ts
+index f520242e9..eec55492a 100644
+--- a/tests/raptor3/g4/unit02/malformed-result-cuts.test.ts
++++ b/tests/raptor3/g4/unit02/malformed-result-cuts.test.ts
+@@ -262,7 +262,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
+     database.close();
+   });
+ 
+-  it("3. the folded form answers exactly what the shipped engine answers", async () => {
++  it("3. the folded form answers exactly the same on the client route seam and the command engine", async () => {
+     const run = async (engine: "shipped" | "candidate") => {
+       const database = new Database(":memory:");
+       const driver = new CorruptingDriver({ client: database });
+diff --git a/tests/raptor3/g4/unit02/native-date-codec.test.ts b/tests/raptor3/g4/unit02/native-date-codec.test.ts
+index 543474e9a..428a9b8e2 100644
+--- a/tests/raptor3/g4/unit02/native-date-codec.test.ts
++++ b/tests/raptor3/g4/unit02/native-date-codec.test.ts
+@@ -32,7 +32,7 @@ const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
+ describe.runIf(provider === "pg" && port > 0)(
+   "G4-02 native PostgreSQL date codec",
+   () => {
+-    it("decodes a DATE column identically on the shipped and candidate engines", async () => {
++    it("decodes a DATE column identically on the client route seam and the command engine", async () => {
+       const table = `g4u2_dates_${randomUUID().replaceAll("-", "")}`;
+       const day = s.model({ id: s.int().id(), at: s.date() }).map(table);
+       const schema = { day };
+diff --git a/tests/raptor3/g4/unit02/native-key-arithmetic.test.ts b/tests/raptor3/g4/unit02/native-key-arithmetic.test.ts
+index 7ec73f687..6746b1f4d 100644
+--- a/tests/raptor3/g4/unit02/native-key-arithmetic.test.ts
++++ b/tests/raptor3/g4/unit02/native-key-arithmetic.test.ts
+@@ -35,7 +35,7 @@ describe.runIf(provider === "mysql" && port > 0)(
+       ["increment", { increment: 5 }, 12],
+       ["decrement", { decrement: 5 }, 2],
+     ] as const) {
+-      it(`names an int key under ${name} exactly as the shipped engine does`, async () => {
++      it(`names an int key under ${name} identically on the client route seam and the command engine`, async () => {
+         const table = `g4u2_keys_${randomUUID().replaceAll("-", "")}`;
+         const row = s.model({ id: s.int().id(), label: s.string() }).map(table);
+         const schema = { row };
+diff --git a/tests/raptor3/g4/unit02/nested-key-refusal.test.ts b/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
+index 0de4b12c9..b74f359cb 100644
+--- a/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
++++ b/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
+@@ -248,7 +248,7 @@ describe("G4-02 — R-D2 (c) at the nested sites (decisions round 2)", () => {
+     );
+   });
+ 
+-  it("keeps the refusal inside the shipped predicate's SHAPE and POSITIONS", async () => {
++  it("keeps the refusal, on both seams, inside the deleted engine's predicate SHAPE and POSITIONS", async () => {
+     // The scope control, in both directions. It is the shipped predicate at the
+     // shipped positions, never a wider "no nested key writes" rule.
+     //
+@@ -309,7 +309,7 @@ describe("G4-02 — R-D2 (c) at the nested sites (decisions round 2)", () => {
+     assert.deepEqual(keys(createdNumberKey.nitems), [10, 999]);
+   });
+ 
+-  it("answers the shipped sentence for a relation-free root upsert whose key names nothing", async () => {
++  it("answers one sentence on both seams for a relation-free root upsert whose key names nothing", async () => {
+     // Review note 3: the last bare `Error` reachable from an admitted public
+     // request in this family. No relation in the update payload means the
+     // found-arm key channel never runs, exactly as shipped.
+diff --git a/tests/raptor3/g4/unit02/packaged-array.test.ts b/tests/raptor3/g4/unit02/packaged-array.test.ts
+index 9f512e014..f9b3d3ddc 100644
+--- a/tests/raptor3/g4/unit02/packaged-array.test.ts
++++ b/tests/raptor3/g4/unit02/packaged-array.test.ts
+@@ -5,22 +5,36 @@
+  * and root `delete`. That is a JavaScript postcondition, and a PACKAGED
+  * operation only reaches its parser after `$transaction([...])` has already
+  * submitted and committed its one batch — so the premise has to travel as a
+- * statement instead. `packagedPresence` queues the same `assertions.exists`
+- * guard the shipped fold puts in front of its mutation
+- * (`DeleteOperation.buildRootPresenceGuard`) and declares it to the array owner,
+- * which aborts the whole batch and reconstructs this operation's own
+- * `NotFoundError`.
++ * statement instead. `packagedPresence` queues an `assertions.exists` guard in
++ * front of its mutation and declares it to the array owner, which aborts the
++ * whole batch and reconstructs this operation's own `NotFoundError`.
+  *
+- * These checks compare the candidate route with the shipped one on the same
+- * batch-only driver: same rejection, same surviving rows.
++ * ## What the C-01 cutover changed here
++ *
++ * This file used to build a SHIPPED client and a CANDIDATE client on the same
++ * batch-only driver. After C-01 there is no shipped client: `createClient` IS
++ * the candidate, so a comparison between the two arms would compare the engine
++ * with itself and report green forever. The rule applied here, and recorded in
++ * `g4/cutover-execution/note.md`, is: remove the shipped arm and every
++ * assertion that referenced it; a cell with at least one surviving verbatim
++ * assertion is kept and renamed to what it now claims, a cell with none is
++ * retired.
++ *
++ * RETIRED (nothing survived the shipped arm's removal):
++ *   1. "a missing root delete aborts the array exactly as the shipped engine does"
++ *   2. "a missing root update aborts the array exactly as the shipped engine does"
++ *
++ * KEPT: the present-root-delete cell (its `rejected === "none"` pin survives,
++ * its cross-engine row comparison does not) and the two prepared-batch pins,
++ * which only ever used `createCandidateRoute` to REACH the engine and now
++ * reach it through the public `createClient`.
+  */
+ 
+ import assert from "node:assert/strict";
+-import { VibORM, type VibORMClient } from "@client/client";
++import type { VibORMClient } from "@client/client";
+ import type { BatchQuery, QueryResult } from "@drivers";
+ import { SQLite3Driver } from "@drivers/sqlite3";
+ import { createCommandEngine } from "@query-engine/raptor3/commands";
+-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+ import { s } from "@schema";
+ import { createClient } from "@src/index";
+ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+@@ -73,14 +87,10 @@ afterEach(async () => {
+   }
+ });
+ 
+-async function createWorld(route: "shipped" | "candidate"): Promise<World> {
++async function createWorld(): Promise<World> {
+   const database = new Database(":memory:");
+   const driver = new BatchOnlyDriver({ client: database });
+-  const config = { driver, schema };
+-  const client =
+-    route === "shipped"
+-      ? createClient(config)
+-      : VibORM.create(config, createCandidateRoute);
++  const client = createClient({ driver, schema });
+   const migration = await syncLiveSchema(client);
+   if (!migration.applied) throw new Error("schema did not apply");
+   await client.author.create({
+@@ -91,79 +101,39 @@ async function createWorld(route: "shipped" | "candidate"): Promise<World> {
+   return world;
+ }
+ 
+-function stored(world: World): unknown[] {
+-  return world.database
+-    .prepare("SELECT email FROM g4u2_packaged_authors ORDER BY id")
+-    .all();
+-}
+-
+ async function arrayOutcome(
+   world: World,
+   members: (client: World["client"]) => readonly PromiseLike<unknown>[]
+ ) {
+   let rejection: unknown;
+   try {
+-    // biome-ignore lint/suspicious/noExplicitAny: the array seam is structural here.
+-    await (world.client as any).$transaction(members(world.client));
++    await (
++      world.client as unknown as {
++        $transaction(
++          members: readonly PromiseLike<unknown>[]
++        ): Promise<unknown>;
++      }
++    ).$transaction(members(world.client));
+   } catch (error) {
+     rejection = error;
+   }
+   return {
+     rejected: rejection === undefined ? "none" : (rejection as Error).name,
+     code: (rejection as { code?: string } | undefined)?.code,
+-    stored: stored(world),
+   };
+ }
+ 
+ describe("G4-02 packaged root cardinality", () => {
+-  it("a missing root delete aborts the array exactly as the shipped engine does", async () => {
+-    const shipped = await arrayOutcome(await createWorld("shipped"), (c) => [
+-      c.author.delete({ where: { id: 9999 } }),
+-      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
+-    ]);
+-    const candidate = await arrayOutcome(await createWorld("candidate"), (c) => [
+-      c.author.delete({ where: { id: 9999 } }),
+-      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
+-    ]);
+-    assert.equal(candidate.rejected, shipped.rejected);
+-    assert.equal(candidate.code, shipped.code);
+-    assert.deepEqual(
+-      candidate.stored,
+-      shipped.stored,
+-      `candidate ${JSON.stringify(candidate.stored)} vs shipped ${JSON.stringify(shipped.stored)}`
+-    );
+-  });
+-
+-  it("a missing root update aborts the array exactly as the shipped engine does", async () => {
+-    const shipped = await arrayOutcome(await createWorld("shipped"), (c) => [
+-      c.author.update({ where: { id: 9999 }, data: { name: "X" } }),
+-      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
+-    ]);
+-    const candidate = await arrayOutcome(await createWorld("candidate"), (c) => [
+-      c.author.update({ where: { id: 9999 }, data: { name: "X" } }),
+-      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
+-    ]);
+-    assert.equal(candidate.rejected, shipped.rejected);
+-    assert.equal(candidate.code, shipped.code);
+-    assert.deepEqual(candidate.stored, shipped.stored);
+-  });
+-
+-  it("a present root delete still commits the whole array", async () => {
+-    const shipped = await arrayOutcome(await createWorld("shipped"), (c) => [
+-      c.author.delete({ where: { email: "present@example.test" } }),
+-      c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
+-    ]);
+-    const candidate = await arrayOutcome(await createWorld("candidate"), (c) => [
++  it("a present root delete does not reject the array", async () => {
++    const outcome = await arrayOutcome(await createWorld(), (c) => [
+       c.author.delete({ where: { email: "present@example.test" } }),
+       c.author.create({ data: { email: "sibling@example.test", name: "Bo" } }),
+     ]);
+-    assert.equal(shipped.rejected, "none");
+-    assert.equal(candidate.rejected, "none");
+-    assert.deepEqual(candidate.stored, shipped.stored);
++    assert.equal(outcome.rejected, "none");
+   });
+ 
+   it("the packaged plan is the shipped batch shape: presence guard, then the mutation", async () => {
+-    const world = await createWorld("candidate");
++    const world = await createWorld();
+     const engine = createCommandEngine({ schema, driver: world.driver });
+     const packaged = await engine.prepareBatch("author", "delete", {
+       where: { id: 9999 },
+@@ -193,7 +163,7 @@ describe("G4-02 packaged root cardinality", () => {
+   });
+ 
+   it("a bulk delete carries no presence premise", async () => {
+-    const world = await createWorld("candidate");
++    const world = await createWorld();
+     const engine = createCommandEngine({ schema, driver: world.driver });
+     const packaged = await engine.prepareBatch("author", "deleteMany", {
+       where: { id: 9999 },
+diff --git a/tests/raptor3/g4/unit02/physical-envelope.test.ts b/tests/raptor3/g4/unit02/physical-envelope.test.ts
+index fac606541..b59b03b73 100644
+--- a/tests/raptor3/g4/unit02/physical-envelope.test.ts
++++ b/tests/raptor3/g4/unit02/physical-envelope.test.ts
+@@ -76,7 +76,7 @@ describe("G4-02 physical envelope", () => {
+     assert.equal((candidate.value as unknown[]).length, 2);
+   });
+ 
+-  it("flat-scalar-update: one statement, no envelope, same row as shipped", async () => {
++  it("flat-scalar-update: one statement, no envelope, same row on both seams", async () => {
+     world = await createWorld();
+     const engine = createCommandEngine({
+       schema: worldSchema,
+@@ -193,7 +193,7 @@ describe("G4-02 physical envelope", () => {
+   // projection on a RETURNING adapter answers `single: true` for both), so the
+   // difference between them can only come from the envelope rule itself: the
+   // construction's own statement count, enforced at `OperationContext.dispatch`.
+-  it("two rows sharing a column set are one statement with no envelope, as shipped", async () => {
++  it("two rows sharing a column set are one statement with no envelope, on both seams", async () => {
+     world = await createWorld();
+     const engine = createCommandEngine({
+       schema: worldSchema,
+diff --git a/tests/raptor3/g4/unit02/root-delete.test.ts b/tests/raptor3/g4/unit02/root-delete.test.ts
+index 555195ca6..f5526da94 100644
+--- a/tests/raptor3/g4/unit02/root-delete.test.ts
++++ b/tests/raptor3/g4/unit02/root-delete.test.ts
+@@ -55,7 +55,7 @@ describe("G4-02 root delete", () => {
+     assert.deepEqual(value, { name: "Bo" });
+   });
+ 
+-  it("keeps the shipped not-found identity and removes nothing", async () => {
++  it("keeps one not-found identity across the two seams and removes nothing", async () => {
+     world = await createWorld();
+     const engine = engineOf(world);
+     const shipped = await world.client.author
+diff --git a/tests/raptor3/g4/unit02/root-member-cut-trace.test.ts b/tests/raptor3/g4/unit02/root-member-cut-trace.test.ts
+index 80233695e..a9deb76ab 100644
+--- a/tests/raptor3/g4/unit02/root-member-cut-trace.test.ts
++++ b/tests/raptor3/g4/unit02/root-member-cut-trace.test.ts
+@@ -92,7 +92,7 @@ async function tape(
+ }
+ 
+ describe("G4-02 §5.4 — the root conditional member's found/missing cut", () => {
+-  it("update: one statement decides found from missing, and both branches equal shipped", async () => {
++  it("update: one statement decides found from missing, and both branches agree across the two seams", async () => {
+     world = await createWorld();
+     const found = await tape(world, "candidate", (invoke) =>
+       invoke("author", "update", { where: { id: 1 }, data: { age: 37 } })
+@@ -130,7 +130,7 @@ describe("G4-02 §5.4 — the root conditional member's found/missing cut", () =
+     assert.equal(missingShipped.rows, 2);
+   });
+ 
+-  it("delete: the same strategy, and the row set is the shipped one on both branches", async () => {
++  it("delete: the same strategy, and the row set agrees across the two seams on both branches", async () => {
+     world = await createWorld();
+     const missing = await tape(world, "candidate", (invoke) =>
+       invoke("author", "delete", { where: { id: 99 } })
+diff --git a/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts b/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
+index 1e08edc45..dbd5f0972 100644
+--- a/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
++++ b/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
+@@ -13,52 +13,60 @@
+  * rethrows the raw error; `attachProgress` (:2308) reaches only record-series
+  * member failures and the invalidation aggregates.
+  *
+- *  1. differential: the folded root `create`, rejected before dispatch on a
+- *     batch-only transport, publishes NO record-series progress on either
+- *     engine and agrees with the shipped failure on EVERY field. Nothing is
+- *     excluded any more: the driver seam's `statementIndex: 0` was the second,
+- *     independent divergence recorded as blocker D-7, and Arnaud's decision
+- *     removed it at the transport (a lone statement leaves the batch). The
+- *     shapes that decision covers are pinned in the sibling
+- *     `lone-statement-transport.test.ts`, which this file's red reproducer
+- *     became;
++ *  1. the folded root `create`, rejected before dispatch on a batch-only
++ *     transport, publishes NO record-series progress. The driver seam's
++ *     `statementIndex: 0` was the second, independent divergence recorded as
++ *     blocker D-7, and Arnaud's decision removed it at the transport (a lone
++ *     statement leaves the batch); the shapes that decision covers are pinned
++ *     in the sibling `lone-statement-transport.test.ts`, which this file's red
++ *     reproducer became;
+  *  2. control: a real record series (a `createMany` segment) rejected exactly
+  *     the same way KEEPS its progress, `mayHaveCommittedSegment` included;
+  *  3. seam: the same uncertain root `create`, under `cache.autoInvalidate`,
+- *     invalidates on BOTH routes. The candidate no longer reads that fact off
+- *     published error meta — the transport states it through
+- *     `ExecutionBinding.writeOutcome` at the point it learns it, which is where
+- *     the shipped executor states it (`OperationExecutor.ts:1050-1058`). This
+- *     is the reviewer's probe P7 (`g4/regression-review.md` finding 1) as an
+- *     author cell: it is the falsifier for the seam, and it goes red (candidate
+- *     0 against shipped 1) the moment the notification is disabled;
++ *     invalidates. The candidate does not read that fact off published error
++ *     meta — the transport states it through `ExecutionBinding.writeOutcome` at
++ *     the point it learns it. This is the reviewer's probe P7
++ *     (`g4/regression-review.md` finding 1) as an author cell: it is the
++ *     falsifier for the seam, and it goes red the moment the notification is
++ *     disabled;
+  *  4. the committed half of the same seam: exactly one invalidation, so no
+  *     second publication site exists;
+  *  5. the committed half when the operation STILL fails — the write commits and
+  *     its result will not decode. After D-7 that write is a plain statement, so
+- *     the plain path is what must say the segment committed
+- *     (`runBorrowedStatementAtomic`, `OperationExecutor.ts:1630-1645`);
+- *  6-7. the followup review's S6/S7: a cache listener that throws never
+- *     replaces the operation's own failure (and, with no failure of its own to
+- *     keep, both engines answer the listener's error);
+- *  8. the D-7 review's D9 (finding 1): the two halves TOGETHER — a malformed
+- *     result and a throwing listener — keep the registered malformed-scalar
+- *     refusal primary, not the internal `InvalidScalarResult` the plain path
+- *     used to compose;
+- *  9. the D-7 review's D12 (finding 2): the same pair on the BATCH transport,
+- *     which acknowledges before it decodes, so the listener's failure is held
+- *     and composed after the operation has answered;
++ *     the plain path is what must say the segment committed;
++ *  6. the followup review's S6: a cache listener that throws still leaves
++ *     exactly one invalidation;
++ *  9. the D-7 review's D12 (finding 2): a malformed result and a throwing
++ *     listener on the BATCH transport, which acknowledges before it decodes;
+  *  10. the D-7 review's D11 (note 3): the falsifier for the plain path's
+- *     `owned` gate — a write inside the operation's OWN region that rolls back
+- *     tells the cache nothing, on either engine.
++ *     `owned` gate — a write inside the operation's OWN region that rolls back.
++ *
++ * ## What the C-01 cutover changed here
++ *
++ * Every cell used to run twice: a SHIPPED arm reached through `createClient`
++ * (or, for cells 3-10, through the removed `VibORM.create(config,
++ * createCandidateRoute)` selector) and a CANDIDATE arm. After C-01 there is no
++ * shipped engine, so a comparison between the two arms would compare the engine
++ * with itself and report green forever. The rule applied here, and recorded in
++ * `g4/cutover-execution/note.md`, is: remove the shipped arm and every
++ * assertion that referenced it; a cell with at least one surviving verbatim
++ * assertion is kept and renamed to what it now claims, a cell with none is
++ * retired. Nothing is invented and no shipped answer is transcribed into a new
++ * literal.
++ *
++ * RETIRED (nothing survived the shipped arm's removal):
++ *   7. "a throwing invalidation listener on a SUCCESSFUL write answers the same
++ *      on both routes" — every assertion was `candidate === shipped`;
++ *   8. "a malformed result AND a throwing listener: the refusal stays primary"
++ *      — its two literals pinned the SHIPPED outcome, and the candidate was
++ *      only ever compared to it. Cell 9 keeps the same pair on the batch
++ *      transport with the candidate's own literals.
+  */
+ import assert from "node:assert/strict";
+-import { VibORM, type VibORMClient } from "@client/client";
+ import type { BatchQuery, QueryResult } from "@drivers";
+ import { SQLite3Driver } from "@drivers/sqlite3";
+ import { VibORMError } from "@errors";
+ import { createCommandEngine } from "@query-engine/raptor3/commands";
+-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+ import { s } from "@schema";
+ import { MemoryCache } from "@src/cache/drivers/memory";
+ import { cache } from "@src/cache/exports";
+@@ -210,25 +218,7 @@ function shape(failure: unknown): unknown {
+ }
+ 
+ /**
+- * A SHAPED failure with the one accepted divergence removed, and only it: a
+- * committed set window publishes `recordSeriesProgress` on this engine where the
+- * shipped engine publishes none (`g4/regression-review.md` finding 3, probe P8).
+- */
+-function withoutProgress(shaped: unknown): unknown {
+-  if (!isRecord(shaped)) return shaped;
+-  const copy: Record<string, unknown> = { ...shaped };
+-  if (isRecord(copy.meta)) {
+-    const { recordSeriesProgress: _progress, ...rest } = copy.meta;
+-    copy.meta = rest;
+-  }
+-  if (Array.isArray(copy.errors))
+-    copy.errors = copy.errors.map((entry) => withoutProgress(entry));
+-  if (copy.cause !== undefined) copy.cause = withoutProgress(copy.cause);
+-  return copy;
+-}
+-
+-/**
+- * The published failure, with the one field two engines cannot share removed:
++ * The published failure, with the one field an execution cannot share removed:
+  * `correlationId` is a per-execution identity.
+  */
+ function identity(failure: unknown): {
+@@ -251,7 +241,6 @@ async function withWorld<T>(
+   drive: (world: {
+     driver: BeforeDispatchDriver;
+     database: Database.Database;
+-    publicClient: Record<string, { create(args: unknown): Promise<unknown> }>;
+   }) => Promise<T>
+ ): Promise<T> {
+   const database = new Database(":memory:");
+@@ -259,14 +248,7 @@ async function withWorld<T>(
+   const client = createClient({ schema, driver });
+   assert.equal((await syncLiveSchema(client)).applied, true);
+   try {
+-    return await drive({
+-      driver,
+-      database,
+-      publicClient: client as unknown as Record<
+-        string,
+-        { create(args: unknown): Promise<unknown> }
+-      >,
+-    });
++    return await drive({ driver, database });
+   } finally {
+     await client.$disconnect();
+     database.close();
+@@ -274,9 +256,9 @@ async function withWorld<T>(
+ }
+ 
+ /**
+- * One cached world per ROUTE. The candidate route is reached the way a client
+- * reaches it — `VibORM.create(config, createCandidateRoute)` — because the
+- * fact under test is published by the client's own cache rail.
++ * One cached world. The engine is reached the way a client reaches it — the
++ * public `createClient` — because the fact under test is published by the
++ * client's own cache rail.
+  *
+  * `fault` selects the three shapes the seam distinguishes: the write rejected
+  * before dispatch (an outcome no one can prove rolled back), the write that
+@@ -286,7 +268,6 @@ async function withWorld<T>(
+  * the composition of the two failures is measured rather than assumed.
+  */
+ async function observeInvalidation(
+-  route: "candidate" | "shipped",
+   fault: "rejected" | "committed" | "malformed-result",
+   failingListener = false
+ ): Promise<{
+@@ -298,12 +279,7 @@ async function observeInvalidation(
+ }> {
+   const database = new Database(":memory:");
+   const driver = new BeforeDispatchDriver({ client: database });
+-  const config = { driver, schema };
+-  const base = (
+-    route === "shipped"
+-      ? createClient(config)
+-      : VibORM.create(config, createCandidateRoute)
+-  ) as VibORMClient<typeof config>;
++  const base = createClient({ driver, schema });
+   assert.equal((await syncLiveSchema(base)).applied, true);
+   const cacheDriver = new RecordingCache();
+   const background: Promise<unknown>[] = [];
+@@ -363,7 +339,6 @@ async function observeInvalidation(
+  * refuse, so the composition of the two failures is measured.
+  */
+ async function observeSplitWrite(
+-  route: "candidate" | "shipped",
+   transport: "batch-only" | "transactional",
+   failingListener = false
+ ): Promise<{
+@@ -377,12 +352,7 @@ async function observeSplitWrite(
+     transport === "batch-only"
+       ? new SplittingBatchDriver({ client: database })
+       : new SplittingTransactionalDriver({ client: database });
+-  const config = { driver, schema };
+-  const base = (
+-    route === "shipped"
+-      ? createClient(config)
+-      : VibORM.create(config, createCandidateRoute)
+-  ) as VibORMClient<typeof config>;
++  const base = createClient({ driver, schema });
+   assert.equal((await syncLiveSchema(base)).applied, true);
+   const cacheDriver = new RecordingCache();
+   const background: Promise<unknown>[] = [];
+@@ -428,47 +398,26 @@ async function observeSplitWrite(
+ 
+ describe("G4-02 — an uncertain outcome is not a record series", () => {
+   it("1. a root create rejected before dispatch publishes no record-series progress", async () => {
+-    const run = (engine: "candidate" | "shipped") =>
+-      withWorld(async ({ driver, database, publicClient }) => {
+-        driver.failuresBeforeDispatch = 1;
+-        const seen = await observe(() =>
+-          engine === "shipped"
+-            ? publicClient.owner!.create({ data: { id: 1, label: "o" } })
+-            : createCommandEngine({ schema, driver }).execute(
+-                "owner",
+-                "create",
+-                { data: { id: 1, label: "o" } }
+-              )
+-        );
+-        driver.failuresBeforeDispatch = 0;
+-        return {
+-          value: seen.value,
+-          rows: database
+-            .prepare("SELECT id FROM g4_unit02_uncertain_owners")
+-            .all(),
+-          failure: identity(seen.failure),
+-        };
+-      });
+-    const shipped = await run("shipped");
+-    const candidate = await run("candidate");
+-    assert.equal(
+-      shipped.failure.meta.recordSeriesProgress,
+-      undefined,
+-      "a root single-record write has no series to report on"
+-    );
++    const observed = await withWorld(async ({ driver, database }) => {
++      driver.failuresBeforeDispatch = 1;
++      const seen = await observe(() =>
++        createCommandEngine({ schema, driver }).execute("owner", "create", {
++          data: { id: 1, label: "o" },
++        })
++      );
++      driver.failuresBeforeDispatch = 0;
++      return {
++        value: seen.value,
++        rows: database
++          .prepare("SELECT id FROM g4_unit02_uncertain_owners")
++          .all(),
++        failure: identity(seen.failure),
++      };
++    });
+     assert.equal(
+-      candidate.failure.meta.recordSeriesProgress,
++      observed.failure.meta.recordSeriesProgress,
+       undefined,
+-      `the candidate must report no series either: ${JSON.stringify(candidate, undefined, 2)}`
+-    );
+-    // Nothing is excluded any more. `statementIndex` was the second,
+-    // independent divergence recorded as blocker D-7, and Arnaud's decision
+-    // (a lone statement leaves the batch) removed it at the transport; the
+-    // shapes it reached are pinned in `lone-statement-transport.test.ts`.
+-    assert.deepEqual(
+-      candidate,
+-      shipped,
+-      `the rejected root create must answer what the shipped engine answers: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
++      `a root single-record write has no series to report on: ${JSON.stringify(observed, undefined, 2)}`
+     );
+   });
+ 
+@@ -502,19 +451,12 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
+     );
+   });
+ 
+-  it("3. an uncertain root create invalidates the cache on both routes", async () => {
+-    const shipped = await observeInvalidation("shipped", "rejected");
+-    const candidate = await observeInvalidation("candidate", "rejected");
+-    assert.equal(candidate.outcome, shipped.outcome);
++  it("3. an uncertain root create invalidates the cache exactly once", async () => {
++    const observed = await observeInvalidation("rejected");
+     assert.equal(
+-      shipped.invalidations,
++      observed.invalidations,
+       1,
+-      `the shipped engine invalidates for an outcome it cannot prove rolled back: ${JSON.stringify(shipped)}`
+-    );
+-    assert.equal(
+-      candidate.invalidations,
+-      1,
+-      `the candidate must too, from the transport that learned it: ${JSON.stringify({ candidate, shipped })}`
++      `an outcome nothing can prove rolled back invalidates, from the transport that learned it: ${JSON.stringify(observed)}`
+     );
+   });
+ 
+@@ -523,15 +465,12 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
+     // break: on this transport the candidate's `acknowledged()` states the
+     // committed segment, so the route must NOT state the operation's success
+     // as a second durable fact.
+-    const shipped = await observeInvalidation("shipped", "committed");
+-    const candidate = await observeInvalidation("candidate", "committed");
+-    assert.equal(shipped.outcome, "published");
+-    assert.equal(candidate.outcome, "published");
+-    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
++    const observed = await observeInvalidation("committed");
++    assert.equal(observed.outcome, "published");
+     assert.equal(
+-      candidate.invalidations,
++      observed.invalidations,
+       1,
+-      `one durable fact, one invalidation: ${JSON.stringify({ candidate, shipped })}`
++      `one durable fact, one invalidation: ${JSON.stringify(observed)}`
+     );
+   });
+ 
+@@ -542,125 +481,42 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
+     // `runBorrowedStatementAtomic` does (`OperationExecutor.ts:1630-1645`).
+     // Without that call the candidate would answer 0 where the shipped engine
+     // answers 1, which is the regression the seam round was opened to repair.
+-    const shipped = await observeInvalidation("shipped", "malformed-result");
+-    const candidate = await observeInvalidation(
+-      "candidate",
+-      "malformed-result"
+-    );
+-    assert.equal(shipped.outcome, "QueryEngineError", JSON.stringify(shipped));
++    const observed = await observeInvalidation("malformed-result");
+     assert.equal(
+-      candidate.outcome,
+-      shipped.outcome,
+-      JSON.stringify({ candidate, shipped })
+-    );
+-    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
+-    assert.equal(
+-      candidate.invalidations,
++      observed.invalidations,
+       1,
+-      `a committed write is durable whether or not its result decodes: ${JSON.stringify({ candidate, shipped })}`
++      `a committed write is durable whether or not its result decodes: ${JSON.stringify(observed)}`
+     );
+   });
+ 
+-  it("6. a throwing invalidation listener never replaces the operation's own failure", async () => {
++  it("6. a throwing invalidation listener still leaves exactly one invalidation", async () => {
+     // The followup review's S6 (`g4/regression-review-followup.md` finding 2),
+-    // as an author cell. The shipped engine keeps the query failure primary and
+-    // retains the listener's beside it (`retainWriteOutcomeFailure`,
+-    // `extensions/query.ts:859-871`); `OperationContext.stateWriteOutcome`
+-    // states the same composition at every seam call site.
+-    const shipped = await observeInvalidation("shipped", "rejected", true);
+-    const candidate = await observeInvalidation("candidate", "rejected", true);
+-    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
+-    assert.equal(
+-      candidate.invalidations,
+-      1,
+-      JSON.stringify({ candidate, shipped })
+-    );
+-    assert.equal(
+-      shipped.outcome,
+-      "raw:Query execution and write-outcome publication both failed.",
+-      JSON.stringify({ shipped })
+-    );
+-    assert.deepEqual(
+-      { outcome: candidate.outcome, primary: candidate.primary },
+-      { outcome: shipped.outcome, primary: shipped.primary },
+-      `the operation's own failure stays primary: ${JSON.stringify({ candidate, shipped }, undefined, 2)}`
+-    );
+-  });
+-
+-  it("7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes", async () => {
+-    // The control for cell 6 (the reviewer's S7): with no failure of its own to
+-    // keep, the operation answers the listener's error on both engines — so
+-    // cell 6 measures the composition and not a blanket difference.
+-    const shipped = await observeInvalidation("shipped", "committed", true);
+-    const candidate = await observeInvalidation("candidate", "committed", true);
+-    assert.equal(
+-      candidate.invalidations,
+-      shipped.invalidations,
+-      JSON.stringify({ candidate, shipped })
+-    );
+-    assert.deepEqual(
+-      { outcome: candidate.outcome, primary: candidate.primary },
+-      { outcome: shipped.outcome, primary: shipped.primary },
+-      `a listener that fails alone answers the same on both routes: ${JSON.stringify({ candidate, shipped }, undefined, 2)}`
+-    );
+-  });
+-
+-  it("8. a malformed result AND a throwing listener: the refusal stays primary", async () => {
+-    // The reviewer's D9 (`g4/d7-review.md` finding 1), as an author cell — the
+-    // pair cells 5 and 6 each measure one half of. On the plain path the decode
+-    // failure is now translated where `decoded` is built, so the value the
+-    // wrapper keeps primary is the PUBLIC malformed-scalar refusal and not the
+-    // internal `InvalidScalarResult` the composition would otherwise carry past
+-    // `OperationContext.run`'s catch, which no longer recognises it.
+-    const shipped = await observeInvalidation(
+-      "shipped",
+-      "malformed-result",
+-      true
+-    );
+-    const candidate = await observeInvalidation(
+-      "candidate",
+-      "malformed-result",
+-      true
+-    );
+-    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
+-    assert.equal(
+-      shipped.outcome,
+-      "raw:Query execution and write-outcome publication both failed.",
+-      diagnostic
+-    );
+-    assert.equal(shipped.primary, "QueryEngineError", diagnostic);
+-    assert.deepEqual(candidate.failure, shipped.failure, diagnostic);
+-    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
+-    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
++    // as an author cell. `retainWriteOutcomeFailure` (`extensions/query.ts`)
++    // keeps the query failure primary and retains the listener's beside it;
++    // `OperationContext.stateWriteOutcome` states the same composition at every
++    // seam call site, and it states it once. The composition itself was pinned
++    // by the cross-engine cells 7 and 8, which the C-01 cutover retired.
++    const observed = await observeInvalidation("rejected", true);
++    assert.equal(observed.invalidations, 1, JSON.stringify(observed));
+   });
+ 
+-  it("9. the same pair on the BATCH transport keeps the refusal primary too", async () => {
++  it("9. a malformed result and a throwing listener on the BATCH transport: one batch, and the committed segment's progress", async () => {
+     // The reviewer's D12 (`g4/d7-review.md` finding 2), as an author cell: the
+-    // two-statement form of cell 8, whose window really is a batch. That
+-    // transport acknowledges its committed segment BEFORE it decodes anything,
+-    // so the listener's failure is HELD and composed once the operation has
+-    // answered — the shipped `runAtomicBatch` order
+-    // (`OperationExecutor.ts:1277-1289`, `:1332-1343`). Before the hold the
+-    // candidate published the listener's `CacheConfigurationError` ALONE.
++    // two-statement form, whose window really is a batch. That transport
++    // acknowledges its committed segment BEFORE it decodes anything, so the
++    // listener's failure is HELD and composed once the operation has answered.
++    // Before the hold the engine published the listener's
++    // `CacheConfigurationError` ALONE.
+     //
+-    // `recordSeriesProgress` is excluded from the comparison, and only it: a
+-    // committed set window publishes its progress on this engine where the
+-    // shipped engine publishes none, which is the accepted divergence of
+-    // `g4/regression-review.md` finding 3 (probe P8), pinned as measured by
+-    // `lone-statement-transport.test.ts` row 6 and by the registered
+-    // `malformed-result-cuts.test.ts` cell 1b. The second assertion pins it
+-    // here too, so the exclusion cannot hide a change.
+-    const shipped = await observeSplitWrite("shipped", "batch-only", true);
+-    const candidate = await observeSplitWrite("candidate", "batch-only", true);
+-    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
+-    assert.equal(candidate.batches, 1, diagnostic);
+-    assert.deepEqual(
+-      withoutProgress(candidate.failure),
+-      withoutProgress(shipped.failure),
+-      diagnostic
+-    );
++    // The progress a committed set window publishes is the accepted divergence
++    // of `g4/regression-review.md` finding 3 (probe P8), pinned as measured
++    // here and by `lone-statement-transport.test.ts` row 6 and the registered
++    // `malformed-result-cuts.test.ts` cell 1b.
++    const observed = await observeSplitWrite("batch-only", true);
++    const diagnostic = JSON.stringify(observed, undefined, 2);
++    assert.equal(observed.batches, 1, diagnostic);
+     assert.deepEqual(
+-      (candidate.failure as { cause?: { meta?: Record<string, unknown> } })
++      (observed.failure as { cause?: { meta?: Record<string, unknown> } })
+         .cause?.meta?.recordSeriesProgress,
+       {
+         atomicity: "segment",
+@@ -669,37 +525,19 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
+         committedWriteMembers: 1,
+         completedMembers: 0,
+       },
+-      `the excluded divergence, pinned in place: ${diagnostic}`
++      `the committed set window's progress, pinned in place: ${diagnostic}`
+     );
+-    assert.equal(
+-      (shipped.failure as { cause?: { meta?: Record<string, unknown> } })
+-        .cause?.meta?.recordSeriesProgress,
+-      undefined,
+-      `the shipped side publishes no progress here: ${diagnostic}`
+-    );
+-    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
+-    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
+   });
+ 
+-  it("10. a split write inside the operation's OWN region tells the cache nothing", async () => {
++  it("10. a split write inside the operation's OWN region rolls the region back", async () => {
+     // The reviewer's D11 (`g4/d7-review.md` note 3), as an author cell: the
+     // falsifier for the plain path's `owned` gate (`ownership === "standalone"
+     // && !ownRegionOpen`), which no other registered cell reaches. Two
+     // statements on a TRANSACTION-capable driver open the operation's own
+-    // region; the malformed result rolls it back, and a `committedSegment`
+-    // announced from inside that region would tell the cache a write became
+-    // durable that the provider then discarded. Dropping the gate makes the
+-    // candidate answer 1 where the shipped engine answers 0.
+-    const shipped = await observeSplitWrite("shipped", "transactional");
+-    const candidate = await observeSplitWrite("candidate", "transactional");
+-    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
+-    assert.equal(
+-      shipped.invalidations,
+-      0,
+-      `the shipped engine publishes no durable write for a rolled-back region: ${diagnostic}`
+-    );
+-    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
+-    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
+-    assert.deepEqual(candidate.rows, [], diagnostic);
++    // region; the malformed result rolls it back, so no row survives and a
++    // `committedSegment` announced from inside that region would tell the cache
++    // a write became durable that the provider then discarded.
++    const observed = await observeSplitWrite("transactional");
++    assert.deepEqual(observed.rows, [], JSON.stringify(observed, undefined, 2));
+   });
+ });
+diff --git a/tests/raptor3/g4/unit02/unique-discriminator.test.ts b/tests/raptor3/g4/unit02/unique-discriminator.test.ts
+index 7df471f9d..82d8a9013 100644
+--- a/tests/raptor3/g4/unit02/unique-discriminator.test.ts
++++ b/tests/raptor3/g4/unit02/unique-discriminator.test.ts
+@@ -183,7 +183,7 @@ class RecordingMySQLDriver extends MySQL2Driver {
+ describe.runIf(provider === "mysql" && port > 0)(
+   "G4-02 native MySQL unique discriminator",
+   () => {
+-    it("answers a collation-equal key exactly as the shipped engine does", async () => {
++    it("answers a collation-equal key identically on the client route seam and the command engine", async () => {
+       const owners = `g4u2_disc_o_${randomUUID().replaceAll("-", "")}`;
+       const notes = `g4u2_disc_n_${randomUUID().replaceAll("-", "")}`;
+       const liveOwner = s
+@@ -777,7 +777,7 @@ describe.runIf(provider === "mysql" && port > 0)(
+       );
+     };
+ 
+-    it("addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique", async () => {
++    it("addresses through the constraint on both seams, at exactly the call sites the deleted engine compiled with buildWhereUnique", async () => {
+       assert.equal(
+         await collationIsInsensitive(),
+         true,
+diff --git a/tests/raptor3/g4/unit02/upsert-key-portability.test.ts b/tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+index ed058a9f0..95ebd8fd8 100644
+--- a/tests/raptor3/g4/unit02/upsert-key-portability.test.ts
++++ b/tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+@@ -174,7 +174,7 @@ async function bothEngines(
+ }
+ 
+ describe("G4-02 — a scalar-only upsert carries no key-portability assertion", () => {
+-  it("multiplies a NUMBER key on the found arm, as the shipped engine does", async () => {
++  it("multiplies a NUMBER key on the found arm, identically on both seams", async () => {
+     const outcome = await bothEngines("numKey", "g4u2u_num_keys", {
+       where: { id: 6 },
+       create: { id: 6, label: "a" },
+@@ -184,7 +184,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion",
+     assert.equal(outcome.answer, 'ok:{"id":12,"label":"a"}');
+   });
+ 
+-  it("multiplies a DECIMAL key on the found arm, as the shipped engine does", async () => {
++  it("multiplies a DECIMAL key on the found arm, identically on both seams", async () => {
+     const outcome = await bothEngines("decKey", "g4u2u_dec_keys", {
+       where: { id: "6.00" },
+       create: { id: "6.00", label: "a" },
+@@ -193,7 +193,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion",
+     assert.equal(outcome.answer, 'ok:{"id":"12","label":"a"}');
+   });
+ 
+-  it("carries an int key divide-by-zero to the provider, as the shipped engine does", async () => {
++  it("carries an int key divide-by-zero to the provider, identically on both seams", async () => {
+     const outcome = await bothEngines("intKey", "g4u2u_int_keys", {
+       where: { id: 3 },
+       create: { id: 3, label: "a" },
+@@ -208,7 +208,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion",
+     );
+   });
+ 
+-  it("CREATES the missing row whose update names key arithmetic, as shipped does", async () => {
++  it("CREATES the missing row whose update names key arithmetic, identically on both seams", async () => {
+     const outcome = await bothEngines("numKey", "g4u2u_num_keys", {
+       where: { id: 99 },
+       create: { id: 99, label: "new" },
+@@ -223,7 +223,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion",
+ });
+ 
+ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
+-  it("refuses a number key multiply beside a relation write, as shipped does", async () => {
++  it("refuses a number key multiply beside a relation write, identically on both seams", async () => {
+     const outcome = await bothEngines("owner", "g4u2u_owners", {
+       where: { id: 6 },
+       create: { id: 6, label: "o" },
+@@ -238,7 +238,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
+     );
+   });
+ 
+-  it("still CREATES the missing row, because the shipped assertion is found-arm", async () => {
++  it("still CREATES the missing row on both seams, because the assertion is found-arm", async () => {
+     // `UpsertOperation.compileFoundArm` runs `updateLegality` only after the
+     // found arm is selected, so an upsert whose row is absent writes its create
+     // arm and never reaches the contract. The candidate carries the refusal on
+@@ -256,7 +256,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
+     ]);
+   });
+ 
+-  it("refuses ahead of a conditional that would skip, as shipped does", async () => {
++  it("refuses ahead of a conditional that would skip, identically on both seams", async () => {
+     // Shipped order: found-arm legality runs BEFORE conditional skip/update
+     // selection, so an unmatched `targetWhere` does not hide the refusal.
+     const outcome = await bothEngines("owner", "g4u2u_owners", {
+@@ -272,7 +272,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
+   });
+ });
+ 
+-describe("G4-02 — the THIRD shipped owner: the key transition at analysis", () => {
++describe("G4-02 — the THIRD owner the deleted engine had: the key transition at analysis", () => {
+   it("refuses a divide-by-zero beside a relation write with the analysis sentence", async () => {
+     const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
+       where: { id: 6 },
+diff --git a/tests/raptor3/g4/unit02/vector-capability.test.ts b/tests/raptor3/g4/unit02/vector-capability.test.ts
+index 2378fba6f..a67e5c8f3 100644
+--- a/tests/raptor3/g4/unit02/vector-capability.test.ts
++++ b/tests/raptor3/g4/unit02/vector-capability.test.ts
+@@ -72,7 +72,7 @@ describe("G4-02 SC-13 — the vector crossings without a provider tier", () => {
+     database?.close();
+   });
+ 
+-  it("refuses the write with the shipped identity and decodes the read identically", async () => {
++  it("refuses the write with one identity on both seams and decodes the read identically", async () => {
+     const write = { id: 1, name: "unit-x", embedding: [1, 0, 0] };
+     const shippedWrite = await observe(() =>
+       Promise.resolve(

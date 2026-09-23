@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/unit/migrations/mysql-strict-mode-docker.test.ts (9 tests) 1473ms
+   ✓ MySQL decimal-list descriptor checks > accepts only canonical coefficient containers in a non-strict session  464ms
+   ✓ MySQL interrupted decimal-conversion recovery > recovers after ADD CHECK, reruns the scalar transition, and converges  328ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  13:29:22
+   Duration  4.13s (transform 1.61s, setup 16ms, collect 2.45s, tests 1.47s, environment 0ms, prepare 56ms)
+
+Vitest resources: 6.65s wall, 507.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

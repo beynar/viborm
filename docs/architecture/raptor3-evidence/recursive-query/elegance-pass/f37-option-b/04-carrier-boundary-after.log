@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/recursive-query/carrier-boundary.test.ts (13 tests) 68ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  17:24:57
+   Duration  1.61s (transform 855ms, setup 16ms, collect 1.31s, tests 68ms, environment 0ms, prepare 51ms)
+
+Vitest resources: 4.34s wall, 425.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

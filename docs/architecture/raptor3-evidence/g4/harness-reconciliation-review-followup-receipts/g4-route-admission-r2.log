@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (7 tests) 43ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  14:56:40
+   Duration  1.95s (transform 1.20s, setup 8ms, collect 1.77s, tests 43ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-nr67ke/vitest.json
+Vitest resources: 3.99s wall, 528.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-route-admission contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-nr67ke

@@ -1,0 +1,36 @@
+{
+  "fieldAskCount": 1077,
+  "memberAskCount": 61,
+  "distinctFields": [
+    "a4x_authors.id",
+    "a4x_authors.name",
+    "a4x_boards.id",
+    "a4x_boards.title",
+    "a4x_notes.body",
+    "a4x_notes.id",
+    "a4x_notes.subject_id",
+    "a4x_notes.subject_type",
+    "a4x_posts.authorId",
+    "a4x_posts.id",
+    "a4x_posts.slug",
+    "a4x_posts.title",
+    "a4x_posts.views",
+    "a4x_tags.id",
+    "a4x_tags.label",
+    "a4x_videos.id",
+    "a4x_videos.slug",
+    "a4x_videos.title"
+  ],
+  "distinctMembers": [
+    "a4x_boards.items#post",
+    "a4x_boards.items#video",
+    "a4x_notes.subject#post",
+    "a4x_notes.subject#video",
+    "a4x_posts.author (untagged)",
+    "a4x_posts.notes (untagged)",
+    "a4x_posts.shelves (untagged)",
+    "a4x_posts.tags (untagged)",
+    "a4x_videos.notes (untagged)",
+    "a4x_videos.shelves (untagged)"
+  ]
+}

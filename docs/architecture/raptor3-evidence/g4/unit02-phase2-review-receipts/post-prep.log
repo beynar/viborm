@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 79ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 40ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 14ms
+ ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 5ms
+ ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 6ms
+ ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 4ms
+ ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 22ms
+ ✓ |raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms
+
+ Test Files  9 passed (9)
+      Tests  48 passed (48)
+   Start at  09:01:10
+   Duration  2.67s (transform 1.20s, setup 16ms, collect 2.29s, tests 174ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.60s wall, 731.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,19 @@
+{
+  "mode": "g3p05-contracts",
+  "identity": {
+    "production": "57ca5aae3a499b4466ea4350a85d03da79a8d5eb848a75045b4b6701de2f5656",
+    "harness": "93805b8a4ca70bd75a07d196ced0183e5ffa87874e48ec9efc4dcb5c8b247720",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

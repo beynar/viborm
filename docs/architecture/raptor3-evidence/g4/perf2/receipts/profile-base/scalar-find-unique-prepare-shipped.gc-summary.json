@@ -1,0 +1,1 @@
+{"file":"scalar-find-unique-prepare-shipped.gc.json","cpuUsPerOp":13.152,"wallUsPerOp":5.833,"iterations":20000,"scavenges":60,"scavengeMs":11.33,"majorCount":1,"majorMs":4.88,"totalGcMs":16.21,"gcUsPerOp":0.811,"steadyScavengeMsMedian":0.17,"steadyCapMB":37,"steadyBeforeMB":27.6,"steadyAfterMB":19.7}

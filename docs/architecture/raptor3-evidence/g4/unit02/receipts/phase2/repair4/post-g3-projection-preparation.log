@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 26ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  12:21:02
+   Duration  3.14s (transform 1.89s, setup 14ms, collect 2.86s, tests 26ms, environment 0ms, prepare 44ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vQ7Fr7/vitest.json
+Vitest resources: 7.03s wall, 498.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-projection-preparation contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vQ7Fr7

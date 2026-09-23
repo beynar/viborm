@@ -1,0 +1,88 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests | 1 failed) 28ms
+   ✓ G2.9 result progress [commands] (sqlite-interactive) > preserves malformed-result translation with truthful progress 22ms
+   × G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress 6ms
+     → {
+  "profile": "sqlite-atomic-batch",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "acknowledgedInsertBatches": 0,
+  "corrupted": false,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "value": {
+    "id": 1,
+    "label": "written"
+  },
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ {
++   id: 1,
++   label: 'written'
++ }
+- undefined
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (2 tests) 28ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts > G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress
+AssertionError: {
+  "profile": "sqlite-atomic-batch",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "acknowledgedInsertBatches": 0,
+  "corrupted": false,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "value": {
+    "id": 1,
+    "label": "written"
+  },
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ {
++   id: 1,
++   label: 'written'
++ }
+- undefined
+
+
+simple
+
+ ❯ runMalformedResult tests/raptor3/post-prep/g29-result-progress.test.ts:232:12
+    230|     );
+    231| 
+    232|     assert.equal(value, undefined, diagnostic);
+       |            ^
+    233|     assert.equal(driver.corrupted, true, diagnostic);
+    234|     assert.equal(driver.insertDispatches, 1, diagnostic);
+ ❯ tests/raptor3/post-prep/g29-result-progress.test.ts:260:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 3 passed (4)
+   Start at  21:16:14
+   Duration  4.67s (transform 2.83s, setup 17ms, collect 4.16s, tests 56ms, environment 0ms, prepare 73ms)
+
+Vitest resources: 7.13s wall, 588.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,112 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+(node:31841) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg-batch-reference-reuse.test.ts (6 tests | 4 failed) 1616ms
+   × pg Driver batch reference reuse > a key recycled onto another row before the unit cannot move the connection 131ms
+     → expected { id: 'h1', name: 'connected', …(1) } to deeply equal { id: 'h1', name: 'connected', …(1) }
+   × pg Driver batch reference reuse > a COMPOUND key recycled before the unit cannot move the connection, in either member 86ms
+     → expected { id: 'g1', label: 'moved', …(2) } to deeply equal { id: 'g1', label: 'moved', …(2) }
+   × pg Driver batch reference reuse > the unit's premise HOLDS the located row through the statement that spends it 1086ms
+     → expected [ …(3) ] to deeply equal [ …(3) ]
+   ✓ pg Driver batch reference reuse > a located target that disappears before the unit aborts it with the arm's own failure 96ms
+   × pg Driver batch reference reuse > a reference nulled before the unit is refused by the relation's own sentence, and the NULL is never written 116ms
+     → expected 'Foreign key constraint violation' to be 'Cannot connect relation \'badge\': th…' // Object.is equality
+   ✓ pg Driver batch reference reuse > an uncontended found consumption commits its ordinary result on the forced batch profile 92ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-batch-reference-reuse.test.ts > pg Driver batch reference reuse > a key recycled onto another row before the unit cannot move the connection
+AssertionError: expected { id: 'h1', name: 'connected', …(1) } to deeply equal { id: 'h1', name: 'connected', …(1) }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "badgeCode": "M",[39m
+[31m+   "badgeCode": "G",[39m
+[2m    "id": "h1",[22m
+[2m    "name": "connected",[22m
+[2m  }[22m
+
+ ❯ tests/providers/docker/pg-batch-reference-reuse.test.ts:313:9
+    311|           data: { name: "connected", badge: connectChosen },
+    312|         })
+    313|       ).toEqual({ id: "h1", name: "connected", badgeCode: "M" });
+       |         ^
+    314|       expect(await membership(seeder)).toEqual([
+    315|         ["b1", ["h1"]],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-batch-reference-reuse.test.ts > pg Driver batch reference reuse > a COMPOUND key recycled before the unit cannot move the connection, in either member
+AssertionError: expected { id: 'g1', label: 'moved', …(2) } to deeply equal { id: 'g1', label: 'moved', …(2) }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "id": "g1",[22m
+[2m    "label": "moved",[22m
+[32m-   "passSerial": "S9",[39m
+[31m+   "passSerial": "S1",[39m
+[2m    "passZone": "north",[22m
+[2m  }[22m
+
+ ❯ tests/providers/docker/pg-batch-reference-reuse.test.ts:357:9
+    355|           },
+    356|         })
+    357|       ).toEqual({
+       |         ^
+    358|         id: "g1",
+    359|         label: "moved",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-batch-reference-reuse.test.ts > pg Driver batch reference reuse > the unit's premise HOLDS the located row through the statement that spends it
+AssertionError: expected [ …(3) ] to deeply equal [ …(3) ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "A: every premise of the unit has answered",[22m
+[32m-   "B: its UPDATE of the located row is still waiting",[39m
+[31m+   "B: its UPDATE of the located row completed",[39m
+[2m    "A: the unit's writes executed",[22m
+[2m  ][22m
+
+ ❯ tests/providers/docker/pg-batch-reference-reuse.test.ts:421:31
+    419|         })
+    420|       ).toEqual({ id: "h1", name: "connected", badgeCode: "G" });
+    421|       expect(driver.schedule).toEqual([
+       |                               ^
+    422|         "A: every premise of the unit has answered",
+    423|         "B: its UPDATE of the located row is still waiting",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-batch-reference-reuse.test.ts > pg Driver batch reference reuse > a reference nulled before the unit is refused by the relation's own sentence, and the NULL is never written
+AssertionError: expected 'Foreign key constraint violation' to be 'Cannot connect relation \'badge\': th…' // Object.is equality
+
+Expected: [32m"Cannot connect relation 'badge': the located target's referenced field 'code' is null."[39m
+Received: [31m"Foreign key constraint violation"[39m
+
+ ❯ tests/providers/docker/pg-batch-reference-reuse.test.ts:505:33
+    503|         );
+    504| 
+    505|       expect(messageOf(raised)).toBe(NULL_CODE);
+       |                                 ^
+    506|       expect(await seeder.holder.findMany()).toEqual([
+    507|         { id: "h1", name: "one", badgeCode: null },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+   Start at  23:29:24
+   Duration  3.21s (transform 899ms, setup 18ms, collect 1.38s, tests 1.62s, environment 0ms, prepare 72ms)
+
+Vitest resources: 5.02s wall, 527.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

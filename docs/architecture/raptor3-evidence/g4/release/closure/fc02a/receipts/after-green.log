@@ -1,0 +1,20 @@
+# FC-02A — the repaired tree (SQLite, credential-free)
+# node scripts/run-vitest-safe.mjs run tests/raptor3/g4/parity/cascaded-current-identity.test.ts tests/raptor3/g4/parity/published-key.test.ts tests/raptor3/post-prep/projection-preparation.test.ts tests/raptor3/g4/unit02/key-arithmetic.test.ts
+
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02a
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/key-arithmetic.test.ts (21 tests) 95ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 9ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 63ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/key-arithmetic.test.ts (21 tests) 89ms
+ ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 7ms
+ ✓ |raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 60ms
+ ✓ |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests) 122ms
+
+ Test Files  7 passed (7)
+      Tests  95 passed (95)
+   Start at  22:09:47
+   Duration  5.97s (transform 3.01s, setup 26ms, collect 4.85s, tests 445ms, environment 0ms, prepare 97ms)
+
+Vitest resources: 8.04s wall, 624.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

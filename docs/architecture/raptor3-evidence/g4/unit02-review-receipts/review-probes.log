@@ -1,0 +1,558 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — root delete > not-found identity matches the shipped engine in class, code and message
+NF shipped {"name":"NotFoundError","message":"No author record found for delete","code":"V6001","meta":{"model":"author","operation":"delete"}}
+NF candidate {"name":"NotFoundError","message":"No author record found for delete","code":"V6001","meta":{"model":"author","operation":"delete"}}
+
+stdout | tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — root delete > refuses a non-unique delete where exactly as the shipped engine does
+NONUNIQUE ValidationError ValidationError
+
+stdout | tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — root delete > a delete with `include` of a relation still reads before the removal
+INCLUDE kinds ["SELECT","SELECT","DELETE"] {"id":1,"name":"Ada","age":36,"posts":[{"id":10,"title":"a","authorId":1},{"id":11,"title":"b","authorId":1}]}
+
+stdout | tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — envelope classification agreement > root create (scalar only): candidate envelope matches shipped
+ENV root create (scalar only) {"shipped":{"statements":1,"transactions":0},"candidate":{"statements":2,"transactions":1}}
+
+stdout | tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — envelope classification agreement > createMany (2 rows): candidate envelope matches shipped
+ENV createMany (2 rows) {"shipped":{"statements":1,"transactions":0},"candidate":{"statements":1,"transactions":1}}
+
+stdout | tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — envelope classification agreement > deleteMany: candidate envelope matches shipped
+ENV deleteMany {"shipped":{"statements":1,"transactions":0},"candidate":{"statements":1,"transactions":0}}
+
+ ❯ |g4-review-unit02| tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts (6 tests | 2 failed) 47ms
+   ✓ G4-02 review — root delete > not-found identity matches the shipped engine in class, code and message 24ms
+   ✓ G4-02 review — root delete > refuses a non-unique delete where exactly as the shipped engine does 3ms
+   ✓ G4-02 review — root delete > a delete with `include` of a relation still reads before the removal 5ms
+   × G4-02 review — envelope classification agreement > root create (scalar only): candidate envelope matches shipped 9ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   statements: 2,
++   transactions: 1
+-   statements: 1,
+-   transactions: 0
+  }
+
+   × G4-02 review — envelope classification agreement > createMany (2 rows): candidate envelope matches shipped 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 1,
++   transactions: 1
+-   transactions: 0
+  }
+
+   ✓ G4-02 review — envelope classification agreement > deleteMany: candidate envelope matches shipped 3ms
+stdout | tests/raptor3/g4/review/unit02/envelope-rule-owner.review.test.ts > G4-02 review — the envelope rule's real owner > the sentinel recovery never runs, and `single` is not `one statement`
+ENVTABLE [{"shape":"findUnique","statements":1,"transactions":0,"outcome":"ok"},{"shape":"findMany+include","statements":1,"transactions":0,"outcome":"ok"},{"shape":"count","statements":1,"transactions":0,"outcome":"ok"},{"shape":"aggregate","statements":1,"transactions":0,"outcome":"ok"},{"shape":"groupBy","statements":1,"transactions":0,"outcome":"ok"},{"shape":"create scalar","statements":2,"transactions":1,"outcome":"ok"},{"shape":"createMany 1 row","statements":1,"transactions":0,"outcome":"ok"},{"shape":"createMany 2 rows","statements":1,"transactions":1,"outcome":"ok"},{"shape":"createMany 2 rows + select","statements":1,"transactions":1,"outcome":"ok"},{"shape":"update fold","statements":1,"transactions":0,"outcome":"ok"},{"shape":"update relation projection","statements":3,"transactions":1,"outcome":"ok"},{"shape":"updateMany no select","statements":1,"transactions":0,"outcome":"ok"},{"shape":"updateMany + select","statements":1,"transactions":0,"outcome":"ok"},{"shape":"updateMany limit","statements":1,"transactions":0,"outcome":"ok"},{"shape":"delete scalar","statements":1,"transactions":0,"outcome":"ok"},{"shape":"delete relation projection","statements":3,"transactions":1,"outcome":"ok"},{"shape":"deleteMany no select","statements":1,"transactions":0,"outcome":"ok"},{"shape":"deleteMany + select","statements":1,"transactions":0,"outcome":"ok"},{"shape":"upsert missing","statements":3,"transactions":1,"outcome":"ok"}]
+RESTARTS [33m0[39m
+
+ ❯ |g4-review-unit02| tests/raptor3/g4/review/unit02/envelope-rule-owner.review.test.ts (1 test | 1 failed) 39ms
+   × G4-02 review — the envelope rule's real owner > the sentinel recovery never runs, and `single` is not `one statement` 39ms
+     → an operation that issues one statement must show no BEGIN/COMMIT (note §5, falsifier D-a)
++ actual - expected
+
++ [
++   {
++     outcome: 'ok',
++     shape: 'createMany 2 rows',
++     statements: 1,
++     transactions: 1
++   },
++   {
++     outcome: 'ok',
++     shape: 'createMany 2 rows + select',
++     statements: 1,
++     transactions: 1
++   }
++ ]
+- []
+
+stdout | tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts > G4-02 review — packaged root cardinality > a missing root delete inside an array must not let a sibling write commit
+DELETE shipped {"rejected":"NotFoundError","stored":[{"email":"present@example.test"}],"batches":1}
+DELETE candidate {"rejected":"NotFoundError","stored":[{"email":"present@example.test"},{"email":"sibling@example.test"}],"batches":1}
+
+stdout | tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts > G4-02 review — packaged root cardinality > a missing root update inside an array must not let a sibling write commit
+UPDATE shipped {"rejected":"NotFoundError","stored":[{"email":"present@example.test"}],"batches":1}
+UPDATE candidate {"rejected":"NotFoundError","stored":[{"email":"present@example.test"},{"email":"sibling@example.test"}],"batches":1}
+
+stdout | tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts > G4-02 review — packaged root cardinality > a missing findUniqueOrThrow inside an array must not let a sibling write commit
+ORTHROW shipped {"rejected":"NotFoundError","stored":[{"email":"present@example.test"},{"email":"sibling@example.test"}],"batches":1}
+ORTHROW candidate {"rejected":"NotFoundError","stored":[{"email":"present@example.test"},{"email":"sibling@example.test"}],"batches":1}
+
+ ❯ |g4-review-unit02| tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts (3 tests | 2 failed) 18ms
+   × G4-02 review — packaged root cardinality > a missing root delete inside an array must not let a sibling write commit 10ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      email: 'present@example.test'
+    },
++   {
++     email: 'sibling@example.test'
++   }
+  ]
+
+   × G4-02 review — packaged root cardinality > a missing root update inside an array must not let a sibling write commit 5ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      email: 'present@example.test'
+    },
++   {
++     email: 'sibling@example.test'
++   }
+  ]
+
+   ✓ G4-02 review — packaged root cardinality > a missing findUniqueOrThrow inside an array must not let a sibling write commit 3ms
+stdout | tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts > G4-02 review — prepared read facts > `read.single` disagrees with the value the read owner actually publishes
+READFACTS [
+ {
+  "operation": "findUnique",
+  "single": true,
+  "publishedIsRowLike": true,
+  "publishedType": "object",
+  "shape": "{\"kind\":\"object\",\"fields\":{\"id\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false},\"name\":{\"kind\":\"scalar\",\"type\":\"string\",\"nullable\":false},\"age\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false}}}"
+ },
+ {
+  "operation": "findFirst",
+  "single": true,
+  "publishedIsRowLike": true,
+  "publishedType": "object",
+  "shape": "{\"kind\":\"object\",\"fields\":{\"id\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false},\"name\":{\"kind\":\"scalar\",\"type\":\"string\",\"nullable\":false},\"age\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false}}}"
+ },
+ {
+  "operation": "findMany",
+  "single": false,
+  "publishedIsRowLike": false,
+  "publishedType": "array",
+  "shape": "{\"kind\":\"object\",\"fields\":{\"id\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false},\"name\":{\"kind\":\"scalar\",\"type\":\"string\",\"nullable\":false},\"age\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false}}}"
+ },
+ {
+  "operation": "count",
+  "single": true,
+  "publishedIsRowLike": false,
+  "publishedType": "number",
+  "shape": "{\"kind\":\"object\",\"fields\":{\"_count\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false}}}"
+ },
+ {
+  "operation": "exist",
+  "single": true,
+  "publishedIsRowLike": false,
+  "publishedType": "boolean",
+  "shape": "{\"kind\":\"object\",\"fields\":{\"_count\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false}}}"
+ },
+ {
+  "operation": "aggregate",
+  "single": true,
+  "publishedIsRowLike": true,
+  "publishedType": "object",
+  "shape": "{\"kind\":\"object\",\"fields\":{\"_count\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false}}}"
+ },
+ {
+  "operation": "groupBy",
+  "single": false,
+  "publishedIsRowLike": false,
+  "publishedType": "array",
+  "shape": "{\"kind\":\"object\",\"fields\":{\"age\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false},\"_count\":{\"kind\":\"scalar\",\"type\":\"int\",\"nullable\":false}}}"
+ }
+]
+
+stdout | tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts > G4-02 review — bulk relation projections > updateMany with a relation projection keeps the correlated RETURNING the delete branch was fixed to avoid
+UPDATEMANY "ValidationError: Validation failed for updateMany: 'select.posts' is not supported on 'updateMany': a bulk write projects scalar fields only. Read the relation in a separate query." {"statements":0,"transactions":0,"kinds":[]}
+
+ ❯ |g4-review-unit02| tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts (4 tests | 3 failed) 12ms
+   × G4-02 review — prepared read facts > `read.single` disagrees with the value the read owner actually publishes 6ms
+     → count: read.single=true but the published value is a number
+
+true !== false
+
+   ✓ G4-02 review — prepared read facts > prepare() admits once and answers the same Read for args, read and execute 2ms
+   × G4-02 review — bulk relation projections > deleteMany with a relation projection reads before removal and returns the rows 2ms
+     → Validation failed for deleteMany: 'select.posts' is not supported on 'deleteMany': a bulk write projects scalar fields only. Read the relation in a separate query.
+   × G4-02 review — bulk relation projections > updateMany with a relation projection keeps the correlated RETURNING the delete branch was fixed to avoid 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ "ValidationError: Validation failed for updateMany: 'select.posts' is not supported on 'updateMany': a bulk write projects scalar fields only. Read the relation in a separate query."
+- [
+-   {
+-     id: 1,
+-     posts: [
+-       {
+-         id: 10
+-       },
+-       {
+-         id: 11
+-       }
+-     ]
+-   },
+-   {
+-     id: 2,
+-     posts: [
+-       {
+-         id: 12
+-       }
+-     ]
+-   }
+- ]
+
+stdout | tests/raptor3/g4/review/unit02/statement-context.review.test.ts > G4-02 review — statement context > the candidate reports the ROOT model for a nested-model statement where the shipped engine reports the nested one
+CTX shipped [{"verb":"SELECT","model":"author","operation":"update"},{"verb":"SELECT","model":"post","operation":"update"},{"verb":"UPDATE","model":"author","operation":"update"},{"verb":"UPDATE","model":"post","operation":"update"},{"verb":"SELECT","model":"author","operation":"update"}]
+CTX candidate [{"verb":"SELECT","model":"author","operation":"update"},{"verb":"UPDATE","model":"author","operation":"update"},{"verb":"SELECT","model":"author","operation":"update"},{"verb":"UPDATE","model":"author","operation":"update"},{"verb":"SELECT","model":"author","operation":"update"}]
+
+ ❯ |g4-review-unit02| tests/raptor3/g4/review/unit02/statement-context.review.test.ts (1 test | 1 failed) 13ms
+   × G4-02 review — statement context > the candidate reports the ROOT model for a nested-model statement where the shipped engine reports the nested one 13ms
+     → the candidate attributes no statement to the nested model: every statement carries the root model
+stdout | tests/raptor3/g4/review/unit02/admission-and-projection.review.test.ts > G4-02 review — admission count through the engine's public entries > prepareBatch() then execute() on the engine admits the same payload twice
+ADMISSIONS engine entries [33m2[39m
+
+stdout | tests/raptor3/g4/review/unit02/admission-and-projection.review.test.ts > G4-02 review — admission count through the engine's public entries > one prepared handle admits once across args/read/prepareBatch/execute
+ADMISSIONS one handle [33m1[39m
+
+stdout | tests/raptor3/g4/review/unit02/admission-and-projection.review.test.ts > G4-02 review — root delete projections > a _count projection reads before the removal
+COUNTPROJ {"id":1,"_count":{"posts":2}} ["SELECT","SELECT","DELETE"]
+
+ ❯ |g4-review-unit02| tests/raptor3/g4/review/unit02/admission-and-projection.review.test.ts (3 tests | 1 failed) 9ms
+   × G4-02 review — admission count through the engine's public entries > prepareBatch() then execute() on the engine admits the same payload twice 5ms
+     → admission must happen exactly once for one payload; saw 2
+
+2 !== 1
+
+   ✓ G4-02 review — admission count through the engine's public entries > one prepared handle admits once across args/read/prepareBatch/execute 2ms
+   ✓ G4-02 review — root delete projections > a _count projection reads before the removal 2ms
+stdout | tests/raptor3/g4/review/unit02/route-admission-count.review.test.ts > G4-02 review — route admission count for an array member > an array member admits the same number of times on both routes
+ROUTEADMIT {"shipped":["value"],"candidate":["value"]}
+
+ ✓ |g4-review-unit02| tests/raptor3/g4/review/unit02/route-admission-count.review.test.ts (1 test) 4ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/admission-and-projection.review.test.ts > G4-02 review — admission count through the engine's public entries > prepareBatch() then execute() on the engine admits the same payload twice
+AssertionError: admission must happen exactly once for one payload; saw 2
+
+2 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/raptor3/g4/review/unit02/admission-and-projection.review.test.ts:114:12
+    112|     // eslint-disable-next-line no-console
+    113|     console.log("ADMISSIONS engine entries", transforms);
+    114|     assert.equal(
+       |            ^
+    115|       transforms,
+    116|       1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — envelope classification agreement > root create (scalar only): candidate envelope matches shipped
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   statements: 2,
++   transactions: 1
+-   statements: 1,
+-   transactions: 0
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "statements": 1,[39m
+[32m-   "transactions": 0,[39m
+[31m+   "statements": 2,[39m
+[31m+   "transactions": 1,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts:218:14
+    216|         JSON.stringify({ shipped: shippedCost, candidate: candidateCos…
+    217|       );
+    218|       assert.deepEqual(candidateCost, shippedCost);
+       |              ^
+    219|     });
+    220|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts > G4-02 review — envelope classification agreement > createMany (2 rows): candidate envelope matches shipped
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    statements: 1,
++   transactions: 1
+-   transactions: 0
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "statements": 1,[22m
+[32m-   "transactions": 0,[39m
+[31m+   "transactions": 1,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02/delete-and-envelope.review.test.ts:218:14
+    216|         JSON.stringify({ shipped: shippedCost, candidate: candidateCos…
+    217|       );
+    218|       assert.deepEqual(candidateCost, shippedCost);
+       |              ^
+    219|     });
+    220|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/envelope-rule-owner.review.test.ts > G4-02 review — the envelope rule's real owner > the sentinel recovery never runs, and `single` is not `one statement`
+AssertionError: an operation that issues one statement must show no BEGIN/COMMIT (note §5, falsifier D-a)
++ actual - expected
+
++ [
++   {
++     outcome: 'ok',
++     shape: 'createMany 2 rows',
++     statements: 1,
++     transactions: 1
++   },
++   {
++     outcome: 'ok',
++     shape: 'createMany 2 rows + select',
++     statements: 1,
++     transactions: 1
++   }
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   {[39m
+[31m+     "outcome": "ok",[39m
+[31m+     "shape": "createMany 2 rows",[39m
+[31m+     "statements": 1,[39m
+[31m+     "transactions": 1,[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "outcome": "ok",[39m
+[31m+     "shape": "createMany 2 rows + select",[39m
+[31m+     "statements": 1,[39m
+[31m+     "transactions": 1,[39m
+[31m+   },[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/unit02/envelope-rule-owner.review.test.ts:246:12
+    244|       (row) => row.statements === 1 && (row.transactions as number) > 0
+    245|     );
+    246|     assert.deepEqual(
+       |            ^
+    247|       oneStatementWithEnvelope,
+    248|       [],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts > G4-02 review — packaged root cardinality > a missing root delete inside an array must not let a sibling write commit
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      email: 'present@example.test'
+    },
++   {
++     email: 'sibling@example.test'
++   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "email": "present@example.test",[22m
+[2m    },[22m
+[31m+   {[39m
+[31m+     "email": "sibling@example.test",[39m
+[31m+   },[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts:140:12
+    138|     // eslint-disable-next-line no-console
+    139|     console.log("DELETE candidate", JSON.stringify(candidate));
+    140|     assert.deepEqual(candidate.stored, shipped.stored);
+       |            ^
+    141|     assert.equal(candidate.rejected, shipped.rejected);
+    142|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts > G4-02 review — packaged root cardinality > a missing root update inside an array must not let a sibling write commit
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      email: 'present@example.test'
+    },
++   {
++     email: 'sibling@example.test'
++   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "email": "present@example.test",[22m
+[2m    },[22m
+[31m+   {[39m
+[31m+     "email": "sibling@example.test",[39m
+[31m+   },[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/review/unit02/packaged-cardinality.review.test.ts:157:12
+    155|     // eslint-disable-next-line no-console
+    156|     console.log("UPDATE candidate", JSON.stringify(candidate));
+    157|     assert.deepEqual(candidate.stored, shipped.stored);
+       |            ^
+    158|     assert.equal(candidate.rejected, shipped.rejected);
+    159|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts > G4-02 review — prepared read facts > `read.single` disagrees with the value the read owner actually publishes
+AssertionError: count: read.single=true but the published value is a number
+
+true !== false
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts:124:14
+    122|     console.log("READFACTS", JSON.stringify(rows, undefined, 1));
+    123|     for (const row of rows) {
+    124|       assert.equal(
+       |              ^
+    125|         row.single,
+    126|         row.publishedIsRowLike,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts > G4-02 review — bulk relation projections > deleteMany with a relation projection reads before removal and returns the rows
+ValidationError: Validation failed for deleteMany: 'select.posts' is not supported on 'deleteMany': a bulk write projects scalar fields only. Read the relation in a separate query.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts > G4-02 review — bulk relation projections > updateMany with a relation projection keeps the correlated RETURNING the delete branch was fixed to avoid
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ "ValidationError: Validation failed for updateMany: 'select.posts' is not supported on 'updateMany': a bulk write projects scalar fields only. Read the relation in a separate query."
+- [
+-   {
+-     id: 1,
+-     posts: [
+-       {
+-         id: 10
+-       },
+-       {
+-         id: 11
+-       }
+-     ]
+-   },
+-   {
+-     id: 2,
+-     posts: [
+-       {
+-         id: 12
+-       }
+-     ]
+-   }
+- ]
+
+
+[32m- Expected:[39m 
+[
+  {
+    "id": 1,
+    "posts": [
+      {
+        "id": 10,
+      },
+      {
+        "id": 11,
+      },
+    ],
+  },
+  {
+    "id": 2,
+    "posts": [
+      {
+        "id": 12,
+      },
+    ],
+  },
+]
+
+[31m+ Received:[39m 
+"ValidationError: Validation failed for updateMany: 'select.posts' is not supported on 'updateMany': a bulk write projects scalar fields only. Read the relation in a separate query."
+
+ ❯ tests/raptor3/g4/review/unit02/prepared-and-bulk.review.test.ts:194:12
+    192|       })
+    193|     );
+    194|     assert.deepEqual(outcome, [
+       |            ^
+    195|       { id: 1, posts: [{ id: 10 }, { id: 11 }] },
+    196|       { id: 2, posts: [{ id: 12 }] },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/statement-context.review.test.ts > G4-02 review — statement context > the candidate reports the ROOT model for a nested-model statement where the shipped engine reports the nested one
+AssertionError: the candidate attributes no statement to the nested model: every statement carries the root model
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/review/unit02/statement-context.review.test.ts:141:12
+    139|       "the shipped engine attributes at least one statement to the nes…
+    140|     );
+    141|     assert.ok(
+       |            ^
+    142|       candidateNested.length > 0,
+    143|       "the candidate attributes no statement to the nested model: ever…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+ Test Files  6 failed | 1 passed (7)
+      Tests  10 failed | 9 passed (19)
+   Start at  03:35:23
+   Duration  2.78s (transform 1.33s, setup 14ms, collect 2.47s, tests 142ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 3.36s wall, 621.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

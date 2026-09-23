@@ -1,4 +1,5 @@
 import { PGliteDriver } from "@drivers/pglite";
+import { TransactionError } from "@errors";
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import {
@@ -18,12 +19,19 @@ import { describe, expect, test } from "vitest";
  * skipDuplicates … one level deeper`; that depth-only refusal is now the same
  * composed skip the create root has used since T4a.
  *
- * FIXED-EXPECTATION oracle (no Direct exists post-P6): the persisted state is pinned;
- * tx and batch substrates must both produce it, byte-identical, on a NATIVE Observed
- * execution (engines === {production}). MULTI-PARENT + WRONG-ROW witness: a disjoint
- * subtree stays untouched, and each inserted child's `parentId` is pinned to its
- * IMMEDIATE ancestor (the located target / the fresh create), never a sibling —
- * the standing falsification for the injected FK.
+ * FIXED-EXPECTATION oracle (no Direct exists post-P6): the persisted state is pinned on
+ * a NATIVE Observed execution (engines === {production}). MULTI-PARENT + WRONG-ROW
+ * witness: a disjoint subtree stays untouched, and each inserted child's `parentId` is
+ * pinned to its IMMEDIATE ancestor (the located target / the fresh create), never a
+ * sibling — the standing falsification for the injected FK.
+ *
+ * G3P-04: the two substrates do NOT answer the same thing here. Root-conflict
+ * suppression is admitted only where the operation owns the member rollback region;
+ * the batch route owns none, so a BORROWED `createMany skipDuplicates` is refused in
+ * the command analysis pass, before the enclosing root can write. The batch legs pin
+ * that refusal and the untouched seed (AGENTS.md "G3P-04 admits root-conflict
+ * suppression only when the operation owns the member rollback region"); the tx legs
+ * pin the composed skip itself.
  */
 
 const tree = (() => {
@@ -46,6 +54,10 @@ const tree = (() => {
 const getFamily = usePGliteSchemaFamily(tree);
 
 type AnyClient = Record<string, any>;
+
+// G3P-04, registered at `shared/operation-context.ts` `suppressionRefusal()`.
+const BORROWED_SUPPRESSION_REFUSAL =
+  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
 
 async function runObserved(
   substrate: "tx" | "batch",
@@ -133,13 +145,30 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a located update t
     ["t0", null, "taken"],
   ];
 
-  for (const substrate of ["tx", "batch"] as const) {
-    test(`${substrate}: skip keeps the fresh child under c1, drops the duplicate, native Observed`, async () => {
-      const { state, engines } = await runObserved(substrate, seed, op, snap);
-      expect(engines).toEqual(new Set(["production"]));
-      expect(state).toEqual(expected);
-    });
-  }
+  // What the batch route leaves behind when G3P-04 refuses ahead of every write.
+  const seeded = [
+    ["c0", null, "c0"],
+    ["c1", "c0", "c1"],
+    ["d0", null, "d0"],
+    ["d1", "d0", "d1"],
+    ["t0", null, "taken"],
+  ];
+
+  test("tx: skip keeps the fresh child under c1, drops the duplicate, native Observed", async () => {
+    const { state, engines } = await runObserved("tx", seed, op, snap);
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
+
+  // G3P-04: the borrowed member has no operation-owned rollback region here.
+  test("batch refuses the borrowed skipDuplicates member, writing nothing", async () => {
+    const failure = await runObserved("batch", seed, op, snap).catch(
+      (error: unknown) => error
+    );
+    expect(failure).toBeInstanceOf(TransactionError);
+    expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+    expect(await snap(getFamily().client as AnyClient)).toEqual(seeded);
+  });
 });
 
 describe("X1b mechanism 3 — createMany skipDuplicates under a fresh create at depth", () => {
@@ -195,13 +224,29 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a fresh create at 
     ["t0", null, "taken"],
   ];
 
-  for (const substrate of ["tx", "batch"] as const) {
-    test(`${substrate}: skip under a fresh create attaches survivors to the fresh child, native Observed`, async () => {
-      const { state, engines } = await runObserved(substrate, seed, op, snap);
-      expect(engines).toEqual(new Set(["production"]));
-      expect(state).toEqual(expected);
-    });
-  }
+  // What the batch route leaves behind when G3P-04 refuses ahead of every write:
+  // the fresh create g1 never lands either, because the refusal precedes it.
+  const seeded = [
+    ["c0", null, "c0"],
+    ["c1", "c0", "c1"],
+    ["t0", null, "taken"],
+  ];
+
+  test("tx: skip under a fresh create attaches survivors to the fresh child, native Observed", async () => {
+    const { state, engines } = await runObserved("tx", seed, op, snap);
+    expect(engines).toEqual(new Set(["production"]));
+    expect(state).toEqual(expected);
+  });
+
+  // G3P-04: the borrowed member has no operation-owned rollback region here.
+  test("batch refuses the borrowed skipDuplicates member, writing nothing", async () => {
+    const failure = await runObserved("batch", seed, op, snap).catch(
+      (error: unknown) => error
+    );
+    expect(failure).toBeInstanceOf(TransactionError);
+    expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+    expect(await snap(getFamily().client as AnyClient)).toEqual(seeded);
+  });
 });
 
 describe("X1b mechanism 3 — the skip is load-bearing (falsification)", () => {

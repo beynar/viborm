@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "status": "review-pending",
+  "runtime": {
+    "node": "v24.21.0",
+    "vitest": "3.1.4",
+    "sqliteDriver": "12.6.0",
+    "platform": "darwin-arm64"
+  },
+  "identities": {
+    "production": "2fa782174626ac1d27b31ecae3beb6fdf97f49450b86ceeb94230f90ba579e11",
+    "harness": "e0da0fd939ab2ba5fde32c094bb407d3648421bc40ab8f539372203c501b87ff",
+    "costSource": "b1beb9abbbab4783ddb2266853865d40df66430eb3b7c20fcba3a5d243813f62"
+  },
+  "fixed": {
+    "receiptRoot": "receipts/fixed",
+    "modes": 26,
+    "tests": 1062,
+    "passed": 1062,
+    "failed": 0,
+    "pending": 0,
+    "credentialFreeFixedStage": {
+      "receipt": "receipts/support/fixed-stage-summary.txt",
+      "files": 47,
+      "tests": 632,
+      "passed": 632
+    },
+    "separateNonqualifyingDiagnostics": {
+      "receipt": "receipts/diagnostics",
+      "tests": 2
+    }
+  },
+  "pglite": {
+    "receipt": "receipts/support/pglite-summary.txt",
+    "isolatedFiles": 5,
+    "tests": 11,
+    "passed": 11,
+    "pending": 0
+  },
+  "native": {
+    "postgresql": {
+      "image": "sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+      "server": "16.14",
+      "receiptRoot": "receipts/native-pg",
+      "modes": 9,
+      "tests": 54,
+      "passed": 54
+    },
+    "mysql": {
+      "image": "sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb",
+      "server": "8.4.11",
+      "receiptRoot": "receipts/native-mysql",
+      "modes": 8,
+      "tests": 43,
+      "passed": 43
+    },
+    "lifecycle": "receipts/support/native-container-summary.txt"
+  },
+  "campaigns": {
+    "receiptRoot": "receipts/campaigns",
+    "parents": 4,
+    "batches": 102,
+    "cells": 20400,
+    "replays": 61200,
+    "skips": 0
+  },
+  "savedReplays": {
+    "receiptRoot": "receipts/replays",
+    "corporaRoot": "corpora",
+    "tests": 2,
+    "passed": 2,
+    "historicalCompatibilityProbes": 2,
+    "historicalExpectedOutcome": "stale identity refusal before decode"
+  },
+  "support": {
+    "selftests": "receipts/support/selftests-summary.txt",
+    "cli": "receipts/cli/commands.json",
+    "typecheck": "receipts/support/typecheck-summary.txt",
+    "structure": "receipts/support/query-engine-structure.json",
+    "parserTokens": "receipts/support/parser-token-census.json"
+  },
+  "cost": {
+    "receipt": "cost.json",
+    "core": {
+      "owners": 12,
+      "tokenLines": 6031,
+      "parserTokens": 38161,
+      "bytes": 200477,
+      "deltaFromReference": 1
+    },
+    "broader": {
+      "owners": 28,
+      "tokenLines": 10105,
+      "parserTokens": 62785,
+      "bytes": 433524,
+      "deltaFromAcceptedReference": 1,
+      "deltaFromG29Start": 182
+    },
+    "status": "source-accounted-bundle-pending"
+  },
+  "failedEvidence": {
+    "clearabilitySelfOwner": "receipts/failed/clearability-self-owner"
+  },
+  "archive": {
+    "checksums": "SHA256SUMS",
+    "reproduction": "reproduction.md",
+    "excluded": [
+      "per-batch corpus.json",
+      "generated-campaign-progress.json",
+      "whole-source archive",
+      "bundle artifacts"
+    ]
+  }
+}

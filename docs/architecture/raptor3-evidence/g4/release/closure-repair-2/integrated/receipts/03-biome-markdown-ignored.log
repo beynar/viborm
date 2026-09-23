@@ -1,0 +1,14 @@
+$ npx biome check src/migrations/AGENTS.md docs/architecture/raptor3-evidence/g4.md docs/architecture/raptor3-evidence/g4/release/closure-repair-2/t3/note.md
+Checked 0 files in 5ms. No fixes applied.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × No files were processed in the specified paths.
+
+  i Check your biome.json or biome.jsonc to ensure the paths are not ignored by the configuration.
+
+  i These paths were provided but ignored:
+
+  - src/migrations/AGENTS.md
+  - docs/architecture/raptor3-evidence/g4.md
+  - docs/architecture/raptor3-evidence/g4/release/closure-repair-2/t3/note.md
+

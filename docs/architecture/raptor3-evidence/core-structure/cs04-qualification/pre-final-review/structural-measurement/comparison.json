@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "cases": 28,
+  "replays": 60,
+  "skips": 0,
+  "counterContractSha256": "c48abbff370bfd625a639e077b8408d38dc7a10aa7ef3cea57e794e34f520f4e",
+  "candidate": {
+    "overlapPairChecks": 1657,
+    "overlapAtomChecks": 5146,
+    "prefixReads": 5180,
+    "navigationPrefixReads": 1028,
+    "referenceCopies": 638,
+    "semanticPublicationCopies": 638,
+    "ownerScanReads": 0,
+    "occurrenceVisits": 2554,
+    "constructionOccurrenceVisits": 1476,
+    "logicalOccurrenceVisits": 838,
+    "physicalOccurrenceVisits": 68,
+    "expansionOccurrenceVisits": 172
+  },
+  "reference": {
+    "overlapPairChecks": 1657,
+    "overlapAtomChecks": 6239,
+    "prefixReads": 2319,
+    "navigationPrefixReads": 0,
+    "referenceCopies": 1887,
+    "semanticPublicationCopies": 532,
+    "ownerScanReads": 12743,
+    "occurrenceVisits": 1916,
+    "constructionOccurrenceVisits": 838,
+    "logicalOccurrenceVisits": 838,
+    "physicalOccurrenceVisits": 68,
+    "expansionOccurrenceVisits": 172
+  },
+  "interpretation": "Counters have distinct meanings. They support the ownership decision but do not establish source compression, bundle reduction, runtime speed, or allocation reduction."
+}

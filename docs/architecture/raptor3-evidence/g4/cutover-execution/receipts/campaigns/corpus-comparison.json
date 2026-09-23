@@ -1,0 +1,130 @@
+{
+  "comparedAt": "2026-09-16T19:29:59.158Z",
+  "rule": "the embedded identity fingerprint MUST differ (the source changed); every other byte must not",
+  "rows": [
+    {
+      "mode": "g4-seeds",
+      "seed": "20000",
+      "retainedBytes": 338001,
+      "rerunBytes": 338001,
+      "bodySha256": "55949767119f8b4793e10af958cfec713e40ce8e4b0f54d58ec34679451cdda4",
+      "bodyIdentical": true,
+      "retainedIdentity": {
+        "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+        "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "rerunIdentity": {
+        "production": "f42d6facdc5b36b420ca47b929acb629383dc47d3aa55be9c0d68fe2ae3c19d3",
+        "harness": "5ba4982a6e49ed988d30a9422e72d873821cc7f3df37e23cfb0d556f3e7550ca",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "runtimeEqual": true
+    },
+    {
+      "mode": "g4-transport-seeds",
+      "seed": "50000",
+      "retainedBytes": 324201,
+      "rerunBytes": 324201,
+      "bodySha256": "2db16d09712b6bf9c4bec4d1240c552deb46f8235bf772a67180e5ff006bd72c",
+      "bodyIdentical": true,
+      "retainedIdentity": {
+        "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+        "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "rerunIdentity": {
+        "production": "f42d6facdc5b36b420ca47b929acb629383dc47d3aa55be9c0d68fe2ae3c19d3",
+        "harness": "5ba4982a6e49ed988d30a9422e72d873821cc7f3df37e23cfb0d556f3e7550ca",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "runtimeEqual": true
+    },
+    {
+      "mode": "g4-write-seeds",
+      "seed": "75000",
+      "retainedBytes": 61371797,
+      "rerunBytes": 61371797,
+      "bodySha256": "2cfe836e3b3993b30f079da67c9534b4add757f70ec283795bcf1657bec222e4",
+      "bodyIdentical": true,
+      "retainedIdentity": {
+        "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+        "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "rerunIdentity": {
+        "production": "f42d6facdc5b36b420ca47b929acb629383dc47d3aa55be9c0d68fe2ae3c19d3",
+        "harness": "5ba4982a6e49ed988d30a9422e72d873821cc7f3df37e23cfb0d556f3e7550ca",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "runtimeEqual": true
+    },
+    {
+      "mode": "g4-write-transport-seeds",
+      "seed": "100000",
+      "retainedBytes": 64091456,
+      "rerunBytes": 64091456,
+      "bodySha256": "2547b8dbb66d1b500e3ac3edeb2f7d211c42688d152161ef457cedcfad796e8d",
+      "bodyIdentical": true,
+      "retainedIdentity": {
+        "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+        "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "rerunIdentity": {
+        "production": "f42d6facdc5b36b420ca47b929acb629383dc47d3aa55be9c0d68fe2ae3c19d3",
+        "harness": "5ba4982a6e49ed988d30a9422e72d873821cc7f3df37e23cfb0d556f3e7550ca",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "runtimeEqual": true
+    }
+  ]
+}

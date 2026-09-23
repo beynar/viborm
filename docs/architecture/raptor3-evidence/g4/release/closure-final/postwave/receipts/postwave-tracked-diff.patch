@@ -1,0 +1,794 @@
+diff --git a/docs/architecture/raptor3-evidence/g4.md b/docs/architecture/raptor3-evidence/g4.md
+index fedae7179..6f212c03b 100644
+--- a/docs/architecture/raptor3-evidence/g4.md
++++ b/docs/architecture/raptor3-evidence/g4.md
+@@ -3128,9 +3128,14 @@ change — an ordinary `apply` requires an empty managed target and the two push
+ cells declared above it leave `ns_notes` in alpha for the portability cell to
+ read back, so the apply cell now runs first in its describe with the
+ precondition named. Witness:
+-`tests/providers/docker/mysql2-schema-attestation.test.ts`, 5 cells, red at the
+-base with the drift sentence (falsified by restoring the production files from a
+-backup copy). Five recorded expectations re-expressed, none deleted,
++`tests/providers/docker/mysql2-schema-attestation.test.ts`, 5 cells — the three
++setup cells red at the base with the drift sentence (falsified by restoring the
++production files from a backup copy, `receipts/falsification-base.log`: 3 failed
++/ 3), the apostrophe cell red against the pre-repair introspector
++(`receipts/repair-falsification-pre-repair.log`: 1 failed / 4 passed), and the
++fail-closed cell GREEN in that same falsification, which is what its own
++receipt names it — a contract pin on the refusal, not a witness of either
++repair. Five recorded expectations re-expressed, none deleted,
+ skipped or weakened, each naming §1 "MySQL" at the cell. Lane **160 → 7**
+ failures: R2b's three behaviour items and R2c's four deadlock cells, the latter
+ identical cell for cell to the base. Retained cost: engine unchanged at 16 040
+@@ -3147,10 +3152,15 @@ apostrophe-bearing default on a storage class that takes an expression default 
+ `s.string().default("it's")` created a correct column and then failed its own
+ attestation. `cleanDefault` now undoes both layers (`unescapeOneLayer`, twice,
+ accepting only `\'` and `\\`) and spells the desired side once
+-(`quotedLiteral`); the apostrophe round-trips and everything MySQL's printer
+-escapes otherwise still keeps the catalog text and is still refused — now as
+-the stated contract, pinned on both sides by the witness's two added cells and
+-by `mysql-provider-free-catalog.core`'s measured catalog-text cell. Out of scope
++(`quotedLiteral`); the apostrophe round-trips, and what is still refused is
++refused by TWO mechanisms, each with its own witness — a body carrying an
++escape the inverse does not own (`\n`, measured row 9) keeps the CATALOG TEXT,
++pinned by `mysql-provider-free-catalog.core`'s `multiline` column; and a
++backslash in the DECLARED value, which MySQL's DDL consumed before the catalog
++saw it (`DEFAULT ('a\b')` stores a BACKSPACE, row 8), leaves a body the inverse
++cannot reconstruct the declared value from, pinned live by the witness's "a
++default MySQL's DDL does not read back is refused, not accepted". Both reach
++the same `MIGRATION_DRIFT`, now as the stated contract. Out of scope
+ and reported, not repaired: `escapeValue` leaves `\` alone, so a string default
+ whose value carries a backslash (or a newline) cannot be pushed to MySQL at all
+ — the push fails with `MIGRATION_DRIFT`, which is what the new cell pins; and
+@@ -3188,9 +3198,11 @@ MySQL's naive `DATETIME`, which a JSON container has no column to hold. `has`
+ on a DateTime list therefore compares the ISO wire the container holds, exactly
+ as `equals`/`hasEvery`/`hasSome` already did, with no operator-local converter;
+ this is the same fact `Queries.nativeType` already states for the decode leaf.
+-Every other scalar on the default arm was MEASURED to agree with its container
+-already (a bigint member `"20"` against `["10","20"]`, a date member
+-`"2024-01-02"`, a string member `"a"`). **(3)** The non-returning `createMany`
++THREE other scalars on the default arm were MEASURED to agree with their
++container already — a bigint member (`"20"` against `["10","20"]`), a date
++member (`"2024-01-02"` against `["2024-01-02"]`) and a string member (`"a"`
++against `["a"]`), `receipts/probes/other-members.json`; those three, and not
++every scalar. **(3)** The non-returning `createMany`
+ statement count was an obsolete physical pin: the engine sends one INSERT per
+ input row and ONE `selectSeries` read-back of every created identity, ordered
+ by input ordinal and windowed by the driver's bind budget, not the four
+@@ -3260,7 +3272,8 @@ with `VibORMErrorCode.DEADLOCK` were already distinct, and only the second is
+ unrecoverable. No replay, no isolation change, no borrowed-work retry. The four
+ cells are green as written, their unconditional success expectations unchanged.
+ New witnesses in `tests/providers/docker/mysql2-concurrency-policy.test.ts`
+-(8 cells, 5 of them red on the base tree; it resets with the siblings' approved
++(8 cells, 5 of them red on the base tree — 10 after the postwave round below;
++it resets with the siblings' approved
+ `dropEveryLiveTable`, since the lane shares one database and a sibling's tables
+ are the normal state it starts in): the eligible race converging on the
+ producer the selector names with one admitted create; a rejection on a
+@@ -3388,13 +3401,18 @@ still not deleted for the parent that no longer holds it. Every comment that
+ promised more than the code provides is corrected, `requireCapturedSet`'s "STILL
+ PRESENT and STILL A MEMBER" and two `FOR UPDATE` sentences among them: a row
+ lock holds the rows it READ and is not phantom exclusion. Pins:
+-`tests/providers/docker/pg-captured-set-concurrency.test.ts` **10 → 16 cells**,
+-16 / 16 on native PostgreSQL 16.14 (default route kept apart from the forced
+-non-RETURNING profile; both root verbs including the non-RETURNING read-back
+-path; compound identities; the limited capture's `[2, 1]` unit; the
++`tests/providers/docker/pg-captured-set-concurrency.test.ts` **10 → 17 cells**,
++17 / 17 on native PostgreSQL 16.14 (default route kept apart from the forced
++non-RETURNING profile; both root verbs, and the UPDATE in BOTH of its result
++outcomes — the cardinality answer that stops it before the non-RETURNING
++read-back, and the undisturbed capture that publishes that read-back's own
++rows; compound identities; the limited capture's `[2, 1]` unit; the
+ acknowledged-batch progress report; the membership reassignment; the
+-sibling-filter cell). Falsified both ways on the final tree: the selector
+-dropped turns 4 cells red, the identity set dropped turns 2. Consumers green:
++sibling-filter cell). The 17th cell is the postwave round's (below): the
++16-cell file stated the read-back path in this sentence without exercising a
++captured mutation that reaches it. Falsified both ways on the final tree: the selector
++dropped turns 4 cells red, the identity set dropped turns 2 (with the postwave
++round's 17th cell the selector falsification turns 5 — re-measured there). Consumers green:
+ `batch-captured-bulk` + `prepared-set-predicates` 32 / 32,
+ `member-boundary-packaging` + `published-key` 34 / 34, the D-58 / FC-05 outcome
+ pins 28 / 28, the neighbour family (`bulk-series-contract`,
+@@ -3411,6 +3429,56 @@ this route and was NOT exercised (its container was down and R2 owns that lane);
+ the pg cells force the non-RETURNING capability; the batch route is simulated
+ over PostgreSQL. `g4/release/closure-final/r3/note.md`.
+ 
++**POSTWAVE — the outstanding review findings, applied on the integrated tree
++(2026-09-21, branch closure-r from cdd787ac8, with R1, R2a, R2b, R2c, R3 and R4
++landed).** Nine findings the unit reviewers left after their own repair rounds:
++one MAJOR and eight minor. **The major (R2c, `relation-body.ts`).** The
++withdrawal of the probe's `FOR UPDATE` was answered for two found-arm shapes
++and reached a THIRD: a nested `connectOrCreate` on a CHILD-HELD reference,
++whose found arm is the UPDATE that writes the child's foreign key and nothing
++else. An arm that demands nothing back issues no stored-row read, so it never
++learns whether it addressed a row — measured on native MySQL 8.4.11 reporting a
++CREATED PARENT and a connection it had never written, after the found target
++was removed between the unlocked probe and that UPDATE
++(`postwave/receipts/base-red-child-held-coc.log`). Repaired at the owner that
++builds that arm (`RelationBody.association`): an arm whose probe did not lock
++its answer (`Selection.insertsWhenAbsent`) demands the target's own keys, which
++is exactly what makes `OperationContext.update`'s CURRENT stored-row read run
++and raise the existing `UPDATE did not produce the required record`. The rule is
++read off the probe, so it reaches only the arms whose probe withdrew its lock —
++a child-held `connect` and a `set` target still lock their row and are
++untouched — and no lock was restored. **No deletion**; engine token-bearing LOC
++**16,089 → 16,089 (+0)**, 1096 functions unchanged. **The eight minors**: the
++R3 ledger sentence claimed a non-RETURNING read-back path no cell reached, so
++the path got its cell (a captured `updateMany` that SUCCEEDS on the forced
++non-RETURNING pg profile, publishing rows only a read issued AFTER the write can
++carry, with the effect's selector asserted in the statement) and the sentence
++now states what the file covers; the R2c `targetWhere` condition-probe repair
++got the witness it shipped without; three R2a/R2b records were narrowed to what
++their receipts measure (five cells red in three different senses, not five at
++the base; three measured list members, not every scalar); the MySQL deparse
++inverse's two fail-closed mechanisms were separated in the guide, both notes,
++this ledger and the cell's own comment, each with the cell that witnesses it;
++`\%` left the `deparsedStringValue` parenthetical, which the inverse does undo
++in the form MySQL prints; and two comments were corrected to the fact behind
++them — MySQL's derived-table MERGE RULE for `LIMIT` rather than a kept-order
++property, and a statement shape derived from the rows `createMany` RETURNED
++rather than from its input. Witnesses:
++`mysql2-concurrency-policy.test.ts` **8 → 10 cells**, 10 / 10 (the child-held
++cell red at the integrated tree, green after); `pg-captured-set-concurrency.test.ts`
++**16 → 17 cells**, 17 / 17, the new cell falsified by dropping the selector
++from the effect (4 → 5 red, restored 17 / 17). Consumers green, one file per
++invocation: `mysql2-writes-raw` 92 / 92, `mysql2-schema-attestation` 5 / 5,
++`mysql2-reference-representability` 5 / 5, `pg-reference-representability`
++5 / 5, `reference-representability` parity 52 / 52, the three
++`nested-write-conformance` files 19 / 28 / 30, `shared-pk-connect-or-create`
++29 / 29, `junction-upsert-arm-probe` 10 / 10, `child-held-to-one-multi-kind`
++7 / 7, `parent-held-lookup` 56 / 56, `pglite-nested-writes` 126 / 126,
++`mysql-provider-free-catalog.core` 10 / 10. Typecheck **0 diagnostics**; census
++not owed (no refusal sentence and no error class changed); Biome per changed
++file unchanged against its base copy. Note and receipts:
++`g4/release/closure-final/postwave/`.
++
+ **D-16 decided (morning, 2026-09-17).** Arnaud, on the twenty-one families:
+ relation-filtered bulk mutations, operator bags, JSON path filters, the read
+ regressions, decimals and scalars, polymorphic collections ("absolutely"),
+diff --git a/docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/note.md b/docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/note.md
+index 8bd783a81..0f163748c 100644
+--- a/docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/note.md
++++ b/docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/note.md
+@@ -214,15 +214,30 @@ the counts it moved (the witness 3 → 5, the provider-free catalog row 8 → 10
+   declared default of `a\b` is stored as `a<BACKSPACE>`). This unit did not change `escapeValue`, and the consequence
+   is stated as explicitly as the `.now()` limit above it: **a string default
+   whose value carries a backslash cannot be pushed to MySQL at all** — the same
+-  holds for a value MySQL's own printer escapes, a newline among them.
+-  `cleanDefault` refuses to translate that catalog text (fail-closed), the
+-  column therefore keeps reading as a difference, it is re-planned, and the
+-  push then FAILS at the final attestation with `MIGRATION_DRIFT` — the exact
+-  sentence this unit exists to remove, raised on a value nobody proved equal
+-  rather than a schema silently reported as held. The refusal is pinned, in
+-  both directions, by the repair round (§7): `mysql2-schema-attestation`'s "a
+-  default MySQL's DDL does not read back is refused, not accepted", beside the
+-  apostrophe that now round-trips.
++  holds for a value MySQL's own printer escapes, a newline among them. Both
++  reach `MIGRATION_DRIFT`, but by TWO different mechanisms, and each has its
++  own witness:
++
++  1. **A body carrying an escape the inverse does not own keeps the catalog
++     text.** `\n` is the measured case (`repair-deparse-measurements.md`, row
++     9): `deparsedStringValue` declines it, so `cleanDefault` returns MySQL's
++     own printed backslash sequence, which can never equal what the desired
++     side spells. Witness: `mysql-provider-free-catalog.core`'s "undoes both
++     layers of MySQL's deparse, and keeps what it cannot" — its `multiline`
++     column asserts the catalog text comes back unchanged.
++  2. **A body the inverse cannot reconstruct the declared value from refuses
++     fail-closed.** A backslash in the DECLARED value never reaches the catalog
++     as an escape at all: MySQL's DDL consumed it first, so `DEFAULT ('a\b')`
++     stores a BACKSPACE (row 8) and the inverse SUCCEEDS on that body while
++     answering a value that is not the declared one. Witness:
++     `mysql2-schema-attestation`'s "a default MySQL's DDL does not read back is
++     refused, not accepted".
++
++  Either way the column keeps reading as a difference, it is re-planned, and
++  the push then FAILS at the final attestation with `MIGRATION_DRIFT` — the
++  exact sentence this unit exists to remove, raised on a value nobody proved
++  equal rather than a schema silently reported as held. The apostrophe that now
++  round-trips is pinned beside (2), in the same file.
+ 
+   An APOSTROPHE is no longer in this class. The first version of this bullet
+   named the wrong trigger and the wrong consequence — it read as though the
+@@ -262,11 +277,16 @@ i.e. TEXT — pushed a CORRECT column and then failed its own attestation with
+ 
+ Repaired at the owner the finding names, `cleanDefault`
+ (`src/migrations/drivers/mysql/introspect.ts`): two passes of one inverse,
+-`unescapeOneLayer`, each undoing one layer, and only `\'` and `\\`. Everything
+-else MySQL's printer emits (`\n` for a newline; the whole class a backslash in
+-the declared value produces, which `escapeValue` could not have written
+-correctly in the first place) still keeps the catalog text and is still
+-refused — now as the stated contract, not as an unnamed accident. The desired
++`unescapeOneLayer`, each undoing one layer, and only `\'` and `\\`. The two
++fail-closed mechanisms §6 separates are unchanged by the repair and are what
++still refuses everything else: an escape MySQL's printer emits that the inverse
++does not own (`\n` for a newline) keeps the catalog text, witnessed by
++`mysql-provider-free-catalog.core`'s `multiline` column; and a backslash in the
++declared value, which MySQL's DDL consumed before the catalog saw it, leaves a
++body the inverse cannot reconstruct the declared value from, witnessed live by
++`mysql2-schema-attestation`'s "a default MySQL's DDL does not read back is
++refused, not accepted". Both are now the stated contract rather than an unnamed
++accident. The desired
+ side's spelling is stated once for both branches (`quotedLiteral`), so the
+ literal and the expression path cannot drift apart.
+ 
+diff --git a/docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/note.md b/docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/note.md
+index 29d320a04..a55bf81fa 100644
+--- a/docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/note.md
++++ b/docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/note.md
+@@ -74,11 +74,13 @@ inline) and a datetime's dialect rendering of the instant.
+ **Second consumer:** `Queries.nativeType` already states the same fact for the
+ decode side — it refuses to hand a list's native type to a literal or to the
+ decode leaf — so the operand side and the leaf side now agree instead of
+-disagreeing by one dialect conversion. Measured for every OTHER scalar on the
+-default arm (`probes/other-members.json`): a bigint member binds `"20"` against
+-a container of `["10","20"]`, a date member `"2024-01-02"` against
+-`["2024-01-02"]`, a string member `"a"` against `["a"]` — they already cross a
+-container exactly as they cross their column, so the rule leaves them alone.
++disagreeing by one dialect conversion. THREE other members were measured on the
++default arm (`probes/other-members.json`, the retained receipt — these three and
++no others): a bigint member binds `"20"` against a container of `["10","20"]`,
++a date member `"2024-01-02"` against `["2024-01-02"]`, a string member `"a"`
++against `["a"]`. Each already crosses a container exactly as it crosses its
++column, so the rule leaves them alone; the scalars the receipt does not name
++were reasoned about from the same owner, not measured.
+ 
+ **Fact 3 — result shape, cardinality and order are independent of statement
+ count (ELEGANCE §7), so a statement count is a witness only of what an owner
+diff --git a/docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/note.md b/docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/note.md
+index 842d85e32..e046e9a82 100644
+--- a/docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/note.md
++++ b/docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/note.md
+@@ -394,6 +394,15 @@ this was the only spelling of that shape reaching the provider. Applied as
+ requested: the probe lookup is bound to a local and carries
+ `insertsWhenAbsent = true`.
+ 
++**Witness added in the postwave round (2026-09-21).** This repair shipped with
++no cell — the independent review said so, and the round's first shape had
++removed the only one that reached it. `mysql2-concurrency-policy.test.ts`'s
++"the CONDITION probe of a conditioned upsert locks no absence either" supplies
++`targetWhere` on a MISSING key, asserts the two plan-time reads (the locator
++and the condition probe, distinguished by the condition's own column appearing
++in exactly one filter) and that neither carries `FOR UPDATE`. See
++`closure-final/postwave/note.md`.
++
+ ### Repair-round runs
+ 
+ One vitest at a time, in this worktree, through the sanctioned runners.
+@@ -443,6 +452,20 @@ test file clean. Engine structure after the round:
+   unit's four failures reaches it, and the read it would need does not exist
+   today. Reported as unverified rather than claimed.
+ 
++  **Answered in the postwave round (2026-09-21), on the integrated tree.** The
++  independent review named the shape this bullet leaves open: a nested
++  `connectOrCreate` whose relation is CHILD-HELD. There the connection IS that
++  empty-demand UPDATE, and with the probe no longer holding the row it found, a
++  target removed in between made the operation report a connection it never
++  wrote — measured red
++  (`closure-final/postwave/receipts/base-red-child-held-coc.log`). The arm
++  whose probe does not lock now demands the target's own keys
++  (`RelationBody.association`, guarded by `Selection.insertsWhenAbsent`), which
++  is exactly the read this bullet said did not exist: `OperationContext.update`'s
++  CURRENT stored-row read, raising the existing
++  `UPDATE did not produce the required record`. Witness: this file's 10th cell.
++  See `closure-final/postwave/note.md`.
++
+ ## 11. Commit message draft
+ 
+ ```
+diff --git a/src/migrations/AGENTS.md b/src/migrations/AGENTS.md
+index ac12c3ab1..38659230b 100644
+--- a/src/migrations/AGENTS.md
++++ b/src/migrations/AGENTS.md
+@@ -169,16 +169,27 @@ bare value with its quotes gone, an EXPRESSION default as MySQL's deparse,
+ escaped TWICE — once by MySQL printing the string literal, once by the catalog
+ printing that expression, so a declared `it's` arrives as the characters
+ `_utf8mb4\'it\\\'s\'` — and `cleanDefault` undoes both layers into the DDL
+-spelling. It undoes `\'` and `\\` and nothing else: a body carrying any other
+-escape MySQL prints (`\n` for a newline, and the whole class a backslash in the
+-declared value produces — `escapeValue` leaves `\` alone and MySQL's DDL reads
+-it as an escape introducer) keeps the catalog's own text, so the column is
+-re-planned and the push then FAILS at the final attestation with
+-`MIGRATION_DRIFT`. That is the fail-closed direction, and it is explicit: such
+-a default cannot be pushed to MySQL at all, rather than being accepted as a
+-value nobody proved equal. Both sides are pinned in
+-`tests/providers/docker/mysql2-schema-attestation.test.ts` — the apostrophe
+-that round-trips, and the backslash that is refused. MySQL refuses a literal
++spelling. It undoes `\'` and `\\` and nothing else, and that leaves TWO
++distinct mechanisms, not one. FIRST: a body carrying an escape this inverse
++does not own — `\n` for a newline, measured — is not translated at all, so the
++column keeps the CATALOG's own text, a printed backslash sequence, which can
++never equal what the desired side spells. That one is witnessed
++provider-free, by `tests/unit/migrations/mysql-provider-free-catalog.core.test.ts`'s
++"undoes both layers of MySQL's deparse, and keeps what it cannot", whose
++`multiline` column asserts the catalog text comes back unchanged. SECOND: a
++backslash in the DECLARED value never reaches the catalog as an escape at all —
++`escapeValue` leaves `\` alone and MySQL's DDL reads it as an escape
++introducer, so `DEFAULT ('a\b')` stores a BACKSPACE (measured) — and the
++inverse then succeeds on that body while reconstructing a value that is not
++the declared one. That one is witnessed live, by
++`tests/providers/docker/mysql2-schema-attestation.test.ts`'s "a default MySQL's
++DDL does not read back is refused, not accepted". Both end the same way, and
++that end is the fail-closed direction: the column is re-planned and the push
++then FAILS at the final attestation with `MIGRATION_DRIFT`. It is explicit —
++such a default cannot be pushed to MySQL at all, rather than being accepted as
++a value nobody proved equal — and the round-tripping side is pinned beside the
++second, by the same file's "an apostrophe survives MySQL's deparse of an
++expression default". MySQL refuses a literal
+ `DEFAULT` on TEXT, BLOB, JSON and GEOMETRY (errno 1101), so `finalizeTable` —
+ the one owner of how a MySQL column is spelled, beside the keyed-TEXT →
+ `VARCHAR(191)` rewrite — carries such a default as MySQL's expression default
+diff --git a/src/migrations/drivers/mysql/introspect.ts b/src/migrations/drivers/mysql/introspect.ts
+index e58b1bbcf..312d015ab 100644
+--- a/src/migrations/drivers/mysql/introspect.ts
++++ b/src/migrations/drivers/mysql/introspect.ts
+@@ -364,9 +364,9 @@ function unescapeOneLayer(body: string): string | undefined {
+  * the expression, once by `information_schema` printing that expression — so a
+  * declared `it's` arrives as the characters `_utf8mb4\'it\\\'s\'` (measured on
+  * MySQL 8.4.11). Each pass undoes one layer. Only `\'` and `\\` are undone:
+- * every other escape MySQL prints (`\n` for a newline, `\%`) stands for a value
+- * whose own DDL spelling `escapeValue` could not have written — it leaves a
+- * backslash alone, which MySQL's DDL reads as an escape introducer — so
++ * every other escape MySQL prints (`\n` for a newline, measured) stands for a
++ * value whose own DDL spelling `escapeValue` could not have written — it leaves
++ * a backslash alone, which MySQL's DDL reads as an escape introducer — so
+  * inverting it would be a guess, and a wrong guess calls two different defaults
+  * equal.
+  */
+diff --git a/src/query-engine/raptor3/AGENTS.md b/src/query-engine/raptor3/AGENTS.md
+index 35123d4c2..d9e35ffd9 100644
+--- a/src/query-engine/raptor3/AGENTS.md
++++ b/src/query-engine/raptor3/AGENTS.md
+@@ -1713,6 +1713,24 @@ update not applied, as a success. It was measured doing exactly that before the
+ lock was put on it. Never state the protection as "the plan-time read holds
+ it": say which read is current, and never replace a lock with a consistent read
+ that cannot see another transaction's commit.
++**Addendum (postwave, 2026-09-21, after the integrated review), completing the
++paragraph above.** "Two readers answer that" counted the shapes that round had
++measured, not the shapes the withdrawal reaches. A third has no reader by
++construction: a nested `connectOrCreate` on a CHILD-HELD reference, whose found
++arm is the UPDATE that writes the child's foreign key and nothing else. An arm
++that asks the provider for nothing back never learns whether it addressed a
++row, so `OperationContext.update` issued no read at all — measured on native
++MySQL reporting a connection it had not written, after the found target was
++removed between the unlocked probe and that UPDATE. The rule: an arm whose
++probe did NOT lock its answer (`Selection.insertsWhenAbsent`) demands the
++target's own keys, which is what makes the same CURRENT stored-row read run and
++raise `UPDATE did not produce the required record`. It is stated once, where
++that binding arm is built (`RelationBody.association`), and it reaches only the
++arms whose probe withdrew its lock — a child-held `connect`, or a `set`
++target, still locks its row and is untouched. Witness:
++`tests/providers/docker/mysql2-concurrency-policy.test.ts`, "a CHILD-HELD
++connectOrCreate whose found target moves out from under it connects nothing,
++visibly".
+ **Addendum (D-65).** That last sentence names a ROW LOCK, not phantom exclusion:
+ `FOR UPDATE` holds the members the plan-time read returned, and a member
+ connected afterwards is a row it never covered. Neither route claims otherwise —
+diff --git a/src/query-engine/raptor3/commands/relation-body.ts b/src/query-engine/raptor3/commands/relation-body.ts
+index 28b370002..0b00d60ff 100644
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -932,16 +932,28 @@ export class RelationBody {
+       !premise
+         ? { edge, target }
+         : undefined;
+-    if (conditionalParentBinding && !conditionalParentBinding.target.found)
++    if (conditionalParentBinding && !conditionalParentBinding.target.found) {
++      const { lookup } = conditionalParentBinding.target;
++      const binding = this.commands.update(lookup, {}, {}, true);
++      // This arm exists only to write the child's foreign key, so it asks the
++      // provider for nothing back — and an UPDATE that asks for nothing never
++      // learns whether it addressed a row. That costs nothing while the probe
++      // that chose the arm HOLDS the row it found; a probe whose other arm
++      // inserts the key it looked for does not hold it
++      // (`Selection.insertsWhenAbsent`), so the row can leave between the
++      // probe and this statement and a connection that wrote nothing would be
++      // reported as made. Demanding the target's own keys is what makes
++      // `OperationContext.update` issue the read that answers "which row did
++      // this UPDATE write?" — the CURRENT read where the provider has no
++      // RETURNING — and raise `UPDATE did not produce the required record`
++      // when there is none. The arms whose probe still locks are untouched.
++      if (lookup.insertsWhenAbsent)
++        binding.fields.select(this.commands.context.schema.keys(edge.target));
+       conditionalParentBinding.target.found = this.commands.occurrence(
+-        this.commands.update(
+-          conditionalParentBinding.target.lookup,
+-          {},
+-          {},
+-          true
+-        ),
++        binding,
+         "after"
+       );
++    }
+     if (target.kind === "choose" && target.found)
+       target.fields.forward(target.found.command.fields);
+     const origin =
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index b0e5388f4..493672f83 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -4297,9 +4297,13 @@ export class Queries {
+       orderBy: window.orderBy,
+       // The aggregate below reads this page IN ORDER, so an ordered page
+       // states its bound. MySQL merges an UNLIMITED derived table into the
+-      // query that reads it and the merge takes the ORDER BY with it (the
+-      // rows then arrive in storage order, measured), while a bounded one is
+-      // materialised and keeps it. The caller's window is that bound wherever
++      // query that reads it and the merge takes the ORDER BY with it, and the
++      // rows then arrive in storage order — measured, both answers from the
++      // same aggregate over the same page. What the bound buys is the MERGE
++      // RULE, which is the documented fact: MySQL does not merge a derived
++      // table that states a LIMIT. That the same page then answered in the
++      // requested order is the measurement beside it, not a documented
++      // property of materialising. The caller's window is that bound wherever
+       // it asked for one — including the offset-only window, whose bare
+       // OFFSET already needs the same spelling — and where it asked for none,
+       // the dialect's own "no limit" value is. A dialect that needs no bound
+diff --git a/tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts b/tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts
+index 85d989ecb..21fd35480 100644
+--- a/tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts
++++ b/tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts
+@@ -165,8 +165,12 @@ export function runCreateManyReturnFoldBehavior(options: {
+         //
+         // A driver with no RETURNING still needs one INSERT PER INPUT ROW —
+         // each row's created identity is addressable only as its own
+-        // statement — so that count is the per-row regression catcher and is
+-        // derived from the input. The read-back is NOT per row: the created
++        // statement. The shape below is derived from `rows`, the value
++        // `createMany` RETURNED, so what it states is "one INSERT per returned
++        // row, each ahead of the read-back, and nothing else on the wire" —
++        // the per-row regression in the statement stream. A LOST row is caught
++        // by the exact id list asserted above, which is pinned to a literal.
++        // The read-back is NOT per row: the created
+         // identities are read back by ONE series select, ordered by input
+         // ordinal, whose own missing-row guard is what refuses a row it
+         // cannot find (the read-back of a series wider than the driver's bind
+diff --git a/tests/providers/docker/mysql2-concurrency-policy.test.ts b/tests/providers/docker/mysql2-concurrency-policy.test.ts
+index d131c2355..96bd1a522 100644
+--- a/tests/providers/docker/mysql2-concurrency-policy.test.ts
++++ b/tests/providers/docker/mysql2-concurrency-policy.test.ts
+@@ -34,7 +34,13 @@
+  * answers that is the read the write already issues of the row it has just
+  * written, now a current read (`OperationContext.update`) — measured before
+  * that, this schedule returned the probe's row, update NOT applied, as a
+- * success.
++ * success. That section has TWO rows, because the two relation directions pay
++ * the cost through different statements: a root `upsert`'s found arm, whose
++ * UPDATE already demands its own result; and a CHILD-HELD nested
++ * `connectOrCreate`, whose found arm exists only to write the child's foreign
++ * key and therefore demanded nothing back at all until the arm whose probe
++ * does not lock was given the target's keys to demand (`RelationBody`). Before
++ * that, this schedule reported a connection that was never written.
+  *
+  * NOTE: These tests require a running MySQL database (e.g. docker).
+  * Set MYSQL_TEST_CONNECTION_STRING to enable.
+@@ -154,12 +160,16 @@ class RecordingMySQL2Driver extends MySQL2Driver {
+ 
+ const TAG_TABLE = /`?r2c_policy_tags`?/;
+ const AUTHOR_TABLE = /`?r2c_policy_authors`?/;
++const POST_TABLE = /`?r2c_policy_posts`?/;
++const MUTATION = /^(?:INSERT|UPDATE|DELETE)\b/i;
+ const SAVEPOINT_OPEN = /^SAVEPOINT /i;
+ const SAVEPOINT_ROLLBACK = /^ROLLBACK TO SAVEPOINT /i;
+ const SAVEPOINT_RELEASE = /^RELEASE SAVEPOINT /i;
+ const ANY_SAVEPOINT = /\bSAVEPOINT\b/i;
+ const FOR_UPDATE = /\bFOR UPDATE\b/i;
+ const WHITESPACE = /\s+/;
++const WHERE_CLAUSE = /\bWHERE\b/i;
++const COUNT_COLUMN = /`count`/;
+ 
+ const matching = (
+   driver: RecordingMySQL2Driver,
+@@ -180,6 +190,31 @@ const matching = (
+ const probeOf = (driver: RecordingMySQL2Driver, table: RegExp): string =>
+   matching(driver, "SELECT", table)[0] ?? "";
+ 
++/**
++ * Every read this operation issued of that table BEFORE it wrote to it — the
++ * whole plan-time group, not just its first member. An interpreted `upsert`
++ * with a condition has two: the locator, and the condition probe that runs
++ * before either arm is chosen on the locator's own selector narrowed by the
++ * condition. Both name the key the missing arm inserts.
++ */
++const planTimeReads = (
++  driver: RecordingMySQL2Driver,
++  table: RegExp
++): string[] => {
++  const write = driver.statements.findIndex(
++    (statement) => MUTATION.test(statement) && table.test(statement)
++  );
++  return driver.statements
++    .slice(0, write < 0 ? driver.statements.length : write)
++    .filter(
++      (statement) => statement.startsWith("SELECT") && table.test(statement)
++    );
++};
++
++/** What a statement filters by, so a projection's columns cannot be mistaken for it. */
++const whereOf = (statement: string): string =>
++  statement.split(WHERE_CLAUSE)[1] ?? "";
++
+ /** Every failure the rejection carries, primary first, composed ones after. */
+ const composed = (failure: unknown): unknown[] => [
+   failure,
+@@ -370,6 +405,49 @@ describeIf("MySQL2 concurrency policy", () => {
+         matching(loserDriver, "INSERT", TAG_TABLE).length
+       ).toBeLessThanOrEqual(2);
+     });
++
++    test("the CONDITION probe of a conditioned upsert locks no absence either", async () => {
++      // `targetWhere` / `setWhere` are public arguments the folded probe-first
++      // arm declines, so this is the only spelling that puts the interpreted
++      // upsert's condition probe on the wire at all — and on MySQL, which has
++      // no RETURNING, the interpreted form is the one every upsert takes. That
++      // probe runs BEFORE either arm is chosen, on the locator's own selector
++      // narrowed by the condition, so on a miss it names the very key the
++      // create arm is about to INSERT: exactly the statement whose gap lock
++      // manufactured `ER_LOCK_DEADLOCK`.
++      const driver = new RecordingMySQL2Driver();
++      const client = boot(driver);
++
++      const created = await client.tag.upsert({
++        where: { name: "conditioned" },
++        targetWhere: { count: 7 },
++        create: {
++          id: "conditioned",
++          name: "conditioned",
++          slug: "conditioned-slug",
++          count: 1,
++        },
++        update: { count: 42 },
++      });
++
++      // The key was missing, so the create arm ran and the condition decided
++      // nothing — which is the outcome the gap lock was taken on.
++      expect(created).toMatchObject({ id: "conditioned", count: 1 });
++      expect(matching(driver, "INSERT", TAG_TABLE)).toHaveLength(1);
++
++      // Two plan-time reads, and the condition's own column is in exactly one
++      // of their filters: the condition probe really reached the provider
++      // rather than being folded away.
++      const reads = planTimeReads(driver, TAG_TABLE);
++      expect(reads).toHaveLength(2);
++      expect(
++        reads.filter((statement) => COUNT_COLUMN.test(whereOf(statement)))
++      ).toHaveLength(1);
++      // Neither of them locked the absence the INSERT then filled.
++      expect(reads.filter((statement) => FOR_UPDATE.test(statement))).toEqual(
++        []
++      );
++    });
+   });
+ 
+   // === 2. The real deadlock ==============================================
+@@ -704,5 +782,85 @@ describeIf("MySQL2 concurrency policy", () => {
+       // this cell is the price of.
+       expect(FOR_UPDATE.test(probeOf(loserDriver, TAG_TABLE))).toBe(false);
+     });
++
++    test("a CHILD-HELD connectOrCreate whose found target moves out from under it connects nothing, visibly", async () => {
++      // The same price, on the arm that pays it differently. Where the parent
++      // holds the reference, the connection is a value in the parent's OWN
++      // statement and a target that vanished is refused by the provider. Where
++      // the CHILD holds it, the connection is an UPDATE of the child the probe
++      // found — and that arm exists only to write the foreign key, so left to
++      // itself it demands nothing back and never learns whether it wrote a
++      // row. With the probe no longer holding that row, "connected" would be
++      // reported for a row that is not there.
++      //
++      // So the arm whose probe does not lock demands the target's own keys,
++      // which is what makes `OperationContext.update` issue the read that asks
++      // which row this UPDATE wrote (the CURRENT read on a provider without
++      // RETURNING) and refuse when there is none.
++      const planter = boot(new RecordingMySQL2Driver());
++      await planter.post.create({ data: { id: "orphan", title: "Unowned" } });
++
++      let removed = false;
++      const loserDriver = new RecordingMySQL2Driver({
++        beforeStatement: async (statement) => {
++          if (removed || !statement.startsWith("UPDATE")) return;
++          if (!POST_TABLE.test(statement)) return;
++          removed = true;
++          await planter.post.delete({ where: { id: "orphan" } });
++        },
++      });
++      const loser = boot(loserDriver);
++
++      const outcome = await loser.author
++        .create({
++          data: {
++            id: "new-author",
++            name: "Connector",
++            posts: {
++              connectOrCreate: {
++                where: { id: "orphan" },
++                create: { id: "orphan", title: "Created instead" },
++              },
++            },
++          },
++        })
++        .then(
++          (value) => ({ failure: undefined, value }),
++          (failure: unknown) => ({ failure, value: undefined })
++        );
++
++      // The schedule really happened: the found arm's UPDATE was sent, and the
++      // delete was planted in front of it.
++      expect(removed).toBe(true);
++      expect(matching(loserDriver, "UPDATE", POST_TABLE)).toHaveLength(1);
++      // The probe that chose the found arm took no lock — the fact this cell
++      // is the price of.
++      expect(FOR_UPDATE.test(probeOf(loserDriver, POST_TABLE))).toBe(false);
++
++      // Nothing is reported as connected, and the failure names the write
++      // whose row was not there.
++      expect(outcome.value).toBeUndefined();
++      expect((outcome.failure as Error).message).toBe(
++        "UPDATE did not produce the required record"
++      );
++      expect(
++        composed(outcome.failure).some(
++          (error) => error instanceof UniqueConstraintError
++        )
++      ).toBe(false);
++      expect(
++        composed(outcome.failure).some(
++          (error) =>
++            error instanceof TransactionError &&
++            error.code === VibORMErrorCode.DEADLOCK
++        )
++      ).toBe(false);
++
++      // And nothing committed: no author, no post, and the create arm was NOT
++      // taken as a recovery from a row that vanished.
++      expect(await planter.author.findMany({})).toEqual([]);
++      expect(await planter.post.findMany({})).toEqual([]);
++      expect(matching(loserDriver, "INSERT", POST_TABLE)).toEqual([]);
++    });
+   });
+ });
+diff --git a/tests/providers/docker/mysql2-schema-attestation.test.ts b/tests/providers/docker/mysql2-schema-attestation.test.ts
+index 7ba0d9e43..39716d692 100644
+--- a/tests/providers/docker/mysql2-schema-attestation.test.ts
++++ b/tests/providers/docker/mysql2-schema-attestation.test.ts
+@@ -229,14 +229,20 @@ describeIf("MySQL2 schema attestation", () => {
+       driver: createMySQL2Driver(),
+     });
+ 
+-    // `escapeValue` doubles `'` and leaves `\` alone, and MySQL's DDL reads a
+-    // backslash as an escape introducer, so the column MySQL creates carries
+-    // `a<BS>` and not the declared `a\b`. That catalog text is not a deparse
+-    // this estate owns, the column keeps reading as a difference, and the
+-    // push FAILS at the final attestation rather than reporting a schema the
+-    // database does not hold. The limit is named in
+-    // `docs/.../closure-final/r2a/note.md` §6; this cell is what would go red
+-    // if the spelling were ever repaired, or if the refusal were dropped.
++    // The SECOND of the two fail-closed mechanisms, and the one only a live
++    // server can show. `escapeValue` doubles `'` and leaves `\` alone, and
++    // MySQL's DDL reads a backslash as an escape introducer, so the column
++    // MySQL creates carries `a<BS>` and not the declared `a\b`: the backslash
++    // never reaches the catalog as an escape at all. The inverse therefore
++    // SUCCEEDS on that body and reconstructs a value that is not the declared
++    // one, the column keeps reading as a difference, and the push FAILS at the
++    // final attestation rather than reporting a schema the database does not
++    // hold. (The FIRST mechanism is a body carrying an escape the inverse does
++    // not own — `\n` — which keeps the catalog's own printed text; that one is
++    // pinned provider-free by `mysql-provider-free-catalog.core`'s `multiline`
++    // column.) Both are named in `docs/.../closure-final/r2a/note.md` §6; this
++    // cell is what would go red if the spelling were ever repaired, or if the
++    // refusal were dropped.
+     await expect(syncLiveSchema(client)).rejects.toMatchObject({
+       code: VibORMErrorCode.MIGRATION_DRIFT,
+     });
+diff --git a/tests/providers/docker/pg-captured-set-concurrency.test.ts b/tests/providers/docker/pg-captured-set-concurrency.test.ts
+index 95582ce05..33baac55e 100644
+--- a/tests/providers/docker/pg-captured-set-concurrency.test.ts
++++ b/tests/providers/docker/pg-captured-set-concurrency.test.ts
+@@ -71,6 +71,7 @@ import {
+   type VibORMConfig,
+ } from "@client/client";
+ import type { AnyDriver } from "@drivers";
++import type { QueryExecutionContext } from "@drivers/driver";
+ import { PgDriver } from "@drivers/pg";
+ import type { BatchQuery, QueryResult } from "@drivers/types";
+ import { s } from "@schema";
+@@ -185,6 +186,36 @@ class PgCapturingBatchDriver extends PgCapturingDriver {
+   }
+ }
+ 
++/**
++ * The same non-RETURNING batch profile, recording every statement it sends.
++ * A captured mutation that SUCCEEDS needs it: the question that cell answers is
++ * WHICH statement produced the rows the caller was handed, and on this profile
++ * the only one that can is the read-back issued after the write.
++ */
++class PgRecordingCapturingBatchDriver extends PgCapturingBatchDriver {
++  readonly statements: string[] = [];
++
++  protected override execute<T>(
++    client: Pool | PoolClient,
++    statement: string,
++    params: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push(statement);
++    return super.execute<T>(client, statement, params, context);
++  }
++
++  protected override executeRaw<T>(
++    client: Pool | PoolClient,
++    statement: string,
++    params: unknown[] | undefined,
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push(statement);
++    return super.executeRaw<T>(client, statement, params, context);
++  }
++}
++
+ /** Does this batch entry mutate? The atomic write unit is the only batch that
+  *  carries one; a planning level and a capture segment are reads only. */
+ const MUTATION_STATEMENT = /^\s*(?:insert|update|delete)\b/i;
+@@ -741,6 +772,60 @@ describeIf("pg Driver captured-set consumption-time contract", () => {
+       }
+     );
+ 
++    test(
++      "batch route: an undisturbed captured UPDATE succeeds, publishing the rows its non-RETURNING read-back produced",
++      { timeout: 90_000 },
++      async () => {
++        const seeder = interactive();
++        await seedNotes(seeder);
++        const driver = new PgRecordingCapturingBatchDriver({ databaseUrl });
++        const client = boot(driver);
++
++        // The cell above measures the selected UPDATE when the cardinality
++        // answer stops it BEFORE the result path. This is the other half of
++        // the same route, undisturbed: every captured row still matches, the
++        // write affects all of them, and the result is published through the
++        // read-back a provider without RETURNING has to issue.
++        const published = await client.note.updateMany({
++          where: { active: true },
++          data: { label: "renamed" },
++          select: { id: true, label: true },
++        });
++
++        // The published labels are the ones the UPDATE WROTE, not the ones the
++        // capture read — on this profile nothing but a read issued after the
++        // write can answer `renamed`, so this is the read-back's own output.
++        expect(published).toEqual([
++          { id: "n1", label: "renamed" },
++          { id: "n2", label: "renamed" },
++        ]);
++
++        const writeIndex = driver.statements.findIndex((statement) =>
++          /^\s*update\b/i.test(statement)
++        );
++        expect(writeIndex).toBeGreaterThanOrEqual(0);
++        // D-65's own half of it: the consuming UPDATE carries BOTH the captured
++        // identity set and the prepared selector the capture ran.
++        const write = driver.statements[writeIndex] ?? "";
++        expect(write).toContain('"id"');
++        expect(write).toContain('"active"');
++        // And the read-back is a statement of its own, behind that write.
++        expect(
++          driver.statements
++            .slice(writeIndex + 1)
++            .some((statement) => /^\s*select\b/i.test(statement))
++        ).toBe(true);
++
++        // The effect is the one the result claims.
++        const rows = await seeder.note.findMany({ orderBy: { id: "asc" } });
++        expect(rows.map((row) => [row.id, row.label])).toEqual([
++          ["n1", "renamed"],
++          ["n2", "renamed"],
++          ["n3", "three"],
++        ]);
++      }
++    );
++
+     test(
+       "batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts",
+       { timeout: 90_000 },

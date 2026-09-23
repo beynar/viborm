@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02b
+
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts (2 tests) 938ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:12:16
+   Duration  2.92s (transform 1.10s, setup 11ms, collect 1.70s, tests 938ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 5.02s wall, 1431.1 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

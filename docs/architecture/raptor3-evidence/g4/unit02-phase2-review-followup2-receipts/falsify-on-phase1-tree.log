@@ -1,0 +1,842 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > does NOT refuse a supported int key increment beside a relation write
+[int-increment+relation] NestedWriteError: Cannot update relation 'items' with onUpdate('restrict') while the current relation is occupied.
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose scalar update divides the key by zero
+[absent divide-by-zero] ok:{"id":99,"label":"new"}
+
+ ❯ |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts (14 tests | 12 failed) 189ms
+   × G4-02 review follow-up 2 — the relation-bearing half of the gate > answers an int key divide-by-zero beside a relation write the way shipped does 55ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: divide","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: divide',
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+   × G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a DECIMAL key multiply beside a relation write the way shipped does 23ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":600,"label":"d"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"d"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 600,
+        label: 'd'
+      }
+
+   ✓ G4-02 review follow-up 2 — the relation-bearing half of the gate > does NOT refuse a supported int key increment beside a relation write 12ms
+   × G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a MATCHED conditional the way shipped does 10ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+   × G4-02 review follow-up 2 — the relation-bearing half of the gate > answers `set` beside the operator on the gated arm the way shipped does 12ms
+     → candidate {"answer":"NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: "NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.",
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+   × G4-02 review follow-up 2 — the relation-bearing half of the gate > orders the portability refusal against a nested-write refusal the way shipped does 10ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+   × G4-02 review follow-up 2 — the profile and the absent row > raises the gated refusal on an ATOMIC BATCH profile the way shipped does 13ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+   × G4-02 review follow-up 2 — the profile and the absent row > performs a scalar-only key multiply on an ATOMIC BATCH profile the way shipped does 9ms
+     → candidate {"answer":"Error: Raptor 3 update expression publication requires an integer field","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 update expression publication requires an integer field',
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose scalar update divides the key by zero 7ms
+   × G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose relation-bearing update divides the key by zero 6ms
+     → candidate {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":3,"label":"p"},{"id":99,"label":"fresh"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":99,"label":"fresh"}',
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      },
++     {
++       id: 99,
++       label: 'fresh'
++     }
+    ]
+  }
+
+   × G4-02 review follow-up 2 — the contract that must still fire > still refuses a number key multiply on `update` 6ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'a'
+      }
+
+   × G4-02 review follow-up 2 — the contract that must still fire > still refuses an int key divide-by-zero on `updateMany` 6ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: divide","rows":[{"id":3,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: divide',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        id: 3,
+        label: 'a'
+      }
+
+   × G4-02 review follow-up 2 — the contract that must still fire > refuses a relation-bearing `update` key multiply at admission, as shipped does 7ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+   × G4-02 review follow-up 2 — a NESTED upsert's update payload > answers a nested upsert whose update multiplies the target key the way shipped does 11ms
+     → candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":70,"holderId":3}]}
+shipped   {"answer":"ok:{\"id\":3,\"label\":\"p\"}","rows":[{"id":140,"holderId":3}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: 'ok:{"id":3,"label":"p"}',
+    rows: [
+      {
+        holderId: 3,
++       id: 70
+-       id: 140
+      }
+    ]
+  }
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > reaches the same internal Error through `increment`, which HEAD already implemented
+[batch number-key increment] shipped=ok:{"id":7,"label":"a"} candidate=Error: Raptor 3 update expression publication requires an integer field
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs the same multiply on an INT key under batch
+[batch int-key multiply] shipped=ok:{"id":6,"label":"a"} candidate=Error: Raptor 3 G1 update operator is not implemented: multiply
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs a NON-key decimal multiply under batch on both engines
+[batch non-key decimal multiply] shipped=ok:{"id":1,"amount":"21","rate":2.5} candidate=Error: Raptor 3 G1 update operator is not implemented: multiply
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — where the shipped engine refuses the missing-row divide > prints the shipped stack for a relation-bearing upsert on a MISSING row
+[shipped missing-row divide] QueryEngineError: Cannot divide a primary key by zero.
+[shipped stack]
+QueryEngineError: Cannot divide a primary key by zero.
+    at calculateNumericPrimaryKey (/Users/arnaud/code/viborm/src/query-engine/operations/mutation-identity.ts:357:11)
+    at getSafeUpdatedScalarValue (/Users/arnaud/code/viborm/src/query-engine/operations/mutation-identity.ts:319:10)
+    at getUpdatedPrimaryKeyValue (/Users/arnaud/code/viborm/src/query-engine/operations/mutation-identity.ts:180:24)
+    at RecordUpdateCompilerState.interpretReferencedKeyTransition (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:3319:21)
+    at RecordUpdateCompilerState.resolveOrdinaryChildHeld (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:2229:32)
+    at RecordUpdateCompilerState.interpretChildHeldRelation (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:2181:14)
+    at RecordUpdateCompilerState.interpretRelation (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:2164:10)
+    at new RecordUpdateCompilerState (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:1101:12)
+    at buildRecordUpdateCompiler (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:264:10)
+    at new UpsertOperation (/Users/arnaud/code/viborm/src/query-engine/write-engine/UpsertOperation.ts:480:9)
+[candidate missing-row divide] ok:{"id":99,"label":"fresh"}
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — where the shipped engine refuses the missing-row divide > prints both answers for a relation-bearing upsert MULTIPLY on a MISSING row
+[missing-row int multiply] shipped=ok:{"id":99,"label":"fresh"} candidate=ok:{"id":99,"label":"fresh"}
+
+ ❯ |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts (5 tests | 2 failed) 55ms
+   ✓ G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > reaches the same internal Error through `increment`, which HEAD already implemented 15ms
+   × G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs the same multiply on an INT key under batch 10ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: 'ok:{"id":6,"label":"a"}',
+    rows: [
+      {
++       id: 3,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs a NON-key decimal multiply under batch on both engines 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: 'ok:{"id":1,"amount":"21","rate":2.5}',
+    rows: [
+      {
++       amount: 1050,
+-       amount: 2100,
+        id: 1,
+        rate: 2.5
+      }
+    ]
+  }
+
+   ✓ G4-02 review follow-up 2 — where the shipped engine refuses the missing-row divide > prints the shipped stack for a relation-bearing upsert on a MISSING row 17ms
+   ✓ G4-02 review follow-up 2 — where the shipped engine refuses the missing-row divide > prints both answers for a relation-bearing upsert MULTIPLY on a MISSING row 5ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs the same multiply on an INT key under batch
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: 'ok:{"id":6,"label":"a"}',
+    rows: [
+      {
++       id: 3,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":6,\"label\":\"a\"}",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 3,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts:160:12
+    158|       `[batch int-key multiply] shipped=${outcome.shipped.answer} cand…
+    159|     );
+    160|     assert.deepEqual(
+       |            ^
+    161|       { answer: outcome.candidate.answer, rows: outcome.candidate.rows…
+    162|       { answer: outcome.shipped.answer, rows: outcome.shipped.rows }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs a NON-key decimal multiply under batch on both engines
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: 'ok:{"id":1,"amount":"21","rate":2.5}',
+    rows: [
+      {
++       amount: 1050,
+-       amount: 2100,
+        id: 1,
+        rate: 2.5
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":1,\"amount\":\"21\",\"rate\":2.5}",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "amount": 2100,[39m
+[31m+       "amount": 1050,[39m
+[2m        "id": 1,[22m
+[2m        "rate": 2.5,[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts:176:12
+    174|       `[batch non-key decimal multiply] shipped=${outcome.shipped.answ…
+    175|     );
+    176|     assert.deepEqual(
+       |            ^
+    177|       { answer: outcome.candidate.answer, rows: outcome.candidate.rows…
+    178|       { answer: outcome.shipped.answer, rows: outcome.shipped.rows }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers an int key divide-by-zero beside a relation write the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: divide","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: divide',
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: divide",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 3,[22m
+[2m        "label": "p",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:189:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a DECIMAL key multiply beside a relation write the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":600,"label":"d"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"d"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 600,
+        label: 'd'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 600,[22m
+[2m        "label": "d",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:199:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a MATCHED conditional the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:217:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers `set` beside the operator on the gated arm the way shipped does
+AssertionError: candidate {"answer":"NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: "NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.",
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",[39m
+[31m+   "answer": "NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:227:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > orders the portability refusal against a nested-write refusal the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:236:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > raises the gated refusal on an ATOMIC BATCH profile the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:253:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > performs a scalar-only key multiply on an ATOMIC BATCH profile the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 update expression publication requires an integer field","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 update expression publication requires an integer field',
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":12,\"label\":\"a\"}",[39m
+[31m+   "answer": "Error: Raptor 3 update expression publication requires an integer field",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 12,[39m
+[31m+       "id": 6,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:267:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose relation-bearing update divides the key by zero
+AssertionError: candidate {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":3,"label":"p"},{"id":99,"label":"fresh"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":99,"label":"fresh"}',
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      },
++     {
++       id: 99,
++       label: 'fresh'
++     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[31m+   "answer": "ok:{\"id\":99,\"label\":\"fresh\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 3,[22m
+[2m        "label": "p",[22m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "id": 99,[39m
+[31m+       "label": "fresh",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:290:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the contract that must still fire > still refuses a number key multiply on `update`
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'a'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "a",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:301:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the contract that must still fire > still refuses an int key divide-by-zero on `updateMany`
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: divide","rows":[{"id":3,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: divide',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        id: 3,
+        label: 'a'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: divide",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 3,[22m
+[2m        "label": "a",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:314:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the contract that must still fire > refuses a relation-bearing `update` key multiply at admission, as shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:327:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — a NESTED upsert's update payload > answers a nested upsert whose update multiplies the target key the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 G1 update operator is not implemented: multiply","rows":[{"id":70,"holderId":3}]}
+shipped   {"answer":"ok:{\"id\":3,\"label\":\"p\"}","rows":[{"id":140,"holderId":3}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 G1 update operator is not implemented: multiply',
+-   answer: 'ok:{"id":3,"label":"p"}',
+    rows: [
+      {
+        holderId: 3,
++       id: 70
+-       id: 140
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":3,\"label\":\"p\"}",[39m
+[31m+   "answer": "Error: Raptor 3 G1 update operator is not implemented: multiply",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "holderId": 3,[22m
+[32m-       "id": 140,[39m
+[31m+       "id": 70,[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:345:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  14 failed | 5 passed (19)
+   Start at  13:28:39
+   Duration  4.52s (transform 2.57s, setup 16ms, collect 4.03s, tests 243ms, environment 0ms, prepare 61ms)
+
+Vitest resources: 5.58s wall, 544.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

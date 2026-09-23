@@ -1,0 +1,125 @@
+{
+  "formatVersion": 1,
+  "milestone": "g4",
+  "baselineCommit": "ff5e77ca5f37e747d45460b588b573b72790f1b8",
+  "frozenIdentity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
+  },
+  "scope": "Exact performance-pass-2 production, harness registration, falsifier/review tests and private architecture-guide changes on top of the committed pass-1 tree ff5e77ca, under scripts/, src/, tests/raptor3/, tests/types/raptor3/, benchmarks/ and vitest.workspace.ts. Qualification documentation and evidence under docs/ are excluded from the patch, as are the unrelated dirty CONTEXT.md, memory.md, the two tests/pattern/ files, exa-results/, the eight untracked root transport-*-corpus.json files and the pre-G4 untracked evidence archives.",
+  "evidence": {
+    "scopes": [
+      "docs/architecture/raptor3-evidence/g4.md",
+      "docs/architecture/raptor3-evidence/g4"
+    ],
+    "status": {
+      "modified": 9763,
+      "untracked": 335,
+      "deleted": 8,
+      "excludedStaleAttempt": 0
+    },
+    "patched": false,
+    "boundary": "The evidence half of the task file set is listed path by path in task-commit-allowlist.json, not in source.patch: it is the removal of the moved-out attempt-5 package plus the receipts this qualification wrote, which reconstruct no source.",
+    "countedWhen": "Snapshot taken when this report was written; the package's own sealing files are added afterwards. task-commit-allowlist.json, written last by seal-author-package.mjs, is the authoritative enumeration.",
+    "excludedStaleAttempts": "docs/architecture/raptor3-evidence/g4/qualified-attempt-*-stale-identity/ — the superseded attempts, kept whole on disk and excluded from both the count above and the commit allowlist."
+  },
+  "excludedDirty": [
+    "CONTEXT.md",
+    "memory.md",
+    "tests/pattern/pack/program-dump.ts",
+    "tests/pattern/match/decode-malformed.core.test.ts"
+  ],
+  "excludedUntracked": [
+    "exa-results/ (2 untracked files)",
+    "the eight untracked transport-*-corpus.json files at the repository root",
+    "the pre-G4 untracked evidence archives at docs/architecture/raptor3-evidence/*.gz, *.tar.gz, *.sha256 and *.json, and the g3/ and g3-prep-*/ milestone trees",
+    "docs/architecture/raptor3-g4-claude-handoff.md"
+  ],
+  "counts": {
+    "tracked": 6,
+    "untracked": 6,
+    "total": 12
+  },
+  "files": [
+    {
+      "file": "scripts/raptor3-manifest.mjs",
+      "baseline": "tracked",
+      "bytes": 50735,
+      "sha256": "a2d29f534be552d34802eea1f5da850d8970afe6ff373588535a44c932272ca8"
+    },
+    {
+      "file": "src/query-engine/raptor3/AGENTS.md",
+      "baseline": "tracked",
+      "bytes": 49242,
+      "sha256": "d6b5c8010c7dda916baa96358e85c4910935e146cf6b5468a078838c9ffbc1d2"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "baseline": "tracked",
+      "bytes": 87903,
+      "sha256": "bc791617ea8aceea888f5a69fea65c8077edf0a5037fbd86837d6a62cdffc637"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "baseline": "tracked",
+      "bytes": 143816,
+      "sha256": "c52ec048d7ed7d0343034b79589d8c27b11201210fac0c68c60555906811c3a8"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/schema.ts",
+      "baseline": "tracked",
+      "bytes": 22459,
+      "sha256": "bc6d3cc1ef8ad7d6db4ee09b0238103adca1308d8d8022f7f7f220b3f31cd6a9"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+      "baseline": "tracked",
+      "bytes": 2789,
+      "sha256": "a5fbb08037ca3a5daa5e273b462a52d8c3cbcdec8f5f0bb5f6f9a18d5f7dab2e"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/digest.test.ts",
+      "baseline": "untracked",
+      "bytes": 15557,
+      "sha256": "962cc5c2d9ef63966ee24c1e5de66ee1c5f5b893ed31df1ddffbe616eb1d05a1"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/lazy-machinery.review.test.ts",
+      "baseline": "untracked",
+      "bytes": 11159,
+      "sha256": "c254edbf9a6b02e3b2fab1084d368eab5081143a37e9a64203ac065c327cac15"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/memo-isolation.review.test.ts",
+      "baseline": "untracked",
+      "bytes": 7135,
+      "sha256": "fc8f3ed6561d2456359eed51b5ac4215a61199c4c5faa2897ecefbe6fd7df3bd"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/resolution-check.review.test.ts",
+      "baseline": "untracked",
+      "bytes": 2400,
+      "sha256": "8d4754285877884a1752a5356778420d48a381a05edc2c3a0b659e161118dcad"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/review.workspace.ts",
+      "baseline": "untracked",
+      "bytes": 574,
+      "sha256": "bf254a9af962eefaf2683ed080d35fc1f52f54134d99e9e88363fe0bd5558122"
+    },
+    {
+      "file": "tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts",
+      "baseline": "untracked",
+      "bytes": 10441,
+      "sha256": "2ea28627453dfb1626e8c1147a5e680a5e8df81ed08a25554ae669255088c0e7"
+    }
+  ],
+  "sourcePatch": {
+    "file": "source.patch",
+    "bytes": 83394,
+    "sha256": "8a5d7a21dfdd4f28e6be3b860c60f232800138c04d283522418bf1dcb86ffe69",
+    "composition": "git diff --binary against the baseline commit for every tracked change, then git diff --no-index --binary against /dev/null for every untracked file, concatenated in that order",
+    "apply": "git checkout ff5e77ca5f37e747d45460b588b573b72790f1b8 && git apply source.patch",
+    "verifiedAgainstWorkingTree": "git apply --check -R source.patch exited 0 against the frozen tree, so every 'after' side of the patch equals the file this qualification ran"
+  }
+}

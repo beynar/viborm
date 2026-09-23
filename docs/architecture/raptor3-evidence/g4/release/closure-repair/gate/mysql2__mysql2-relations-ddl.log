@@ -1,0 +1,35 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts (106 tests) 24511ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > create returns the auto-increment row  619ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > concurrent creates each return their own row  341ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany without select returns { count }, with select returns rows  426ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect is idempotent  312ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > create connects and creates through the junction on parent create  323ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > disconnect removes the association and keeps the row  350ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > set replaces the association set  316ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > delete removes the child row and all its associations  305ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > deleteMany deletes only connected rows matching the filter  412ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > writes from the side without junction config resolve the same junction  459ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > implicit default junction works end to end  1414ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > rows participating in a many-to-many can be deleted directly  1159ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested update modifies a connected record only  534ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested updateMany touches only connected rows matching the filter  447ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert updates a connected record  445ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert creates and connects a missing record  1648ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect lands after a deleteMany that cannot see it  310ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association  328ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > named duplicate pairs keep isolated junction tables  310ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL  308ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > create through the junction with a DB-generated target primary key  327ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > junction create with a generated target PK under an update root  373ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing  313ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > upsert through the junction creates a target whose PK the database generates  308ms
+
+ Test Files  1 passed (1)
+      Tests  106 passed (106)
+   Start at  22:03:11
+   Duration  25.97s (transform 878ms, setup 9ms, collect 1.32s, tests 24.51s, environment 0ms, prepare 25ms)
+
+Vitest resources: 27.66s wall, 636.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

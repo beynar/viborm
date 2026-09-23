@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-selected-unique-recovery 146ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-unrelated-unique-refused 47ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-wrong-insert-same-constraint 52ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  14:12:54
+   Duration  1.71s (transform 916ms, setup 7ms, collect 1.34s, tests 246ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 3.78s wall, 527.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

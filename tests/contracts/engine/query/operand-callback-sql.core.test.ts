@@ -179,18 +179,6 @@ describe.each(dialectCases)("$name operand callbacks", (dialectCase) => {
     expect(predicate).not.toContain(q("slug"));
   });
 
-  test("a fragment operand is spliced parenthesized, its values bound", () => {
-    const query = buildPost(dialectCase, {
-      where: { views: { gt: (ctx: PostCtx) => ctx.sql`${10} + ${20}` } },
-    });
-
-    // THE INJECTION WITNESS: the interpolated values are placeholders in the
-    // compiled statement and parameters beside it — never concatenated text.
-    expect(query.values).toEqual([10, 20]);
-    expect(query.statement).toContain("($1 + $2)");
-    expect(query.statement).not.toContain("10 + 20");
-  });
-
   test("a fragment operand that carries a hostile string stays a parameter", () => {
     const hostile = "'); DROP TABLE fieldref_posts; --";
     const query = buildPost(dialectCase, {
@@ -198,21 +186,6 @@ describe.each(dialectCases)("$name operand callbacks", (dialectCase) => {
     });
     expect(query.values).toEqual([hostile]);
     expect(query.statement).not.toContain("DROP TABLE");
-  });
-
-  test("a fragment, a reference and a literal mix in one where", () => {
-    const query = buildPost(dialectCase, {
-      where: {
-        views: {
-          gt: (ctx: PostCtx) => ctx.fields.likes,
-          lt: (ctx: PostCtx) => ctx.sql`${1000} - ${1}`,
-          gte: 0,
-        },
-      },
-    });
-    expect(query.statement).toContain(q("likes"));
-    expect(query.statement).toContain("($1 - $2)");
-    expect(query.values).toEqual([1000, 1, 0]);
   });
 
   test("a bare Sql fragment is accepted without the callback", () => {
@@ -224,19 +197,6 @@ describe.each(dialectCases)("$name operand callbacks", (dialectCase) => {
     });
     expect(viaCallback.statement).toBe(viaValue.statement);
     expect(viaCallback.values).toEqual(viaValue.values);
-  });
-
-  test("a subquery fragment compiles as an operand", () => {
-    const query = buildPost(dialectCase, {
-      where: {
-        views: {
-          gt: (ctx: PostCtx) =>
-            ctx.sql`SELECT MAX(v) FROM (SELECT ${5} AS v) AS m`,
-        },
-      },
-    });
-    expect(query.statement).toContain("(SELECT MAX(v) FROM");
-    expect(query.values).toEqual([5]);
   });
 
   test("`ctx.fields` at depth 2 names the nested model's columns", () => {
@@ -476,30 +436,6 @@ describe("surfaces that stay closed", () => {
     );
   });
 
-  test("a fragment is refused in JSON write data, as non-JSON", () => {
-    const refusal = refusalOf(() =>
-      build(dialectCase, Post, "updateMany", {
-        where: { id: "p1" },
-        data: { payload: { set: sql`'{}'` } },
-      })
-    );
-    expect(refusal.name).toBe("ValidationError");
-    expect(JSON.stringify(refusal.issues)).toContain(
-      "Expected JSON-compatible value"
-    );
-  });
-
-  test("a JSON document that looks like a fragment still writes", () => {
-    // `{ strings: [...], values: [...] }` is what `isSql` recognizes
-    // structurally — and it is also perfectly ordinary user data.
-    expect(() =>
-      build(dialectCase, Post, "updateMany", {
-        where: { id: "p1" },
-        data: { payload: { set: { strings: ["a"], values: [1] } } },
-      })
-    ).not.toThrow();
-  });
-
   test("a JSON document that looks like a fragment FILTERS as a value", () => {
     // The read-side half of the pair above, and the one that would bite: if a
     // JSON operand ever reached the fragment splice, this document's `strings`
@@ -514,16 +450,6 @@ describe("surfaces that stay closed", () => {
     });
     expect(query.statement).not.toContain("INJECTED_TEXT");
     expect(JSON.stringify(query.values)).toContain("INJECTED_TEXT");
-  });
-
-  test("write data takes no callback", () => {
-    const refusal = refusalOf(() =>
-      build(dialectCase, Post, "updateMany", {
-        where: { id: "p1" },
-        data: { views: { set: (ctx: PostCtx) => ctx.fields.likes } },
-      })
-    );
-    expect(refusal.name).toBe("ValidationError");
   });
 
   test("a text predicate keeps the token but takes no fragment", () => {

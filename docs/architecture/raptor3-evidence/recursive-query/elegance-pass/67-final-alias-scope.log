@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-perf-review| tests/raptor3/g4/review/perf/alias-scope.review.test.ts (3 tests) 870ms
+   ✓ G4 perf review — statement-scoped aliases never collide > never re-enters a statement owner, and no statement declares an alias twice  563ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:21:13
+   Duration  23.25s (transform 13.15s, setup 147ms, collect 21.47s, tests 870ms, environment 0ms, prepare 181ms)
+
+Vitest resources: 26.72s wall, 317.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

@@ -1,0 +1,341 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc05
+
+ ❯ |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests | 3 failed) 51ms
+   ✓ FC-05 — one write-outcome composition > 1. the operation's own failure stays primary when the listener fails beside it 29ms
+   × FC-05 — one write-outcome composition > 2. a HELD listener failure composes with the carried value's decode failure, and the primary keeps its progress 11ms
+     → {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "cause": {
+      "kind": "QueryEngineError",
+      "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+    },
+    "errors": [
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+      },
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
++ actual - expected
+
++ 'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is absent.'
+- 'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.'
+
+   × FC-05 — one write-outcome composition > 3. a listener that fails beside an answer that SUCCEEDED is published alone 3ms
+     → {
+  "failure": {
+    "cause": {
+      "kind": "QueryEngineError",
+      "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+    },
+    "errors": [
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+      },
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+   × FC-05 — one write-outcome composition > 4. the produced key is read back as one aliased scalar and binds the child row 7ms
+     → {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "kind": "QueryEngineError",
+    "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+  },
+  "readBacks": [
+    "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))"
+  ]
+}
++ actual - expected
+
++ QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is absent.
++     at OperationContext.failure (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:638:17)
++     at OperationContext.settleCarry (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:2654:18)
++     at OperationContext.submit (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1594:14)
++     at processTicksAndRejections (node:internal/process/task_queues:104:5)
++     at OperationContext.flushQueued (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1223:23)
++     at OperationContext.flush (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1207:14)
++     at OperationContext.executeMember (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:550:30)
++     at CommandExecution.executeRecords (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:814:12)
++     at CommandExecution.records (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:781:35)
++     at OperationContext.batchAttempt (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:986:14) {
++   code: 'V9001',
++   meta: [Object: null prototype] {
++     driver: 'sqlite3',
++     operation: 'createMany',
++     recordSeriesProgress: {
++       atomicity: 'segment',
++       committedSegments: 1,
++       committedWriteMembers: 2,
++       completedMembers: 1,
++       phase: 'result'
++     },
++     scalarType: 'int'
++   },
++   originalCause: undefined,
++   timestamp: 2026-09-20T21:14:48.827Z
++ }
+- undefined
+
+ ❯ |coverage-raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts (7 tests | 4 failed) 55ms
+   × D-53: the transport witnesses > session lifetime (D-58): a second segment STORES its own member's key, because the scratch is its own 33ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+   × D-53: the transport witnesses > session lifetime (D-58): the scratch CLEANUP rides the segment that made it, so the terminal segment carries none 7ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+   × D-53: the transport witnesses > session lifetime (D-58): a value produced in the first segment is a literal in the second and the third 5ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "create": the value is absent.
+   × D-53: the transport witnesses > session lifetime: the same series completes on a transport that keeps its session 4ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+   ✓ D-53: the transport witnesses > session lifetime: a ONE-segment nested write is within what one batch proves (D-50's first pin) 4ms
+   ✓ D-53: the transport witnesses > failure attribution and commit certainty: the real sqlite3 seam names the failing statement and leaves nothing behind 2ms
+   ✓ D-53: the transport witnesses > session lifetime: Neon HTTP declares no session to pin 0ms
+ ❯ |raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts (7 tests | 4 failed) 47ms
+   × D-53: the transport witnesses > session lifetime (D-58): a second segment STORES its own member's key, because the scratch is its own 27ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+   × D-53: the transport witnesses > session lifetime (D-58): the scratch CLEANUP rides the segment that made it, so the terminal segment carries none 6ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+   × D-53: the transport witnesses > session lifetime (D-58): a value produced in the first segment is a literal in the second and the third 3ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "create": the value is absent.
+   × D-53: the transport witnesses > session lifetime: the same series completes on a transport that keeps its session 4ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+   ✓ D-53: the transport witnesses > session lifetime: a ONE-segment nested write is within what one batch proves (D-50's first pin) 4ms
+   ✓ D-53: the transport witnesses > failure attribution and commit certainty: the real sqlite3 seam names the failing statement and leaves nothing behind 2ms
+   ✓ D-53: the transport witnesses > session lifetime: Neon HTTP declares no session to pin 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime (D-58): a second segment STORES its own member's key, because the scratch is its own
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime (D-58): the scratch CLEANUP rides the segment that made it, so the terminal segment carries none
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime (D-58): a value produced in the first segment is a literal in the second and the third
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "create": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime: the same series completes on a transport that keeps its session
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime (D-58): a second segment STORES its own member's key, because the scratch is its own
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime (D-58): the scratch CLEANUP rides the segment that made it, so the terminal segment carries none
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime (D-58): a value produced in the first segment is a literal in the second and the third
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "create": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts > D-53: the transport witnesses > session lifetime: the same series completes on a transport that keeps its session
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "update": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 2. a HELD listener failure composes with the carried value's decode failure, and the primary keeps its progress
+AssertionError: {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "cause": {
+      "kind": "QueryEngineError",
+      "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+    },
+    "errors": [
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+      },
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
++ actual - expected
+
++ 'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is absent.'
+- 'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.'
+
+
+Expected: [32m"Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is [7mnot a canonical integer[27m."[39m
+Received: [31m"Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is [7mabsent[27m."[39m
+
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:285:14
+    283|       // produced, read back at its boundary and malformed by the prov…
+    284|       assert.ok(primary instanceof QueryEngineError, diagnostic);
+    285|       assert.equal(primary.message, MALFORMED, diagnostic);
+       |              ^
+    286|       // The operation's progress marking survives the composition: th…
+    287|       // window acknowledged, so its committed segment is still report…
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:263:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 3. a listener that fails beside an answer that SUCCEEDED is published alone
+AssertionError: {
+  "failure": {
+    "cause": {
+      "kind": "QueryEngineError",
+      "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+    },
+    "errors": [
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+      },
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:337:14
+    335|       // exist.
+    336|       assert.ok(seen.failure !== undefined, diagnostic);
+    337|       assert.ok(
+       |              ^
+    338|         !(seen.failure instanceof AggregateError) ||
+    339|           seen.failure.message !== COMPOSED,
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:324:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 4. the produced key is read back as one aliased scalar and binds the child row
+AssertionError: {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "kind": "QueryEngineError",
+    "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is absent."
+  },
+  "readBacks": [
+    "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))"
+  ]
+}
++ actual - expected
+
++ QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is absent.
++     at OperationContext.failure (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:638:17)
++     at OperationContext.settleCarry (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:2654:18)
++     at OperationContext.submit (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1594:14)
++     at processTicksAndRejections (node:internal/process/task_queues:104:5)
++     at OperationContext.flushQueued (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1223:23)
++     at OperationContext.flush (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1207:14)
++     at OperationContext.executeMember (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:550:30)
++     at CommandExecution.executeRecords (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:814:12)
++     at CommandExecution.records (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:781:35)
++     at OperationContext.batchAttempt (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:986:14) {
++   code: 'V9001',
++   meta: [Object: null prototype] {
++     driver: 'sqlite3',
++     operation: 'createMany',
++     recordSeriesProgress: {
++       atomicity: 'segment',
++       committedSegments: 1,
++       committedWriteMembers: 2,
++       completedMembers: 1,
++       phase: 'result'
++     },
++     scalarType: 'int'
++   },
++   originalCause: undefined,
++   timestamp: 2026-09-20T21:14:48.827Z
++ }
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:379:14
+    377|         2
+    378|       );
+    379|       assert.equal(seen.failure, undefined, diagnostic);
+       |              ^
+    380|       assert.deepEqual(seen.value, [{ id: 1, label: "held" }], diagnos…
+    381|       // ONE read-back per produced value, and it is a projection-only…
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:361:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  11 failed | 7 passed (18)
+   Start at  23:14:46
+   Duration  6.28s (transform 3.51s, setup 29ms, collect 5.41s, tests 153ms, environment 0ms, prepare 120ms)
+
+Vitest resources: 8.86s wall, 559.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

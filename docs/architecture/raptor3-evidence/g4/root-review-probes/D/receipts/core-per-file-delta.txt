@@ -1,0 +1,13 @@
+shared/query.ts                  1635 ->   3568 +1933
+shared/operation-context.ts      1591 ->   1781 +190
+shared/schema.ts                  289 ->    410 +121
+commands/commands.ts             1124 ->   1225 +101
+commands/index.ts                 100 ->    176 +76
+commands/selection.ts             142 ->    162 +20
+commands/relation-body.ts         848 ->    867 +19
+shared/storage.ts                 199 ->    215 +16
+commands/execution.ts             745 ->    754 +9
+commands/command-attempt.ts        85 ->     85 +0
+shared/transport-attempt.ts        16 ->     16 +0
+commands/assignments.ts           153 ->    148 -5
+TOTAL 2480

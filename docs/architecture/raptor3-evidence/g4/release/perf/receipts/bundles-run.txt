@@ -1,0 +1,6 @@
+command: node scripts/measure-raptor3-baseline.mjs --bundle --output /private/tmp/viborm-perf/docs/architecture/raptor3-evidence/g4/release/perf/receipts/bundles-release.json
+cwd: /private/tmp/viborm-perf  HEAD: 36c87710aa2526652867430f6e24f30005556394
+fixture: UNCHANGED (engine -> src/query-engine/query-engine.ts + pending-operation.ts)
+started: 2026-09-20T16:50:41Z  load: load averages: 7.00 7.38 8.01
+node scripts/measure-raptor3-baseline.mjs --bundle --output   2.58s user 1.20s system 190% cpu 1.982 total
+EXIT=0

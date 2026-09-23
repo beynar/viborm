@@ -1,0 +1,47 @@
+FALSIFICATION A.1 — the bound removed from its ONE owner (submit's attribution arm)
+file md5 before mutation: 19356c9f84ff2635decb938d531a3694
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests | 1 failed) 186ms
+   × G2 PostgreSQL atomic recovery admission boundary: commands > g2-recovery-dynamic-member-admission 132ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'Error'
+- 'UniqueConstraintError'
+
+   ✓ G2 PostgreSQL atomic recovery admission boundary: commands > g2-race-selected-unique-cleanup-refused 54ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts > G2 PostgreSQL atomic recovery admission boundary: commands > g2-recovery-dynamic-member-admission
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'Error'
+- 'UniqueConstraintError'
+
+
+Expected: [32m"[7mUniqueConstraint[27mError"[39m
+Received: [31m"Error"[39m
+
+ ❯ Object.assert tests/raptor3/transitions/recovery-boundaries-live.ts:222:14
+    220|       assert.equal(observation.outcome.kind, "failure");
+    221|       if (observation.outcome.kind !== "failure") return;
+    222|       assert.equal(observation.outcome.failure.name, "UniqueConstraint…
+       |              ^
+    223|       assert.equal(observation.outcome.failure.code, "V3001");
+    224|       assert.equal(
+ ❯ runDynamicRecoveryBoundary tests/raptor3/transitions/recovery-boundaries-live.ts:305:13
+ ❯ tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts:19:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  14:26:13
+   Duration  1.74s (transform 914ms, setup 11ms, collect 1.39s, tests 186ms, environment 0ms, prepare 48ms)
+
+Vitest resources: 3.97s wall, 450.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

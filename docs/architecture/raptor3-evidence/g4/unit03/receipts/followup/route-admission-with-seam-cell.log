@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (6 tests) 49ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:42:32
+   Duration  2.40s (transform 1.43s, setup 11ms, collect 2.09s, tests 49ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 4.78s wall, 569.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,86 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 1 failed) 34ms
+   ✓ G3-02 author execution regressions > reports a malformed result after its atomic batch was acknowledged 17ms
+   × G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking 12ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
++   [
++     {
++       id: 5,
++       label: 'parent-30'
++     },
++     {
++       id: 6,
++       label: 'parent-31'
++     }
++   ]
+-   {
+-     count: 2
+-   }
+  ]
+
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
++   [
++     {
++       id: 5,
++       label: 'parent-30'
++     },
++     {
++       id: 6,
++       label: 'parent-31'
++     }
++   ]
+-   {
+-     count: 2
+-   }
+  ]
+
+
+- Expected
++ Received
+
+  [
++   [
+      {
+-     "count": 2,
++       "id": 5,
++       "label": "parent-30",
++     },
++     {
++       "id": 6,
++       "label": "parent-31",
+      },
++   ],
+  ]
+
+ ❯ tests/raptor3/g3/author-execution-regressions.test.ts:305:14
+    303|       );
+    304| 
+    305|       assert.deepEqual(
+       |              ^
+    306|         await transactionArray(client, [
+    307|           relationCreateMany(30, 2, undefined),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  19:55:59
+   Duration  1.55s (transform 983ms, setup 8ms, collect 1.39s, tests 34ms, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Lww1UO/vitest.json
+Vitest resources: 3.37s wall, 540.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Lww1UO

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d35
+
+ ✓ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (5 tests) 35ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  22:28:44
+   Duration  1.62s (transform 893ms, setup 9ms, collect 1.33s, tests 35ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.65s wall, 508.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts (1 test) 140ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:15:36
+   Duration  2.87s (transform 1.18s, setup 12ms, collect 1.80s, tests 140ms, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-y2G8Ju/vitest.json
+Vitest resources: 5.89s wall, 532.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-generated-transport-smoke contract gate verified. Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-y2G8Ju

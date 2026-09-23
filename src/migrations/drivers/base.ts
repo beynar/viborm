@@ -676,7 +676,7 @@ export abstract class MigrationDriver {
     // own quoting and MySQL's required expression parentheses. No generic
     // array/object default enters this arm.
     if (scalarState.decimal && scalarState.array && Array.isArray(defaultVal)) {
-      return this.formatDecimalListDefault(
+      return this.escapeValue(
         decimalListDefaultText(
           this.decimalDialect(),
           defaultVal,
@@ -723,12 +723,6 @@ export abstract class MigrationDriver {
     }
 
     return undefined;
-  }
-
-  /** Quotes one codec-rendered decimal-list value as this dialect's DDL. */
-  protected formatDecimalListDefault(physicalValue: string): string {
-    const literal = this.escapeValue(physicalValue);
-    return this.dialect === "mysql" ? `(${literal})` : literal;
   }
 
   /**

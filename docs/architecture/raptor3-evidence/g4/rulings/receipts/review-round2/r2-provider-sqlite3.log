@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3.test.ts (39 tests) 100ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts (150 tests | 1 skipped) 300ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-index-ddl.test.ts (126 tests) 883ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-scalar-roundtrip.test.ts (180 tests) 301ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests) 287ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-returning-json.test.ts (176 tests) 234ms
+
+ Test Files  6 passed (6)
+      Tests  755 passed | 1 skipped (756)
+   Start at  22:00:29
+   Duration  4.21s (transform 1.10s, setup 15ms, collect 1.95s, tests 2.11s, environment 0ms, prepare 27ms)
+
+Vitest resources: 6.13s wall, 705.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

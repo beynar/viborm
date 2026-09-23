@@ -1,0 +1,259 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01b
+
+ ❯ |coverage-raptor3| tests/raptor3/candidate.test.ts (24 tests | 2 failed | 22 skipped) 197ms
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-found
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-found
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s2-distinct-defaults
+   × Raptor 3 G1-01: commands > sqlite-interactive > s2-changed-dependency 168ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s3-grouped
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s3-empty
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s4-parent-pages
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s4-shared-occurrences
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-found
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-found
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-distinct-defaults
+   × Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-changed-dependency 26ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-grouped
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-empty
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-parent-pages
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-shared-occurrences
+ ❯ |coverage-raptor3| tests/raptor3/fixed.test.ts (24 tests | 2 failed | 22 skipped) 12ms
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s2-distinct-defaults
+   × Raptor 3 G0 fixed contracts: sqlite-interactive > s2-changed-dependency 8ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s3-grouped
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s3-empty
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s4-parent-pages
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s4-shared-occurrences
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-distinct-defaults
+   × Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-changed-dependency 4ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s3-grouped
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s3-empty
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s4-parent-pages
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s4-shared-occurrences
+ ❯ |raptor3| tests/raptor3/candidate.test.ts (24 tests | 2 failed | 22 skipped) 46ms
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-found
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-found
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s2-distinct-defaults
+   × Raptor 3 G1-01: commands > sqlite-interactive > s2-changed-dependency 34ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s3-grouped
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s3-empty
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s4-parent-pages
+   ↓ Raptor 3 G1-01: commands > sqlite-interactive > s4-shared-occurrences
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-found
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-found
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-missing
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-rollback
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-distinct-defaults
+   × Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-changed-dependency 11ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-grouped
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-empty
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-parent-pages
+   ↓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-shared-occurrences
+ ❯ |raptor3| tests/raptor3/fixed.test.ts (24 tests | 2 failed | 22 skipped) 13ms
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s2-distinct-defaults
+   × Raptor 3 G0 fixed contracts: sqlite-interactive > s2-changed-dependency 8ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s3-grouped
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s3-empty
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s4-parent-pages
+   ↓ Raptor 3 G0 fixed contracts: sqlite-interactive > s4-shared-occurrences
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-found
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-missing
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-rollback
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-distinct-defaults
+   × Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-changed-dependency 4ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s3-grouped
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s3-empty
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s4-parent-pages
+   ↓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s4-shared-occurrences
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/candidate.test.ts > Raptor 3 G1-01: commands > sqlite-interactive > s2-changed-dependency
+ FAIL  |coverage-raptor3| tests/raptor3/candidate.test.ts > Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-changed-dependency
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+
+Expected: [32m"[7mNestedWrite[27mError"[39m
+Received: [31m"[7mUniqueConstraint[27mError"[39m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:255:16
+    253|         assert.equal(observation.outcome.kind, "failure");
+    254|         if (observation.outcome.kind !== "failure") return;
+    255|         assert.equal(observation.outcome.failure.name, "NestedWriteErr…
+       |                ^
+    256|         assert.equal(observation.outcome.failure.code, "V7001");
+    257|         assert.equal(
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:249:20
+ ❯ tests/raptor3/candidate.test.ts:51:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-interactive > s2-changed-dependency
+ FAIL  |coverage-raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-changed-dependency
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+
+Expected: [32m"[7mNestedWrite[27mError"[39m
+Received: [31m"[7mUniqueConstraint[27mError"[39m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:255:16
+    253|         assert.equal(observation.outcome.kind, "failure");
+    254|         if (observation.outcome.kind !== "failure") return;
+    255|         assert.equal(observation.outcome.failure.name, "NestedWriteErr…
+       |                ^
+    256|         assert.equal(observation.outcome.failure.code, "V7001");
+    257|         assert.equal(
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/fixed.test.ts:10:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |raptor3| tests/raptor3/candidate.test.ts > Raptor 3 G1-01: commands > sqlite-interactive > s2-changed-dependency
+ FAIL  |raptor3| tests/raptor3/candidate.test.ts > Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-changed-dependency
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+
+Expected: [32m"[7mNestedWrite[27mError"[39m
+Received: [31m"[7mUniqueConstraint[27mError"[39m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:255:16
+    253|         assert.equal(observation.outcome.kind, "failure");
+    254|         if (observation.outcome.kind !== "failure") return;
+    255|         assert.equal(observation.outcome.failure.name, "NestedWriteErr…
+       |                ^
+    256|         assert.equal(observation.outcome.failure.code, "V7001");
+    257|         assert.equal(
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:249:20
+ ❯ tests/raptor3/candidate.test.ts:51:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-interactive > s2-changed-dependency
+ FAIL  |raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-changed-dependency
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+
+Expected: [32m"[7mNestedWrite[27mError"[39m
+Received: [31m"[7mUniqueConstraint[27mError"[39m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:255:16
+    253|         assert.equal(observation.outcome.kind, "failure");
+    254|         if (observation.outcome.kind !== "failure") return;
+    255|         assert.equal(observation.outcome.failure.name, "NestedWriteErr…
+       |                ^
+    256|         assert.equal(observation.outcome.failure.code, "V7001");
+    257|         assert.equal(
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/fixed.test.ts:10:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+
+ Test Files  4 failed (4)
+      Tests  8 failed | 88 skipped (96)
+   Start at  23:10:46
+   Duration  5.72s (transform 2.67s, setup 31ms, collect 4.74s, tests 267ms, environment 0ms, prepare 84ms)
+
+Vitest resources: 8.26s wall, 542.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

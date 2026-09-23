@@ -1,0 +1,19 @@
+# Falsification A — the junction half of holdMember removed
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added after that boundary stays outside the captured worklist 116ms
+     → expected [ 8, 7 ] to deeply equal [ 9, 8 ]
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a reassignment the member's own requirement waits behind is observed, and the retry converges 170ms
+     → expected [ 'm3' ] to deeply equal [ 'm1', 'm3' ]
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a captured UPDATE member's own requirement waits behind the reassignment it must observe 162ms
+     → expected 'undefined' to be 'Cannot update relation \'members\': t…' // Object.is equality
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: the capture's FOR UPDATE holds the member ROW, and the junction it is consumed through is held too 149ms
+     → expected 'undefined' to be 'Cannot delete relation \'members\': a…' // Object.is equality
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing 112ms
+     → expected [ 8, 7 ] to deeply equal [ 9, 8 ]
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed | 20 passed (25)
+
+# Falsification B — the member premise's HOLD removed (the junction half kept)
+   × pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route, lock held: a REFERENCE member's own requirement waits behind the reassignment it must observe 185ms
+     → expected 'undefined' to be 'Cannot update relation \'teams\': tar…' // Object.is equality
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 24 passed (25)

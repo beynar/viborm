@@ -1,0 +1,14 @@
+# The forced-collection effect, measured (the v4 -> v5 finding)
+
+date: 2026-09-20T16:56:54Z   cell: scalar-find-unique, statement seam, 5000 iterations after 1000 warmup
+instrument: seam-probe-v4.mjs (which calls globalThis.gc?.() after warmup).
+'forced gc' = run with --expose-gc, so the call collects.
+'no forced gc' = run WITHOUT --expose-gc, so globalThis.gc is undefined and the
+optional call is a no-op. That is what operation-pipeline-worker.mjs does:
+it runs its warmup and enters measureCpu with no collection in between.
+Three runs per cell, CPU us/op.
+
+baseline  forced gc    :  10.61 10.61 11.28
+baseline  no forced gc :  9.98 10.21 10.74
+cand  forced gc    :  16.15 14.40 15.34
+cand  no forced gc :  17.15 17.23 16.28

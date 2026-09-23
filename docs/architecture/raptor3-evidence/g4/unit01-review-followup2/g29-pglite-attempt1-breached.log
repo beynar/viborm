@@ -1,0 +1,7 @@
+Attempt 1 (recorded as FAILED, not relabeled):
+node scripts/run-vitest-safe.mjs run tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 4.93s wall, 1555.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+No JSON report was written.
+Attempt 2 (recorded as FAILED, not relabeled): 1542.1 MiB peak, ceiling 1536 MiB, no JSON report written.
+Attempt 3: PASSED at 1527.5 MiB peak (report written to g29-pglite.json).

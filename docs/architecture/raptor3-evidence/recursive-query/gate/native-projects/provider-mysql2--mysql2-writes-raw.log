@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (93 tests) 15309ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-many updates cannot target another parent's child  325ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a competing upsert waits on the held row and consumes the committed row, not the one it probed  1137ms
+
+ Test Files  1 passed (1)
+      Tests  93 passed (93)
+   Start at  11:09:25
+   Duration  17.00s (transform 983ms, setup 9ms, collect 1.48s, tests 15.31s, environment 0ms, prepare 27ms)
+
+Vitest resources: 18.83s wall, 635.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

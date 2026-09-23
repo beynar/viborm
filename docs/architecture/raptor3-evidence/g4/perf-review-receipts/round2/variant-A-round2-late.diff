@@ -1,0 +1,25 @@
+--- contract-round2.mjs	2026-09-16 12:18:05
++++ variant-A-round2-late.mjs	2026-09-16 12:18:55
+@@ -267,6 +267,7 @@
+   if (name === "relation-series-2") {
+     let statements = 0;
+     let admissionsBeforeFirstEffect;
++    let sawFirstEffect = false; // reviewer falsification only
+     const invocation = (world) => (cold) => {
+       const client = cold ? world.createColdClient() : world.client;
+       return client.generatedParent.updateMany({
+@@ -352,7 +353,13 @@
+           // recorded once and adjudicated against the final ledger in
+           // `verify`, where a late admission is still visible.
+           const ledger = seriesLedger(defaults.length);
+-          admissionsBeforeFirstEffect ??= defaults.length;
++          // FALSIFICATION (reviewer): the count visible at the FIRST effect is
++          // one short, every later statement sees the full ledger.
++          const observedAdmissions = sawFirstEffect
++            ? defaults.length
++            : defaults.length - 1;
++          sawFirstEffect = true;
++          admissionsBeforeFirstEffect ??= observedAdmissions;
+           assert.deepEqual(children[0], ledger.children[0]);
+           cuts.push("first-member-visible");
+         }

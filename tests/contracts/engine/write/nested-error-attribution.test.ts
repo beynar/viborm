@@ -174,21 +174,28 @@ describe("nested statement error attribution", () => {
   });
 
   /**
-   * THE MEASURED LIMIT, pinned rather than asserted away.
+   * THE LIMIT THAT WENT AWAY, pinned as the fact that replaced it.
    *
-   * A scalar-only create projection lets `CreateOperation.buildTreeFold` merge
-   * the root INSERT and every child arm into ONE data-modifying-CTE statement on
-   * a PostgreSQL-family adapter. There is then no nested statement to attribute:
-   * one statement writes both tables, and the only thing that could tell the arms
-   * apart afterwards is the provider's own table text — which physical names and
-   * namespaces make an unsound basis for choosing a model. So the merged
-   * statement keeps the operation's attribution, and the provider evidence beside
-   * it stays exact.
+   * This cell recorded the retired engine's measured limit: a scalar-only create
+   * projection let `CreateOperation.buildTreeFold` merge the root INSERT and every
+   * child arm into ONE data-modifying-CTE statement on a PostgreSQL-family
+   * adapter, so there was no nested statement to attribute and the merged
+   * statement kept the OPERATION's model (`author`) beside the child's table.
+   * The cell's own closing line predicted the day this expectation would go red.
    *
-   * The day a merged statement can carry per-arm attribution, this expectation
-   * goes red and the pin is deleted.
+   * D-15 retired that machinery whole: Raptor 3 ports only the scalar RETURNING
+   * fold, never the CTE tree fold, so the child arm is its own compiled statement
+   * on every projection. The attribution below is therefore the STATEMENT SHAPE
+   * too — `model: "post"` is only reachable when the child INSERT is a statement
+   * of its own carrying its own `context.model` (`driver-error-context.ts`
+   * `buildMeta`); a merged statement could not produce it. Attribution no longer
+   * depends on the projection: this scalar-only create and the `include` create
+   * above now answer identically, and the provider evidence beside the model is
+   * unchanged in both.
    */
-  test("a tree folded into ONE statement keeps the operation's model", async () => {
+  // D-15: pinned the retired CTE tree fold's merged-statement attribution
+  // (`model: "author"`); Raptor 3 emits the child arm as its own statement.
+  test("a tree the retired engine folded into ONE statement names the child model", async () => {
     const client = await seed();
 
     const error = await client.author
@@ -198,7 +205,7 @@ describe("nested statement error attribution", () => {
       .catch((reason: unknown) => reason);
 
     expect(uniqueViolation(error)).toEqual({
-      model: "author",
+      model: "post",
       ...POST_SLUG_VIOLATION,
     });
   });

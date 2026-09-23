@@ -1,0 +1,31 @@
+[test:all] extended-local shared-family shard 2/8 (14 suites)
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts (31 tests) 1529ms
+ ✓ |extended-local| tests/unit/migrations/decimal-descriptor-transitions.test.ts (16 tests) 1468ms
+ ✓ |extended-local| tests/contracts/engine/write/compound-key.test.ts (27 tests) 1092ms
+ ❯ |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts (14 tests | 5 failed | 5 skipped) 622ms
+ ✓ |extended-local| tests/contracts/public-client/statement-transforms-integration.test.ts (10 tests) 561ms
+ ✓ |extended-local| tests/contracts/drivers/transaction-options-behavior.provider.test.ts (19 tests) 686ms
+ ❯ |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts (21 tests | 5 failed) 888ms
+ ✓ |extended-local| tests/contracts/public-client/namespace-isolation.test.ts (11 tests) 523ms
+ ❯ |extended-local| tests/contracts/engine/write/nested-create-context-grandchild.test.ts (3 tests | 1 failed) 650ms
+ ✓ |extended-local| tests/contracts/engine/write/polymorphic-compound-target.test.ts (12 tests) 692ms
+ ✓ |extended-local| tests/contracts/engine/query/nested-m2m-parent-pk-dataflow.test.ts (6 tests) 612ms
+ ✓ |extended-local| tests/contracts/engine/write/generated-output-continuation-race.test.ts (2 tests) 466ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-pk-transition-cascade-located.test.ts (4 tests) 595ms
+ ❯ |extended-local| tests/contracts/engine/write/vacate-then-supply-substrates.test.ts (30 tests | 2 failed) 683ms
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > PostgreSQL prefix plans (C-collated substrate) > default-mode startsWith becomes an index range
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > PostgreSQL prefix plans (C-collated substrate) > the range narrows to the matching rows, and they are the right o
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > PostgreSQL prefix plans (C-collated substrate) > endsWith seq-scans under either spelling, which is why it did no
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > SQLite prefix plans > default-mode startsWith becomes an index range
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > SQLite prefix plans > the range returns exactly the matching rows
+ FAIL  |extended-local| tests/contracts/engine/write/nested-create-context-grandchild.test.ts > CLASS VI key 3 — root-create nested createMany skipDuplicates > direct, transaction, and batch preserv
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E — what supply-then-update did NOT widen (PGlite transaction) > delete + connect + update is still the own-write
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E — what supply-then-update did NOT widen (PGlite atomic batch) > delete + connect + update is still the own-writ
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E4 — the composed continuation on ordered committed segments > carries the parent and captured-target guards into
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E4 — the composed continuation on ordered committed segments > routes the composition's placement through the pre
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E4 — supplier continuation keeps the write-side membership premise > a reused non-PK reference cannot redirect th
+ FAIL  |extended-local| tests/contracts/engine/write/vacate-then-supply-substrates.test.ts > E6.5 vacate-then-supply on a to-one slot (transaction) > delete beside a supplier and a modify is the own-w
+ FAIL  |extended-local| tests/contracts/engine/write/vacate-then-supply-substrates.test.ts > E6.5 vacate-then-supply on a to-one slot (atomic batch) > delete beside a supplier and a modify is the own-
+ Test Files  4 failed | 10 passed (14)
+      Tests  13 failed | 188 passed | 5 skipped (206)
+[test:all] extended-local shared-family shard 2/8 (14 suites): 15.65s wall, 1982.0 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

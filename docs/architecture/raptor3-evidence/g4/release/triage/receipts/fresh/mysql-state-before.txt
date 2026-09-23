@@ -1,0 +1,9 @@
+=== fresh mysql 55731 BEFORE any run ===
+2026-09-17T23:00:47Z
+ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+information_schema
+mysql
+performance_schema
+raptor3_g2
+sys
+-- tables in raptor3_g2 --

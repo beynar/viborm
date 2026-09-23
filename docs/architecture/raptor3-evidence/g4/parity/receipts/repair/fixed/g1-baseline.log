@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 4ms
+ ✓ |raptor3| tests/raptor3/expanded/legacy.test.ts (82 tests) 102ms
+ ✓ |raptor3| tests/raptor3/expanded/variant-identity-legacy.test.ts (42 tests) 54ms
+ ✓ |raptor3| tests/raptor3/expanded/lifetime-legacy.test.ts (16 tests) 19ms
+
+ Test Files  4 passed (4)
+      Tests  141 passed (141)
+   Start at  15:31:35
+   Duration  1.55s (transform 718ms, setup 12ms, collect 1.21s, tests 180ms, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-AN6UCt/vitest.json
+Vitest resources: 3.63s wall, 512.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g1-baseline contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-AN6UCt

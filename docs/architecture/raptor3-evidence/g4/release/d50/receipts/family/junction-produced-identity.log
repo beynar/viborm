@@ -1,0 +1,53 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/contracts/engine/write/junction-produced-identity.test.ts (12 tests | 2 failed) 840ms
+   ✓ E4-U3 junction produced identity (transaction) > the create arm's produced id reaches BOTH the join row and the grandchildren 20ms
+   ✓ E4-U3 junction produced identity (transaction) > a multi-entry array gives each item its OWN produced id 11ms
+   ✓ E4-U3 junction produced identity (transaction) > connectOrCreate: the second item adopts the FIRST item's produced row 10ms
+   ✓ E4-U3 junction produced identity (transaction) > connectOrCreate: the FOUND arm still adopts without describing 8ms
+   ✓ E4-U3 junction produced identity (transaction) > the upsert create arm rides the same produced identity 10ms
+   × E4-U3 junction produced identity (transaction) > skipDuplicates with a produced key ADOPTS instead of refusing (E4-U3 × E6.8) 16ms
+     → expected [ 2 ] to deeply equal [ 2, -1 ]
+   ✓ E4-U3 junction produced identity (atomic batch) > the create arm's produced id reaches BOTH the join row and the grandchildren 14ms
+   ✓ E4-U3 junction produced identity (atomic batch) > a multi-entry array gives each item its OWN produced id 10ms
+   ✓ E4-U3 junction produced identity (atomic batch) > connectOrCreate: the second item adopts the FIRST item's produced row 10ms
+   ✓ E4-U3 junction produced identity (atomic batch) > connectOrCreate: the FOUND arm still adopts without describing 9ms
+   ✓ E4-U3 junction produced identity (atomic batch) > the upsert create arm rides the same produced identity 11ms
+   × E4-U3 junction produced identity (atomic batch) > skipDuplicates with a produced key ADOPTS instead of refusing (E4-U3 × E6.8) 8ms
+     → Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/contracts/engine/write/junction-produced-identity.test.ts > E4-U3 junction produced identity (transaction) > skipDuplicates with a produced key ADOPTS instead of refusing (E4-U3 × E6.8)
+AssertionError: expected [ 2 ] to deeply equal [ 2, -1 ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    2,[22m
+[32m-   -1,[39m
+[2m  ][22m
+
+ ❯ tests/contracts/engine/write/junction-produced-identity-behavior.ts:351:9
+    349|           })
+    350|         ).map((row: any) => row.id)
+    351|       ).toEqual([fresh.id, existing.id]);
+       |         ^
+    352|     }, 120_000);
+    353|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/contracts/engine/write/junction-produced-identity.test.ts > E4-U3 junction produced identity (atomic batch) > skipDuplicates with a produced key ADOPTS instead of refusing (E4-U3 × E6.8)
+TransactionError: Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 10 passed (12)
+   Start at  20:58:13
+   Duration  2.21s (transform 808ms, setup 8ms, collect 1.21s, tests 840ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.93s wall, 1496.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

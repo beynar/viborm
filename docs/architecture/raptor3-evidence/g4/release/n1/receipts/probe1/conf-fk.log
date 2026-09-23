@@ -1,0 +1,6 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-fk.test.ts (28 tests | 1 failed) 1257ms
+     → expected { users: [ { id: 'u1', …(1) } ], …(4) } to deeply equal { users: [], posts: [], …(3) }
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-fk.test.ts > nested-write conformance: FK relations (tx vs batch) > createMany duplicate PK rolls back parent and prior ch
+AssertionError: expected { users: [ { id: 'u1', …(1) } ], …(4) } to deeply equal { users: [], posts: [], …(3) }
+ Test Files  1 failed (1)
+      Tests  1 failed | 27 passed (28)

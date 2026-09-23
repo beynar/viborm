@@ -1,0 +1,19 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(90,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; } | null>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(93,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; } | null>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(101,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; } | null>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(109,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; } | null>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(117,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; }[]>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(120,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; } | null>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(130,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; } | null>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(138,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: string; name: string; }>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(150,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ authorId: string; id: string; }>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/unit02/zz-probe.test.ts(170,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ authorId: string; id: string; }>' but required in type 'Promise<unknown>'.
+TypeScript (whole estate, native): 7.42s wall, 6156.9 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

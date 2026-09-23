@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |root-review-D| docs/architecture/raptor3-evidence/g4/root-review-probes/D/census-reproduces.test.mjs (7 tests) 8950ms
+   ✓ root review D — census and identity > the tree is still the frozen identity  659ms
+   ✓ root review D — census and identity > the whole census reproduces, every group and every delta  2365ms
+   ✓ root review D — census and identity > no candidate module enters any frozen bundle fixture's runtime graph  4675ms
+   ✓ root review D — census and identity > every relative evidence link under g4/ resolves  1250ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  20:28:58
+   Duration  10.32s (transform 18ms, setup 17ms, collect 8ms, tests 8.95s, environment 0ms, prepare 34ms)
+
+Vitest resources: 12.94s wall, 570.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 61ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  21:13:33
+   Duration  1.58s (transform 877ms, setup 9ms, collect 1.35s, tests 61ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-7AbM6T/vitest.json
+Vitest resources: 3.57s wall, 498.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-projection contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-7AbM6T

@@ -1,0 +1,35 @@
+reporter/format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i The following files need to be formatted:
+  
+  - src/query-engine/raptor3/commands/selection.ts
+  
+reporter/violations ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Some lint rules or assist actions reported some violations.
+  
+  i The following files have violations:
+  
+  - src/query-engine/raptor3/commands/execution.ts (4 errors)
+  - src/query-engine/raptor3/commands/selection.ts (4 errors)
+  - tests/raptor3/transport/world.ts (37 errors)
+  
+  i The following lint rules have violations:
+  
+  Rule Name                                               Diagnostics
+  
+  lint/suspicious/useIterableCallbackReturn               1 (1 error)
+  lint/suspicious/noMisplacedAssertion                    35 (35 errors)
+  lint/style/useDefaultSwitchClause                       1 (1 error)
+  lint/style/noParameterProperties                        5 (5 errors)
+  lint/complexity/noCommaOperator                         1 (1 error)
+  assist/source/organizeImports                           1 (1 error)
+  lint/performance/noDelete                               1 (1 error)
+
+Checked 6 files in 17ms. No fixes applied.
+Found 46 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -1,0 +1,101 @@
+--- a/features-docs/recursive-query.md (pre-re-check)
++++ b/features-docs/recursive-query.md
+@@ -166,13 +166,16 @@
+   evaluation of the CTE feeds both readers (PostgreSQL), the per-level hop
+   check refuses it: the caller receives the `QueryEngineError` V9001
+   `Driver "…" returned a malformed recursive depth scalar for operation "…": ….`,
+-  whose `meta.scalarType` (`recursive depth`) names the check. SQLite
++  whose `meta.scalarType` (`recursive depth`) names the kind of check, and
++  whose message ends with the reason of the check that failed. SQLite
+   evaluates the CTE once per reader and typically refuses it at the
+-  `recursive edge endpoint` or `unreachable recursive node` check. Every
+-  carrier refused as an invalid provider result reaches the caller through
+-  the operation's one result-failure translation (`OperationContext.failure`),
+-  the same as a malformed ordinary row or collection (§3.3). A contract limit,
+-  stated once here.
++  `recursive edge endpoint` or `unreachable recursive node` check. A carrier
++  refused as an invalid provider result reaches the caller exactly as a
++  malformed ordinary row or collection does (§3.3): as that V9001
++  `QueryEngineError` through `OperationContext.failure`, except for a member
++  of a `$transaction([...])` array on a batch-only transport (D1, neon-http).
++  The array owner parses that member's result, and like an ordinary malformed
++  member it surfaces as `QueryError` V2001. A contract limit, stated once here.
+ - Ordering applies independently to each parent's returned collection. Reuse
+   the ordinary SQL order owner, provider collation/null rules and complete-key
+   tie-breaking. Do not sort provider values with JavaScript comparison.
+--- a/docs/content/docs/client/selecting.mdx (pre-re-check)
++++ b/docs/content/docs/client/selecting.mdx
+@@ -198,7 +198,10 @@
+ provider result rather than decoded. The operation then rejects with the
+ `QueryEngineError` (`V9001`) of a malformed driver answer, such as
+ `Driver "…" returned a malformed recursive depth scalar for operation "…": ….`,
+-and its `meta.scalarType` names the check that refused the answer.
++and its `meta.scalarType` names the kind of check that refused the answer;
++inside a `$transaction([...])` array on a batch-only driver (D1, neon-http)
++the failure surfaces instead as `QueryError` (`V2001`), as it does for an
++ordinary malformed member.
+ 
+ ## Filtering Relations
+ 
+--- a/docs/content/docs/client/errors.mdx (pre-re-check)
++++ b/docs/content/docs/client/errors.mdx
+@@ -147,12 +147,14 @@
+   check will catch it; branch on the code, or on `UnsupportedOperationError` itself, when
+   you mean one and not the other.
+ - **`V9001` `QueryEngineError`** — the engine broke its own invariant. That is a bug; please
+-  report it (one exception: a recursive projection's
+-  `Recursive relation '…' contains a cycle.` refuses cyclic data). The same code reports a
+-  driver answer the engine refused to decode,
++  report it (two exceptions: a recursive projection's
++  `Recursive relation '…' contains a cycle.` refuses cyclic data, and the malformed driver
++  answer below). The same code reports a driver answer the engine refused to decode,
+   `Driver "…" returned a malformed … scalar for operation "…": ….`, with `meta.scalarType`
+-  naming what was malformed: a value, a row, a relation, or one check of a recursive
+-  projection's answer such as `recursive depth` (see
++  naming what was malformed: a value, a row, a relation, or the kind of check a recursive
++  projection's answer failed, such as `recursive depth`. That report is not a broken engine
++  invariant: the driver's answer was malformed, and for a recursive projection the usual
++  cause is a volatile node filter (see
+   [Recursive relations](/docs/client/selecting#recursive-relations)).
+ 
+ Everything else in the taxonomy is a refusal of some kind: the database said no, the
+@@ -179,7 +181,7 @@
+ | `NestedWriteAssertionError` | `V7006` | A batch-plan precondition (a connect target, an ownership check) did not hold |
+ | `FeatureNotSupportedError` | `V8001` | The driver or dialect does not have the feature (pgvector, PostGIS) |
+ | `UnsupportedOperationError` | `V8003` | A documented shape the query engine does not express |
+-| `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug |
++| `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug; or a driver answer could not be decoded |
+ | `CacheInvalidTTLError` | `V10001` | A cache TTL was malformed |
+ | `CacheInvalidKeyError` | `V10002` | A cache key could not be built from the payload |
+ | `CacheOperationNotCacheableError` | `V10003` | A write operation was asked to cache |
+--- a/src/query-engine/raptor3/AGENTS.md (pre-re-check)
++++ b/src/query-engine/raptor3/AGENTS.md
+@@ -825,11 +825,14 @@
+ node reached — and unfolds fresh public occurrences iteratively along one
+ active path seeded by the outer row; the live cache stores and restores them
+ through `recursiveRelationCodec`. Its carrier checks refuse through
+-`InvalidScalarResult`, the `scalarType` naming the failed check
++`InvalidScalarResult`, whose `scalarType` names the kind of check
+ (`recursive depth`, `recursive edge endpoint`, …), so a carrier refused
+ there reaches the caller as the operation's one malformed-result
+-`QueryEngineError`, as a malformed ordinary row does; the FK-cycle refusal, a
+-property of the data, is its own `QueryEngineError`. The output key
++`QueryEngineError`, as a malformed ordinary row does (except as a member of
++a `$transaction([...])` array on a batch-only transport: the array owner
++parses that member's result and, like an ordinary malformed member, it
++surfaces as `QueryError` V2001); the FK-cycle refusal, a property of the
++data, is its own `QueryEngineError`. The output key
+ `_distance` has one producer:
+ `prepareProjection` refuses a scalar or a relation of that name beside a
+ distance in either order, and `relationShape` refuses a recursive `_distance`
+--- a/docs/architecture/raptor3-evidence/g4/release/plan/refusals-map.md (pre-re-check)
++++ b/docs/architecture/raptor3-evidence/g4/release/plan/refusals-map.md
+@@ -295,7 +295,7 @@
+ | --- | --- | --- | --- | --- | --- | --- |
+ | RQ-1 | `Recursive relation '${shape.relation}' contains a cycle.` | `shared/query.ts` (`decodeRecursiveCarrier`, `follow()` under `cycles: "reject"`) | a foreign-key relation whose data closes a cycle INSIDE the traversed window (the outer row seeds the path; a cycle outside the window is not seen) | **YES**, public payload on cyclic FK data | contract (§2.4) | KEEP — the contract chooses an error over silent pruning for FK cycles; graph relations prune path-locally instead |
+ | RQ-2 | `A singular recursive slot may be empty: CM002 refuses a required self foreign key.` | `shared/query.ts` (`decodeRecursiveCarrier`, `collapse()` — which absorbed the single-use `required()` in the RQ-07 elegance pass — `assertInvariant`) | a singular recursive slot published as not optional, with no occurrence | **NO** — an invariant, not a refusal (it throws through `shared/invariant.ts`): a required self foreign key is refused by CM002 at schema validation (`rq01-sql-placement.md` §fixture 3), so every admitted singular slot is optional and answers `null` | invariant | KEEP; it replaced the refusal `Required relation '${shape.relation}' returned no record.`, which no admitted schema reached (RQ-07 integrated repair, `recursive-query/rq07-integrated-repair.md`) |
+-| RQ-3 | `recursive carrier` / `recursive identity` / `recursive node` / `duplicate recursive node` / `recursive edge` / `recursive edge endpoint` / `exhaustive recursive depth` / `recursive depth` / `duplicate recursive edge` / `recursive singular relation` / `unreachable recursive node` / `recursive row` — the census's reading of sixteen `InvalidScalarResult(phrase, reason)` sites in `shared/query.ts` `decodeRecursiveCarrier` (twelve phrases: `recursive carrier` and `recursive edge endpoint` at two sites each, `recursive depth` at three). The decoder's message stays `Invalid provider <phrase>`; the caller receives the `QueryEngineError` V9001 `Driver "…" returned a malformed <phrase> scalar for operation "…": <reason>.`, `meta.scalarType` the phrase, through `OperationContext.failure` (F37, Option B) | the carrier boundary of `decodeRecursiveCarrier`: a provider result whose private carrier columns are malformed (a carrier that is not an object or lacks its node/edge arrays, wrong tuple width, missing identity, dangling or duplicate edge, depth stated on an exhaustive carrier or attributed to the wrong level, several successors on a singular slot, an unreachable node, a node row that is not an object) | **NO** through a conforming provider; witnessed with handwritten carriers in `tests/raptor3/recursive-query/carrier-boundary.test.ts` (13 cells, `RQ06_CARRIER_BOUNDARY_COUNTS`) and, as the caller's failure through the shipped client, in `tests/raptor3/recursive-query/composition.test.ts` cells 12 and 13 (`RQ06_COMPOSITION_COUNTS`) | integrity (provider result) | KEEP — the same class and public identity as the ordinary malformed-result sentences; never a capability |
++| RQ-3 | `recursive carrier` / `recursive identity` / `recursive node` / `duplicate recursive node` / `recursive edge` / `recursive edge endpoint` / `exhaustive recursive depth` / `recursive depth` / `duplicate recursive edge` / `recursive singular relation` / `unreachable recursive node` / `recursive row` — the census's reading of sixteen `InvalidScalarResult(phrase, reason)` sites in `shared/query.ts` `decodeRecursiveCarrier` (twelve phrases: `recursive carrier` and `recursive edge endpoint` at two sites each, `recursive depth` at three). The decoder's message stays `Invalid provider <phrase>`; the caller receives the `QueryEngineError` V9001 `Driver "…" returned a malformed <phrase> scalar for operation "…": <reason>.`, `meta.scalarType` the phrase, through `OperationContext.failure` (F37, Option B), except for a member of a `$transaction([...])` array on a batch-only transport (D1, neon-http): the array owner parses that member's result and, like an ordinary malformed member, it surfaces as `QueryError` V2001 | the carrier boundary of `decodeRecursiveCarrier`: a provider result whose private carrier columns are malformed (a carrier that is not an object or lacks its node/edge arrays, wrong tuple width, missing identity, dangling or duplicate edge, depth stated on an exhaustive carrier or attributed to the wrong level, several successors on a singular slot, an unreachable node, a node row that is not an object) | **NO** through a conforming provider; witnessed with handwritten carriers in `tests/raptor3/recursive-query/carrier-boundary.test.ts` (13 cells, `RQ06_CARRIER_BOUNDARY_COUNTS`) and, as the caller's failure through the shipped client, in `tests/raptor3/recursive-query/composition.test.ts` cells 12 and 13 (`RQ06_COMPOSITION_COUNTS`) | integrity (provider result) | KEEP — the same class and public identity as the ordinary malformed-result sentences; never a capability |
+ | RQ-4 | `a JSON value contains itself` (`InvalidScalarResult("json", …)`) | `shared/query.ts` (`jsonValue`, the existing JSON result boundary) | a JavaScript provider hands the codec a container that contains itself | **NO** through provider text; **YES** for an in-process JavaScript driver | integrity (provider result) | KEEP — replaces a `RangeError` stack overflow (RQ-01 decoder defect 3) |
+ 
+ Retired by the RQ-07 elegance pass (2026-09-23): the former RQ-5 row, the invariant `Recursive relation lowering requires admitted recurrence meaning.` that was listed only because the census counted its site. `lowerRecursiveRelationProjection` now receives the recurrence its one caller has already narrowed, so the site is gone (`recursive-query/rq07-elegance-pass.md`).

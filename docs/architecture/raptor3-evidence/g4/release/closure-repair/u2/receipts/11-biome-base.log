@@ -1,0 +1,31 @@
+reporter/format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i The following files need to be formatted:
+  
+  - .u2-base/src/query-engine/raptor3/commands/selection.ts
+  
+reporter/violations ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Some lint rules or assist actions reported some violations.
+  
+  i The following files have violations:
+  
+  - .u2-base/src/query-engine/raptor3/commands/execution.ts (4 errors)
+  - .u2-base/src/query-engine/raptor3/commands/selection.ts (4 errors)
+  
+  i The following lint rules have violations:
+  
+  Rule Name                                       Diagnostics
+  
+  lint/style/useDefaultSwitchClause               1 (1 error)
+  lint/style/noParameterProperties                5 (5 errors)
+  lint/complexity/noCommaOperator                 1 (1 error)
+  assist/source/organizeImports                   1 (1 error)
+
+Checked 3 files in 42ms. No fixes applied.
+Found 9 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

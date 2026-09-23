@@ -1,0 +1,84 @@
+// SCRATCH (outside the repository): the recursive statement shapes of the
+// rq07-cost-measures cells, rendered through the ordinary command engine on
+// SQLite (executed, in-memory) and on PostgreSQL (lowering only). Writes each
+// shape's SQL text, length and bind count to $SQL_SHAPE_OUT.
+import { writeFileSync } from "node:fs";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import type { QueryResult } from "@drivers/types";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { s } from "@schema";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { GRAPH_WORLD } from "@tests/raptor3/recursive-query/provider-sql-fixture";
+import { createRequire } from "node:module";
+
+const Database = createRequire("/Users/arnaud/code/viborm/package.json")("better-sqlite3");
+type Database = { Database: any };
+
+class ObservedSQLite extends SQLite3Driver {
+  readonly seen: { sql: string; binds: number }[] = [];
+  protected override async execute<T>(client: any, statement: string, parameters: unknown[]): Promise<QueryResult<T>> {
+    this.seen.push({ sql: statement, binds: parameters.length });
+    return super.execute<T>(client, statement, parameters);
+  }
+}
+class ObservedPg extends SqlOnlyDriver {
+  readonly seen: { sql: string; binds: number }[] = [];
+  constructor() { super(new PostgresAdapter("public", true), "postgresql", "sql-shape"); }
+  protected override async execute<T>(_client: null, statement: string, parameters: unknown[]): Promise<{ rows: T[]; rowCount: number }> {
+    this.seen.push({ sql: statement, binds: parameters.length });
+    return { rows: [], rowCount: 0 };
+  }
+}
+
+const tree = s
+  .model({
+    id: s.string().id(),
+    parentId: s.string().nullable().map("parent_id"),
+    rank: s.int(),
+    parent: s.toOne(() => tree).fields("parentId").references("id").name("rq07m"),
+    children: s.toMany(() => tree).name("rq07m"),
+  })
+  .map("rq07_measure_nodes");
+
+const shapes = [
+  { label: "tree bounded (FK chain depth N, width N at depth 2)", schema: "tree", model: "tree", relation: "children", recurse: { depth: 2 }, extra: { orderBy: { rank: "asc" } } },
+  { label: "tree exhaustive (FK chain exhaustive)", schema: "tree", model: "tree", relation: "children", recurse: { depth: false }, extra: { orderBy: { rank: "asc" } } },
+  { label: "tree upward singular bounded", schema: "tree", model: "tree", relation: "parent", recurse: { depth: 32 }, extra: {} },
+  { label: "graph bounded, prevention off (3-cycle / complete 3-graph unfolding)", schema: "graph", model: "vertex", relation: "out", recurse: { depth: 8, preventCycles: false }, extra: { orderBy: { rank: "asc" } } },
+  { label: "graph exhaustive (ladders, complete 3-graph simple paths)", schema: "graph", model: "vertex", relation: "out", recurse: { depth: false }, extra: { orderBy: { rank: "asc" } } },
+] as const;
+
+it("renders the recursive statement shapes", async () => {
+  const database = new Database(":memory:");
+  database.exec("CREATE TABLE rq07_measure_nodes(id TEXT PRIMARY KEY, parent_id TEXT, rank INTEGER NOT NULL)");
+  database.exec("INSERT INTO rq07_measure_nodes VALUES ('c0', NULL, 0), ('c1', 'c0', 1), ('c2', 'c1', 2)");
+  const types = { text: "TEXT", integer: "INTEGER", boolean: "INTEGER", json: "TEXT" } as const;
+  for (const table of GRAPH_WORLD.tables) {
+    const quoted = table.columns.map((c) => `"${c.name}"`);
+    database.exec(`CREATE TABLE "${table.name}"(${[...table.columns.map((c, i) => `${quoted[i]} ${types[c.type]}${c.nullable ? "" : " NOT NULL"}${c.unique ? " UNIQUE" : ""}`), `PRIMARY KEY (${table.primaryKey.map((n) => `"${n}"`).join(",")})`].join(", ")})`);
+    const insert = database.prepare(`INSERT INTO "${table.name}"(${quoted.join(", ")}) VALUES (${quoted.map(() => "?").join(", ")})`);
+    for (const row of table.rows) insert.run(...table.columns.map((c) => { const v = row[c.name]; return typeof v === "boolean" ? (v ? 1 : 0) : v === undefined ? null : v; }));
+  }
+  const sqlite = new ObservedSQLite({ client: database });
+  const pg = new ObservedPg();
+  const schemas = { tree: { tree }, graph: GRAPH_WORLD.schema } as const;
+  const out: Record<string, unknown>[] = [];
+  for (const shape of shapes) {
+    const args = { where: { id: shape.model === "tree" ? "c2" : "k0" }, select: { id: true, [shape.relation]: { recurse: shape.recurse, ...shape.extra, select: { id: true } } } };
+    const sqliteEngine = createCommandEngine({ schema: schemas[shape.schema] as never, driver: sqlite });
+    const before = sqlite.seen.length;
+    const value = await sqliteEngine.execute(shape.model, "findUnique", args);
+    if (sqlite.seen.length - before !== 1) throw new Error(`${shape.label}: ${sqlite.seen.length - before} statements`);
+    const pgEngine = createCommandEngine({ schema: schemas[shape.schema] as never, driver: pg });
+    const pgBefore = pg.seen.length;
+    await pgEngine.execute(shape.model, "findUnique", args);
+    if (pg.seen.length - pgBefore !== 1) throw new Error(`${shape.label}: ${pg.seen.length - pgBefore} pg statements`);
+    const lite = sqlite.seen.at(-1)!;
+    const post = pg.seen.at(-1)!;
+    out.push({ label: shape.label, sqlite: { chars: lite.sql.length, binds: lite.binds, sql: lite.sql }, postgres: { chars: post.sql.length, binds: post.binds, sql: post.sql }, value });
+  }
+  writeFileSync(process.env.SQL_SHAPE_OUT!, JSON.stringify(out, null, 1));
+  await sqlite.disconnect();
+  database.close();
+});

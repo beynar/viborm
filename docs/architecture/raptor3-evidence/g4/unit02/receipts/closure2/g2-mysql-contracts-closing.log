@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 467ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 704ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (2 tests) 1076ms
+   ✓ G2 live mysql singular-junction races: commands > g2-junction-held-interactive-race  778ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 197ms
+
+ Test Files  4 passed (4)
+      Tests  13 passed (13)
+   Start at  16:00:48
+   Duration  5.48s (transform 1.47s, setup 21ms, collect 2.79s, tests 2.44s, environment 0ms, prepare 44ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hEiMRq/vitest.json
+Vitest resources: 10.41s wall, 663.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hEiMRq

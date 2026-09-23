@@ -1,0 +1,18 @@
+# cumulative patch verification, round 4
+
+regenerated: git diff 0cc61e61 -- <the ten tracked files this stream owns>
+bytes: 88236
+cmp vs receipts/repair/witness-harness-vs-0cc61e61.patch: identical (exit 0)
+src/ files in the patch: 0
+
+blob ids of the working tree (git hash-object):
+764fd78d3229cd1fd9b7a837d1d27007a9628551 scripts/credential-free-test-manifest.mjs
+76ab18880cc3d51b9d90cbe5612429bcb6277da4 scripts/raptor3-campaign-receipts.test.mjs
+0ac76a3aef14c844ec8694009de431966fb1f863 scripts/raptor3-cli.test.mjs
+7a13c89592a4825d213629c376feb576231efd5d scripts/raptor3-manifest.mjs
+c9ccaf11e2c8574cf2eb0e6f7cc094296585fb80 scripts/run-raptor3.mjs
+1640c9f1378bf6d9a00d2914833f197b53a1628f tests/raptor3/g3/generation/recipe.ts
+a0ecfa97d059de7b4b79053e4a8caec007ba3fe1 tests/raptor3/g3/generation/sqlite-campaign.ts
+e1cc4fd65b4b554027f6a7efa4dab3102e9c0c52 tests/raptor3/g3/generation/transport-campaign.ts
+4b702c6709a538bfec4abbd6541109cd78707dca tests/raptor3/transitions/live-world.ts
+6cbfc94159dc82c74fbcc03a01d7e26b954ab23e vitest.workspace.ts

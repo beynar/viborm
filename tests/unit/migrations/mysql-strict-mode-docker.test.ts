@@ -192,6 +192,35 @@ describeIfMysql("the MySQL strict-mode proof", () => {
     }
   }, 120_000);
 
+  /**
+   * The SQL-mode assumption the DDL string spelling makes (repair prompt §4.1).
+   *
+   * `MySQLMigrationDriver.escapeValue` doubles `\\` because MySQL reads a
+   * backslash inside a string literal as an escape introducer. `NO_BACKSLASH_ESCAPES`
+   * is the one mode that turns that off, and it would make the same spelling
+   * store a DOUBLED backslash — so the assumption is stated here, beside the
+   * mode this estate does prove, rather than promised for arbitrary servers.
+   */
+  it("spells a backslash for the session mode it supports", async () => {
+    await admin._executeRaw(`SET GLOBAL sql_mode = '${STRICT_MODE}'`);
+    const driver = freshDriver();
+    try {
+      const session = await driver._executeRaw<{ mode: string }>(
+        "SELECT @@SESSION.sql_mode AS mode"
+      );
+      expect(session.rows[0]?.mode).toContain("STRICT_TRANS_TABLES");
+      expect(session.rows[0]?.mode).not.toContain("NO_BACKSLASH_ESCAPES");
+
+      // The server's own reading of what the estate writes.
+      const spelled = await driver._executeRaw<{ value: string }>(
+        `SELECT ${mysqlMigrationDriver.escapeValue(String.raw`a\b`)} AS value`
+      );
+      expect(spelled.rows[0]?.value).toBe(String.raw`a\b`);
+    } finally {
+      await driver.disconnect();
+    }
+  }, 120_000);
+
   it("admits STRICT_ALL_TABLES on its own", async () => {
     await admin._executeRaw("SET GLOBAL sql_mode = 'STRICT_ALL_TABLES'");
     const driver = freshDriver();

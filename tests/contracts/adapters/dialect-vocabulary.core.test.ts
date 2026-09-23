@@ -136,6 +136,18 @@ describe("shared adapter SQL vocabulary", () => {
         expectSql(adapter.expressions.subtract(left, right), "(? - ?)", [2, 3]);
         expectSql(adapter.expressions.multiply(left, right), "(? * ?)", [2, 3]);
         expectSql(adapter.expressions.divide(left, right), "(? / ?)", [2, 3]);
+        // The integer quotient is the one arithmetic spelling `/` cannot carry
+        // portably: it must truncate toward zero, which each dialect states in
+        // its own way (the same fact `set.divide`'s `target.integer` carries).
+        expectSql(
+          adapter.expressions.integerDivide(left, right),
+          name === "mysql"
+            ? "TRUNCATE(? / ?, 0)"
+            : name === "sqlite"
+              ? "(? / CAST(? AS INTEGER))"
+              : "(? / ?)",
+          [2, 3]
+        );
         expectSql(adapter.expressions.upper(left), "UPPER(?)", [2]);
         expectSql(adapter.expressions.lower(left), "LOWER(?)", [2]);
         expectSql(
@@ -370,6 +382,7 @@ describe("dialect physical SQL vocabulary", () => {
         adapter.expressions.decimalCast(sql`${"12.30"}`, decimal),
         adapter.expressions.cast(sql`${1}`, "text"),
         adapter.expressions.cast(sql`${1}`, "integer"),
+        adapter.expressions.cast(sql`${1}`, "bigint"),
         adapter.expressions.cast(sql`${1}`, "boolean"),
         adapter.expressions.cast(sql`${1}`, "numeric"),
         adapter.expressions.blobToHex(sql.raw`payload`),
@@ -379,6 +392,18 @@ describe("dialect physical SQL vocabulary", () => {
     expect(
       postgres.expressions.concat(sql.raw`a`, sql.raw`b`).toStatement()
     ).toBe("(a || b)");
+    // A 64-bit key read back from a TEXT scratch keeps its width: PostgreSQL
+    // INTEGER is 32-bit, so the logical cast names BIGINT there; SQLite and
+    // MySQL integer casts are already 64-bit.
+    expect(postgres.expressions.cast(sql.raw`a`, "bigint").toStatement()).toBe(
+      "CAST(a AS BIGINT)"
+    );
+    expect(mysql.expressions.cast(sql.raw`a`, "bigint").toStatement()).toBe(
+      mysql.expressions.cast(sql.raw`a`, "integer").toStatement()
+    );
+    expect(sqlite.expressions.cast(sql.raw`a`, "bigint").toStatement()).toBe(
+      sqlite.expressions.cast(sql.raw`a`, "integer").toStatement()
+    );
     expect(mysql.expressions.concat(sql.raw`a`, sql.raw`b`).toStatement()).toBe(
       "CONCAT(a, b)"
     );

@@ -1,0 +1,9 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts (31 tests | 6 failed) 1376ms
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: cross-relation targets (tx vs batch) > create-family sibling create then co
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update a
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive predicate dependencies (tx vs batch) > upsert update alternative
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive target dependencies (tx vs batch) > outer create then nested con
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > a connectOrCreate create al
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > upsert array keeps the foun
+ Test Files  1 failed (1)
+      Tests  6 failed | 25 passed (31)

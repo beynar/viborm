@@ -1,0 +1,34 @@
+{
+  "formatVersion": 1,
+  "status": "stopped",
+  "command": "node scripts/run-raptor3.mjs g2-transport",
+  "identity": {
+    "production": "8f0ff7c22cbb39c1188fbfe1e8eba54463e2a071db73fe0c941294f5a81d08ea",
+    "harness": "0cdb4349eb7e3fb8a0fc743192d06772a2fd216b17a23c893f2d2f7cec5dcb53",
+    "node": "v24.21.0"
+  },
+  "result": {
+    "passed": 11,
+    "failed": 5,
+    "pending": 0,
+    "total": 16
+  },
+  "rawArtifacts": {
+    "vitest": {
+      "path": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HfcuKq/vitest.json",
+      "sha256": "23b636b3db14ea327ef9203b60890f29f4f3a73efedcaaa1cac722526019f73d"
+    },
+    "corpus": {
+      "path": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HfcuKq/g2-transport-corpus.json",
+      "sha256": "2fd05871810f6e5cf3d4afb62b18c476851692b8233e4e66b2f5cf65c649e97d"
+    }
+  },
+  "classification": {
+    "legacyBaselineOracleFailures": 2,
+    "candidateOracleFailures": 3,
+    "productionDefectConfirmed": false,
+    "candidateCompatibilityDifferenceConfirmed": true,
+    "nonMalformedCandidateProgressDecision": "pending",
+    "repairBudget": "second unsuccessful harness encoding; stopped pending explicit decision"
+  }
+}

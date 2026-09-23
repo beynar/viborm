@@ -1,0 +1,92 @@
+[
+ {
+  "workload": "scalar-find-unique",
+  "stage": "cold-prepare",
+  "mode": "cpu",
+  "iterations": 5000,
+  "warmupIterations": 1000,
+  "replicates": 5,
+  "comparisonMode": "semantic",
+  "baselineCommit": "e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0",
+  "baselineSourceCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "candidateCommit": "981368f6a4aad7628fe37bb5b5b38bac86b885d4",
+  "preparation": {
+   "baseline": {
+    "seam": "package",
+    "statementCount": 1,
+    "packageRefusal": null
+   },
+   "candidate": {
+    "seam": "package",
+    "statementCount": 1,
+    "packageRefusal": null
+   }
+  },
+  "observedWitness": {
+   "baseline": {
+    "statementCount": 1
+   },
+   "candidate": {
+    "statementCount": 1
+   }
+  },
+  "metrics": {
+   "cpuMicrosecondsPerOperation": {
+    "B": 208.6536,
+    "N": 230.7462,
+    "madBaseline": 13.040800000000019,
+    "madCandidate": 12.59899999999999,
+    "E": 26.081600000000037,
+    "signedDelta": 22.092599999999976,
+    "budgetFraction": 0.05,
+    "budget": 10.432680000000001,
+    "deltaPlusE": 48.17420000000001,
+    "withinBudget": false,
+    "straddles": true,
+    "improvementBeyondE": false,
+    "samplesBaseline": [
+     195.6128,
+     213.2804,
+     226.0108,
+     190.9558,
+     208.6536
+    ],
+    "samplesCandidate": [
+     230.7462,
+     236.4806,
+     218.1472,
+     202.3758,
+     269.0192
+    ]
+   },
+   "wallMicrosecondsPerOperation": {
+    "B": 103.58649999999997,
+    "N": 116.06705820000002,
+    "madBaseline": 8.606800000000007,
+    "madCandidate": 5.644324800000021,
+    "E": 17.213600000000014,
+    "signedDelta": 12.480558200000047,
+    "budgetFraction": 0.05,
+    "budget": 5.179324999999999,
+    "deltaPlusE": 29.69415820000006,
+    "withinBudget": false,
+    "straddles": true,
+    "improvementBeyondE": false,
+    "samplesBaseline": [
+     94.91457499999999,
+     106.95595,
+     112.19329999999998,
+     89.9707834,
+     103.58649999999997
+    ],
+    "samplesCandidate": [
+     116.06705820000002,
+     119.30984999999998,
+     110.4227334,
+     100.82324999999999,
+     156.9451666
+    ]
+   }
+  }
+ }
+]

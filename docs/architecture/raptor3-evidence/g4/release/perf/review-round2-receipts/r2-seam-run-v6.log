@@ -1,0 +1,29 @@
+command: node /private/tmp/viborm-perf-tmp-r/r2-seam-run-v6.mjs (reviewer's runner, author's probe unchanged)
+TMPDIR=/private/tmp/viborm-perf-tmp-r
+load at start: load averages: 7.14 8.59 7.99
+started: 2026-09-20T17:38:54Z
+bulk-update-returning-100 statement baseline pair0 (baseline>candidate) cpu=41.62
+bulk-update-returning-100 statement candidate pair0 (baseline>candidate) cpu=58.43
+bulk-update-returning-100 statement candidate pair1 (candidate>baseline) cpu=58.66
+bulk-update-returning-100 statement baseline pair1 (candidate>baseline) cpu=53.35
+bulk-update-returning-100 statement baseline pair2 (baseline>candidate) cpu=42.66
+bulk-update-returning-100 statement candidate pair2 (baseline>candidate) cpu=58.17
+bulk-update-returning-100 statement candidate pair3 (candidate>baseline) cpu=57.80
+bulk-update-returning-100 statement baseline pair3 (candidate>baseline) cpu=40.50
+bulk-update-returning-100 statement baseline pair4 (baseline>candidate) cpu=40.37
+bulk-update-returning-100 statement candidate pair4 (baseline>candidate) cpu=58.61
+bulk-update-returning-100 package baseline pair0 (baseline>candidate) cpu=44.41
+bulk-update-returning-100 package candidate pair0 (baseline>candidate) cpu=56.53
+bulk-update-returning-100 package candidate pair1 (candidate>baseline) cpu=57.36
+bulk-update-returning-100 package baseline pair1 (candidate>baseline) cpu=44.15
+bulk-update-returning-100 package baseline pair2 (baseline>candidate) cpu=43.77
+bulk-update-returning-100 package candidate pair2 (baseline>candidate) cpu=56.95
+bulk-update-returning-100 package candidate pair3 (candidate>baseline) cpu=57.15
+bulk-update-returning-100 package baseline pair3 (candidate>baseline) cpu=43.76
+bulk-update-returning-100 package baseline pair4 (baseline>candidate) cpu=45.48
+bulk-update-returning-100 package candidate pair4 (baseline>candidate) cpu=57.47
+bulk-update-returning-100      statement    cpu 41.62 -> 58.43 = 1.404  wall ratio 1.244
+bulk-update-returning-100      package      cpu 44.15 -> 57.15 = 1.295  wall ratio 1.103
+EXIT=0
+finished: 2026-09-20T17:38:58Z
+load at end: load averages: 7.14 8.59 7.99

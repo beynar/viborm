@@ -1,0 +1,23 @@
+{
+ "workload": "scalar-find-unique",
+ "stage": "full",
+ "engine": "shipped",
+ "checks": [
+  63,
+  63,
+  63,
+  63
+ ],
+ "preparation": {
+  "statementCount": 1,
+  "statements": [
+   {
+    "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1",
+    "params": [
+     "user_42"
+    ]
+   }
+  ],
+  "preparationSeam": "package"
+ }
+}

@@ -1,0 +1,4174 @@
+--- a/tests/raptor3/g4/unit02/key-arithmetic.test.ts
++++ b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
+@@ -22,12 +22,13 @@
+  *    found arm of a relation-bearing `upsert`, which
+  *    `upsert-key-portability.test.ts` measures (note §R3.1).
+  *
+- * Three shapes stay divergent and are NOT decided here — a decimal key
+- * `increment` (which the candidate supports, pinned by a registered G3
+- * witness), the same `increment` on a `number` key, and `set` winning over an
+- * accompanying operator. All three predate this unit; the third `describe`
+- * pins each engine's answer so the divergence is visible rather than assumed
+- * (note §R2.2, §R3.2).
++ * Three shapes of that family were recorded as R-D2 and DECIDED by Arnaud on
++ * 2026-09-15 ("adopt (a)"): the decimal key `increment` the candidate supports
++ * is now the contract, and the other two — a `number` key's arithmetic, and
++ * `set` beside another operation — revert to the shipped refusals. The third
++ * `describe` states that decision: one positive contract cell whose answer is
++ * the candidate's, and parity cells for (b) and (c) (note §R2.2, §R3.2, and the
++ * "Decisions applied" section).
+  *
+  * The one shape `updateValue` still refuses is an EXACT DECIMAL under
+  * `multiply` or `divide`, whose assignment is a guarded coefficient rewrite
+@@ -41,6 +42,7 @@
+ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+ import { createClient } from "@client/client";
+ import { SQLite3Driver } from "@drivers/sqlite3";
++import { QueryEngineError, UnsupportedOperationError } from "@errors";
+ import { createCommandEngine } from "@query-engine/raptor3/commands";
+ import { Queries } from "@query-engine/raptor3/shared/query";
+ import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+@@ -57,6 +59,12 @@
+   }
+ }
+ 
++/** A D1-shaped ATOMIC BATCH profile: no interactive transaction, one batch. */
++class AtomicBatchDriver extends SQLite3Driver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++}
++
+ const intKey = s
+   .model({ id: s.int().id(), label: s.string() })
+   .map("g4u2k_int_keys");
+@@ -240,18 +248,22 @@
+   }
+ });
+ 
+-describe("G4-02 — the two key shapes that stay divergent, and predate this unit", () => {
+-  // Recorded as decisions for Arnaud (note §R2.2), NOT decided here. Each cell
+-  // states both engines' current answers, so the divergence is visible and this
+-  // file goes red the day either side moves.
+-  it("supports a decimal key increment where the shipped engine refuses it", async () => {
+-    const shipped = await update(
+-      "decKey",
+-      "g4u2k_dec_keys",
+-      { id: "6.00" },
+-      { id: { increment: "1.00" } },
+-      "shipped"
+-    );
++describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
++  // "adopt (a)": the candidate's decimal key `increment` IS the contract, and
++  // (b) a `number` key's arithmetic and (c) `set` beside another operation
++  // revert to the shipped refusals. The three cells below are what that
++  // decision looks like as checks: one positive contract, two parity.
++  it("R-D2 (a) THE CONTRACT: names a decimal key increment, which is exact in coefficient space", async () => {
++    // Legacy baseline, recorded not asserted: the shipped engine refuses this
++    // request with `QueryEngineError: Arithmetic updates are not portable for
++    // decimal primary key field 'id'. Use an explicit set value.` Arnaud
++    // adopted the candidate's answer (R-D2 (a)), so the candidate is the
++    // contract this cell states — and the capability
++    // `tests/raptor3/g3/review-execution-boundaries.test.ts` ("reads a
++    // supported decimal key increment through its provider expression")
++    // registers. It is why the portability rule stops at `multiply`/`divide`
++    // for a decimal key: those two carry the provider's rounding, `increment`
++    // and `decrement` do not.
+     const candidate = await update(
+       "decKey",
+       "g4u2k_dec_keys",
+@@ -259,19 +271,11 @@
+       { id: { increment: "1.00" } },
+       "candidate"
+     );
+-    assert.equal(
+-      shipped.answer,
+-      "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value."
+-    );
+-    // `increment` is exact in coefficient space, so the candidate names it —
+-    // the capability `tests/raptor3/g3/review-execution-boundaries.test.ts`
+-    // ("reads a supported decimal key increment through its provider
+-    // expression") registers, which is why the mirrored contract stops at
+-    // `multiply`/`divide`.
+     assert.equal(candidate.answer, 'ok:{"id":"7","label":"a"}');
++    assert.deepEqual(candidate.rows, [{ id: 700, label: "a" }]);
+   });
+ 
+-  it("lets `set` win over an accompanying operator where the shipped engine refuses both", async () => {
++  it("R-D2 (c) PARITY: refuses `set` beside an operator with the shipped sentence", async () => {
+     const shipped = await update(
+       "intKey",
+       "g4u2k_int_keys",
+@@ -286,51 +290,91 @@
+       { id: { increment: 1, set: 9 } },
+       "candidate"
+     );
++    assert.deepEqual(candidate, shipped);
+     assert.equal(
+-      shipped.answer,
++      candidate.answer,
+       "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment."
+     );
+-    assert.equal(candidate.answer, 'ok:{"id":9,"label":"a"}');
+-    assert.deepEqual(candidate.rows, [{ id: 9, label: "a" }]);
++    // The row is untouched on both engines: the refusal precedes every
++    // statement, as `assertPortablePrimaryKeyUpdateInput` does.
++    assert.deepEqual(candidate.rows, [{ id: 7, label: "a" }]);
+   });
+ 
+-  it("supports a number key increment where the shipped engine refuses it", async () => {
+-    // The same family as the decimal arm above, named here because the second
+-    // review asked for it (follow-up finding B): R-D2 should be decided over
+-    // the whole `increment` family at once, not twice. Pre-existing — the
+-    // falsifier that removes this unit's contract answers identically.
++  it("R-D2 (c) PARITY: the same sentence when `set` accompanies an operator phase 2 added", async () => {
+     const shipped = await update(
+-      "numKey",
+-      "g4u2k_num_keys",
+-      { id: 6 },
+-      { id: { increment: 1 } },
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { divide: 0, set: 9 } },
+       "shipped"
+     );
+     const candidate = await update(
+-      "numKey",
+-      "g4u2k_num_keys",
+-      { id: 6 },
+-      { id: { increment: 1 } },
++      "intKey",
++      "g4u2k_int_keys",
++      { id: 7 },
++      { id: { divide: 0, set: 9 } },
+       "candidate"
+     );
++    assert.deepEqual(candidate, shipped);
+     assert.equal(
+-      shipped.answer,
+-      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
++      candidate.answer,
++      "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, divide."
+     );
+-    assert.equal(candidate.answer, 'ok:{"id":7,"label":"a"}');
++    // The arity question is asked BEFORE the operator question, as shipped:
++    // `divide: 0` beside a `set` is answered by the arity sentence, never by
++    // "Cannot divide primary key field 'id' by zero."
++    assert.deepEqual(candidate.rows, [{ id: 7, label: "a" }]);
+   });
+ 
+-  it("keeps `set` winning for the two operators phase 2 added", async () => {
+-    // The mirrored refusals must not fire for a payload naming `set`: `set` is
+-    // the value `prepareUpdate` takes, so nothing unnameable is ever built.
+-    const candidate = await update(
+-      "intKey",
+-      "g4u2k_int_keys",
+-      { id: 7 },
+-      { id: { divide: 0, set: 9 } },
++  it("R-D2 (b) PARITY: refuses a number key increment with the shipped sentence", async () => {
++    // The whole `number` arithmetic family, not just `increment`: the rule is
++    // the scalar's, so `decrement` answers it too.
++    for (const data of [
++      { id: { increment: 1 } },
++      { id: { decrement: 1 } },
++    ] as const) {
++      const shipped = await update(
++        "numKey",
++        "g4u2k_num_keys",
++        { id: 6 },
++        data,
++        "shipped"
++      );
++      const candidate = await update(
++        "numKey",
++        "g4u2k_num_keys",
++        { id: 6 },
++        data,
++        "candidate"
++      );
++      assert.deepEqual(candidate, shipped, JSON.stringify(data));
++      assert.equal(
++        candidate.answer,
++        "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
++      );
++      assert.deepEqual(candidate.rows, [{ id: 6, label: "a" }]);
++    }
++  });
++
++  it("R-D2 (a) leaves the exact-domain decimal operators reachable and the rounding ones refused", async () => {
++    // The two halves of (a) in one cell: `decrement` is named like `increment`,
++    // and `multiply` still answers the portability sentence on both engines —
++    // so the adopted divergence is exactly "exact-domain arithmetic", not "any
++    // arithmetic on a decimal key".
++    const decremented = await update(
++      "decKey",
++      "g4u2k_dec_keys",
++      { id: "6.00" },
++      { id: { decrement: "1.00" } },
+       "candidate"
+     );
+-    assert.equal(candidate.answer, 'ok:{"id":9,"label":"a"}');
++    assert.equal(decremented.answer, 'ok:{"id":"5","label":"a"}');
++    await bothEngines(
++      "decKey",
++      "g4u2k_dec_keys",
++      { id: "6.00" },
++      { id: { multiply: "2.00" } }
++    );
+   });
+ });
+ 
+@@ -386,6 +430,14 @@
+ });
+ 
+ describe("G4-02 — the one shape with no expression form stays refused", () => {
++  // R-D1, decided by Arnaud on 2026-09-15: "authorize" — the candidate MAY
++  // name an exact-decimal key under `multiply`/`divide` (a symbolic expression
++  // beside the provider's guarded assignment) if a reachable shape ever needs
++  // it. No code changes: no admitted public request reaches this refusal today
++  // (§R3.3 measured it; admission refuses a decimal ROW key first and a decimal
++  // relation key's transition is spelled by the provider's own assignment), and
++  // writing the expression now would be dead code. The authorization is
++  // recorded; this unit-level pin stays until a reachable shape exists.
+   it("refuses to name an exact decimal under multiply, with its registered identity", () => {
+     const queries = new Queries(
+       new EngineSchema(keySchema),
+@@ -425,3 +477,115 @@
+     }
+   });
+ });
++
++describe("G4-02 — R-D3: the batch publication gap has a public identity", () => {
++  /**
++   * Under an atomic-batch profile an expression update is published through the
++   * adapter's batch references and read back with an INTEGER cast
++   * (`shared/operation-context.ts`, `usesBatch` arm), so a non-`int` field
++   * demanded by a dependent cannot be published. Arnaud decided on 2026-09-15:
++   * "give it a public identity now" (R-D3). The refusal is raised at the same
++   * point it always was — before any statement of the update is dispatched — and
++   * is now a registered `UnsupportedOperationError` naming the model, the field
++   * and the operation, with `meta` `{ model, operation, field }`. The CLASS is
++   * Arnaud's 2026-09-16 answer to R-D3-class: `UnsupportedOperationError`
++   * (V8003 UNSUPPORTED_OPERATION), a `QueryEngineError` subclass, so a consumer
++   * can tell this deliberate capability boundary from a crash (V9001
++   * INTERNAL_ERROR) without reading the sentence.
++   *
++   * The divergence from the shipped row answer is the recorded, accepted half of
++   * the decision: the shipped engine computes the value in JavaScript and
++   * answers the row. Widening the candidate to match would need a typed scratch
++   * read per domain, and an answer to the decimal rounding question that
++   * `Queries.updateValue` refuses — a capability change, not an identity.
++   */
++  async function batchUpsert(
++    engine: "shipped" | "candidate",
++    update: unknown
++  ): Promise<Outcome & { raised?: unknown }> {
++    const database = new Database(":memory:");
++    const driver = new AtomicBatchDriver({ client: database });
++    const client = createClient({ schema: keySchema, driver });
++    // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++    assert.equal((await syncLiveSchema(client)).applied, true);
++    database.exec(SEED);
++    const candidate = createCommandEngine({ schema: keySchema, driver });
++    const args = { where: { id: 6 }, create: { id: 6, label: "a" }, update };
++    let answer: string;
++    let raised: unknown;
++    try {
++      const value =
++        engine === "shipped"
++          ? await (
++              client as unknown as Record<
++                string,
++                { upsert(args: unknown): Promise<unknown> }
++              >
++            ).numKey!.upsert(args)
++          : await candidate.execute("numKey", "upsert", args);
++      answer = `ok:${JSON.stringify(value)}`;
++    } catch (error) {
++      raised = error;
++      answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++    }
++    const rows = database.prepare("SELECT * FROM g4u2k_num_keys").all();
++    await client.$disconnect();
++    database.close();
++    return { answer, raised, rows };
++  }
++
++  for (const [name, update, shippedAnswer] of [
++    ["increment", { id: { increment: 1 } }, 'ok:{"id":7,"label":"a"}'],
++    ["multiply", { id: { multiply: 2 } }, 'ok:{"id":12,"label":"a"}'],
++  ] as const) {
++    it(`R-D3 refuses a number key ${name} under a batch with its registered identity`, async () => {
++      const shipped = await batchUpsert("shipped", update);
++      const candidate = await batchUpsert("candidate", update);
++      // The accepted divergence, recorded: the shipped engine computes the
++      // value in JavaScript and answers the row.
++      assert.equal(shipped.answer, shippedAnswer);
++      // The decided identity: a registered UnsupportedOperationError (R-D3
++      // plus R-D3-class), naming the model, the field and the operation, raised
++      // before any statement is dispatched. It is still a QueryEngineError —
++      // the class narrows the code, it does not leave the family.
++      assert.equal(
++        candidate.answer,
++        "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
++      );
++      assert.equal(
++        candidate.raised instanceof UnsupportedOperationError,
++        true
++      );
++      assert.equal(candidate.raised instanceof QueryEngineError, true);
++      assert.deepEqual(
++        { ...(candidate.raised as QueryEngineError).meta },
++        {
++          field: "id",
++          model: "numKey",
++          operation: "upsert",
++        }
++      );
++      assert.deepEqual(candidate.rows, [{ id: 6, label: "a" }]);
++    });
++  }
++
++  it("answers an INT key under the same batch profile on both engines", async () => {
++    // The gap is exactly "non-`int` demanded expression", not "batch": the
++    // integer arm is green on both engines on the same driver.
++    const database = new Database(":memory:");
++    const driver = new AtomicBatchDriver({ client: database });
++    const client = createClient({ schema: keySchema, driver });
++    assert.equal((await syncLiveSchema(client)).applied, true);
++    database.exec(SEED);
++    const candidate = createCommandEngine({ schema: keySchema, driver });
++    const args = {
++      where: { id: 7 },
++      create: { id: 7, label: "a" },
++      update: { id: { increment: 1 } },
++    };
++    const value = await candidate.execute("intKey", "upsert", args);
++    assert.deepEqual(value, { id: 8, label: "a" });
++    await client.$disconnect();
++    database.close();
++  });
++});
+--- a/tests/raptor3/g4/unit02/upsert-key-portability.test.ts
++++ b/tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+@@ -56,13 +56,66 @@
+       .references("id"),
+   })
+   .map("g4u2u_notes");
+-const upsertSchema = { intKey, numKey, decKey, owner, note };
++const intOwner = s
++  .model({
++    id: s.int().id(),
++    label: s.string(),
++    code: s.string().unique(),
++    items: s.toMany(() => item),
++  })
++  .map("g4u2u_int_owners");
++const item = s
++  .model({
++    id: s.int().id(),
++    ownerId: s.int().nullable(),
++    owner: s
++      .toOne(() => intOwner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map("g4u2u_items");
++/** A COMPOUND reference key: the child references both members. */
++const pairOwner = s
++  .model({
++    a: s.int(),
++    b: s.int(),
++    label: s.string(),
++    parts: s.toMany(() => pairPart),
++  })
++  .id(["a", "b"])
++  .map("g4u2u_pair_owners");
++const pairPart = s
++  .model({
++    id: s.int().id(),
++    ownerA: s.int().nullable(),
++    ownerB: s.int().nullable(),
++    owner: s
++      .toOne(() => pairOwner)
++      .fields("ownerA", "ownerB")
++      .references("a", "b"),
++  })
++  .map("g4u2u_pair_parts");
++const upsertSchema = {
++  intKey,
++  numKey,
++  decKey,
++  owner,
++  note,
++  intOwner,
++  item,
++  pairOwner,
++  pairPart,
++};
+ 
+ const SEED = `
+   INSERT INTO g4u2u_int_keys (id,label) VALUES (3,'a');
+   INSERT INTO g4u2u_num_keys (id,label) VALUES (6.0,'a');
+   INSERT INTO g4u2u_dec_keys (id,label) VALUES ('600','a');
+   INSERT INTO g4u2u_owners (id,label) VALUES (6.0,'o');
++  INSERT INTO g4u2u_int_owners (id,label,code) VALUES (6,'o','c6');
++  INSERT INTO g4u2u_notes (id,ownerId) VALUES (4,NULL);
++  INSERT INTO g4u2u_pair_owners (a,b,label) VALUES (2,3,'p');
++  INSERT INTO g4u2u_pair_parts (id,ownerA,ownerB) VALUES (80,2,3);
+ `;
+ 
+ interface Outcome {
+@@ -218,3 +271,185 @@
+     );
+   });
+ });
++
++describe("G4-02 — the THIRD shipped owner: the key transition at analysis", () => {
++  it("refuses a divide-by-zero beside a relation write with the analysis sentence", async () => {
++    const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
++      where: { id: 6 },
++      create: { id: 6, label: "o", code: "c6" },
++      update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
++    });
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot divide a primary key by zero."
++    );
++  });
++
++  it("refuses the SAME way on a missing row, and writes nothing", async () => {
++    const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
++      where: { id: 99 },
++      create: { id: 99, label: "fresh", code: "c99" },
++      update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
++    });
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot divide a primary key by zero."
++    );
++    assert.deepEqual(outcome.rows, [{ id: 6, label: "o", code: "c6" }]);
++  });
++
++  it("answers a PARENT-held relation beside the same divide", async () => {
++    const outcome = await bothEngines("note", "g4u2u_notes", {
++      where: { id: 4 },
++      create: { id: 4 },
++      update: { id: { divide: 0 }, owner: { connect: { id: 6 } } },
++    });
++    // A parent-held relation builds no referenced-key transition, so the third
++    // owner never runs and the validator's sentence is the answer on both.
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot divide primary key field 'id' by zero."
++    );
++  });
++
++  it("answers a scalar-only divide-by-zero unchanged", async () => {
++    const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
++      where: { id: 6 },
++      create: { id: 6, label: "o", code: "c6" },
++      update: { id: { divide: 0 } },
++    });
++    // No relation at all: neither gate applies and the provider answers.
++    assert.equal(outcome.answer, "QueryError: Query execution failed");
++  });
++
++  it("R-D2 (c) PARITY: answers the transition's OWN sentence for an upsert with relations", async () => {
++    // R-D2 (c), decided by Arnaud on 2026-09-15: `set` beside an operator
++    // reverts to the shipped refusals. This shape has its own sentence, from
++    // this same analysis-time owner (`mutation-identity.ts:187`, reached from
++    // the `UpsertOperation` constructor), because the post-transition key value
++    // is what cannot be computed — so it is refused BEFORE either arm, and no
++    // row is written. The `update`/`updateMany` arity sentence is in
++    // `key-arithmetic.test.ts`; both belong to the one family.
++    const args = {
++      where: { id: 6 },
++      create: { id: 6, label: "o" },
++      update: { id: { set: 8, multiply: 2 }, notes: { create: [{ id: 7 }] } },
++    };
++    const outcome = await bothEngines("owner", "g4u2u_owners", args);
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
++    );
++    assert.deepEqual(outcome.rows, [{ id: 6, label: "o" }]);
++  });
++
++  it("R-D2 (c) refuses the SAME way on a missing row, and writes nothing", async () => {
++    // The owner is the transition, not the found arm: an absent row is refused
++    // too, and the `create` arm never runs — the half of the placement that a
++    // found-arm-only refusal would get wrong.
++    const args = {
++      where: { id: 99 },
++      create: { id: 99, label: "fresh" },
++      update: { id: { set: 8, multiply: 2 }, notes: { create: [{ id: 7 }] } },
++    };
++    const outcome = await bothEngines("owner", "g4u2u_owners", args);
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
++    );
++    assert.deepEqual(outcome.rows, [{ id: 6, label: "o" }]);
++  });
++
++  it("R-D2 (c) answers the ARITY sentence where no transition is built", async () => {
++    // A PARENT-held relation beside the same payload builds no referenced-key
++    // transition, so the third owner never runs and the found arm's validator
++    // answers — the `update`/`updateMany` sentence, on both engines.
++    const args = {
++      where: { id: 4 },
++      create: { id: 4 },
++      update: { id: { set: 8, multiply: 2 }, owner: { connect: { id: 6 } } },
++    };
++    const outcome = await bothEngines("note", "g4u2u_notes", args);
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, multiply."
++    );
++  });
++
++  it("answers the same divide addressed by a NON-key unique", async () => {
++    const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
++      where: { code: "c6" },
++      create: { id: 6, label: "o", code: "c6" },
++      update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
++    });
++    // The locator pins no key literal, so the transition is not nameable at
++    // analysis and the found arm's validator answers on both engines.
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot divide primary key field 'id' by zero."
++    );
++  });
++
++  // The two CONDITIONS of the mirror, which round 5 stated wider than the
++  // shipped owner states them (round-5 review, findings 2 and 3). The pins come
++  // from the DISCRIMINATOR — `selector.facts.keys`, the `key: true` prepared
++  // columns, which are the shipped `pinnedTargetValues` entries — and the
++  // reference key must have exactly one member.
++
++  it("pins the pre-value from the DISCRIMINATOR, not from an AND arm", async () => {
++    const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
++      where: { code: "c6", AND: [{ id: 6 }] },
++      create: { id: 6, label: "o", code: "c6" },
++      update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
++    });
++    // `code` is the discriminator; `id` is pinned only inside an `AND` arm,
++    // which `partitionWhereUnique` files under `filters` and
++    // `pinnedTargetValues` never reads — so there is no analysis-time
++    // pre-value and the found arm's validator answers on both engines.
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot divide primary key field 'id' by zero."
++    );
++  });
++
++  it("CREATES the absent row whose key is pinned only in an AND arm", async () => {
++    const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
++      where: { code: "nope", AND: [{ id: 6 }] },
++      create: { id: 99, label: "fresh", code: "nope" },
++      update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
++    });
++    assert.equal(outcome.answer, 'ok:{"id":99,"label":"fresh","code":"nope"}');
++    assert.deepEqual(outcome.rows, [
++      { id: 6, label: "o", code: "c6" },
++      { id: 99, label: "fresh", code: "nope" },
++    ]);
++  });
++
++  it("does not raise the transition sentence for a COMPOUND reference key", async () => {
++    const outcome = await bothEngines("pairOwner", "g4u2u_pair_owners", {
++      where: { a_b: { a: 2, b: 3 } },
++      create: { a: 2, b: 3, label: "p" },
++      update: { a: { divide: 0 }, parts: { create: [{ id: 1 }] } },
++    });
++    // `referencedFields.length === 1` is the shipped condition
++    // (`RecordUpdateCompiler.ts:3310`): a compound reference key falls through
++    // to the per-member compile-time source, so the validator answers.
++    assert.equal(
++      outcome.answer,
++      "QueryEngineError: Cannot divide primary key field 'a' by zero."
++    );
++  });
++
++  it("CREATES the absent row of a COMPOUND reference key", async () => {
++    const outcome = await bothEngines("pairOwner", "g4u2u_pair_owners", {
++      where: { a_b: { a: 7, b: 8 } },
++      create: { a: 7, b: 8, label: "fresh" },
++      update: { a: { divide: 0 }, parts: { create: [{ id: 1 }] } },
++    });
++    assert.equal(outcome.answer, 'ok:{"a":7,"b":8,"label":"fresh"}');
++    assert.deepEqual(outcome.rows, [
++      { a: 2, b: 3, label: "p" },
++      { a: 7, b: 8, label: "fresh" },
++    ]);
++  });
++});
+--- a/tests/raptor3/g4/route-cache.test.ts
++++ b/tests/raptor3/g4/route-cache.test.ts
+@@ -21,7 +21,10 @@
+ import type { VibORMClient } from "@client/client";
+ import { SQLite3Driver } from "@drivers/sqlite3";
+ import { UnsupportedOperationError } from "@errors";
+-import { createCandidateClient } from "@query-engine/raptor3/route/client-route";
++import {
++  createCandidateClient,
++  createCandidateRoute,
++} from "@query-engine/raptor3/route/client-route";
+ import { s } from "@schema";
+ import { MemoryCache } from "@src/cache/drivers/memory";
+ import type { CacheEntry } from "@src/cache/exports";
+@@ -238,28 +241,56 @@
+     });
+   });
+ 
+-  test("LX-07 PENDING blocker B-1c: a cached read refuses at the candidate result codec", async () => {
+-    const shipped = await createCacheWorld("shipped");
+-    await shipped.client.entry.create({ data: { label: "cacheable" } });
+-    const shippedCached = shipped.client.$withCache();
+-    assert(shippedCached);
+-    await shippedCached.entry.findMany({ select: { label: true } });
+-    await shipped.settle();
+-    // The shipped route stores one entry under its canonical key.
+-    assert.equal(shipped.cacheDriver.sets.length, 1);
+-
+-    const world = await createCacheWorld("candidate");
+-    await world.client.entry.create({ data: { label: "cacheable" } });
+-    const cached = world.client.$withCache();
+-    assert(cached);
+-    await assert.rejects(
+-      cached.entry.findMany({ select: { label: true } }),
+-      (error: Error) =>
+-        error.constructor.name === UnsupportedOperationError.name &&
+-        error.message.includes("publish no scalar to compile a value codec")
++  test("LX-07 a cached read stores and materializes identically on both routes", async () => {
++    const worlds = {
++      shipped: await createCacheWorld("shipped"),
++      candidate: await createCacheWorld("candidate"),
++    };
++    const observed: Record<string, unknown[]> = {};
++    for (const [route, world] of Object.entries(worlds)) {
++      await world.client.entry.create({ data: { label: "cacheable" } });
++      const cached = world.client.$withCache();
++      assert(cached);
++      // First call: a miss that stores one entry under the canonical key.
++      const fresh = await cached.entry.findMany({ select: { label: true } });
++      await world.settle();
++      assert.equal(world.cacheDriver.sets.length, 1, `${route} stored once`);
++      // Second call: served from the store, and materialized as a FRESH graph.
++      const hit = await cached.entry.findMany({ select: { label: true } });
++      await world.settle();
++      assert.equal(world.cacheDriver.sets.length, 1, `${route} stored once`);
++      assert.notEqual(hit, fresh);
++      assert.notEqual(hit[0], fresh[0]);
++      observed[route] = [fresh, hit];
++    }
++    assert.deepEqual(observed.candidate, [
++      [{ label: "cacheable" }],
++      [{ label: "cacheable" }],
++    ]);
++    assert.deepEqual(
++      observed.candidate,
++      observed.shipped,
++      "NS-04: the cached value the candidate route serves is the shipped one"
+     );
+-    await world.settle();
+-    // Nothing was stored, and nothing was read from the cache.
+-    assert.deepEqual(world.cacheDriver.sets, []);
++    // The same route refuses what it cannot encode rather than storing half of
++    // it: a write verb publishes no prepared read at all.
++    const database = new Database(":memory:");
++    try {
++      const route = createCandidateRoute(
++        schema,
++        new SQLite3Driver({ client: database })
++      );
++      assert.throws(
++        () =>
++          route
++            .operation(entry, "create", { data: { label: "x" } })
++            .cacheResultCodec(),
++        (error: Error) =>
++          error.constructor.name === UnsupportedOperationError.name &&
++          error.message.includes("publishes no prepared read")
++      );
++    } finally {
++      database.close();
++    }
+   });
+ });
+--- a/tests/raptor3/g4/unit02/unique-discriminator.test.ts
++++ b/tests/raptor3/g4/unit02/unique-discriminator.test.ts
+@@ -0,0 +1,1038 @@
++/**
++ * G4-02 closure repair — a unique `where`'s DISCRIMINATOR is the constraint's
++ * question, not the text contract's.
++ *
++ * `Queries.prepareSelector(model, where, unique)` marks the top-level
++ * addressable-key entries of an admitted unique selector as key-addressed, and
++ * `lowerOperation` compares a key-addressed column with the dialect's plain
++ * equality. Everything else — a filter `where` that happens to name a key, an
++ * extended unique `where`'s filter half, its `AND`/`OR`/`NOT` arms — keeps the
++ * case-sensitive spelling.
++ *
++ * This is the shipped split, not a new one: `buildWhereUnique`
++ * (`src/query-engine/builders/where-unique-builder.ts:63-73`) compiles the
++ * discriminator with `buildUniqueEquality` (`:213`, a bare `operators.eq`) and
++ * hands only the remainder to `buildWhere`, whose text equality is
++ * `operators.exactTextEq`. Asking the stricter question of a key is not merely
++ * a different spelling: on a case-insensitive collation the probe can report a
++ * key free and the very next INSERT be rejected for duplicating it, which is
++ * what the live MySQL cells below measure.
++ *
++ * The native rows run only with `VIBORM_RAPTOR3_PROVIDER=mysql`; the container
++ * and port of a run are recorded in the receipt beside this file.
++ */
++
++import assert from "node:assert/strict";
++import { randomUUID } from "node:crypto";
++import { createClient } from "@client/client";
++import type { QueryExecutionContext, QueryResult } from "@drivers";
++import { MySQL2Driver } from "@drivers/mysql2";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import type { Pool as MySQLPool, PoolConnection } from "mysql2/promise";
++import { afterAll, beforeAll, describe, it } from "vitest";
++import { RecordingSQLiteDriver } from "./world";
++
++const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
++const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
++
++const owner = s
++  .model({
++    id: s.string().id(),
++    email: s.string().unique(),
++    name: s.string(),
++    notes: s.toMany(() => note),
++  })
++  .map("g4u2_disc_owners");
++const note = s
++  .model({
++    id: s.string().id(),
++    title: s.string(),
++    ownerId: s.string(),
++    owner: s
++      .toOne(() => owner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map("g4u2_disc_notes");
++const schema = { owner, note };
++
++async function sqliteWorld() {
++  const database = new Database(":memory:");
++  const driver = new RecordingSQLiteDriver({ client: database });
++  const client = createClient({ schema, driver });
++  const migration = await syncLiveSchema(client);
++  if (!migration.applied) throw new Error("discriminator world did not apply");
++  await client.owner.create({
++    data: { id: "wanted", email: "claim@x", name: "winner" },
++  });
++  driver.reset();
++  return {
++    driver,
++    client,
++    engine: createCommandEngine({ schema, driver }),
++    async close() {
++      await client.$disconnect();
++      database.close();
++    },
++  };
++}
++
++const KEY_COMPARISON = /"id"(\s+COLLATE\s+BINARY)?\s*=/gi;
++const FILTER_SPELLING = /"name"\s+COLLATE\s+BINARY/i;
++const CASE_INSENSITIVE_COLLATION = /_ci$/;
++
++/** The one comparison this file reads: how `<column> =` is spelled for `id`. */
++function keyComparisons(sql: string): string[] {
++  return [...sql.matchAll(KEY_COMPARISON)].map((match) =>
++    match[1] ? "exact" : "constraint"
++  );
++}
++
++describe("G4-02 unique discriminator", () => {
++  it("spells the discriminator with the constraint's equality and the filter half with the text contract", async () => {
++    const world = await sqliteWorld();
++    try {
++      const spelling = async (run: () => PromiseLike<unknown>) => {
++        world.driver.reset();
++        await run();
++        const probe = world.driver.statements[0]!;
++        return { sql: probe.sql, key: keyComparisons(probe.sql) };
++      };
++      // findUnique: the whole `where` is the discriminator.
++      const shippedUnique = await spelling(() =>
++        world.client.owner.findUnique({ where: { id: "wanted" } })
++      );
++      const candidateUnique = await spelling(() =>
++        world.engine.execute("owner", "findUnique", { where: { id: "wanted" } })
++      );
++      assert.deepEqual(shippedUnique.key, ["constraint"]);
++      assert.deepEqual(
++        candidateUnique.key,
++        shippedUnique.key,
++        "findUnique addresses the row through the constraint, as the shipped engine does"
++      );
++      // findFirst: the same object is a filter, and keeps the text contract.
++      const shippedFirst = await spelling(() =>
++        world.client.owner.findFirst({ where: { id: "wanted" } })
++      );
++      const candidateFirst = await spelling(() =>
++        world.engine.execute("owner", "findFirst", { where: { id: "wanted" } })
++      );
++      assert.deepEqual(shippedFirst.key, ["exact"]);
++      assert.deepEqual(
++        candidateFirst.key,
++        shippedFirst.key,
++        "a filter that names a key is still a filter"
++      );
++      // The write-side conditional probe is a unique selector too.
++      const candidateProbe = await spelling(() =>
++        world.engine.execute("note", "create", {
++          data: {
++            id: `n-${randomUUID().slice(0, 8)}`,
++            title: "T",
++            owner: {
++              connectOrCreate: {
++                where: { id: "wanted" },
++                create: { id: "wanted", email: "other@x", name: "loser" },
++              },
++            },
++          },
++        })
++      );
++      assert.deepEqual(
++        candidateProbe.key,
++        ["constraint"],
++        "the connectOrCreate probe asks the index the INSERT will meet"
++      );
++      // An extended unique `where`: discriminator through the constraint, the
++      // filter half through the text contract, in one statement.
++      const candidateExtended = await spelling(() =>
++        world.engine.execute("owner", "findUnique", {
++          where: { id: "wanted", name: { not: "zz" } },
++        })
++      );
++      assert.deepEqual(candidateExtended.key, ["constraint"]);
++      assert.match(
++        candidateExtended.sql,
++        FILTER_SPELLING,
++        "the extended filter half keeps the case-sensitive spelling"
++      );
++    } finally {
++      await world.close();
++    }
++  });
++});
++
++class RecordingMySQLDriver extends MySQL2Driver {
++  readonly seen: { sql: string; params: unknown[] }[] = [];
++  protected override async execute<T>(
++    client: MySQLPool | PoolConnection,
++    sql: string,
++    params: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.seen.push({ sql, params: [...params] });
++    return super.execute<T>(client, sql, params, context);
++  }
++}
++
++describe.runIf(provider === "mysql" && port > 0)(
++  "G4-02 native MySQL unique discriminator",
++  () => {
++    it("answers a collation-equal key exactly as the shipped engine does", async () => {
++      const owners = `g4u2_disc_o_${randomUUID().replaceAll("-", "")}`;
++      const notes = `g4u2_disc_n_${randomUUID().replaceAll("-", "")}`;
++      const liveOwner = s
++        .model({
++          id: s.string().id(),
++          email: s.string().unique(),
++          name: s.string(),
++          notes: s.toMany(() => liveNote),
++        })
++        .map(owners);
++      const liveNote = s
++        .model({
++          id: s.string().id(),
++          title: s.string(),
++          ownerId: s.string(),
++          owner: s
++            .toOne(() => liveOwner)
++            .fields("ownerId")
++            .references("id"),
++        })
++        .map(notes);
++      const live = { owner: liveOwner, note: liveNote };
++      const connect = () =>
++        new RecordingMySQLDriver({
++          options: {
++            host: "127.0.0.1",
++            port,
++            database: "raptor3_g2",
++            user: "root",
++            password: "",
++            connectionLimit: 2,
++            connectTimeout: 10_000,
++          },
++        });
++      const setup = connect();
++      await setup._executeRaw(
++        `CREATE TABLE ${owners} (id VARCHAR(191) PRIMARY KEY NOT NULL, email VARCHAR(191) NOT NULL UNIQUE, name VARCHAR(191) NOT NULL)`
++      );
++      await setup._executeRaw(
++        `CREATE TABLE ${notes} (id VARCHAR(191) PRIMARY KEY NOT NULL, title VARCHAR(191) NOT NULL, ownerId VARCHAR(191) NOT NULL, FOREIGN KEY(ownerId) REFERENCES ${owners}(id))`
++      );
++      try {
++        const collation = await setup._executeRaw<{
++          TABLE_COLLATION: string;
++        }>(
++          `SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_NAME = '${owners}'`
++        );
++        assert.match(
++          collation.rows[0]!.TABLE_COLLATION,
++          CASE_INSENSITIVE_COLLATION,
++          "the cell needs a case-insensitive collation to be a cell at all"
++        );
++        await setup._executeRaw(
++          `INSERT INTO ${owners} (id, email, name) VALUES ('wanted','claim@x','winner')`
++        );
++        const answer = async (
++          run: (driver: RecordingMySQLDriver) => PromiseLike<unknown>
++        ) => {
++          const driver = connect();
++          try {
++            return { ok: await run(driver) };
++          } catch (error) {
++            return { err: `${(error as Error).name}` };
++          } finally {
++            await driver.disconnect();
++          }
++        };
++        const rows: [
++          string,
++          (driver: RecordingMySQLDriver) => PromiseLike<unknown>,
++          (driver: RecordingMySQLDriver) => PromiseLike<unknown>,
++        ][] = [
++          [
++            "findUnique on a collation-equal key",
++            (driver) =>
++              createClient({ schema: live, driver }).owner.findUnique({
++                where: { id: "WANTED" },
++              }),
++            (driver) =>
++              createCommandEngine({ schema: live, driver }).execute(
++                "owner",
++                "findUnique",
++                { where: { id: "WANTED" } }
++              ),
++          ],
++          [
++            "findUnique on a collation-equal unique field",
++            (driver) =>
++              createClient({ schema: live, driver }).owner.findUnique({
++                where: { email: "CLAIM@X" },
++              }),
++            (driver) =>
++              createCommandEngine({ schema: live, driver }).execute(
++                "owner",
++                "findUnique",
++                { where: { email: "CLAIM@X" } }
++              ),
++          ],
++          [
++            "findFirst on a collation-equal key stays a filter",
++            (driver) =>
++              createClient({ schema: live, driver }).owner.findFirst({
++                where: { id: "WANTED" },
++              }),
++            (driver) =>
++              createCommandEngine({ schema: live, driver }).execute(
++                "owner",
++                "findFirst",
++                { where: { id: "WANTED" } }
++              ),
++          ],
++          [
++            "update by a collation-equal key",
++            (driver) =>
++              createClient({ schema: live, driver }).owner.update({
++                where: { id: "WANTED" },
++                data: { name: "winner" },
++              }),
++            (driver) =>
++              createCommandEngine({ schema: live, driver }).execute(
++                "owner",
++                "update",
++                { where: { id: "WANTED" }, data: { name: "winner" } }
++              ),
++          ],
++        ];
++        for (const [name, shipped, candidate] of rows) {
++          const expected = await answer(shipped);
++          const measured = await answer(candidate);
++          assert.deepEqual(measured, expected, name);
++        }
++        // The conditional probe and the constraint must agree: a probe that
++        // reports the key free is followed by an INSERT the index rejects.
++        const probe = async (
++          run: (driver: RecordingMySQLDriver) => PromiseLike<unknown>
++        ) => {
++          const result = await answer(run);
++          const after = await setup._executeRaw<{ id: string }>(
++            `SELECT id FROM ${owners} ORDER BY id`
++          );
++          return {
++            ...("err" in result ? { err: result.err } : { ok: true }),
++            owners: after.rows.map((row) => row.id),
++          };
++        };
++        const shippedProbe = await probe((driver) =>
++          createClient({ schema: live, driver }).note.create({
++            data: {
++              id: `s-${randomUUID().slice(0, 8)}`,
++              title: "T",
++              owner: {
++                connectOrCreate: {
++                  where: { id: "WANTED" },
++                  create: {
++                    id: "WANTED",
++                    email: `s${randomUUID().slice(0, 8)}@x`,
++                    name: "loser",
++                  },
++                },
++              },
++            },
++          })
++        );
++        const candidateProbe = await probe((driver) =>
++          createCommandEngine({ schema: live, driver }).execute(
++            "note",
++            "create",
++            {
++              data: {
++                id: `c-${randomUUID().slice(0, 8)}`,
++                title: "T",
++                owner: {
++                  connectOrCreate: {
++                    where: { id: "WANTED" },
++                    create: {
++                      id: "WANTED",
++                      email: `c${randomUUID().slice(0, 8)}@x`,
++                      name: "loser",
++                    },
++                  },
++                },
++              },
++            }
++          )
++        );
++        assert.deepEqual(
++          shippedProbe,
++          { ok: true, owners: ["wanted"] },
++          "the shipped probe connects and writes no second owner"
++        );
++        assert.deepEqual(
++          candidateProbe,
++          shippedProbe,
++          "connectOrCreate on a collation-equal key connects instead of losing the INSERT"
++        );
++      } finally {
++        await setup._executeRaw(`DROP TABLE ${notes}`);
++        await setup._executeRaw(`DROP TABLE ${owners}`);
++        await setup.disconnect();
++      }
++    }, 60_000);
++  }
++);
++
++/**
++ * The SCOPE of the rule, per call site — the reviewer's differential cells
++ * (round-5 review, finding 1), measured here as the unit's own.
++ *
++ * A unique selector has two shipped spellings, not one, and which one a call
++ * site gets is the shipped engine's classification, not a property of the
++ * object:
++ *
++ * - `buildWhereUnique` (`builders/where-unique-builder.ts:63-73`) compiles the
++ *   discriminator through the constraint. That is the root verbs' lookups
++ *   (`findUnique` / `update` / `delete` / the `upsert` locator), the
++ *   `connect` / `connectOrCreate` probe, the `set` target and the nested
++ *   `upsert` probe (`RelationUpsertPart.decide` compiles it with
++ *   `buildFindUnique`);
++ * - `uniqueSelectorConjuncts` (`write-engine/shared.ts:671`) recombines the
++ *   selector as `{ field: { equals: value } }` and hands it to `buildWhere`,
++ *   whose text equality is the folded `exactTextEq` pair on MySQL. That is the
++ *   nested `disconnect` / `delete` / `update` targets **of a reference-held
++ *   relation**, for BOTH their planning probe and their batch guard
++ *   (`RelationWritePart.ts:987` `optionalWhereFilters`,
++ *   `UpdateOperation.ts:469`, `RecordUpdateCompiler.ts:3722`).
++ *
++ * The classification is therefore per verb AND per EDGE KIND: a JUNCTION
++ * target never reaches `uniqueSelectorConjuncts` at all, because
++ * `nested-target-parts.ts:226` sends `relation.position === "junction"` to
++ * `RelationJunctionPart`, which spells the target selector as a discriminator
++ * in both phases — `buildFindUnique` for the planning probe (`:1509`, `:1629`,
++ * `:1663`) and `whereUnique` for the batch statement (`:1698`, `:2146`,
++ * `:2259`, compiled by `JunctionStatements.ts:322-323` with
++ * `buildWhereUnique`). The candidate states that once, in
++ * `commands/selection.ts` `nestedTargetAddressesConstraint`.
++ *
++ * Marking the reference-held group key-addressed would delete, disconnect and
++ * update child rows the shipped engine refuses to touch on a case-insensitive
++ * collation; leaving the junction group a filter refuses links and targets the
++ * shipped engine does touch. Both directions are measured below as the answer
++ * AND the rows the provider holds.
++ */
++const SCOPE_OWNERS = "g4u2_scope_owners";
++const SCOPE_NOTES = "g4u2_scope_notes";
++const SCOPE_PAIRS = "g4u2_scope_pairs";
++const SCOPE_TAGS = "g4u2_scope_tags";
++const SCOPE_LINKS = "g4u2_scope_links";
++
++const scopeOwner = s
++  .model({
++    id: s.string().id(),
++    email: s.string().unique(),
++    name: s.string(),
++    notes: s.toMany(() => scopeNote),
++    tags: s
++      .toMany(() => scopeTag)
++      .through(SCOPE_LINKS)
++      .source("ownerId")
++      .target("tagId"),
++  })
++  .map(SCOPE_OWNERS);
++const scopeNote = s
++  .model({
++    id: s.string().id(),
++    title: s.string(),
++    ownerId: s.string().nullable(),
++    owner: s
++      .toOne(() => scopeOwner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map(SCOPE_NOTES);
++const scopePair = s
++  .model({
++    region: s.string(),
++    slug: s.string(),
++    label: s.string(),
++  })
++  .id(["region", "slug"])
++  .map(SCOPE_PAIRS);
++const scopeTag = s
++  .model({
++    id: s.string().id(),
++    label: s.string(),
++    owners: s.toMany(() => scopeOwner),
++  })
++  .map(SCOPE_TAGS);
++const scopeSchema = {
++  owner: scopeOwner,
++  note: scopeNote,
++  pair: scopePair,
++  tag: scopeTag,
++};
++
++type ScopeCall = (
++  model: string,
++  operation: string,
++  args: unknown
++) => Promise<unknown>;
++
++interface ScopeOutcome {
++  readonly answer: string;
++  readonly owners: unknown[];
++  readonly notes: unknown[];
++  readonly links: unknown[];
++  readonly tags: unknown[];
++}
++
++/**
++ * R-B5 on a credential-free provider. `SQLite3Driver` issues
++ * `PRAGMA foreign_keys = ON` (`src/drivers/sqlite3/index.ts:131`), so a link
++ * row that references its target is enforced here exactly as the live MySQL
++ * table enforces it, and the junction `delete`'s statement ORDER is observable
++ * without a container.
++ *
++ * The link table is re-created by hand, because the project's own migration
++ * emits `ON DELETE CASCADE ON UPDATE CASCADE` on BOTH junction foreign keys
++ * (measured: `CONSTRAINT "…_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES … ON
++ * DELETE CASCADE`). A cascading link makes the order unobservable — the
++ * provider removes the link for you — which is why no SQLite cell in this
++ * estate ever saw R-B5. The plain foreign keys below are the ones the live
++ * MySQL world in this file declares, and they are what the shipped engine's
++ * ordering contract exists for.
++ */
++async function scopeSqliteWorld() {
++  const database = new Database(":memory:");
++  const driver = new SQLite3Driver({ client: database });
++  const client = createClient({ schema: scopeSchema, driver });
++  const migration = await syncLiveSchema(client);
++  if (!migration.applied) throw new Error("scope world did not apply");
++  database.exec(
++    `DROP TABLE "${SCOPE_LINKS}";
++     CREATE TABLE "${SCOPE_LINKS}" (
++       "ownerId" TEXT NOT NULL,
++       "tagId" TEXT NOT NULL,
++       PRIMARY KEY ("ownerId","tagId"),
++       FOREIGN KEY ("ownerId") REFERENCES "${SCOPE_OWNERS}" ("id"),
++       FOREIGN KEY ("tagId") REFERENCES "${SCOPE_TAGS}" ("id")
++     );
++     INSERT INTO ${SCOPE_OWNERS} (id,email,name) VALUES ('wanted','claim@x','winner');
++     INSERT INTO ${SCOPE_NOTES} (id,title,ownerId) VALUES ('n1','T','wanted');
++     INSERT INTO ${SCOPE_TAGS} (id,label) VALUES ('g1','tag');
++     INSERT INTO ${SCOPE_LINKS} (ownerId,tagId) VALUES ('wanted','g1');`
++  );
++  return { client, database, driver };
++}
++
++async function scopeSqliteRun(
++  engine: "shipped" | "candidate",
++  request: (call: ScopeCall) => Promise<unknown>
++): Promise<ScopeOutcome> {
++  const world = await scopeSqliteWorld();
++  const candidate = createCommandEngine({
++    schema: scopeSchema,
++    driver: world.driver,
++  });
++  let answer: string;
++  try {
++    const call: ScopeCall = (model, operation, args) =>
++      engine === "shipped"
++        ? (
++            world.client as unknown as Record<
++              string,
++              Record<string, (args: unknown) => Promise<unknown>>
++            >
++          )[model]![operation]!(args)
++        : (
++            candidate as unknown as {
++              execute(
++                model: string,
++                operation: string,
++                args: unknown
++              ): Promise<unknown>;
++            }
++          ).execute(model, operation, args);
++    answer = `ok:${JSON.stringify(await request(call))}`;
++  } catch (error) {
++    answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++  }
++  const rows = (sql: string) => world.database.prepare(sql).all();
++  const outcome: ScopeOutcome = {
++    answer,
++    links: rows(
++      `SELECT ownerId, tagId FROM ${SCOPE_LINKS} ORDER BY ownerId, tagId`
++    ),
++    notes: rows(`SELECT id, ownerId FROM ${SCOPE_NOTES} ORDER BY id`),
++    owners: rows(`SELECT id, email, name FROM ${SCOPE_OWNERS} ORDER BY id`),
++    tags: rows(`SELECT id, label FROM ${SCOPE_TAGS} ORDER BY id`),
++  };
++  await world.client.$disconnect();
++  world.database.close();
++  return outcome;
++}
++
++describe("G4-02 — the junction delete removes the link row, then the target", () => {
++  // R-B5, repaired here: the candidate used to place the target's DELETE alone,
++  // so the link row still referenced the row being deleted and the provider
++  // refused the whole write with a foreign-key violation. The shipped engine
++  // states the order in `write-engine/RelationJunctionPart.ts:911-937`
++  // (`compileDelete`: "locate the connected child, DELETE its join rows, then
++  // the child"), and the candidate now states it in the one owner that places
++  // a junction removal, `commands/relation-body.ts`'s `disconnect`/`delete` arm.
++  for (const id of ["g1", "G1"] as const) {
++    it(`deletes the link and the target, addressed by ${id === "g1" ? "exact bytes" : "a collation-equal key"}`, async () => {
++      const request = (call: ScopeCall) =>
++        call("owner", "update", {
++          data: { tags: { delete: [{ id }] } },
++          where: { id: "wanted" },
++        });
++      const shipped = await scopeSqliteRun("shipped", request);
++      const candidate = await scopeSqliteRun("candidate", request);
++      assert.deepEqual(candidate, shipped, id);
++      // SQLite's default collation is binary, so the collation-equal spelling
++      // addresses no row here and both engines answer their nested-write
++      // refusal; the exact-byte one is the contract cell. The collation half is
++      // measured on the live MySQL table below.
++      if (id === "g1") {
++        assert.equal(
++          candidate.answer,
++          'ok:{"id":"wanted","email":"claim@x","name":"winner"}'
++        );
++        assert.deepEqual(candidate.links, []);
++        assert.deepEqual(candidate.tags, []);
++      }
++    });
++  }
++
++  it("still removes ONLY the link row for a junction disconnect", async () => {
++    // The repair adds a statement to `delete` and to nothing else: a
++    // `disconnect` places the removal alone, and the target survives.
++    const request = (call: ScopeCall) =>
++      call("owner", "update", {
++        data: { tags: { disconnect: [{ id: "g1" }] } },
++        where: { id: "wanted" },
++      });
++    const shipped = await scopeSqliteRun("shipped", request);
++    const candidate = await scopeSqliteRun("candidate", request);
++    assert.deepEqual(candidate, shipped);
++    assert.deepEqual(candidate.links, []);
++    assert.deepEqual(candidate.tags, [{ id: "g1", label: "tag" }]);
++  });
++
++  it("still deletes a REFERENCE-held target with one statement", async () => {
++    // The other edge kind: the child row holds the foreign key, so it is
++    // deleted alone — the removal the junction arm adds must not appear here.
++    const request = (call: ScopeCall) =>
++      call("owner", "update", {
++        data: { notes: { delete: [{ id: "n1" }] } },
++        where: { id: "wanted" },
++      });
++    const shipped = await scopeSqliteRun("shipped", request);
++    const candidate = await scopeSqliteRun("candidate", request);
++    assert.deepEqual(candidate, shipped);
++    assert.deepEqual(candidate.notes, []);
++  });
++});
++
++describe.runIf(provider === "mysql" && port > 0)(
++  "G4-02 native MySQL discriminator scope",
++  () => {
++    const connect = () =>
++      new MySQL2Driver({
++        options: {
++          host: "127.0.0.1",
++          port,
++          database: "raptor3_g2",
++          user: "root",
++          password: "",
++          connectionLimit: 2,
++          connectTimeout: 10_000,
++        },
++      });
++    let setup: MySQL2Driver;
++
++    const dropAll = async () => {
++      await setup._executeRaw(`DROP TABLE IF EXISTS ${SCOPE_LINKS}`);
++      await setup._executeRaw(`DROP TABLE IF EXISTS ${SCOPE_NOTES}`);
++      await setup._executeRaw(`DROP TABLE IF EXISTS ${SCOPE_OWNERS}`);
++      await setup._executeRaw(`DROP TABLE IF EXISTS ${SCOPE_PAIRS}`);
++      await setup._executeRaw(`DROP TABLE IF EXISTS ${SCOPE_TAGS}`);
++    };
++
++    beforeAll(async () => {
++      setup = connect();
++      await dropAll();
++      await setup._executeRaw(
++        `CREATE TABLE ${SCOPE_OWNERS} (id VARCHAR(191) PRIMARY KEY NOT NULL, email VARCHAR(191) NOT NULL UNIQUE, name VARCHAR(191) NOT NULL)`
++      );
++      await setup._executeRaw(
++        `CREATE TABLE ${SCOPE_NOTES} (id VARCHAR(191) PRIMARY KEY NOT NULL, title VARCHAR(191) NOT NULL, ownerId VARCHAR(191) NULL, FOREIGN KEY(ownerId) REFERENCES ${SCOPE_OWNERS}(id))`
++      );
++      await setup._executeRaw(
++        `CREATE TABLE ${SCOPE_PAIRS} (region VARCHAR(191) NOT NULL, slug VARCHAR(191) NOT NULL, label VARCHAR(191) NOT NULL, PRIMARY KEY (region, slug))`
++      );
++      await setup._executeRaw(
++        `CREATE TABLE ${SCOPE_TAGS} (id VARCHAR(191) PRIMARY KEY NOT NULL, label VARCHAR(191) NOT NULL)`
++      );
++      await setup._executeRaw(
++        `CREATE TABLE ${SCOPE_LINKS} (ownerId VARCHAR(191) NOT NULL, tagId VARCHAR(191) NOT NULL, PRIMARY KEY (ownerId, tagId), FOREIGN KEY(ownerId) REFERENCES ${SCOPE_OWNERS}(id), FOREIGN KEY(tagId) REFERENCES ${SCOPE_TAGS}(id))`
++      );
++    }, 60_000);
++
++    afterAll(async () => {
++      await dropAll();
++      await setup.disconnect();
++    }, 60_000);
++
++    const seed = async () => {
++      await setup._executeRaw(`DELETE FROM ${SCOPE_LINKS}`);
++      await setup._executeRaw(`DELETE FROM ${SCOPE_NOTES}`);
++      await setup._executeRaw(`DELETE FROM ${SCOPE_OWNERS}`);
++      await setup._executeRaw(`DELETE FROM ${SCOPE_PAIRS}`);
++      await setup._executeRaw(`DELETE FROM ${SCOPE_TAGS}`);
++      await setup._executeRaw(
++        `INSERT INTO ${SCOPE_OWNERS} (id, email, name) VALUES ('wanted','claim@x','winner')`
++      );
++      await setup._executeRaw(
++        `INSERT INTO ${SCOPE_NOTES} (id, title, ownerId) VALUES ('n1','T','wanted')`
++      );
++      await setup._executeRaw(
++        `INSERT INTO ${SCOPE_PAIRS} (region, slug, label) VALUES ('eu','alpha','p')`
++      );
++      await setup._executeRaw(
++        `INSERT INTO ${SCOPE_TAGS} (id, label) VALUES ('g1','tag')`
++      );
++      await setup._executeRaw(
++        `INSERT INTO ${SCOPE_LINKS} (ownerId, tagId) VALUES ('wanted','g1')`
++      );
++    };
++
++    const run = async (
++      engine: "shipped" | "candidate",
++      request: (call: ScopeCall) => Promise<unknown>
++    ): Promise<ScopeOutcome> => {
++      await seed();
++      const driver = connect();
++      let answer: string;
++      try {
++        const client = createClient({ schema: scopeSchema, driver });
++        const candidate = createCommandEngine({ schema: scopeSchema, driver });
++        const call: ScopeCall = (model, operation, args) =>
++          engine === "shipped"
++            ? (
++                client as unknown as Record<
++                  string,
++                  Record<string, (args: unknown) => Promise<unknown>>
++                >
++              )[model]![operation]!(args)
++            : (
++                candidate as unknown as {
++                  execute(
++                    model: string,
++                    operation: string,
++                    args: unknown
++                  ): Promise<unknown>;
++                }
++              ).execute(model, operation, args);
++        answer = `ok:${JSON.stringify(await request(call))}`;
++      } catch (error) {
++        answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++      } finally {
++        await driver.disconnect();
++      }
++      const ownerRows = await setup._executeRaw<Record<string, unknown>>(
++        `SELECT id, email, name FROM ${SCOPE_OWNERS} ORDER BY id`
++      );
++      const noteRows = await setup._executeRaw<Record<string, unknown>>(
++        `SELECT id, ownerId FROM ${SCOPE_NOTES} ORDER BY id`
++      );
++      const linkRows = await setup._executeRaw<Record<string, unknown>>(
++        `SELECT ownerId, tagId FROM ${SCOPE_LINKS} ORDER BY ownerId, tagId`
++      );
++      const tagRows = await setup._executeRaw<Record<string, unknown>>(
++        `SELECT id, label FROM ${SCOPE_TAGS} ORDER BY id`
++      );
++      return {
++        answer,
++        owners: ownerRows.rows,
++        notes: noteRows.rows,
++        links: linkRows.rows,
++        tags: tagRows.rows,
++      };
++    };
++
++    const collationIsInsensitive = async () => {
++      const collation = await setup._executeRaw<{ TABLE_COLLATION: string }>(
++        `SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_NAME = '${SCOPE_OWNERS}'`
++      );
++      return CASE_INSENSITIVE_COLLATION.test(
++        collation.rows[0]!.TABLE_COLLATION
++      );
++    };
++
++    it("addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique", async () => {
++      assert.equal(
++        await collationIsInsensitive(),
++        true,
++        "the cells need a case-insensitive collation to be cells at all"
++      );
++      const cells: [string, (call: ScopeCall) => Promise<unknown>][] = [
++        // Key-addressed: the shipped counterpart is `buildWhereUnique`.
++        [
++          "root delete by a collation-equal key",
++          (call) => call("owner", "delete", { where: { id: "WANTED" } }),
++        ],
++        [
++          "root upsert whose locator is collation-equal",
++          (call) =>
++            call("owner", "upsert", {
++              where: { id: "WANTED" },
++              create: { id: "WANTED", email: "new@x", name: "created" },
++              update: { name: "updated" },
++            }),
++        ],
++        [
++          "nested set on a collation-equal key",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: { notes: { set: [{ id: "N1" }] } },
++            }),
++        ],
++        [
++          "nested upsert on a collation-equal key",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: {
++                notes: {
++                  upsert: [
++                    {
++                      where: { id: "N1" },
++                      create: { id: "N1", title: "c" },
++                      update: { title: "u" },
++                    },
++                  ],
++                },
++              },
++            }),
++        ],
++        [
++          "compound unique selector, collation-equal members",
++          (call) =>
++            call("pair", "findUnique", {
++              where: { region_slug: { region: "EU", slug: "ALPHA" } },
++            }),
++        ],
++        // Junction targets: the shipped engine never recombines them, so the
++        // same three verbs address through the constraint on THIS edge kind and
++        // touch the link row and the target the reference family refuses.
++        [
++          "junction disconnect on a collation-equal key",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: { tags: { disconnect: [{ id: "G1" }] } },
++            }),
++        ],
++        [
++          "junction update on a collation-equal key",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: {
++                tags: {
++                  update: [{ where: { id: "G1" }, data: { label: "u" } }],
++                },
++              },
++            }),
++        ],
++        [
++          "junction connect on a collation-equal key",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: { tags: { connect: [{ id: "G1" }] } },
++            }),
++        ],
++        // The one verb whose two shipped phases are spelled differently — the
++        // probe is `buildFindUnique` (`RelationUpsertPart.ts:265`) and the
++        // found guard is `uniqueSelectorConjuncts` (`:578`) — so it is the row
++        // most likely to move if the edge-kind rule is ever restated. Both
++        // engines agree today, and this row pins that.
++        [
++          "junction upsert on a collation-equal key",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: {
++                tags: {
++                  upsert: [
++                    {
++                      where: { id: "G1" },
++                      create: { id: "G1", label: "c" },
++                      update: { label: "u" },
++                    },
++                  ],
++                },
++              },
++            }),
++        ],
++        // Filters: the shipped counterpart is `uniqueSelectorConjuncts`, so the
++        // target keeps the engine's case-sensitivity contract and the three
++        // nested verbs refuse a row they cannot address.
++        [
++          "nested disconnect stays a filter",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: { notes: { disconnect: [{ id: "N1" }] } },
++            }),
++        ],
++        [
++          "nested delete stays a filter",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: { notes: { delete: [{ id: "N1" }] } },
++            }),
++        ],
++        [
++          "nested update stays a filter",
++          (call) =>
++            call("owner", "update", {
++              where: { id: "wanted" },
++              data: {
++                notes: {
++                  update: [{ where: { id: "N1" }, data: { title: "u" } }],
++                },
++              },
++            }),
++        ],
++        [
++          "extended unique where: the filter half stays case-sensitive",
++          (call) =>
++            call("owner", "findUnique", {
++              where: { id: "WANTED", name: "WINNER" },
++            }),
++        ],
++        [
++          "deleteMany by a collation-equal filter",
++          (call) => call("owner", "deleteMany", { where: { id: "WANTED" } }),
++        ],
++      ];
++      for (const [name, request] of cells) {
++        const shipped = await run("shipped", request);
++        const candidate = await run("candidate", request);
++        assert.deepEqual(candidate, shipped, name);
++      }
++    }, 180_000);
++
++    it("R-B5: a junction delete removes the link row and the target, by either spelling", async () => {
++      assert.equal(await collationIsInsensitive(), true);
++      const request = (id: string) => (call: ScopeCall) =>
++        call("owner", "update", {
++          where: { id: "wanted" },
++          data: { tags: { delete: [{ id }] } },
++        });
++      // R-B5, repaired: the candidate used to place the target's DELETE alone
++      // and the live table's `FOREIGN KEY(tagId)` — declared above without an
++      // `ON DELETE` clause — refused the whole write. It now removes the link
++      // row first, the order the shipped engine states in
++      // `write-engine/RelationJunctionPart.ts:911-937`. Both selector
++      // spellings reach it: a junction target is addressed through the
++      // constraint on this collation, so `G1` and `g1` name the same row.
++      for (const id of ["G1", "g1"]) {
++        const shipped = await run("shipped", request(id));
++        const candidate = await run("candidate", request(id));
++        assert.deepEqual(candidate, shipped, id);
++        assert.equal(
++          candidate.answer,
++          'ok:{"id":"wanted","email":"claim@x","name":"winner"}',
++          id
++        );
++        assert.deepEqual(candidate.links, [], id);
++        assert.deepEqual(candidate.tags, [], id);
++      }
++    }, 120_000);
++
++    it("R-D4 THE CONTRACT: a collation-equal connect stores the LOCATED row's key in the foreign-key column", async () => {
++      assert.equal(await collationIsInsensitive(), true);
++      // R-D4, decided by Arnaud on 2026-09-15: "accept the candidate
++      // behaviour". A `connect` names a row, and the candidate writes the key
++      // of the row it located (`parent.located.fields`), so the child's foreign
++      // key always holds bytes that exist in the parent table.
++      //
++      // Legacy baseline, recorded not asserted: the shipped engine writes the
++      // REQUEST's literal (`ownerId` `"WANTED"`), which references the same
++      // parent under a `_ci` collation but stores bytes no parent row carries.
++      // Measured in this file's receipts and, at the committed `0cc61e61`
++      // baseline, in
++      // `g4/unit02-closure-review-followup-2-receipts/classify-rd4-baseline-0cc61e61.log`
++      // — the divergence pre-dates every G4 unit.
++      //
++      // Two positions, one rule. The child-held `create` writes the foreign key
++      // as part of the new row; the PARENT-held `update` rewrites the foreign
++      // key of the row being updated (`note.owner`, the third shipped
++      // position). Both must store the located key.
++      const created = await run("candidate", (call) =>
++        call("note", "create", {
++          data: {
++            id: "n2",
++            title: "T",
++            owner: { connect: { id: "WANTED" } },
++          },
++        })
++      );
++      assert.equal(
++        created.answer,
++        'ok:{"id":"n2","title":"T","ownerId":"wanted"}'
++      );
++      assert.deepEqual(created.notes, [
++        { id: "n1", ownerId: "wanted" },
++        { id: "n2", ownerId: "wanted" },
++      ]);
++
++      const reconnected = await run("candidate", (call) =>
++        call("note", "update", {
++          where: { id: "n1" },
++          data: { owner: { connect: { id: "WANTED" } } },
++        })
++      );
++      assert.equal(
++        reconnected.answer,
++        'ok:{"id":"n1","title":"T","ownerId":"wanted"}'
++      );
++      assert.deepEqual(reconnected.notes, [{ id: "n1", ownerId: "wanted" }]);
++
++      const connectedOrCreated = await run("candidate", (call) =>
++        call("note", "update", {
++          where: { id: "n1" },
++          data: {
++            owner: {
++              connectOrCreate: {
++                where: { id: "WANTED" },
++                create: { id: "WANTED", email: "new@x", name: "created" },
++              },
++            },
++          },
++        })
++      );
++      assert.equal(
++        connectedOrCreated.answer,
++        'ok:{"id":"n1","title":"T","ownerId":"wanted"}'
++      );
++      // The probe found the existing row, so no parent was created.
++      assert.deepEqual(connectedOrCreated.owners, [
++        { id: "wanted", email: "claim@x", name: "winner" },
++      ]);
++    }, 120_000);
++  }
++);
+--- a/tests/raptor3/g4/route-transactions.test.ts
++++ b/tests/raptor3/g4/route-transactions.test.ts
+@@ -413,33 +413,31 @@
+   });
+ 
+   /**
+-   * DIVERGENCE PIN D-5 (recorded, not chosen) — a MULTI-statement write as an
+-   * array member on a BATCH-ONLY driver.
++   * D-5, decided by Arnaud on 2026-09-15: "accepted" — the refusal removal
++   * stands, and the candidate's answer is the contract this cell states.
+    *
+-   * The shipped route REFUSES it. `OperationExecutor.prepareSharedBatch`
+-   * (`src/query-engine/write-engine/OperationExecutor.ts:1515`) rejects a plan
+-   * whose steps use the insertId scratch with
+-   * `TransactionError: query-engine-v2 cannot merge an insertId-scratch
+-   * operation into a shared driver batch.`, and with no interactive transport
+-   * there is no sequential fallback to take, so the array fails and writes
+-   * nothing.
+-   *
+-   * The candidate PACKAGES it: `PendingOperation.#resolveSinglePlan` answers
++   * A MULTI-statement write as an array member on a BATCH-ONLY driver is
++   * PACKAGED atomically: `PendingOperation.#resolveSinglePlan` answers
+    * `undefined` for every routed operation, so the array owner asks the route
+    * for a package (`prepareBatch`), and the candidate's package carries the
+    * whole multi-statement write, which the one native batch then commits.
+    *
+-   * Both answers are internally consistent — this is a compatibility choice
+-   * about a REGISTERED REFUSAL, which the common brief reserves for Arnaud
+-   * (`note.md` FU.6 D-5). The cell therefore pins TODAY'S answer on BOTH routes
+-   * rather than asserting parity: it fails the day either route changes, which
+-   * is exactly when the decision has to be taken or has been taken.
++   * Legacy baseline, recorded not asserted: the shipped route REFUSES the same
++   * request — `OperationExecutor.prepareSharedBatch`
++   * (`src/query-engine/write-engine/OperationExecutor.ts:1515`) rejects a plan
++   * whose steps use the insertId scratch with `TransactionError:
++   * query-engine-v2 cannot merge an insertId-scratch operation into a shared
++   * driver batch.`, and with no interactive transport there is no sequential
++   * fallback, so the array fails and writes nothing. The decision retires that
++   * refusal; this cell no longer fails when the shipped route moves, and it
++   * still fails the moment the CANDIDATE stops packaging.
+    *
+    * The same scenario on an INTERACTIVE driver agrees on both routes (both fall
+-   * through to the array owner's sequential `executeWith` arm), which is why
+-   * this pin names the batch-only substrate explicitly.
++   * through to the array owner's sequential `executeWith` arm) — a genuine
++   * parity fact, still asserted, and the reason the contract names the
++   * batch-only substrate explicitly.
+    */
+-  test("D-5 PIN a MULTI-statement array member is refused by the shipped route and packaged by the candidate on a batch-only driver", async () => {
++  test("D-5 CONTRACT a MULTI-statement array member is packaged atomically on a batch-only driver", async () => {
+     // `batches` exists only on the batch-only driver; the interactive run below
+     // reads 0 - 0 and asserts nothing about packaging.
+     const batchesOf = (subject: World) =>
+@@ -476,7 +474,7 @@
+ 
+     // On an INTERACTIVE driver the same member AGREES on both routes: the array
+     // owner falls through to its sequential `executeWith` arm on both, so there
+-    // is no packaging question to answer. The divergence below exists only where
++    // is no packaging question to answer. The contract below applies only where
+     // that fallback does not exist.
+     const interactive = await onBothRoutes(multiStatementMember, "interactive");
+     assert.equal(interactive.candidate.outcome, interactive.shipped.outcome);
+@@ -485,16 +483,7 @@
+       'ok:[{"email":"d5@example.test"}]'
+     );
+ 
+-    // The shipped answer, spelled out: the registered refusal, no batch, no row.
+-    assert.equal(
+-      observations.shipped.outcome,
+-      `${TransactionError.name}: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.`
+-    );
+-    assert.equal(observations.shipped.batches, 0);
+-    assert.deepEqual(observations.shipped.stored, []);
+-    assert.deepEqual(observations.shipped.books, []);
+-
+-    // The candidate answer, spelled out: one native batch, committed rows.
++    // THE CONTRACT: one native batch, committed rows, the array's own answer.
+     assert.equal(
+       observations.candidate.outcome,
+       'ok:[{"email":"d5@example.test"}]'
+@@ -508,12 +497,10 @@
+       { title: "d5-2" },
+     ]);
+ 
+-    // The divergence itself, named so that parity — in either direction — is
+-    // also a failure of this cell.
+-    assert.notEqual(
+-      observations.candidate.outcome,
+-      observations.shipped.outcome
+-    );
++    // Legacy baseline, recorded not asserted (it must not gate this cell): the
++    // shipped route answers `TransactionError: query-engine-v2 cannot merge an
++    // insertId-scratch operation into a shared driver batch.`, with `batches`
++    // 0, no author row and no book row.
+   });
+ 
+   /**
+--- a/tests/raptor3/g4/route-lifecycle.test.ts
++++ b/tests/raptor3/g4/route-lifecycle.test.ts
+@@ -374,29 +374,30 @@
+   });
+ 
+   /**
+-   * DIVERGENCE PIN D-6 (recorded, not chosen) — `upsert` is the ONE verb whose
+-   * published `context.input` differs between the routes.
++   * D-6, decided by Arnaud on 2026-09-15: "accept the normalized payload as the
++   * contract" — the candidate's published `context.input` for `upsert` is the
++   * one admission, and this cell states it.
+    *
+-   * The shipped route validates only the upsert ENVELOPE at construction
++   * The candidate admits the WHOLE payload once, and
++   * `PendingOperation.#preparedInput` publishes that ONE admission
++   * (`src/query-engine/pending-operation.ts:569`): scalar defaults filled into
++   * the `create` arm, the `update` arm's assignments normalized to `{ set: … }`.
++   * That is the payload that actually runs, which is the LX-12 rule for every
++   * other verb — `upsert` now obeys it too.
++   *
++   * Legacy baseline, recorded not asserted: the shipped route validates only
++   * the upsert ENVELOPE at construction
+    * (`src/query-engine/write-engine/routing.ts`, `case "upsert"`: "the
+    * delegated sub-ops still parse raw, and … stays deferred to the taken
+-   * branch"), so a query interceptor sees the `create` and `update` arms
+-   * exactly as the caller wrote them. The candidate admits the WHOLE payload
+-   * once, and `PendingOperation.#preparedInput` publishes that ONE admission
+-   * (`src/query-engine/pending-operation.ts:569`), which fills scalar defaults
+-   * into the `create` arm and normalizes the `update` arm's assignments to
+-   * `{ set: … }`.
+-   *
+-   * Public results and committed state are identical on both routes — this is a
+-   * compatibility choice about the documented LX-12 surface, which the common
+-   * brief reserves for Arnaud (`note.md` FU.6 D-6). Re-raw-ing the arms in the
+-   * route would be a SECOND admission, so the cell pins TODAY'S answer on BOTH
+-   * routes instead: it fails the day either route changes.
+-   *
+-   * Every other verb agrees. The 16-verb parity sweep in
+-   * `route-admission.test.ts` and the LX-12 cell above cover the rest.
++   * branch"), so its interceptor sees `create: { email, name }` and
++   * `update: { name: "Updated" }` — the caller's arms, exactly as written.
++   *
++   * Public results, committed state and the whole envelope OUTSIDE the two arms
++   * are identical on both routes; those are genuine parity facts and are still
++   * asserted. Every other verb agrees on the arms too — the 16-verb parity
++   * sweep in `route-admission.test.ts` and the LX-12 cell above cover the rest.
+    */
+-  test("D-6 PIN the interceptor input for upsert is the caller's raw arms on the shipped route and the ONE admission on the candidate", async () => {
++  test("D-6 CONTRACT the interceptor input for upsert is the ONE admission on the candidate route", async () => {
+     const observations = await onBothRoutes(async (world) => {
+       const seen: Record<string, unknown>[] = [];
+       const client = applyUnsafe(world.client, {
+@@ -449,22 +450,13 @@
+       observations.shipped.seen.map(envelopeOf)
+     );
+ 
+-    // The shipped answer: the caller's arms, exactly as written.
++    // THE CONTRACT: the one admission — scalar defaults filled into `create`,
++    // assignments normalized in `update`, on the insert arm and the update arm
++    // alike.
+     const armsOf = ({ create, update }: Record<string, unknown>) => ({
+       create,
+       update,
+     });
+-    const shippedArms = {
+-      create: { email: "upsert@example.test", name: "Created" },
+-      update: { name: "Updated" },
+-    };
+-    assert.deepEqual(observations.shipped.seen.map(armsOf), [
+-      shippedArms,
+-      shippedArms,
+-    ]);
+-
+-    // The candidate answer: the one admission — scalar defaults filled into
+-    // `create`, assignments normalized in `update`.
+     const candidateArms = {
+       create: {
+         email: "upsert@example.test",
+@@ -480,9 +472,9 @@
+       candidateArms,
+     ]);
+ 
+-    // The divergence itself, named so that parity — in either direction — is
+-    // also a failure of this cell.
+-    assert.notDeepEqual(observations.candidate.seen, observations.shipped.seen);
++    // Legacy baseline, recorded not asserted (it must not gate this cell): the
++    // shipped route publishes `create: { email, name }` and
++    // `update: { name: "Updated" }` on both arms.
+   });
+ 
+   test("LX-13 statement transforms see the same statements on both routes", async () => {
+--- a/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
++++ b/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
+@@ -0,0 +1,327 @@
++/**
++ * G4-02 author check (decisions round 2) — R-D2 (c) at the NESTED sites.
++ *
++ * Arnaud's decision (c) is about the SHAPE: "`set` beside an operator … revert
++ * to the shipped refusals (parity)". The first decisions round applied it at
++ * the two ROOT owners (`EngineSchema.admit` for `update`/`updateMany`, and the
++ * upsert found-arm channel in `commands.ts`), and the independent review
++ * measured four reachable NESTED shapes where `set` still won and the child's
++ * key was rewritten — byte-identical at the committed `0cc61e61`, so inherited,
++ * not introduced (`g4/decisions-review.md` finding 1, and its receipt
++ * `decisions-review-receipts/probe-nested-key-refusal.log`).
++ *
++ * Parity at every site the shipped engine states the predicate IS the decision,
++ * so the same owner — `EngineSchema.keyPortabilityRefusal`, the sentences it
++ * already states — is now asked at the three nested positions the relation body
++ * already admits an update payload in: the `update`/`upsert` child selector arm
++ * and the `updateMany` member. No new walk and no per-verb table: `connect`,
++ * `connectOrCreate` and a `deleteMany` member carry no update payload, so they
++ * ask nothing. The shipped engine states the same predicate at nine nested
++ * compile sites (`RelationWritePart.ts:856`, `:898`,
++ * `RecordUpdateCompiler.ts:1794`, `:3770`, `:3944`, `RelationUpsertPart.ts:1008`,
++ * `RelationJunctionPart.ts:2772`, `:3042`, `NestedSelectedRecordSeries.ts:226`).
++ *
++ * WHEN each position states it is the shipped engine's too (freeze review,
++ * finding 1). A nested `update` and an `updateMany` member are asserted at
++ * COMPILE time (`RelationWritePart.ts:856`, `:898`), so those refuse before
++ * anything is located. A nested `upsert` is not: the shipped engine builds the
++ * same assertion as a closure (`RelationUpsertPart.ts:1006`) and invokes it only
++ * inside the FOUND arm (`:468`), so an absent target creates its row and the
++ * update payload is never judged. The candidate hands the upsert's refusal to
++ * its found arm, and the scope-control cell measures BOTH directions.
++ *
++ * The last cell is the review's note 3: the one bare `Error` still reachable
++ * from an admitted public request in this family. A root `upsert` whose update
++ * payload names no relation never reaches the found-arm channel, so an empty
++ * key operator record fell through to `Queries.prepareUpdate`'s "not
++ * implemented" throw; it now answers the shipped engine's own sentence and
++ * identity (`builders/set-builder.ts:217-219`), before any statement.
++ *
++ * Every cell asserts the candidate against the shipped engine over the same
++ * SQLite data, answer AND rows, so a refusal that fires late enough to write
++ * something fails the cell.
++ */
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import type { Operations } from "@client/types";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++const OWNERS = "g4u2nk_owners";
++const ITEMS = "g4u2nk_items";
++const NOWNERS = "g4u2nk_nowners";
++const NITEMS = "g4u2nk_nitems";
++
++const owner = s
++  .model({
++    id: s.int().id(),
++    label: s.string(),
++    items: s.toMany(() => item),
++  })
++  .map(OWNERS);
++const item = s
++  .model({
++    id: s.int().id(),
++    name: s.string(),
++    ownerId: s.int().nullable(),
++    owner: s
++      .toOne(() => owner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map(ITEMS);
++// The same shape over a `number` key, for the second sentence
++// `keyPortabilityRefusal` states ("Arithmetic updates are not portable for
++// number primary key field …").
++const nowner = s
++  .model({
++    id: s.int().id(),
++    label: s.string(),
++    items: s.toMany(() => nitem),
++  })
++  .map(NOWNERS);
++const nitem = s
++  .model({
++    id: s.number().id(),
++    name: s.string(),
++    ownerId: s.int().nullable(),
++    owner: s
++      .toOne(() => nowner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map(NITEMS);
++const nestedSchema = { owner, item, nowner, nitem };
++
++const SEED = `
++  INSERT INTO ${OWNERS} (id,label) VALUES (1,'o');
++  INSERT INTO ${ITEMS} (id,name,ownerId) VALUES (10,'i',1);
++  INSERT INTO ${NOWNERS} (id,label) VALUES (1,'o');
++  INSERT INTO ${NITEMS} (id,name,ownerId) VALUES (10,'i',1);
++`;
++
++interface Outcome {
++  readonly answer: string;
++  readonly items: unknown[];
++  readonly owners: unknown[];
++  readonly nitems: unknown[];
++}
++
++async function run(
++  engine: "shipped" | "candidate",
++  model: keyof typeof nestedSchema,
++  operation: Operations,
++  args: unknown
++): Promise<Outcome> {
++  const database = new Database(":memory:");
++  const driver = new SQLite3Driver({ client: database });
++  const client = createClient({ schema: nestedSchema, driver });
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  database.exec(SEED);
++  const candidate = createCommandEngine({ schema: nestedSchema, driver });
++  let answer: string;
++  try {
++    const value =
++      engine === "shipped"
++        ? await (
++            client as unknown as Record<
++              string,
++              Record<string, (args: unknown) => Promise<unknown>>
++            >
++          )[model]![operation]!(args)
++        : await candidate.execute(model, operation, args);
++    answer = `ok:${JSON.stringify(value)}`;
++  } catch (error) {
++    answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++  }
++  const items = database.prepare(`SELECT * FROM ${ITEMS} ORDER BY id`).all();
++  const owners = database.prepare(`SELECT * FROM ${OWNERS} ORDER BY id`).all();
++  const nitems = database.prepare(`SELECT * FROM ${NITEMS} ORDER BY id`).all();
++  await client.$disconnect();
++  database.close();
++  return { answer, items, owners, nitems };
++}
++
++async function bothEngines(
++  model: keyof typeof nestedSchema,
++  operation: Operations,
++  args: unknown,
++  expected?: string
++): Promise<Outcome> {
++  const shipped = await run("shipped", model, operation, args);
++  const candidate = await run("candidate", model, operation, args);
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.deepEqual(
++    candidate,
++    shipped,
++    `candidate ${JSON.stringify(candidate)}\nshipped   ${JSON.stringify(shipped)}`
++  );
++  if (expected !== undefined)
++    // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++    assert.equal(candidate.answer, expected);
++  return candidate;
++}
++
++const keys = (rows: unknown[]): unknown[] =>
++  rows.map((row) => (row as { id: unknown }).id);
++
++const ARITY_SET_INCREMENT =
++  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
++const ARITY_NONE =
++  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.";
++
++describe("G4-02 — R-D2 (c) at the nested sites (decisions round 2)", () => {
++  it("refuses a nested child update whose key names set beside an operator", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: {
++            update: [
++              { where: { id: 10 }, data: { id: { set: 11, increment: 1 } } },
++            ],
++          },
++        },
++      },
++      ARITY_SET_INCREMENT
++    );
++  });
++
++  it("refuses a nested child upsert whose key names set beside an operator", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: {
++            upsert: [
++              {
++                where: { id: 10 },
++                create: { id: 10, name: "i" },
++                update: { id: { set: 11, increment: 1 } },
++              },
++            ],
++          },
++        },
++      },
++      ARITY_SET_INCREMENT
++    );
++  });
++
++  it("refuses a nested updateMany member whose key names set beside an operator", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: {
++            updateMany: [
++              { where: { id: 10 }, data: { id: { set: 11, increment: 1 } } },
++            ],
++          },
++        },
++      },
++      ARITY_SET_INCREMENT
++    );
++  });
++
++  it("answers the arity sentence when a nested child key names nothing", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: { update: [{ where: { id: 10 }, data: { id: {} } }] },
++        },
++      },
++      ARITY_NONE
++    );
++  });
++
++  it("keeps the refusal inside the shipped predicate's SHAPE and POSITIONS", async () => {
++    // The scope control, in both directions. It is the shipped predicate at the
++    // shipped positions, never a wider "no nested key writes" rule.
++    //
++    // (a) SHAPE — a nested child key naming exactly one operation is reachable.
++    await bothEngines("owner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          update: [{ where: { id: 10 }, data: { id: { set: 11 } } }],
++        },
++      },
++    });
++    await bothEngines("owner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          update: [{ where: { id: 10 }, data: { id: { increment: 1 } } }],
++        },
++      },
++    });
++    // (b) POSITION — a nested `upsert` whose target is ABSENT takes the CREATE
++    // arm, and the update payload is never judged. The shipped engine builds
++    // the assertion as a closure (`RelationUpsertPart.ts:1006`) and invokes it
++    // only inside the found arm (`:468`), so the very payloads the second and
++    // third cells refuse on a PRESENT target must CREATE the row here — the
++    // failure mode `EngineSchema.keyPortabilityRefusal`'s docblock names, "an
++    // upsert that CREATES a row the arithmetic never touches". Raised as the
++    // freeze review's finding 1; a construction-time refusal fails these two.
++    const created = await bothEngines("owner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          upsert: [
++            {
++              where: { id: 999 },
++              create: { id: 999, name: "fresh" },
++              update: { id: { set: 11, increment: 1 } },
++            },
++          ],
++        },
++      },
++    });
++    assert.deepEqual(keys(created.items), [10, 999]);
++    const createdNumberKey = await bothEngines("nowner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          upsert: [
++            {
++              where: { id: 999 },
++              create: { id: 999, name: "fresh" },
++              update: { id: { increment: 1 } },
++            },
++          ],
++        },
++      },
++    });
++    assert.deepEqual(keys(createdNumberKey.nitems), [10, 999]);
++  });
++
++  it("answers the shipped sentence for a relation-free root upsert whose key names nothing", async () => {
++    // Review note 3: the last bare `Error` reachable from an admitted public
++    // request in this family. No relation in the update payload means the
++    // found-arm key channel never runs, exactly as shipped.
++    await bothEngines(
++      "owner",
++      "upsert",
++      {
++        where: { id: 1 },
++        create: { id: 1, label: "o" },
++        update: { id: {} },
++      },
++      "QueryEngineError: Unknown update operation: "
++    );
++  });
++});
+--- a/tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts
++++ b/tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts
+@@ -0,0 +1,198 @@
++/**
++ * G4-02 native probe — the nested key refusal's POSITION, on a live provider.
++ *
++ * `nested-key-refusal.test.ts` measures the whole family on an in-memory SQLite
++ * world, which is the only world that file has. The freeze review's finding 1
++ * was about WHICH ARM runs, not about a sentence, so the reviewer asked for the
++ * repair to be measured on at least one native provider: the shipped engine's
++ * `updateLegality` closure (`RelationUpsertPart.ts:1006`, invoked at `:468`)
++ * runs inside the found arm, after the probe rows come back, and a real
++ * non-RETURNING provider reaches that arm through a different transport than
++ * SQLite does.
++ *
++ * Three rows, each on both engines over the same seeded data, answer AND rows:
++ * a nested `upsert` whose target is PRESENT must refuse and write nothing; the
++ * same payload with an ABSENT target must CREATE the row; and a nested `update`
++ * must refuse from its compile-time position (`RelationWritePart.ts:856`).
++ *
++ * Skipped unless `VIBORM_RAPTOR3_PROVIDER=mysql` names a live provider; the
++ * container and port used for a run are recorded in the receipt beside it.
++ */
++
++import assert from "node:assert/strict";
++import { randomUUID } from "node:crypto";
++import { createClient } from "@client/client";
++import type { Operations } from "@client/types";
++import { MySQL2Driver } from "@drivers/mysql2";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { describe, it } from "vitest";
++
++const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
++const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
++
++const ARITY_SET_INCREMENT =
++  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
++
++interface Outcome {
++  readonly answer: string;
++  readonly items: unknown[];
++}
++
++describe.runIf(provider === "mysql" && port > 0)(
++  "G4-02 native MySQL nested key refusal",
++  () => {
++    for (const [name, args, expected, expectedKeys] of [
++      [
++        "refuses a nested upsert whose target is PRESENT, writing nothing",
++        {
++          where: { id: 1 },
++          data: {
++            items: {
++              upsert: [
++                {
++                  where: { id: 10 },
++                  create: { id: 10, name: "i" },
++                  update: { id: { set: 11, increment: 1 } },
++                },
++              ],
++            },
++          },
++        },
++        ARITY_SET_INCREMENT,
++        [10],
++      ],
++      [
++        "creates the row for a nested upsert whose target is ABSENT",
++        {
++          where: { id: 1 },
++          data: {
++            items: {
++              upsert: [
++                {
++                  where: { id: 999 },
++                  create: { id: 999, name: "fresh" },
++                  update: { id: { set: 11, increment: 1 } },
++                },
++              ],
++            },
++          },
++        },
++        undefined,
++        [10, 999],
++      ],
++      [
++        "refuses a nested update whose key names set beside an operator",
++        {
++          where: { id: 1 },
++          data: {
++            items: {
++              update: [
++                { where: { id: 10 }, data: { id: { set: 11, increment: 1 } } },
++              ],
++            },
++          },
++        },
++        ARITY_SET_INCREMENT,
++        [10],
++      ],
++    ] as const) {
++      it(name, async () => {
++        const suffix = randomUUID().replaceAll("-", "");
++        const owners = `g4u2nnk_owners_${suffix}`;
++        const items = `g4u2nnk_items_${suffix}`;
++        const owner = s
++          .model({
++            id: s.int().id(),
++            label: s.string(),
++            items: s.toMany(() => item),
++          })
++          .map(owners);
++        const item = s
++          .model({
++            id: s.int().id(),
++            name: s.string(),
++            ownerId: s.int().nullable(),
++            owner: s
++              .toOne(() => owner)
++              .fields("ownerId")
++              .references("id"),
++          })
++          .map(items);
++        const schema = { owner, item };
++        const driver = new MySQL2Driver({
++          options: {
++            host: "127.0.0.1",
++            port,
++            database: "raptor3_g2",
++            user: "root",
++            password: "",
++            connectionLimit: 1,
++            connectTimeout: 10_000,
++          },
++        });
++        const client = createClient({ schema, driver });
++        const seed = async (): Promise<void> => {
++          await driver._executeRaw(`DELETE FROM ${items}`);
++          await driver._executeRaw(`DELETE FROM ${owners}`);
++          await driver._executeRaw(
++            `INSERT INTO ${owners} (id, label) VALUES (1, 'o')`
++          );
++          await driver._executeRaw(
++            `INSERT INTO ${items} (id, name, ownerId) VALUES (10, 'i', 1)`
++          );
++        };
++        const measure = async (
++          engine: "shipped" | "candidate"
++        ): Promise<Outcome> => {
++          await seed();
++          let answer: string;
++          try {
++            const value =
++              engine === "shipped"
++                ? await (
++                    client as unknown as Record<
++                      string,
++                      Record<string, (input: unknown) => Promise<unknown>>
++                    >
++                  ).owner!.update!(args)
++                : await createCommandEngine({ schema, driver }).execute(
++                    "owner",
++                    "update" as Operations,
++                    args
++                  );
++            answer = `ok:${JSON.stringify(value)}`;
++          } catch (error) {
++            answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++          }
++          const rows = await driver._executeRaw<{ id: number }>(
++            `SELECT id FROM ${items} ORDER BY id`
++          );
++          return { answer, items: rows.rows.map((row) => Number(row.id)) };
++        };
++        try {
++          assert.equal(driver.adapter.capabilities.supportsReturning, false);
++          await driver._executeRaw(
++            `CREATE TABLE ${owners} (id INT PRIMARY KEY, label VARCHAR(32) NOT NULL)`
++          );
++          await driver._executeRaw(
++            `CREATE TABLE ${items} (id INT PRIMARY KEY, name VARCHAR(32) NOT NULL, ownerId INT NULL)`
++          );
++          const shipped = await measure("shipped");
++          const candidate = await measure("candidate");
++          assert.deepEqual(
++            candidate,
++            shipped,
++            `candidate ${JSON.stringify(candidate)}\nshipped   ${JSON.stringify(shipped)}`
++          );
++          if (expected !== undefined) assert.equal(shipped.answer, expected);
++          assert.deepEqual(shipped.items, [...expectedKeys]);
++        } finally {
++          await driver._executeRaw(`DROP TABLE IF EXISTS ${items}`);
++          await driver._executeRaw(`DROP TABLE IF EXISTS ${owners}`);
++          await client.$disconnect();
++        }
++      });
++    }
++  }
++);
+--- a/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
++++ b/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
+@@ -0,0 +1,705 @@
++/**
++ * G4-02 author check — an UNCERTAIN outcome is not a record series, and the
++ * cache still hears about it.
++ *
++ * The regression `g2-generated` seed 2122 measured
++ * (`docs/architecture/raptor3-evidence/g4/briefs/g2-generated-regression.md`,
++ * repair note `g4/regression/note.md`): a root `create` whose atomic batch is
++ * rejected BEFORE dispatch answered with `recordSeriesProgress { …,
++ * mayHaveCommittedSegment: true }` where the shipped engine answers the
++ * driver's own error. The shipped rule
++ * (`write-engine/OperationExecutor.ts:1031-1072`) keeps the unknown-outcome
++ * fact INTERNAL for a single operation — it drives cache invalidation and then
++ * rethrows the raw error; `attachProgress` (:2308) reaches only record-series
++ * member failures and the invalidation aggregates.
++ *
++ *  1. differential: the folded root `create`, rejected before dispatch on a
++ *     batch-only transport, publishes NO record-series progress on either
++ *     engine and agrees with the shipped failure on EVERY field. Nothing is
++ *     excluded any more: the driver seam's `statementIndex: 0` was the second,
++ *     independent divergence recorded as blocker D-7, and Arnaud's decision
++ *     removed it at the transport (a lone statement leaves the batch). The
++ *     shapes that decision covers are pinned in the sibling
++ *     `lone-statement-transport.test.ts`, which this file's red reproducer
++ *     became;
++ *  2. control: a real record series (a `createMany` segment) rejected exactly
++ *     the same way KEEPS its progress, `mayHaveCommittedSegment` included;
++ *  3. seam: the same uncertain root `create`, under `cache.autoInvalidate`,
++ *     invalidates on BOTH routes. The candidate no longer reads that fact off
++ *     published error meta — the transport states it through
++ *     `ExecutionBinding.writeOutcome` at the point it learns it, which is where
++ *     the shipped executor states it (`OperationExecutor.ts:1050-1058`). This
++ *     is the reviewer's probe P7 (`g4/regression-review.md` finding 1) as an
++ *     author cell: it is the falsifier for the seam, and it goes red (candidate
++ *     0 against shipped 1) the moment the notification is disabled;
++ *  4. the committed half of the same seam: exactly one invalidation, so no
++ *     second publication site exists;
++ *  5. the committed half when the operation STILL fails — the write commits and
++ *     its result will not decode. After D-7 that write is a plain statement, so
++ *     the plain path is what must say the segment committed
++ *     (`runBorrowedStatementAtomic`, `OperationExecutor.ts:1630-1645`);
++ *  6-7. the followup review's S6/S7: a cache listener that throws never
++ *     replaces the operation's own failure (and, with no failure of its own to
++ *     keep, both engines answer the listener's error);
++ *  8. the D-7 review's D9 (finding 1): the two halves TOGETHER — a malformed
++ *     result and a throwing listener — keep the registered malformed-scalar
++ *     refusal primary, not the internal `InvalidScalarResult` the plain path
++ *     used to compose;
++ *  9. the D-7 review's D12 (finding 2): the same pair on the BATCH transport,
++ *     which acknowledges before it decodes, so the listener's failure is held
++ *     and composed after the operation has answered;
++ *  10. the D-7 review's D11 (note 3): the falsifier for the plain path's
++ *     `owned` gate — a write inside the operation's OWN region that rolls back
++ *     tells the cache nothing, on either engine.
++ */
++import assert from "node:assert/strict";
++import { VibORM, type VibORMClient } from "@client/client";
++import type { BatchQuery, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { VibORMError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
++import { s } from "@schema";
++import { MemoryCache } from "@src/cache/drivers/memory";
++import { cache } from "@src/cache/exports";
++import { createClient } from "@src/index";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import { isRecord } from "@validation/value-guards";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++/**
++ * The harness fault of `tests/raptor3/harness/sqlite-world.ts:84-91` on the
++ * `sqlite-atomic-batch` transport model: the driver rejects the request before
++ * anything reaches the provider, so it cannot prove whether the segment
++ * committed.
++ */
++class BeforeDispatchDriver extends SQLite3Driver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++  failuresBeforeDispatch = 0;
++  /** The other half of the seam: the write COMMITS and its result is unusable. */
++  corruptResults = false;
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ): Promise<QueryResult<T>> {
++    if (this.failuresBeforeDispatch > 0) {
++      this.failuresBeforeDispatch--;
++      throw new Error("Controlled failure before dispatch");
++    }
++    const response = await super.execute<T>(client, statement, parameters);
++    if (this.corruptResults)
++      for (const row of response.rows)
++        if (isRecord(row)) Reflect.set(row, "id", "not-an-integer");
++    return response;
++  }
++}
++
++/**
++ * The same faults on a transport whose BIND BUDGET splits one set of two rows
++ * into two statements, so the set really is a batch and `submit()` — not the
++ * plain path — is what acknowledges its committed segment.
++ */
++class SplittingBatchDriver extends BeforeDispatchDriver {
++  override readonly maxBindParametersPerStatement: number | undefined = 2;
++  batches = 0;
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    this.batches++;
++    return this.transaction(client, (transaction) =>
++      super.executeBatch<T>(transaction, queries)
++    );
++  }
++}
++
++/**
++ * The same split budget on a TRANSACTION-capable transport: two statements make
++ * the operation open its own region, and a malformed result rolls that region
++ * back. Nothing may tell the cache that such a write became durable.
++ */
++class SplittingTransactionalDriver extends SQLite3Driver {
++  override readonly maxBindParametersPerStatement: number | undefined = 2;
++  corruptResults = false;
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ): Promise<QueryResult<T>> {
++    const response = await super.execute<T>(client, statement, parameters);
++    if (this.corruptResults)
++      for (const row of response.rows)
++        if (isRecord(row)) Reflect.set(row, "id", "not-an-integer");
++    return response;
++  }
++}
++
++/** Counts what the official cache driver was actually asked to drop. */
++class RecordingCache extends MemoryCache {
++  readonly invalidations: string[] = [];
++  failing = false;
++
++  protected override async clear(prefix: string): Promise<void> {
++    this.invalidations.push(`clear:${prefix}`);
++    if (this.failing) throw new Error("cache driver refused to clear");
++    return super.clear(prefix);
++  }
++}
++
++const owner = s
++  .model({
++    id: s.int().id(),
++    label: s.string().map("owner_label"),
++    notes: s.toMany(() => note),
++  })
++  .map("g4_unit02_uncertain_owners");
++const note = s
++  .model({
++    id: s.int().id().increment(),
++    body: s.string(),
++    ownerId: s.int().nullable().map("owner_id"),
++    owner: s
++      .toOne(() => owner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map("g4_unit02_uncertain_notes");
++const schema = { owner, note };
++
++interface Observation {
++  readonly failure: unknown;
++  readonly value: unknown;
++}
++
++async function observe(run: () => PromiseLike<unknown>): Promise<Observation> {
++  try {
++    return { value: await run(), failure: undefined };
++  } catch (failure) {
++    return { value: undefined, failure };
++  }
++}
++
++/**
++ * What a failure IS, at the depth at which an AggregateError composition is
++ * visible: the reviewer's `shape` (`g4/d7-review.md`), adopted so cells 8-10
++ * measure the IDENTITY of the primary and not only its class name.
++ */
++function shape(failure: unknown): unknown {
++  if (failure instanceof AggregateError)
++    return {
++      cause: shape(failure.cause),
++      errors: failure.errors.map((entry) => shape(entry)),
++      kind: "AggregateError",
++      message: failure.message,
++    };
++  if (failure instanceof VibORMError) {
++    const { code, meta, name } = identity(failure);
++    return { code, kind: name, meta };
++  }
++  if (failure instanceof Error)
++    return { kind: failure.name, message: failure.message };
++  return failure === undefined
++    ? undefined
++    : { kind: "raw", value: String(failure) };
++}
++
++/**
++ * A SHAPED failure with the one accepted divergence removed, and only it: a
++ * committed set window publishes `recordSeriesProgress` on this engine where the
++ * shipped engine publishes none (`g4/regression-review.md` finding 3, probe P8).
++ */
++function withoutProgress(shaped: unknown): unknown {
++  if (!isRecord(shaped)) return shaped;
++  const copy: Record<string, unknown> = { ...shaped };
++  if (isRecord(copy.meta)) {
++    const { recordSeriesProgress: _progress, ...rest } = copy.meta;
++    copy.meta = rest;
++  }
++  if (Array.isArray(copy.errors))
++    copy.errors = copy.errors.map((entry) => withoutProgress(entry));
++  if (copy.cause !== undefined) copy.cause = withoutProgress(copy.cause);
++  return copy;
++}
++
++/**
++ * The published failure, with the one field two engines cannot share removed:
++ * `correlationId` is a per-execution identity.
++ */
++function identity(failure: unknown): {
++  code: string;
++  meta: Record<string, unknown>;
++  name: string;
++} {
++  assert.ok(
++    failure instanceof VibORMError,
++    `not a VibORMError: ${String(failure)}`
++  );
++  const { correlationId: _correlationId, ...meta } = failure.meta as Record<
++    string,
++    unknown
++  >;
++  return { code: failure.code, meta, name: failure.name };
++}
++
++async function withWorld<T>(
++  drive: (world: {
++    driver: BeforeDispatchDriver;
++    database: Database.Database;
++    publicClient: Record<string, { create(args: unknown): Promise<unknown> }>;
++  }) => Promise<T>
++): Promise<T> {
++  const database = new Database(":memory:");
++  const driver = new BeforeDispatchDriver({ client: database });
++  const client = createClient({ schema, driver });
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  try {
++    return await drive({
++      driver,
++      database,
++      publicClient: client as unknown as Record<
++        string,
++        { create(args: unknown): Promise<unknown> }
++      >,
++    });
++  } finally {
++    await client.$disconnect();
++    database.close();
++  }
++}
++
++/**
++ * One cached world per ROUTE. The candidate route is reached the way a client
++ * reaches it — `VibORM.create(config, createCandidateRoute)` — because the
++ * fact under test is published by the client's own cache rail.
++ *
++ * `fault` selects the three shapes the seam distinguishes: the write rejected
++ * before dispatch (an outcome no one can prove rolled back), the write that
++ * commits (an acknowledged segment), and the write that commits and then
++ * answers a row nothing can decode (an acknowledged segment whose operation
++ * still fails). `failingListener` makes the client's own cache driver throw, so
++ * the composition of the two failures is measured rather than assumed.
++ */
++async function observeInvalidation(
++  route: "candidate" | "shipped",
++  fault: "rejected" | "committed" | "malformed-result",
++  failingListener = false
++): Promise<{
++  failure: unknown;
++  invalidations: number;
++  outcome: string;
++  primary?: string;
++  rows: unknown[];
++}> {
++  const database = new Database(":memory:");
++  const driver = new BeforeDispatchDriver({ client: database });
++  const config = { driver, schema };
++  const base = (
++    route === "shipped"
++      ? createClient(config)
++      : VibORM.create(config, createCandidateRoute)
++  ) as VibORMClient<typeof config>;
++  assert.equal((await syncLiveSchema(base)).applied, true);
++  const cacheDriver = new RecordingCache();
++  const background: Promise<unknown>[] = [];
++  const client = base.$extends(
++    cache({
++      driver: cacheDriver,
++      waitUntil(promise) {
++        background.push(promise);
++      },
++    })
++  );
++  if (fault === "rejected") driver.failuresBeforeDispatch = 1;
++  if (fault === "malformed-result") driver.corruptResults = true;
++  cacheDriver.failing = failingListener;
++  const seen = await observe(() =>
++    client.owner.create({
++      cache: { autoInvalidate: true },
++      data: { id: 21, label: "uncertain" },
++    })
++  );
++  driver.failuresBeforeDispatch = 0;
++  driver.corruptResults = false;
++  cacheDriver.failing = false;
++  await Promise.allSettled(background.splice(0));
++  const observed = {
++    failure: shape(seen.failure),
++    invalidations: cacheDriver.invalidations.length,
++    rows: database
++      .prepare(
++        "SELECT id, owner_label FROM g4_unit02_uncertain_owners ORDER BY id"
++      )
++      .all(),
++  };
++  try {
++    if (!seen.failure) return { ...observed, outcome: "published" };
++    if (seen.failure instanceof VibORMError)
++      return { ...observed, outcome: identity(seen.failure).name };
++    const composed = seen.failure as Error & { cause?: unknown };
++    return {
++      ...observed,
++      outcome: `raw:${composed.message}`,
++      primary:
++        composed.cause instanceof VibORMError
++          ? identity(composed.cause).name
++          : String(composed.cause),
++    };
++  } finally {
++    await base.$disconnect();
++    database.close();
++  }
++}
++
++/**
++ * A set of TWO rows whose bind budget splits it into two statements, with its
++ * result malformed — the shape whose window really is a batch, on whichever
++ * transport is asked for. `failingListener` makes the client's own cache driver
++ * refuse, so the composition of the two failures is measured.
++ */
++async function observeSplitWrite(
++  route: "candidate" | "shipped",
++  transport: "batch-only" | "transactional",
++  failingListener = false
++): Promise<{
++  batches: number;
++  failure: unknown;
++  invalidations: number;
++  rows: unknown[];
++}> {
++  const database = new Database(":memory:");
++  const driver =
++    transport === "batch-only"
++      ? new SplittingBatchDriver({ client: database })
++      : new SplittingTransactionalDriver({ client: database });
++  const config = { driver, schema };
++  const base = (
++    route === "shipped"
++      ? createClient(config)
++      : VibORM.create(config, createCandidateRoute)
++  ) as VibORMClient<typeof config>;
++  assert.equal((await syncLiveSchema(base)).applied, true);
++  const cacheDriver = new RecordingCache();
++  const background: Promise<unknown>[] = [];
++  const client = base.$extends(
++    cache({
++      driver: cacheDriver,
++      waitUntil(promise) {
++        background.push(promise);
++      },
++    })
++  );
++  driver.corruptResults = true;
++  cacheDriver.failing = failingListener;
++  const seen = await observe(() =>
++    client.owner.createMany({
++      cache: { autoInvalidate: true },
++      data: [
++        { id: 21, label: "a" },
++        { id: 22, label: "b" },
++      ],
++      select: { id: true, label: true },
++    })
++  );
++  driver.corruptResults = false;
++  cacheDriver.failing = false;
++  await Promise.allSettled(background.splice(0));
++  try {
++    return {
++      batches: driver instanceof SplittingBatchDriver ? driver.batches : 0,
++      failure: shape(seen.failure),
++      invalidations: cacheDriver.invalidations.length,
++      rows: database
++        .prepare(
++          "SELECT id, owner_label FROM g4_unit02_uncertain_owners ORDER BY id"
++        )
++        .all(),
++    };
++  } finally {
++    await base.$disconnect();
++    database.close();
++  }
++}
++
++describe("G4-02 — an uncertain outcome is not a record series", () => {
++  it("1. a root create rejected before dispatch publishes no record-series progress", async () => {
++    const run = (engine: "candidate" | "shipped") =>
++      withWorld(async ({ driver, database, publicClient }) => {
++        driver.failuresBeforeDispatch = 1;
++        const seen = await observe(() =>
++          engine === "shipped"
++            ? publicClient.owner!.create({ data: { id: 1, label: "o" } })
++            : createCommandEngine({ schema, driver }).execute(
++                "owner",
++                "create",
++                { data: { id: 1, label: "o" } }
++              )
++        );
++        driver.failuresBeforeDispatch = 0;
++        return {
++          value: seen.value,
++          rows: database
++            .prepare("SELECT id FROM g4_unit02_uncertain_owners")
++            .all(),
++          failure: identity(seen.failure),
++        };
++      });
++    const shipped = await run("shipped");
++    const candidate = await run("candidate");
++    assert.equal(
++      shipped.failure.meta.recordSeriesProgress,
++      undefined,
++      "a root single-record write has no series to report on"
++    );
++    assert.equal(
++      candidate.failure.meta.recordSeriesProgress,
++      undefined,
++      `the candidate must report no series either: ${JSON.stringify(candidate, undefined, 2)}`
++    );
++    // Nothing is excluded any more. `statementIndex` was the second,
++    // independent divergence recorded as blocker D-7, and Arnaud's decision
++    // (a lone statement leaves the batch) removed it at the transport; the
++    // shapes it reached are pinned in `lone-statement-transport.test.ts`.
++    assert.deepEqual(
++      candidate,
++      shipped,
++      `the rejected root create must answer what the shipped engine answers: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
++    );
++  });
++
++  it("2. a real record series rejected the same way keeps its progress", async () => {
++    const seen = await withWorld(async ({ driver }) => {
++      driver.failuresBeforeDispatch = 1;
++      const observed = await observe(() =>
++        createCommandEngine({ schema, driver }).execute("owner", "createMany", {
++          data: [
++            { id: 1, label: "a", notes: { create: [{ body: "a" }] } },
++            { id: 2, label: "b", notes: { create: [{ body: "b" }] } },
++          ],
++        })
++      );
++      driver.failuresBeforeDispatch = 0;
++      return observed;
++    });
++    assert.equal(seen.value, undefined, "nothing is published");
++    const meta = identity(seen.failure).meta;
++    assert.deepEqual(
++      meta.recordSeriesProgress,
++      {
++        atomicity: "segment",
++        phase: "member",
++        committedSegments: 0,
++        committedWriteMembers: 0,
++        completedMembers: 0,
++        mayHaveCommittedSegment: true,
++      },
++      `a series reports its uncertain outcome: ${JSON.stringify(meta, undefined, 2)}`
++    );
++  });
++
++  it("3. an uncertain root create invalidates the cache on both routes", async () => {
++    const shipped = await observeInvalidation("shipped", "rejected");
++    const candidate = await observeInvalidation("candidate", "rejected");
++    assert.equal(candidate.outcome, shipped.outcome);
++    assert.equal(
++      shipped.invalidations,
++      1,
++      `the shipped engine invalidates for an outcome it cannot prove rolled back: ${JSON.stringify(shipped)}`
++    );
++    assert.equal(
++      candidate.invalidations,
++      1,
++      `the candidate must too, from the transport that learned it: ${JSON.stringify({ candidate, shipped })}`
++    );
++  });
++
++  it("4. a committed root create on the same transport invalidates exactly once", async () => {
++    // The other half of the seam, and the one a second publication site would
++    // break: on this transport the candidate's `acknowledged()` states the
++    // committed segment, so the route must NOT state the operation's success
++    // as a second durable fact.
++    const shipped = await observeInvalidation("shipped", "committed");
++    const candidate = await observeInvalidation("candidate", "committed");
++    assert.equal(shipped.outcome, "published");
++    assert.equal(candidate.outcome, "published");
++    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
++    assert.equal(
++      candidate.invalidations,
++      1,
++      `one durable fact, one invalidation: ${JSON.stringify({ candidate, shipped })}`
++    );
++  });
++
++  it("5. a committed root create whose result is malformed still invalidates once", async () => {
++    // D-7 sends this write outside the batch, so `submit()` no longer learns
++    // that its segment committed — the plain statement does, and it says so
++    // before the decoding failure is published, exactly as the shipped
++    // `runBorrowedStatementAtomic` does (`OperationExecutor.ts:1630-1645`).
++    // Without that call the candidate would answer 0 where the shipped engine
++    // answers 1, which is the regression the seam round was opened to repair.
++    const shipped = await observeInvalidation("shipped", "malformed-result");
++    const candidate = await observeInvalidation(
++      "candidate",
++      "malformed-result"
++    );
++    assert.equal(shipped.outcome, "QueryEngineError", JSON.stringify(shipped));
++    assert.equal(
++      candidate.outcome,
++      shipped.outcome,
++      JSON.stringify({ candidate, shipped })
++    );
++    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
++    assert.equal(
++      candidate.invalidations,
++      1,
++      `a committed write is durable whether or not its result decodes: ${JSON.stringify({ candidate, shipped })}`
++    );
++  });
++
++  it("6. a throwing invalidation listener never replaces the operation's own failure", async () => {
++    // The followup review's S6 (`g4/regression-review-followup.md` finding 2),
++    // as an author cell. The shipped engine keeps the query failure primary and
++    // retains the listener's beside it (`retainWriteOutcomeFailure`,
++    // `extensions/query.ts:859-871`); `OperationContext.stateWriteOutcome`
++    // states the same composition at every seam call site.
++    const shipped = await observeInvalidation("shipped", "rejected", true);
++    const candidate = await observeInvalidation("candidate", "rejected", true);
++    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
++    assert.equal(
++      candidate.invalidations,
++      1,
++      JSON.stringify({ candidate, shipped })
++    );
++    assert.equal(
++      shipped.outcome,
++      "raw:Query execution and write-outcome publication both failed.",
++      JSON.stringify({ shipped })
++    );
++    assert.deepEqual(
++      { outcome: candidate.outcome, primary: candidate.primary },
++      { outcome: shipped.outcome, primary: shipped.primary },
++      `the operation's own failure stays primary: ${JSON.stringify({ candidate, shipped }, undefined, 2)}`
++    );
++  });
++
++  it("7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes", async () => {
++    // The control for cell 6 (the reviewer's S7): with no failure of its own to
++    // keep, the operation answers the listener's error on both engines — so
++    // cell 6 measures the composition and not a blanket difference.
++    const shipped = await observeInvalidation("shipped", "committed", true);
++    const candidate = await observeInvalidation("candidate", "committed", true);
++    assert.equal(
++      candidate.invalidations,
++      shipped.invalidations,
++      JSON.stringify({ candidate, shipped })
++    );
++    assert.deepEqual(
++      { outcome: candidate.outcome, primary: candidate.primary },
++      { outcome: shipped.outcome, primary: shipped.primary },
++      `a listener that fails alone answers the same on both routes: ${JSON.stringify({ candidate, shipped }, undefined, 2)}`
++    );
++  });
++
++  it("8. a malformed result AND a throwing listener: the refusal stays primary", async () => {
++    // The reviewer's D9 (`g4/d7-review.md` finding 1), as an author cell — the
++    // pair cells 5 and 6 each measure one half of. On the plain path the decode
++    // failure is now translated where `decoded` is built, so the value the
++    // wrapper keeps primary is the PUBLIC malformed-scalar refusal and not the
++    // internal `InvalidScalarResult` the composition would otherwise carry past
++    // `OperationContext.run`'s catch, which no longer recognises it.
++    const shipped = await observeInvalidation(
++      "shipped",
++      "malformed-result",
++      true
++    );
++    const candidate = await observeInvalidation(
++      "candidate",
++      "malformed-result",
++      true
++    );
++    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
++    assert.equal(
++      shipped.outcome,
++      "raw:Query execution and write-outcome publication both failed.",
++      diagnostic
++    );
++    assert.equal(shipped.primary, "QueryEngineError", diagnostic);
++    assert.deepEqual(candidate.failure, shipped.failure, diagnostic);
++    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
++    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
++  });
++
++  it("9. the same pair on the BATCH transport keeps the refusal primary too", async () => {
++    // The reviewer's D12 (`g4/d7-review.md` finding 2), as an author cell: the
++    // two-statement form of cell 8, whose window really is a batch. That
++    // transport acknowledges its committed segment BEFORE it decodes anything,
++    // so the listener's failure is HELD and composed once the operation has
++    // answered — the shipped `runAtomicBatch` order
++    // (`OperationExecutor.ts:1277-1289`, `:1332-1343`). Before the hold the
++    // candidate published the listener's `CacheConfigurationError` ALONE.
++    //
++    // `recordSeriesProgress` is excluded from the comparison, and only it: a
++    // committed set window publishes its progress on this engine where the
++    // shipped engine publishes none, which is the accepted divergence of
++    // `g4/regression-review.md` finding 3 (probe P8), pinned as measured by
++    // `lone-statement-transport.test.ts` row 6 and by the registered
++    // `malformed-result-cuts.test.ts` cell 1b. The second assertion pins it
++    // here too, so the exclusion cannot hide a change.
++    const shipped = await observeSplitWrite("shipped", "batch-only", true);
++    const candidate = await observeSplitWrite("candidate", "batch-only", true);
++    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
++    assert.equal(candidate.batches, 1, diagnostic);
++    assert.deepEqual(
++      withoutProgress(candidate.failure),
++      withoutProgress(shipped.failure),
++      diagnostic
++    );
++    assert.deepEqual(
++      (candidate.failure as { cause?: { meta?: Record<string, unknown> } })
++        .cause?.meta?.recordSeriesProgress,
++      {
++        atomicity: "segment",
++        phase: "result",
++        committedSegments: 1,
++        committedWriteMembers: 1,
++        completedMembers: 0,
++      },
++      `the excluded divergence, pinned in place: ${diagnostic}`
++    );
++    assert.equal(
++      (shipped.failure as { cause?: { meta?: Record<string, unknown> } })
++        .cause?.meta?.recordSeriesProgress,
++      undefined,
++      `the shipped side publishes no progress here: ${diagnostic}`
++    );
++    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
++    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
++  });
++
++  it("10. a split write inside the operation's OWN region tells the cache nothing", async () => {
++    // The reviewer's D11 (`g4/d7-review.md` note 3), as an author cell: the
++    // falsifier for the plain path's `owned` gate (`ownership === "standalone"
++    // && !ownRegionOpen`), which no other registered cell reaches. Two
++    // statements on a TRANSACTION-capable driver open the operation's own
++    // region; the malformed result rolls it back, and a `committedSegment`
++    // announced from inside that region would tell the cache a write became
++    // durable that the provider then discarded. Dropping the gate makes the
++    // candidate answer 1 where the shipped engine answers 0.
++    const shipped = await observeSplitWrite("shipped", "transactional");
++    const candidate = await observeSplitWrite("candidate", "transactional");
++    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
++    assert.equal(
++      shipped.invalidations,
++      0,
++      `the shipped engine publishes no durable write for a rolled-back region: ${diagnostic}`
++    );
++    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
++    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
++    assert.deepEqual(candidate.rows, [], diagnostic);
++  });
++});
+--- a/tests/raptor3/g4/unit02/lone-statement-transport.test.ts
++++ b/tests/raptor3/g4/unit02/lone-statement-transport.test.ts
+@@ -0,0 +1,472 @@
++/**
++ * G4-02 author check — **D-7: a lone statement leaves the batch.**
++ *
++ * Arnaud's decision (2026-09-15, 22:40) applied: a set-oriented statement that
++ * is the operation's ONLY statement needs no batch envelope and runs on the
++ * plain execute path, which is the shipped transport rule
++ * (`write-engine/OperationExecutor.ts` `canExecuteDirectly` at `:241` and its
++ * `:346-357` call site — `runStatementAtomic` sends exactly this shape through
++ * `_execute`). This file was the blocker's red reproducer
++ * (`statement-index-blocker.red.test.ts`); it is now the positive contract.
++ *
++ * What it pins, and what falsifies it: restore the batch envelope for the lone
++ * statement (drop the `lone` condition in `OperationContext.setMutations`) and
++ * rows 1-4 go red with `+ statementIndex: 0`, because
++ * `drivers/driver-diagnostics.ts:35-36` attributes index `0` to ANY
++ * one-statement batch whose error carries no VibORM context and
++ * `driver-transaction-base.ts:854-872` normalizes the failure with it. The
++ * family is every one-statement batch the candidate used to submit — the folded
++ * root write AND every relation-free bulk verb (`g4/regression-review.md`
++ * finding 2, probes P4-P6) — so all four are rows here.
++ *
++ * Rows 5 and 6 are the NEIGHBOURS the rule must not disturb: a multi-statement
++ * batch still is a batch, keeps the driver seam's index and agrees with the
++ * shipped engine; and a set window that DID commit is still a committed segment
++ * and still publishes its record-series progress, which is the G2.9 pin
++ * (`tests/raptor3/post-prep/g29-result-progress.test.ts`) for the shape that
++ * still has a series after D-7.
++ *
++ * Row 7 is the one shape D-7 moves the OTHER way, pinned as measured because it
++ * is a decision for Arnaud (D-7.1, `g4/regression/note.md` "D-7 round" §D.6):
++ * the shipped root `update`/`delete` fold is two statements — `[presence guard,
++ * mutation … RETURNING]` — so it is a batch and keeps `statementIndex: 0`,
++ * while the candidate's fold is one statement with a JavaScript postcondition
++ * and now has no batch to attribute an index on. The one-statement batch was
++ * what made those two agree.
++ */
++import assert from "node:assert/strict";
++import type { BatchQuery, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { QueryEngineError, VibORMError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { createClient } from "@src/index";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import { isRecord } from "@validation/value-guards";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++const INSERT_STATEMENT = /^INSERT\b/;
++
++/**
++ * The `sqlite-atomic-batch` transport model with the harness fault of
++ * `tests/raptor3/harness/sqlite-world.ts:84-91`: the driver rejects one
++ * statement before anything reaches the provider, so nothing can prove whether
++ * the segment committed. `failAt` selects WHICH statement of the attempt fails,
++ * which is what separates a one-statement batch from a longer one.
++ */
++class BeforeDispatchDriver extends SQLite3Driver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++  failAt: number | undefined;
++  dispatched = 0;
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ): Promise<QueryResult<T>> {
++    const index = this.dispatched++;
++    if (this.failAt === index) {
++      throw new Error("Controlled failure before dispatch");
++    }
++    return super.execute<T>(client, statement, parameters);
++  }
++}
++
++/** The same transport, with a bind budget that splits one set into two. */
++class ChunkingBeforeDispatchDriver extends BeforeDispatchDriver {
++  override readonly maxBindParametersPerStatement: number | undefined = 2;
++  batches = 0;
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    this.batches++;
++    return super.executeBatch<T>(client, queries);
++  }
++}
++
++/** The same chunking transport, faulting the RESULT instead of the dispatch. */
++class ChunkingCorruptingDriver extends SQLite3Driver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++  override readonly maxBindParametersPerStatement: number | undefined = 2;
++  inserts = 0;
++  batches = 0;
++  corrupted = false;
++  armed = false;
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ): Promise<QueryResult<T>> {
++    const response = await super.execute<T>(client, statement, parameters);
++    if (INSERT_STATEMENT.test(statement)) this.inserts++;
++    if (!this.armed) return response;
++    for (const row of response.rows) {
++      if (!isRecord(row)) continue;
++      Reflect.set(row, "id", "not-an-integer");
++      this.corrupted = true;
++    }
++    return response;
++  }
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    this.batches++;
++    return this.transaction(client, (transaction) =>
++      super.executeBatch<T>(transaction, queries)
++    );
++  }
++}
++
++const owner = s
++  .model({
++    id: s.int().id(),
++    label: s.string().map("owner_label"),
++    notes: s.toMany(() => note),
++  })
++  .map("g4_unit02_lone_owners");
++const note = s
++  .model({
++    id: s.int().id().increment(),
++    body: s.string(),
++    ownerId: s.int().nullable().map("owner_id"),
++    owner: s
++      .toOne(() => owner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map("g4_unit02_lone_notes");
++const schema = { owner, note };
++
++type Engine = "candidate" | "shipped";
++type Verb = "create" | "createMany" | "updateMany" | "deleteMany";
++
++/** The published failure, less the one field two executions cannot share. */
++function identity(failure: unknown): {
++  code: string;
++  meta: Record<string, unknown>;
++  name: string;
++} {
++  assert.ok(
++    failure instanceof VibORMError,
++    `not a VibORMError: ${String(failure)}`
++  );
++  const { correlationId: _correlationId, ...meta } = failure.meta as Record<
++    string,
++    unknown
++  >;
++  return { code: failure.code, meta, name: failure.name };
++}
++
++const requests: Readonly<Record<Verb, Record<string, unknown>>> = {
++  create: { data: { id: 2, label: "written" } },
++  createMany: { data: [{ id: 2, label: "written" }] },
++  updateMany: { where: { id: 1 }, data: { label: "changed" } },
++  deleteMany: { where: { id: 1 } },
++};
++
++/**
++ * Run ONE relation-free verb whose plan is a single statement on a batch-only
++ * driver, with that statement rejected before dispatch, and return what each
++ * engine published. A seed row exists so `updateMany`/`deleteMany` address a
++ * real row: the rejection, not an empty selection, is the measured fault.
++ */
++async function rejectedLoneStatement(
++  engine: Engine,
++  verb: Verb
++): Promise<ReturnType<typeof identity> & { dispatched: number }> {
++  const database = new Database(":memory:");
++  const driver = new BeforeDispatchDriver({ client: database });
++  const client = createClient({ schema, driver });
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  const publicClient = client as unknown as Record<
++    string,
++    Record<string, (args: unknown) => Promise<unknown>>
++  >;
++  await publicClient.owner!.create!({ data: { id: 1, label: "seed" } });
++  driver.dispatched = 0;
++  driver.failAt = 0;
++  let failure: unknown;
++  try {
++    await (engine === "shipped"
++      ? publicClient.owner![verb]!(requests[verb])
++      : createCommandEngine({ schema, driver }).execute(
++          "owner",
++          verb,
++          requests[verb]
++        ));
++  } catch (error) {
++    failure = error;
++  }
++  driver.failAt = undefined;
++  try {
++    return { ...identity(failure), dispatched: driver.dispatched };
++  } finally {
++    await client.$disconnect();
++    database.close();
++  }
++}
++
++/**
++ * The same measurement for a ROOT single-row fold, which reaches the provider
++ * through a different physical shape on each engine (cell 7).
++ */
++async function rejectedRootFold(
++  engine: Engine,
++  verb: "update" | "delete",
++  args: unknown
++): Promise<{ meta: Record<string, unknown>; statements: number }> {
++  const database = new Database(":memory:");
++  const driver = new BeforeDispatchDriver({ client: database });
++  const client = createClient({ schema, driver });
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  const publicClient = client as unknown as Record<
++    string,
++    Record<string, (request: unknown) => Promise<unknown>>
++  >;
++  await publicClient.owner!.create!({ data: { id: 1, label: "seed" } });
++  driver.dispatched = 0;
++  driver.failAt = 0;
++  let failure: unknown;
++  try {
++    await (engine === "shipped"
++      ? publicClient.owner![verb]!(args)
++      : createCommandEngine({ schema, driver }).execute("owner", verb, args));
++  } catch (error) {
++    failure = error;
++  }
++  driver.failAt = undefined;
++  try {
++    return { meta: identity(failure).meta, statements: driver.dispatched };
++  } finally {
++    await client.$disconnect();
++    database.close();
++  }
++}
++
++describe("G4-02 D-7 — a lone statement leaves the batch", () => {
++  for (const verb of [
++    "create",
++    "createMany",
++    "updateMany",
++    "deleteMany",
++  ] as const) {
++    it(`${verb}: one statement rejected before dispatch answers the shipped failure exactly`, async () => {
++      const shipped = await rejectedLoneStatement("shipped", verb);
++      const candidate = await rejectedLoneStatement("candidate", verb);
++      assert.equal(
++        candidate.dispatched,
++        1,
++        `the verb must be ONE statement to measure this: ${JSON.stringify(candidate)}`
++      );
++      assert.equal(
++        candidate.meta.statementIndex,
++        undefined,
++        `a statement outside a batch has no index to attribute: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
++      );
++      assert.equal(
++        candidate.meta.recordSeriesProgress,
++        undefined,
++        `a root single-record write has no series to report: ${JSON.stringify(candidate, undefined, 2)}`
++      );
++      assert.deepEqual(
++        candidate,
++        shipped,
++        `the rejected lone statement must answer what the shipped engine answers: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
++      );
++    });
++  }
++
++  it("5. a multi-statement batch is still a batch, and still agrees with the shipped engine", async () => {
++    // The neighbour the rule must not disturb. Two rows whose bind budget
++    // splits them into two statements stay in ONE batch, so the driver seam
++    // still attributes its index — the change is confined to the one-statement
++    // family, and this row goes red if the condition ever widens.
++    const run = async (engine: Engine) => {
++      const database = new Database(":memory:");
++      const driver = new ChunkingBeforeDispatchDriver({ client: database });
++      const client = createClient({ schema, driver });
++      assert.equal((await syncLiveSchema(client)).applied, true);
++      const publicClient = client as unknown as Record<
++        string,
++        Record<string, (args: unknown) => Promise<unknown>>
++      >;
++      driver.dispatched = 0;
++      driver.batches = 0;
++      driver.failAt = 1;
++      let failure: unknown;
++      try {
++        await (engine === "shipped"
++          ? publicClient.owner!.createMany!({
++              data: [
++                { id: 1, label: "a" },
++                { id: 2, label: "b" },
++              ],
++            })
++          : createCommandEngine({ schema, driver }).execute(
++              "owner",
++              "createMany",
++              {
++                data: [
++                  { id: 1, label: "a" },
++                  { id: 2, label: "b" },
++                ],
++              }
++            ));
++      } catch (error) {
++        failure = error;
++      }
++      driver.failAt = undefined;
++      const observed = {
++        ...identity(failure),
++        statements: driver.dispatched,
++        batches: driver.batches,
++      };
++      await client.$disconnect();
++      database.close();
++      return observed;
++    };
++    const shipped = await run("shipped");
++    const candidate = await run("candidate");
++    assert.equal(
++      candidate.statements,
++      2,
++      `the bind budget must split this set: ${JSON.stringify(candidate)}`
++    );
++    assert.equal(
++      candidate.batches,
++      1,
++      `two statements are one batch: ${JSON.stringify(candidate)}`
++    );
++    assert.equal(
++      candidate.meta.statementIndex,
++      1,
++      `a real batch keeps the driver seam's attribution: ${JSON.stringify(candidate, undefined, 2)}`
++    );
++    assert.deepEqual(
++      candidate,
++      shipped,
++      `a multi-statement batch must still answer what the shipped engine answers: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
++    );
++  });
++
++  it("7. root update/delete: the shipped two-statement fold keeps an index the candidate's one-statement fold has none of", async () => {
++    // RECORDED DIVERGENCE (D-7.1, a decision for Arnaud — `g4/regression/note.md`
++    // "D-7 round" §D.6). The shipped root `update`/`delete` fold is TWO
++    // statements on a batch-only driver — `[presence guard, mutation …
++    // RETURNING]` (`UpdateOperation`/`DeleteOperation` `foldGuard` /
++    // `buildRootPresenceGuard`) — so it is a batch, and the driver seam
++    // attributes `statementIndex: 0` to a rejection before dispatch. The
++    // candidate's fold is ONE statement with a JavaScript postcondition
++    // (`OperationContext.published`), which is the G3-accepted difference, so
++    // after D-7 it is no batch and has no index to attribute. Before D-7 the
++    // candidate's one-statement BATCH agreed with shipped by coincidence.
++    // Pinned as measured so any change in either engine shows up here.
++    for (const verb of ["update", "delete"] as const) {
++      const args =
++        verb === "update"
++          ? { where: { id: 1 }, data: { label: "changed" } }
++          : { where: { id: 1 } };
++      const shipped = await rejectedRootFold("shipped", verb, args);
++      const candidate = await rejectedRootFold("candidate", verb, args);
++      assert.deepEqual(
++        { statements: shipped.statements, index: shipped.meta.statementIndex },
++        { statements: 1, index: 0 },
++        `the shipped fold batches a presence guard with its mutation: ${JSON.stringify(shipped, undefined, 2)}`
++      );
++      assert.deepEqual(
++        {
++          statements: candidate.statements,
++          index: candidate.meta.statementIndex,
++        },
++        { statements: 1, index: undefined },
++        `the candidate fold is one statement outside any batch: ${JSON.stringify(candidate, undefined, 2)}`
++      );
++      assert.deepEqual(
++        { ...candidate.meta, statementIndex: undefined },
++        { ...shipped.meta, statementIndex: undefined },
++        `nothing else diverges: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
++      );
++    }
++  });
++
++  it("6. a set window that committed still publishes its record-series progress", async () => {
++    // The G2.9 progress half, on the shape that still HAS a record series after
++    // D-7: the window of a two-statement set mutation is acknowledged, and a
++    // window that DID commit is a committed segment like any other
++    // (`g4/regression-review.md` finding 3, enforced by
++    // `OperationContext.failure`). The one-statement form of the same cut is
++    // `tests/raptor3/post-prep/g29-result-progress.test.ts`.
++    const database = new Database(":memory:");
++    const driver = new ChunkingCorruptingDriver({ client: database });
++    const client = createClient({ schema, driver });
++    assert.equal((await syncLiveSchema(client)).applied, true);
++    driver.armed = true;
++    let value: unknown;
++    let failure: unknown;
++    try {
++      value = await createCommandEngine({ schema, driver }).execute(
++        "owner",
++        "createMany",
++        {
++          data: [
++            { id: 1, label: "a" },
++            { id: 2, label: "b" },
++          ],
++          select: { id: true, label: true },
++        }
++      );
++    } catch (error) {
++      failure = error;
++    }
++    const rows = database
++      .prepare("SELECT id FROM g4_unit02_lone_owners ORDER BY id")
++      .all();
++    const diagnostic = JSON.stringify(
++      {
++        inserts: driver.inserts,
++        batches: driver.batches,
++        corrupted: driver.corrupted,
++        rows,
++        value,
++        failure: failure instanceof VibORMError ? identity(failure) : failure,
++      },
++      undefined,
++      2
++    );
++    try {
++      assert.equal(value, undefined, diagnostic);
++      assert.equal(driver.inserts, 2, diagnostic);
++      assert.equal(driver.batches, 1, diagnostic);
++      assert.equal(driver.corrupted, true, diagnostic);
++      assert.ok(failure instanceof QueryEngineError, diagnostic);
++      assert.equal(
++        failure.message,
++        'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
++        diagnostic
++      );
++      assert.deepEqual(
++        identity(failure).meta.recordSeriesProgress,
++        {
++          atomicity: "segment",
++          phase: "result",
++          committedSegments: 1,
++          committedWriteMembers: 1,
++          completedMembers: 0,
++        },
++        diagnostic
++      );
++      assert.deepEqual(rows, [{ id: 1 }, { id: 2 }], diagnostic);
++    } finally {
++      await client.$disconnect();
++      database.close();
++    }
++  });
++});
+--- a/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
++++ b/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
+@@ -0,0 +1,157 @@
++/**
++ * G4 performance pass, item 3 — a statement's aliases are a fact of that
++ * statement, not of the engine's history.
++ *
++ * `Queries` used to mint table aliases from an instance-lifetime counter, and
++ * `commands/index.ts` keeps ONE engine-lifetime `Queries` for the prepared
++ * read, so the same `findUnique` published `q0`, then `q1`, … `q10000`: its
++ * statement TEXT was unique per call. The cutover protocol recorded that as a
++ * measurement obstacle (`g4/cutover/protocol.md` §7.2,
++ * `receipts-stage2/prepared-sql-alias-drift.json`), and any transport that
++ * caches by statement text — PostgreSQL named prepared statements, `mysql2`'s
++ * prepare cache, D1/PlanetScale/Neon — would miss every time while growing a
++ * per-connection cache keyed on a counter that never repeats.
++ *
++ * `Queries.rootAlias` is the fix: the six owners that assemble a COMPLETE
++ * statement open its alias scope, and nothing else does. These cells pin both
++ * halves of that rule — the same query always emits the same text, and the
++ * subqueries INSIDE one statement keep sharing its scope, which is what makes
++ * the aliases unique where it matters.
++ *
++ * Not registered in `scripts/raptor3-manifest.mjs` by this unit (the pass edits
++ * no manifest); the count is reported to the integrator for `g4-unit02-author`.
++ */
++
++import assert from "node:assert/strict";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { afterEach, describe, it } from "vitest";
++import { createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++/** The statement texts one prepared operation publishes, in order. */
++async function preparedSql(
++  engine: ReturnType<typeof createCommandEngine>,
++  model: string,
++  operation: string,
++  args: unknown
++): Promise<string[]> {
++  const prepared = await engine.prepareBatch(
++    model,
++    operation as Parameters<typeof engine.prepareBatch>[1],
++    args
++  );
++  assert.ok(prepared, `${model}.${operation} did not package statically`);
++  return prepared.queries.map((query) => query.sql);
++}
++
++describe("G4 perf item 3 — statement-scoped SQL aliases", () => {
++  it("publishes byte-identical SQL for two successive identical findUnique calls", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const args = { where: { id: 1 }, select: { id: true, name: true } };
++    const first = await preparedSql(engine, "author", "findUnique", args);
++    const second = await preparedSql(engine, "author", "findUnique", args);
++    assert.deepEqual(second, first);
++    assert.equal(first.length, 1);
++    // Every statement starts at `q0`, so the text is a function of the query.
++    assert.match(first[0]!, /"q0"/);
++    assert.doesNotMatch(first[0]!, /"q1"/);
++
++    // …and it stays that text after twenty more of the same call, and after
++    // OTHER operations have minted aliases on the same engine in between.
++    for (let index = 0; index < 20; index++) {
++      assert.deepEqual(
++        await preparedSql(engine, "author", "findUnique", args),
++        first
++      );
++      assert.deepEqual(
++        await preparedSql(engine, "post", "findMany", {
++          where: { rank: { gt: 0 } },
++          select: { id: true },
++        }),
++        await preparedSql(engine, "post", "findMany", {
++          where: { rank: { gt: 0 } },
++          select: { id: true },
++        })
++      );
++    }
++    assert.deepEqual(
++      await preparedSql(engine, "author", "findUnique", args),
++      first
++    );
++  });
++
++  it("keeps one statement's nested scopes inside that statement's alias scope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // A nested to-many projection is a correlated subquery of the SAME
++    // statement: it must continue the statement's counter, never restart it,
++    // or the subquery would address the root's own alias.
++    const [nested] = await preparedSql(engine, "author", "findMany", {
++      select: { id: true, posts: { select: { id: true, title: true } } },
++    });
++    assert.ok(nested);
++    const declared = [...nested.matchAll(/AS "(q\d+)"/g)].map(
++      (match) => match[1]!
++    );
++    assert.deepEqual(
++      [...new Set(declared)].length,
++      declared.length,
++      `one statement declared an alias twice: ${nested}`
++    );
++    assert(
++      declared.length > 1,
++      "the nested projection declared no second alias"
++    );
++    // One contiguous run from `q0`: the subquery continued the statement's own
++    // scope instead of opening a second one that would collide with the root.
++    const used = [...new Set([...nested.matchAll(/"(q\d+)"/g)].map((m) => m[1]!))]
++      .map((alias) => Number(alias.slice(1)))
++      .sort((left, right) => left - right);
++    assert.deepEqual(
++      used,
++      used.map((_, index) => index),
++      `one statement's aliases are not one run from q0: ${nested}`
++    );
++
++    // The same statement, again: still byte-identical.
++    const [again] = await preparedSql(engine, "author", "findMany", {
++      select: { id: true, posts: { select: { id: true, title: true } } },
++    });
++    assert.equal(again, nested);
++  });
++
++  it("gives every statement of one multi-statement operation its own scope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // A bulk delete with a limit is one mutation statement whose predicate
++    // carries a capped subquery: the fragment and the mutation share ONE scope,
++    // so the capped select's alias is the statement's own first alias.
++    const [capped] = await preparedSql(engine, "post", "deleteMany", {
++      where: { rank: { gt: 0 } },
++      limit: 1,
++    });
++    assert.ok(capped);
++    assert.match(capped, /"q0"/);
++    const repeated = await preparedSql(engine, "post", "deleteMany", {
++      where: { rank: { gt: 0 } },
++      limit: 1,
++    });
++    assert.equal(repeated[0], capped);
++  });
++});
+--- a/tests/raptor3/post-prep/g29-result-progress.test.ts
++++ b/tests/raptor3/post-prep/g29-result-progress.test.ts
+@@ -12,6 +12,8 @@
+ 
+ type Profile = "sqlite-interactive" | "sqlite-atomic-batch";
+ 
++const INSERT_STATEMENT = /^INSERT\b/;
++
+ interface StatementObservation {
+   readonly sql: string;
+   readonly parameters: readonly unknown[];
+@@ -21,18 +23,24 @@
+ /**
+  * The fault cut: the provider answers a row whose `id` is not an integer.
+  *
+- * Stated over ANY row-bearing response, not over `^SELECT` only, because the
+- * statement that carries the stored row is a physical choice and not a property
+- * of this specimen. A scalar-only root `create` folds to one
+- * `INSERT … RETURNING` — which is what the shipped engine emits for this exact
+- * request — so a `^SELECT`-only cut would be ELIMINATED by the fold and this
+- * specimen would silently stop witnessing (raptor3 plan §5.4: an eliminated cut
+- * cannot waive the property's acceptance). The property is unchanged: a
+- * malformed provider result is translated into the established identity, with
+- * truthful progress, and nothing is published. The SPLIT forms of the same
+- * specimen — a provider without RETURNING, on a transaction and on a
+- * segment-atomic transport, and a relation-bearing create — are checked at
+- * `tests/raptor3/g4/unit02/malformed-result-cuts.test.ts`.
++ * Stated over ANY row-bearing response on ANY transport, not over `^SELECT`
++ * only and not over the batch entry only, because both the statement that
++ * carries the stored row and the transport that carries that statement are
++ * physical choices, not properties of this specimen. A scalar-only root
++ * `create` folds to one `INSERT … RETURNING` — which is what the shipped engine
++ * emits for this exact request — and since Arnaud's D-7 decision that lone
++ * statement leaves the batch and runs on the plain execute path, so a
++ * `^SELECT`-only or `executeBatch`-only cut would be ELIMINATED by the fold and
++ * this specimen would silently stop witnessing (raptor3 plan §5.4: an
++ * eliminated cut cannot waive the property's acceptance). The property is
++ * unchanged: a malformed provider result is translated into the established
++ * identity, with truthful progress, and nothing is published. The SPLIT forms
++ * of the same specimen — a provider without RETURNING, on a transaction and on
++ * a segment-atomic transport, and a relation-bearing create — are checked at
++ * `tests/raptor3/g4/unit02/malformed-result-cuts.test.ts`, and the PROGRESS
++ * half that a one-statement write no longer has (a set mutation of two
++ * statements whose committed window then answers a malformed row) at
++ * `tests/raptor3/g4/unit02/lone-statement-transport.test.ts`.
+  */
+ function corruptSelectedId<T>(
+   _sqlText: string,
+@@ -48,6 +56,11 @@
+   return corrupted;
+ }
+ 
++/**
++ * Observes every statement and applies the cut where the statement runs. The
++ * driver's own batch entry dispatches each query through this same method, so
++ * one override covers both transports.
++ */
+ class ObservingSQLiteDriver extends SQLite3Driver {
+   readonly statements: StatementObservation[] = [];
+   insertDispatches = 0;
+@@ -69,24 +82,7 @@
+   ): Promise<QueryResult<T>> {
+     this.statements.push({ sql: statement, parameters, context });
+     const response = await super.execute<T>(client, statement, parameters);
+-    if (/^INSERT\b/.test(statement)) this.insertDispatches++;
+-    return response;
+-  }
+-}
+-
+-class CorruptingInteractiveSQLiteDriver extends ObservingSQLiteDriver {
+-  protected override async execute<T>(
+-    client: Database.Database,
+-    statement: string,
+-    parameters: unknown[],
+-    context?: QueryExecutionContext
+-  ): Promise<QueryResult<T>> {
+-    const response = await super.execute<T>(
+-      client,
+-      statement,
+-      parameters,
+-      context
+-    );
++    if (INSERT_STATEMENT.test(statement)) this.insertDispatches++;
+     if (this.corruptionArmed && corruptSelectedId(statement, response)) {
+       this.corrupted = true;
+     }
+@@ -111,16 +107,9 @@
+     const responses = await this.transaction(client, (transaction) =>
+       super.executeBatch<T>(transaction, queries)
+     );
+-    if (queries.some(({ sql }) => /^INSERT\b/.test(sql))) {
++    if (queries.some(({ sql }) => INSERT_STATEMENT.test(sql))) {
+       this.acknowledgedInsertBatches++;
+     }
+-    if (this.corruptionArmed) {
+-      for (const [index, query] of queries.entries()) {
+-        const response = responses[index];
+-        assert(response);
+-        if (corruptSelectedId(query.sql, response)) this.corrupted = true;
+-      }
+-    }
+     return responses;
+   }
+ }
+@@ -130,7 +119,7 @@
+   database: Database.Database
+ ): ObservingSQLiteDriver {
+   return profile === "sqlite-interactive"
+-    ? new CorruptingInteractiveSQLiteDriver({ client: database })
++    ? new ObservingSQLiteDriver({ client: database })
+     : new CorruptingBatchSQLiteDriver({ client: database });
+ }
+ 
+@@ -151,51 +140,62 @@
+ 
+ function assertMalformedResultFailure(
+   failure: unknown,
+-  profile: Profile,
++  operation: "create" | "createMany",
++  progress: object | undefined,
+   diagnostic: string
+ ): void {
+   assert(failure instanceof QueryEngineError, diagnostic);
+   assert.equal(failure.code, VibORMErrorCode.INTERNAL_ERROR, diagnostic);
+   assert.equal(
+     failure.message,
+-    'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.',
++    `Driver "sqlite3" returned a malformed int scalar for operation "${operation}": the value is not a canonical integer.`,
+     diagnostic
+   );
+   assert.deepEqual(
+     { ...failure.meta },
+     {
+       driver: "sqlite3",
+-      operation: "create",
++      operation,
+       scalarType: "int",
+-      ...(profile === "sqlite-atomic-batch"
+-        ? {
+-            recordSeriesProgress: {
+-              atomicity: "segment",
+-              phase: "result",
+-              committedSegments: 1,
+-              committedWriteMembers: 1,
+-              completedMembers: 0,
+-            },
+-          }
+-        : {}),
++      ...(progress ? { recordSeriesProgress: progress } : {}),
+     },
+     diagnostic
+   );
+ }
+ 
+-async function runMalformedResult(profile: Profile): Promise<void> {
+-  const database = new Database(":memory:");
+-  const driver = createDriver(profile, database);
+-  const entity = s
+-    .model({ id: s.int().id(), label: s.string() })
+-    .map("g29_invalid_result");
+-  const schema = { entity };
++const entity = s
++  .model({ id: s.int().id(), label: s.string() })
++  .map("g29_invalid_result");
++const schema = { entity };
++
++async function withWorld<T>(
++  driver: ObservingSQLiteDriver,
++  database: Database.Database,
++  drive: () => Promise<T>
++): Promise<T> {
+   const client = createClient({ schema, driver });
+   const migration = await syncLiveSchema(client);
+   assert.equal(migration.applied, true);
+-
+   try {
+     driver.resetAndArm();
++    return await drive();
++  } finally {
++    await client.$disconnect();
++    database.close();
++  }
++}
++
++/**
++ * A root single-record write is ONE statement on both profiles, so it carries
++ * no record series at all: the truthful answer is the shipped one — the
++ * malformed-scalar refusal with nothing but `{driver, operation, scalarType}`
++ * (`write-engine/OperationExecutor.ts` `runBorrowedStatementAtomic`, which
++ * rethrows the decoding failure raw).
++ */
++async function runMalformedResult(profile: Profile): Promise<void> {
++  const database = new Database(":memory:");
++  const driver = createDriver(profile, database);
++  await withWorld(driver, database, async () => {
+     let value: unknown;
+     let failure: unknown;
+     try {
+@@ -232,9 +232,13 @@
+     assert.equal(value, undefined, diagnostic);
+     assert.equal(driver.corrupted, true, diagnostic);
+     assert.equal(driver.insertDispatches, 1, diagnostic);
+-    assertMalformedResultFailure(failure, profile, diagnostic);
++    assertMalformedResultFailure(failure, "create", undefined, diagnostic);
+     if (driver instanceof CorruptingBatchSQLiteDriver) {
+-      assert.equal(driver.acknowledgedInsertBatches, 1, diagnostic);
++      // D-7 (Arnaud, 2026-09-15): a set statement that is the operation's ONLY
++      // statement needs no batch envelope, so the folded root `create` never
++      // reaches `_executeBatch` — the shipped transport rule, and the reason
++      // this operation now answers the shipped meta exactly.
++      assert.equal(driver.acknowledgedInsertBatches, 0, diagnostic);
+     }
+     // The row is durable on BOTH profiles now: a statement-atomic write commits
+     // with its own statement and the failure happens afterwards, while decoding
+@@ -243,10 +247,7 @@
+     // measured in `g4/unit02/receipts/phase2/shipped-malformed-result.log`. The
+     // rolled-back form of this cut is cell 1 of the split specimen named above.
+     assert.deepEqual(finalDatabase, [{ id: 1, label: "written" }], diagnostic);
+-  } finally {
+-    await client.$disconnect();
+-    database.close();
+-  }
++  });
+ }
+ 
+ const profiles: readonly Profile[] = [
+--- a/tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
++++ b/tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
+@@ -1,6 +1,6 @@
+ import assert from "node:assert/strict";
+ import { createClient } from "@client/client";
+-import type { BatchQuery, QueryResult } from "@drivers";
++import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+ import { QueryEngineError, VibORMErrorCode } from "@errors";
+ import { createCommandEngine } from "@query-engine/raptor3/commands";
+ import { s } from "@schema";
+@@ -10,39 +10,57 @@
+ import { PGlite, type Transaction } from "@electric-sql/pglite";
+ import { describe, it } from "vitest";
+ 
++const INSERT_STATEMENT = /^INSERT\b/;
++
+ class CorruptingBatchPGliteDriver extends BatchOnlyPGliteDriver {
++  insertStatements = 0;
+   insertBatches = 0;
+   corrupted = false;
+   private corruptionArmed = false;
+ 
+   resetAndArm(): void {
++    this.insertStatements = 0;
+     this.insertBatches = 0;
+     this.corrupted = false;
+     this.corruptionArmed = true;
+   }
+ 
++  /**
++   * The cut is stated over ANY row-bearing response on ANY transport, not over
++   * `^SELECT` only and not over the batch entry only: both the statement that
++   * carries the generated row and the transport that carries that statement are
++   * physical choices. A scalar-only root `create` folds to one
++   * `INSERT … RETURNING`, and since Arnaud's D-7 decision a lone statement
++   * leaves the batch, so a `^SELECT`-only or `executeBatch`-only cut would be
++   * ELIMINATED by the fold and this specimen would silently stop witnessing
++   * (raptor3 plan §5.4). This driver's batch entry dispatches every query
++   * through `execute`, so the one override below covers both transports.
++   */
++  protected override async execute<T>(
++    client: PGlite | Transaction,
++    sql: string,
++    params: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    const response = await super.execute<T>(client, sql, params, context);
++    if (INSERT_STATEMENT.test(sql)) this.insertStatements++;
++    if (!this.corruptionArmed) return response;
++    for (const row of response.rows) {
++      if (!isRecord(row) || !Object.hasOwn(row, "id")) continue;
++      Reflect.set(row, "id", "not-an-integer");
++      this.corrupted = true;
++    }
++    return response;
++  }
++
+   protected override async executeBatch<T>(
+     client: PGlite | Transaction,
+     queries: BatchQuery[]
+   ): Promise<QueryResult<T>[]> {
+     const responses = await super.executeBatch<T>(client, queries);
+-    if (queries.some(({ sql }) => /^INSERT\b/.test(sql))) {
++    if (queries.some(({ sql }) => INSERT_STATEMENT.test(sql))) {
+       this.insertBatches++;
+     }
+-    if (!this.corruptionArmed) return responses;
+-
+-    // The cut is stated over ANY row-bearing response, not over `^SELECT` only:
+-    // the statement that carries the generated row is a physical choice. A
+-    // scalar-only root `create` folds to one `INSERT … RETURNING`, so a
+-    // `^SELECT`-only cut would be ELIMINATED by the fold and this specimen
+-    // would silently stop witnessing (raptor3 plan §5.4).
+-    for (const response of responses) {
+-      for (const row of response.rows) {
+-        if (!isRecord(row) || !Object.hasOwn(row, "id")) continue;
+-        Reflect.set(row, "id", "not-an-integer");
+-        this.corrupted = true;
+-      }
+-    }
+     return responses;
+   }
+ }
+@@ -62,8 +80,19 @@
+   return { thrown: String(failure) };
+ }
+ 
+-describe("G2.9 generated-result continuation progress [commands]", () => {
+-  it("preserves malformed generated-id translation after one committed segment", async () => {
++describe("G2.9 generated-result progress [commands]", () => {
++  /**
++   * A root single-record write with a GENERATED identity is ONE
++   * `INSERT … RETURNING` on a provider that carries RETURNING, so after D-7 it
++   * is the operation's only statement and needs no batch envelope. Its truthful
++   * answer is therefore the shipped one: the malformed-scalar refusal with
++   * `{driver, operation, scalarType}` and no record series to report on
++   * (`write-engine/OperationExecutor.ts` `runBorrowedStatementAtomic`). The
++   * committed-segment progress this file used to pin now belongs to the shape
++   * that still has a record series, pinned on the same transport at
++   * `tests/raptor3/g4/unit02/lone-statement-transport.test.ts`.
++   */
++  it("preserves malformed generated-id translation on the statement the fold uses", async () => {
+     const database = new PGlite();
+     const driver = new CorruptingBatchPGliteDriver({ client: database });
+     driver.adapter.capabilities.supportsCteWithMutations = false;
+@@ -96,6 +125,7 @@
+         {
+           profile: "pglite-atomic-batch-generated-continuation",
+           engine: "commands",
++          insertStatements: driver.insertStatements,
+           insertBatches: driver.insertBatches,
+           corrupted: driver.corrupted,
+           finalDatabase: state.rows,
+@@ -107,7 +137,10 @@
+       );
+ 
+       assert.equal(value, undefined, diagnostic);
+-      assert.equal(driver.insertBatches, 1, diagnostic);
++      assert.equal(driver.insertStatements, 1, diagnostic);
++      // D-7 (Arnaud, 2026-09-15): the lone statement leaves the batch, exactly
++      // as the shipped `runStatementAtomic` sends it.
++      assert.equal(driver.insertBatches, 0, diagnostic);
+       assert.equal(driver.corrupted, true, diagnostic);
+       assert(failure instanceof QueryEngineError, diagnostic);
+       assert.equal(failure.code, VibORMErrorCode.INTERNAL_ERROR, diagnostic);
+@@ -118,18 +151,7 @@
+       );
+       assert.deepEqual(
+         { ...failure.meta },
+-        {
+-          driver: "pglite",
+-          operation: "create",
+-          scalarType: "int",
+-          recordSeriesProgress: {
+-            atomicity: "segment",
+-            phase: "result",
+-            committedSegments: 1,
+-            committedWriteMembers: 1,
+-            completedMembers: 0,
+-          },
+-        },
++        { driver: "pglite", operation: "create", scalarType: "int" },
+         diagnostic
+       );
+       assert.deepEqual(state.rows, [{ id: 1, label: "written" }], diagnostic);

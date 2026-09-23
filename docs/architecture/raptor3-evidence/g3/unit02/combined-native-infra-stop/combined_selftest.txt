@@ -1,0 +1,35 @@
+exit_code: 0
+wall_time_seconds: 0.172832375
+
+✔ structural measurement qualification pins the exact Node runtime (1.264667ms)
+✔ credential-free registration isolates native Raptor suites and retains local fixed suites (0.163708ms)
+✔ CS-03 extension modes bind exact ranges, identities, cells, and replays (13.411958ms)
+✔ CS-03 extension alternatives compare canonical recipes, schedules, and outcomes (20.675625ms)
+✔ G2.5 admits its fixed unfiltered checkpoint without changing G2 campaigns (0.220625ms)
+✔ G3 bulk series admits its exact fixed contract without filters (0.095833ms)
+✔ G3 suppression retry admits its exact fixed contract without filters (0.08ms)
+✔ G3 transaction array admits its exact fixed contract without filters (0.072333ms)
+✔ G3 generated smoke admits its exact contract without filters (0.077458ms)
+✔ G3 depth recurrence admits its exact fixed contract without filters (0.125041ms)
+✔ G3 pg scope composition admits its exact native contract (0.083208ms)
+✔ G3 mysql scope composition admits its exact native contract (0.044541ms)
+✔ SQLite: G3 generated receipts fail closed when stale, missing, or corrupt (1.417917ms)
+✔ scripted transport: G3 generated receipts fail closed when stale, missing, or corrupt (0.760792ms)
+✔ SQLite: G2 admits only the frozen range and unfiltered commands (0.338333ms)
+✔ SQLite: unit receipts require every exact cell, replay and zero skips (2.143041ms)
+✔ SQLite: unit quota claims must reach twenty percent in EACH profile (0.8795ms)
+✔ scripted transport: G2 admits only the frozen range and unfiltered commands (0.261166ms)
+✔ scripted transport: unit receipts require every exact cell, replay and zero skips (1.9105ms)
+✔ scripted transport: unit quota claims must reach twenty percent in EACH profile (0.737666ms)
+✔ SQLite: G3P-06 reserves exactly one new unfiltered batch (0.313459ms)
+✔ SQLite: G3P-06 receipts bind every new profile/seed cell (0.481458ms)
+✔ scripted transport: G3P-06 reserves exactly one new unfiltered batch (0.186875ms)
+✔ scripted transport: G3P-06 receipts bind every new profile/seed cell (0.39375ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 252.913208

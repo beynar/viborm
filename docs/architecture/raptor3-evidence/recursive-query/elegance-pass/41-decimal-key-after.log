@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+DECIMAL-KEY {"down":[{"label":"root","children":[{"label":"child","children":[{"label":"grandchild"}]},{"label":"other","children":[]}]}],"all":[{"label":"root","children":[{"label":"child","children":[{"label":"grandchild","children":[]}]},{"label":"other","children":[]}]}],"up":[{"label":"grandchild","parent":{"label":"child","parent":{"label":"root","parent":null}}}]}
+ ✓ ../../../../private/tmp/viborm-rq-elegance-repair/scratch/decimal-key.scratch.test.ts (1 test) 121ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  15:07:54
+   Duration  9.33s (transform 5.30s, setup 59ms, collect 8.67s, tests 121ms, environment 0ms, prepare 147ms)
+
+Vitest resources: 11.26s wall, 416.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

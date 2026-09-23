@@ -1,0 +1,21 @@
+### F1 — the identity pin replaced by the arm's own selector
+  red: does not adopt a replacement row that acquires the SELECTOR after the premise
+  red: does not adopt a replacement row that acquires the SELECTOR after the premise
+  red: does not adopt a replacement row that acquires the SELECTOR after the premise
+  red: does not adopt a replacement row that acquires the SELECTOR after the premise
+      Tests  4 failed | 40 passed (44)
+### F2 — the representability ABSENCE premise deleted
+  red: never writes the NULL a reference transitions to
+  red: never writes the NULL a reference transitions to
+  red: never writes the NULL a reference transitions to
+  red: never writes the NULL a reference transitions to
+      Tests  4 failed | 40 passed (44)
+### F4 — the holder-spends gate widened to every demand
+  red: asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field
+  red: asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field
+  red: asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field
+  red: asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field
+      Tests  4 failed | 40 passed (44)
+### F3 — the retained premise's hold dropped (native PostgreSQL)
+  red: the unit's premise HOLDS the located row through the statement that spends it
+      Tests  1 failed | 5 passed (6)

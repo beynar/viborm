@@ -37,7 +37,7 @@ export interface ArithmeticTarget {
  * casts through `decimalCast(expression, descriptor)`. Both consume the one
  * descriptor from `s.decimal({ precision, scale })`.
  */
-export type CastType = "text" | "integer" | "boolean" | "numeric";
+export type CastType = "text" | "integer" | "bigint" | "boolean" | "numeric";
 
 /**
  * @internal Adapter-owned SQL for atomic batch reference storage.
@@ -54,4 +54,29 @@ export interface BatchReferenceSqlAdapter {
    * state can be changed by another generated column or by a trigger.
    */
   storeLastInsertId?: (batchId: string, key: string) => Sql;
+  /**
+   * Store the exact identity the given INSERT produces, from that statement's
+   * own RETURNING, in the ONE statement that runs it: a data-modifying CTE
+   * whose outer INSERT writes the reference. Present where the dialect can
+   * mutate inside a CTE (PostgreSQL), whose session-global sequence state is
+   * not exact. `column` is the escaped produced column.
+   */
+  storeReturning?: (
+    batchId: string,
+    key: string,
+    insert: Sql,
+    column: Sql
+  ) => Sql;
+  /**
+   * The statements that run `insert` and store the one increment key it
+   * generates under `key`, in order: the CTE store alone where the dialect
+   * offers `storeReturning`, otherwise the INSERT followed by the last insert
+   * id store. Absent where neither exact mechanism exists.
+   */
+  storeInsertedKey?: (
+    batchId: string,
+    key: string,
+    insert: Sql,
+    column: Sql
+  ) => readonly Sql[];
 }

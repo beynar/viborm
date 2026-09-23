@@ -1,0 +1,18 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts (30 tests | 6 failed) 1206ms
+     → expected true to be false // Object.is equality
+     → expected 'Cannot update relation \'children\': …' to contain 'depends on an earlier \'update\' memb…'
+     → expected false to be true // Object.is equality
+     → expected true to be false // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-one inverse upsert rejects a
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > non-self child-holds cascade keeps m
+AssertionError: expected true to be false // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-many inverse update rejects 
+AssertionError: expected 'Cannot update relation \'children\': …' to contain 'depends on an earlier \'update\' memb…'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > same-node non-self FK rebind rejects
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membersh
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membersh
+AssertionError: expected false to be true // Object.is equality
+ Test Files  1 failed (1)
+      Tests  6 failed | 24 passed (30)

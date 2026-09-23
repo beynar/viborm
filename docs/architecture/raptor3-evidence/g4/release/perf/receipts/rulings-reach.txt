@@ -1,0 +1,51 @@
+# Which cells the rulings can touch — the evidence, not the claim
+
+Date: 2026-09-20T16:53:33Z   tree: 36c87710aa2526652867430f6e24f30005556394
+
+## D-33 (a json().schema(...) user schema runs at the one decode boundary)
+
+### every `s.json(` in benchmarks/
+benchmarks/operation-pipeline-provider-fixtures.mjs:443:        metadata: s.json(),
+benchmarks/operation-pipeline-provider-fixtures.mjs:494:      metadata: s.json(),
+
+### every `.schema(` in benchmarks/
+(none)
+
+The two json() fields live in operation-pipeline-provider-fixtures.mjs (the
+cross-provider fixture), and NEITHER declares a user schema. All 20 frozen
+cells are 'core' fixture cells (operation-pipeline-catalog.mjs), and the core
+schema (operation-pipeline-fixtures.mjs coreSchema) has no json field at all.
+=> D-33 can touch NO cell of the frozen 20.
+
+## D-26 (one correlated integrity probe per configured polymorphic membership under only: [])
+
+### every `polymorphic` / `only: [` in benchmarks/
+(none)
+
+=> no polymorphic relation and no only: [] anywhere in the benchmark fixtures.
+   D-26 can touch NO cell of the frozen 20.
+
+## The 20 cells' fixture
+367:  "scalar-find-unique": workload("core", stages.coldRead, 1),
+386:  "fixed-collection-rowref-20": workload("core", stages.coldRead, 20),
+387:  "fixed-collection-rowref-1000": workload("core", stages.coldRead, 1000),
+405:  "flat-scalar-update": workload("core", stages.coldMutation, 1),
+406:  "nested-conditional-found": workload("core", stages.coldFull, 1),
+407:  "nested-conditional-missing": workload("core", stages.coldFull, 1),
+408:  "key-transition-cascade": workload("core", stages.coldFull, 1),
+409:  "relation-series-2": workload("core", stages.coldFull, 2),
+449:  "bulk-update-returning-100": workload("core", stages.coldBulk, 100, {
+
+## D-29 (a queued premise rides the atomic unit it protects) — flat-scalar-update
+See receipts/probes/fsu-publish-{baseline,cand}.json: the shipped side answers
+only at buildStatement() and its package seam REFUSES; the candidate answers
+only at the package seam, with TWO statements (the EXISTS premise probe and
+the UPDATE). Cells: flat-scalar-update/{prepare,execute,full}.
+
+## D-28 (the result seam) — every decoding cell
+fixed-collection-rowref-1000/parse and every /full cell.
+
+## D-58 (a produced value is carried into the next segment) — the multi-segment writes
+See receipts/probes/count__*.json: statements per PUBLIC operation, counted at
+driver.execute (the seam every statement crosses, including inside
+withTransaction).

@@ -1,0 +1,44 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ❯ |extended-local| tests/raptor3/g4/parity/batch-observed-publication.test.ts (10 tests | 4 failed) 53ms
+   ✓ N4-23: publishing a computed non-int key on the live route > a number key incremented under the batch answers the provider's row 24ms
+   ✓ N4-23: publishing a computed non-int key on the live route > the same key multiplied answers the same way 3ms
+   ✓ N4-23: publishing a computed non-int key on the live route > a bigint key and a decimal key publish through the same observation 3ms
+   ✓ N4-23: publishing a computed non-int key on the live route > the observation is taken BEHIND the write 2ms
+   ✓ N4-23: publishing a computed non-int key on the live route > an INT key still travels through the scratch 2ms
+   × N4-23: publishing a computed non-int key on the batch-only route > a number key incremented under the batch answers the provider's row 7ms
+     → Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.
+   × N4-23: publishing a computed non-int key on the batch-only route > the same key multiplied answers the same way 3ms
+     → Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.
+   × N4-23: publishing a computed non-int key on the batch-only route > a bigint key and a decimal key publish through the same observation 2ms
+     → Cannot publish the updated value of 'bigKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a bigint field.
+   × N4-23: publishing a computed non-int key on the batch-only route > the observation is taken BEHIND the write 3ms
+     → Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.
+   ✓ N4-23: publishing a computed non-int key on the batch-only route > an INT key still travels through the scratch 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-observed-publication.test.ts > N4-23: publishing a computed non-int key on the batch-only route > a number key incremented under the batch answers the provider's row
+UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-observed-publication.test.ts > N4-23: publishing a computed non-int key on the batch-only route > the same key multiplied answers the same way
+UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-observed-publication.test.ts > N4-23: publishing a computed non-int key on the batch-only route > a bigint key and a decimal key publish through the same observation
+UnsupportedOperationError: Cannot publish the updated value of 'bigKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a bigint field.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-observed-publication.test.ts > N4-23: publishing a computed non-int key on the batch-only route > the observation is taken BEHIND the write
+UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 6 passed (10)
+   Start at  07:41:02
+   Duration  2.07s (transform 1.18s, setup 9ms, collect 1.80s, tests 53ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 4.27s wall, 518.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

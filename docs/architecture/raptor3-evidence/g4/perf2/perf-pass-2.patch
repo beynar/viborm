@@ -1,0 +1,996 @@
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index 0e0b56ec4..fc36a2a54 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -107,6 +107,19 @@ type ExecutionOwnership =
+   | "borrowed-transaction"
+   | "batch-preparation";
+ 
++/** One member's place in its record series, as a failure reports it. */
++type MemberAttribution = {
++  readonly path: readonly number[];
++  readonly totalMembers: number;
++};
++
++/** What an operation that has queued nothing has queued. */
++const NO_QUEUED_STATEMENTS: readonly BatchQuery[] = Object.freeze([]);
++
++/** What an operation that declared no generated-output continuation has. */
++const NO_CONTINUATIONS: readonly { query: Query; model: AnyModel }[] =
++  Object.freeze([]);
++
+ /** One operation owns its SQL scopes, transport binding, and batch scratch lifetime. */
+ export class OperationContext {
+   readonly queries: Queries;
+@@ -120,13 +133,31 @@ export class OperationContext {
+   /** True only while the operation's OWN region is the current transport. */
+   private ownRegionOpen = false;
+   private transport: AnyDriver;
+-  private attempt = new TransportAttempt();
+-  private readonly committedMembers = new Set<Member>();
+-  private readonly memberAttribution = new WeakMap<
+-    Member,
+-    { readonly path: readonly number[]; readonly totalMembers: number }
+-  >();
+-  private readonly continuations: { query: Query; model: AnyModel }[] = [];
++  private attemptStore?: TransportAttempt;
++  /**
++   * The operation's disposable transport attempt, built on its FIRST use.
++   *
++   * A read that executes queues nothing — it dispatches its one statement
++   * directly ({@link read}) — so it never has an attempt at all, and the write
++   * machinery below is the same story field by field: rule 7, a pure read
++   * allocates none of it. Every reader that only asks whether this operation
++   * has queued anything reads {@link queued}, which answers an empty list
++   * without creating an attempt, so no reader can tell absent from empty.
++   */
++  private get attempt(): TransportAttempt {
++    return (this.attemptStore ??= new TransportAttempt());
++  }
++  /** The statements queued on this operation's attempt; empty until one is. */
++  private get queued(): readonly BatchQuery[] {
++    return this.attemptStore?.pending ?? NO_QUEUED_STATEMENTS;
++  }
++  private committedMemberSet?: Set<Member>;
++  private memberAttributionMap?: WeakMap<Member, MemberAttribution>;
++  private continuationList?: { query: Query; model: AnyModel }[];
++  /** Generated-output continuations declared so far; none until one is. */
++  private get continuationCount(): number {
++    return this.continuationList?.length ?? 0;
++  }
+   private committedSegments = 0;
+   private mayHaveCommittedSegment: true | undefined;
+   private completedMembers = 0;
+@@ -177,7 +208,7 @@ export class OperationContext {
+     ));
+   }
+   private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
+-  private readonly preparedGuards: PreparedBatchGuard[] = [];
++  private preparedGuardList?: PreparedBatchGuard[];
+   /**
+    * Failures this operation has ALREADY ANSWERED with, which {@link failure}
+    * returns unchanged: the premise it raised about the world (see `published`),
+@@ -188,8 +219,19 @@ export class OperationContext {
+    * progress-bearing aggregate of its PROGRESSIVE path is a different failure
+    * that is attributed (`:1037-1046`) and is not marked here.
+    */
+-  private readonly answeredFailures = new WeakSet<object>();
+-  private readonly correlationId = crypto.randomUUID();
++  private answeredFailureSet?: WeakSet<object>;
++  private correlationIdValue?: string;
++  /**
++   * This operation's correlation id, minted on its FIRST read and then stable
++   * for the operation's life. The client route always hands its own trusted
++   * execution context down ({@link attribution}), so a minted id is read only
++   * by an error's `meta` and by a statement context the caller did not supply —
++   * paying `crypto.randomUUID()` in the field block spent it on every operation
++   * for the ones that never ask (rule 7).
++   */
++  private get correlationId(): string {
++    return (this.correlationIdValue ??= crypto.randomUUID());
++  }
+   /**
+    * The operation's physical envelope. `deferred` is the only state in which the
+    * envelope has not been decided yet: it becomes `statement` when the operation
+@@ -314,7 +356,7 @@ export class OperationContext {
+       context
+     };
+     this.attempt.pending.push(query);
+-    if (member) this.attempt.pendingMembers.add(member);
++    if (member) this.attempt.recordMember(member);
+     return query;
+   }
+   prepareMembers<T extends Member>(prepare: () => T[], parent?: Member): T[] {
+@@ -322,10 +364,11 @@ export class OperationContext {
+     try {
+       const members = prepare();
+       const path = parent
+-        ? (this.memberAttribution.get(parent)?.path ?? [])
++        ? (this.memberAttributionMap?.get(parent)?.path ?? [])
+         : [];
++      const attribution = (this.memberAttributionMap ??= new WeakMap());
+       for (const [index, member] of members.entries())
+-        this.memberAttribution.set(member, {
++        attribution.set(member, {
+           path: [...path, index],
+           totalMembers: members.length,
+         });
+@@ -416,7 +459,11 @@ export class OperationContext {
+     phase: RecordSeriesProgress["phase"],
+     member?: Member
+   ): unknown {
+-    if (typeof error === "object" && error !== null && this.answeredFailures.has(error))
++    if (
++      typeof error === "object" &&
++      error !== null &&
++      this.answeredFailureSet?.has(error)
++    )
+       return error;
+     let failure = error;
+     if (error instanceof InvalidScalarResult) {
+@@ -428,7 +475,9 @@ export class OperationContext {
+         { meta: { driver, operation, scalarType } }
+       );
+     }
+-    const attribution = member ? this.memberAttribution.get(member) : undefined;
++    const attribution = member
++      ? this.memberAttributionMap?.get(member)
++      : undefined;
+     // A failure carries record-series progress only when it BELONGS to a record
+     // series. A committed segment and a prefix phase are the series the
+     // operation already has; an UNCERTAIN outcome is not one on its own, so a
+@@ -453,7 +502,7 @@ export class OperationContext {
+           atomicity: "segment",
+           phase,
+           committedSegments: this.committedSegments,
+-          committedWriteMembers: this.committedMembers.size,
++          committedWriteMembers: this.committedMemberSet?.size ?? 0,
+           completedMembers: this.completedMembers,
+           ...(attribution?.path.length ? { memberPath: attribution.path } : {}),
+           ...(attribution ? { totalMembers: attribution.totalMembers } : {}),
+@@ -558,7 +607,7 @@ export class OperationContext {
+       if (
+         error instanceof InvalidScalarResult ||
+         (this.usesBatch &&
+-          (this.continuations.length || this.committedSegments > 0))
++          (this.continuationCount || this.committedSegments > 0))
+       )
+         throw this.failure(
+           error,
+@@ -587,8 +636,8 @@ export class OperationContext {
+   }
+   /** Discard the un-executed plan so the body can be constructed again. */
+   private restart(): void {
+-    this.attempt = new TransportAttempt();
+-    this.continuations.length = 0;
++    this.attemptStore = new TransportAttempt();
++    this.continuationList = undefined;
+     this.memberAdmissionStarted = false;
+     this.envelope = "open";
+   }
+@@ -629,7 +678,7 @@ export class OperationContext {
+     };
+     if (this.ownership !== "batch-preparation")
+       return decide(await this.read(read.query, false, true));
+-    const resultIndex = this.attempt.pending.length;
++    const resultIndex = this.queued.length;
+     this.queue(read.query.sql);
+     this.preparedParser = (results) => {
+       const response = results[resultIndex];
+@@ -670,9 +719,9 @@ export class OperationContext {
+         rows.push(await this.read(projection, true));
+       return Array.isArray(query) ? rows : (rows[0] ?? []);
+     }
+-    const resultIndex = this.attempt.pending.length;
++    const resultIndex = this.queued.length;
+     for (const projection of projections) this.queue(projection.sql);
+-    if (this.attempt.pending.length === 0) return [];
++    if (this.queued.length === 0) return [];
+     const responses = await this.submit(false, member);
+     return this.settleSubmitted(() => {
+       try {
+@@ -691,7 +740,7 @@ export class OperationContext {
+   }
+   async requireAbsent(query: Query, failure: Error): Promise<void> {
+     if (this.usesBatch) {
+-      this.attempt.assertionFailures.set(
++      this.attempt.assertPremise(
+         this.queue(this.driver.adapter.assertions.notExists(query.sql)),
+         { query, present: false, failure }
+       );
+@@ -700,7 +749,7 @@ export class OperationContext {
+     if ((await this.read(query, true)).length) throw failure;
+   }
+   requirePresent(query: Query, failure: Error): void {
+-    this.attempt.assertionFailures.set(
++    this.attempt.assertPremise(
+       this.queue(this.driver.adapter.assertions.exists(query.sql)),
+       { query, present: true, failure }
+     );
+@@ -713,7 +762,8 @@ export class OperationContext {
+     this.atomicAssertionRejection = undefined;
+     attempt.rejectedInsert = undefined;
+     const precedingSegments = this.committedSegments;
+-    const guards = this.continuations.map(({ query, model }) => {
++    const continuations = this.continuationList ?? NO_CONTINUATIONS;
++    const guards = continuations.map(({ query, model }) => {
+       const context = this.statementContext(model, this.operation);
+       return {
+         ...this.transport._prepare(
+@@ -724,25 +774,23 @@ export class OperationContext {
+       };
+     });
+     const statements = [...guards, ...attempt.pending.splice(0)];
+-    const insertProducers = new Map(attempt.insertProducers);
+-    attempt.insertProducers.clear();
+-    const assertionFailures = new Map(attempt.assertionFailures);
+-    attempt.assertionFailures.clear();
++    const insertProducers = attempt.drainInsertProducers();
++    const assertionFailures = attempt.drainAssertedPremises();
+     for (const [index, guard] of guards.entries())
+       assertionFailures.set(guard, {
+-        query: this.continuations[index]!.query,
++        query: continuations[index]!.query,
+         present: true,
+         failure: new TransactionError(
+-          `Created record '${this.continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
++          `Created record '${continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+           { meta: { model: this.modelName, operation: this.operation } }
+         )
+       });
+-    const members = [...attempt.pendingMembers];
+-    attempt.pendingMembers.clear();
++    const members = attempt.drainMembers();
+     const acknowledged = async () => {
+       if (members.length === 0) return;
+       this.committedSegments++;
+-      for (const member of members) this.committedMembers.add(member);
++      const committed = (this.committedMemberSet ??= new Set());
++      for (const member of members) committed.add(member);
+       // This transport acknowledges before it has decoded anything, so the
+       // listener's failure is HELD rather than thrown: the operation's own
+       // answer is still to come, and it stays primary if it fails too
+@@ -849,7 +897,7 @@ export class OperationContext {
+             this.atomicAssertionRejection = failure;
+         }
+       }
+-      throw publishingGeneratedOutput || this.continuations.length > 0
++      throw publishingGeneratedOutput || this.continuationCount > 0
+         ? this.failure(
+             attributedError,
+             this.committedSegments > precedingSegments ? "result" : "member",
+@@ -889,10 +937,8 @@ export class OperationContext {
+     return value;
+   }
+   rejectedProducer(error: unknown): object | undefined {
+-    return this.attempt.rejectedInsert &&
+-      this.attempt.rejectedInsert.error === error
+-      ? this.attempt.rejectedInsert.producer
+-      : undefined;
++    const rejected = this.attemptStore?.rejectedInsert;
++    return rejected && rejected.error === error ? rejected.producer : undefined;
+   }
+   recoveryRejection(
+     error: unknown
+@@ -909,7 +955,7 @@ export class OperationContext {
+     return this.attempt;
+   }
+   restartRejectedInsert(attempt: TransportAttempt): void {
+-    this.attempt = attempt;
++    this.attemptStore = attempt;
+     this.atomicAssertionRejection = undefined;
+   }
+   /**
+@@ -965,8 +1011,8 @@ export class OperationContext {
+       undefined,
+       { selector }
+     );
+-    this.preparedGuards.push({
+-      queryIndex: this.attempt.pending.length,
++    (this.preparedGuardList ??= []).push({
++      queryIndex: this.queued.length,
+       premise: "exists",
+       probe: probe.sql,
+       failure: {
+@@ -1063,20 +1109,19 @@ export class OperationContext {
+         );
+       return result(output);
+     }
+-    const resultIndex = this.attempt.pending.length;
++    const resultIndex = this.queued.length;
+     for (const terminal of queries) this.queue(terminal.sql);
+-    if (this.attempt.scratchId)
++    const scratchId = this.attemptStore?.scratchId;
++    if (scratchId)
+       this.queue(
+-        getAdapterInternals(this.driver.adapter).batchRefs.cleanup(
+-          this.attempt.scratchId
+-        )
++        getAdapterInternals(this.driver.adapter).batchRefs.cleanup(scratchId)
+       );
+     if (this.ownership === "batch-preparation") {
+       this.preparedParser = (results) =>
+         result(this.decodeTerminalResults(queries, results, resultIndex));
+       return result([]);
+     }
+-    if (this.attempt.pending.length === 0) return result([]);
++    if (this.queued.length === 0) return result([]);
+     const responses = await this.submit();
+     return this.settleSubmitted(() => {
+       try {
+@@ -1093,14 +1138,16 @@ export class OperationContext {
+   }
+   preparedBatch(): PreparedBatchOperation<unknown> | undefined {
+     if (this.preparedParser === undefined) return undefined;
+-    if (this.attempt.assertionFailures.size > 0) return undefined;
++    if (this.attemptStore?.hasAssertedPremises) return undefined;
+     return {
+-      queries: this.attempt.pending.map((query) => ({
++      queries: this.queued.map((query) => ({
+         sql: query.sql,
+         params: query.params ?? [],
+         context: query.context ?? this.attribution
+       })),
+-      ...(this.preparedGuards.length ? { guards: this.preparedGuards } : {}),
++      ...(this.preparedGuardList?.length
++        ? { guards: this.preparedGuardList }
++        : {}),
+       parseResult: this.preparedParser
+     };
+   }
+@@ -1127,7 +1174,7 @@ export class OperationContext {
+     parse: (results: readonly QueryResult<unknown>[]) => unknown
+   ): Promise<unknown> {
+     if (this.ownership === "batch-preparation") {
+-      const firstResult = this.attempt.pending.length;
++      const firstResult = this.queued.length;
+       for (const statement of statements)
+         this.queue(statement.sql, statement.context);
+       this.preparedParser = (results) => {
+@@ -1168,8 +1215,8 @@ export class OperationContext {
+     // inside one atomic unit ({@link submit}).
+     const lone =
+       statements.length === 1 &&
+-      this.attempt.pending.length === 0 &&
+-      this.continuations.length === 0;
++      this.queued.length === 0 &&
++      this.continuationCount === 0;
+     if (this.usesBatch && !lone) {
+       const windowMember: Member = {};
+       this.setWindow = windowMember;
+@@ -1275,7 +1322,7 @@ export class OperationContext {
+   /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
+   private answered<T>(failure: T): T {
+     if (typeof failure === "object" && failure !== null)
+-      this.answeredFailures.add(failure);
++      (this.answeredFailureSet ??= new WeakSet()).add(failure);
+     return failure;
+   }
+   /**
+@@ -1780,7 +1827,7 @@ export class OperationContext {
+           returned.map((field) => [field, true])
+         );
+         const projection = q.prepareProjection(model, { select });
+-        const resultIndex = this.attempt.pending.length;
++        const resultIndex = this.queued.length;
+         const inserted = this.queue(
+           sql`${statement} ${adapter.mutations.returning(
+             sql.join(q.lowerProjection(projection).columns, ", ")
+@@ -1788,7 +1835,7 @@ export class OperationContext {
+           context,
+           member
+         );
+-        if (producer) this.attempt.insertProducers.set(inserted, producer);
++        if (producer) this.attempt.recordInsertProducer(inserted, producer);
+         const responses = await this.submit(true, member);
+         const stored = await this.settleSubmitted(() => {
+           try {
+@@ -1806,7 +1853,7 @@ export class OperationContext {
+             throw this.failure(error, "result", member);
+           }
+         });
+-        this.continuations.push({
++        (this.continuationList ??= []).push({
+           model,
+           query: q.select(model, {}, undefined, {
+             projection,
+@@ -1817,7 +1864,7 @@ export class OperationContext {
+       }
+       const scratchId = this.ensureScratch();
+       const inserted = this.queue(statement, context, member);
+-      if (producer) this.attempt.insertProducers.set(inserted, producer);
++      if (producer) this.attempt.recordInsertProducer(inserted, producer);
+       const key = String(this.attempt.nextField++);
+       this.queue(references.storeLastInsertId(scratchId, key));
+       published[produced[0]!] = adapter.expressions.cast(
+@@ -1826,7 +1873,7 @@ export class OperationContext {
+       );
+     } else {
+       const inserted = this.queue(statement, context, member);
+-      if (producer) this.attempt.insertProducers.set(inserted, producer);
++      if (producer) this.attempt.recordInsertProducer(inserted, producer);
+     }
+     return published;
+   }
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 8ced3819e..92ccb777b 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -50,6 +50,7 @@ import {
+   type Arguments,
+   type EngineSchema,
+   type Input,
++  type QueryViews,
+   type ReadOperation,
+   record,
+   entries,
+@@ -477,10 +478,13 @@ export function wholeValue(
+ /** Query scopes and output shapes share no record-identity requirement. */
+ export class Queries {
+   private nextAlias = 0;
++  private readonly views: QueryViews;
+   constructor(
+     readonly schema: EngineSchema,
+     readonly adapter: DatabaseAdapter,
+-  ) {}
++  ) {
++    this.views = schema.queryViews(adapter);
++  }
+   alias(): string {
+     return `q${this.nextAlias++}`;
+   }
+@@ -692,9 +696,29 @@ export class Queries {
+       return this.adapter.expressions.blobToHex(expression);
+     return expression;
+   }
++  /**
++   * One field's decoded leaf, resolved once per (adapter, model, field).
++   *
++   * The answer is the field's declared scalar, its nullability and the
++   * adapter's representation of it — schema and dialect only — so rebuilding a
++   * fresh frozen object (and a fresh enum `Set`) on every projection of every
++   * operation was pure repetition (rule 1). Nothing consumes a leaf by
++   * identity: the decoder, the cache codec and the shape readers all read its
++   * fields.
++   */
+   private scalarShape(model: AnyModel, field: string): Leaf {
+-    const physical = physicalField(this.schema, model, field);
+-    return this.leaf(physical.scalar, physical.nullable);
++    let leaves = this.views.leaves.get(model);
++    if (leaves === undefined) {
++      leaves = new Map();
++      this.views.leaves.set(model, leaves);
++    }
++    let shape = leaves.get(field);
++    if (shape === undefined) {
++      const physical = physicalField(this.schema, model, field);
++      shape = this.leaf(physical.scalar, physical.nullable);
++      leaves.set(field, shape);
++    }
++    return shape;
+   }
+   private leaf(scalar: Scalar, nullable: boolean): Leaf {
+     const state = scalar["~"].state;
+@@ -1241,7 +1265,7 @@ export class Queries {
+     const operand = () =>
+       owner
+         ? this.prepareOperand(owner, value)
+-        : Object.freeze<PreparedOperand>({ kind: "value", value });
++        : { kind: "value" as const, value };
+     switch (operator) {
+       case "in":
+       case "notIn":
+@@ -1253,7 +1277,7 @@ export class Queries {
+             (value as unknown[]).map((member) =>
+               owner
+                 ? this.prepareOperand(owner, member)
+-                : Object.freeze<PreparedOperand>({ kind: "value", value: member }),
++                : { kind: "value" as const, value: member },
+             ),
+           ),
+           insensitive,
+@@ -1284,12 +1308,25 @@ export class Queries {
+         });
+     }
+   }
++  /**
++   * One admitted filter member, resolved to the value it binds or the column it
++   * names.
++   *
++   * The operand is NOT frozen and the structure that holds it is: the prepared
++   * predicate ({@link prepareOperation}) and, for `in`/`notIn`, its operand
++   * list. One owner builds an operand and one owner reads it
++   * ({@link lowerOperation}), both in this file, so freezing each box restated
++   * the same immutability the enclosing predicate already carries — and
++   * restated it PER MEMBER: `Object.freeze` transitions a fresh object's map on
++   * every call, measured at 1.98–2.20 µs for the 100 members of one
++   * `id: { in: ids₁₀₀ }` against 0.25–0.28 µs for the same 100 boxes
++   * (`g4/perf2/receipts/micro-in-list.json`).
++   */
+   private prepareOperand(
+     owner: PreparedScalar,
+     value: unknown,
+   ): PreparedOperand {
+-    if (!isFieldRef(value))
+-      return Object.freeze({ kind: "value", value });
++    if (!isFieldRef(value)) return { kind: "value", value };
+     const { model } = owner;
+     const payload = fieldRefPayload(value);
+     const scope = model["~"].names.ts ?? "unknown";
+@@ -1308,14 +1345,14 @@ export class Queries {
+       throw new QueryEngineError(
+         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`,
+       );
+-    return Object.freeze({
++    return {
+       kind: "field",
+       scalar: Object.freeze({
+         model,
+         field: payload.field,
+         physical: physicalField(this.schema, model, payload.field),
+       }),
+-    });
++    };
+   }
+   /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
+   private prepareSlotPredicate(
+@@ -3005,10 +3042,24 @@ export class Queries {
+       },
+     };
+   }
++  /**
++   * One immutable alias-free projection description and decoder shape.
++   *
++   * An operation that names NEITHER `select` NOR `include` asks for the model's
++   * DEFAULT projection, which is a fact of the model and the dialect and of
++   * nothing else, so it is resolved once per (adapter, model) and shared
++   * ({@link QueryViews}). Every other operation prepares per operation exactly
++   * as before, reusing only the per-field leaves.
++   */
+   prepareProjection(
+     model: AnyModel,
+     args: Partial<Arguments>,
+   ): PreparedProjection {
++    const shared = args.select === undefined && args.include === undefined;
++    if (shared) {
++      const resolved = this.views.defaultProjections.get(model);
++      if (resolved !== undefined) return resolved;
++    }
+     // `omit` is desugared into `select` at admission; an explicit selection and
+     // an include can therefore both be present and both belong to the result.
+     const selected = {
+@@ -3115,11 +3166,13 @@ export class Queries {
+       fields[name] = this.relationShape(nested);
+       prepared.push(Object.freeze({ kind: "relation", name, ...nested }));
+     }
+-    return Object.freeze({
++    const projection: PreparedProjection = Object.freeze({
+       model,
+       fields: Object.freeze(prepared),
+       shape: Object.freeze({ kind: "object", fields: Object.freeze(fields) }),
+     });
++    if (shared) this.views.defaultProjections.set(model, projection);
++    return projection;
+   }
+   /**
+    * A to-many node's decoded shape. A negative `take` runs the reversed window
+diff --git a/src/query-engine/raptor3/shared/schema.ts b/src/query-engine/raptor3/shared/schema.ts
+index 8bfc956dc..6d70b8d33 100644
+--- a/src/query-engine/raptor3/shared/schema.ts
++++ b/src/query-engine/raptor3/shared/schema.ts
+@@ -1,3 +1,4 @@
++import type { DatabaseAdapter } from "@adapters/database-adapter";
+ import type { AnyDriver } from "@drivers";
+ import { QueryEngineError } from "@errors";
+ import { hydrateSchemaNames, type Schema } from "@schema/hydration";
+@@ -14,6 +15,7 @@ import {
+   parseValidated,
+   upsertEnvelopeSchema,
+ } from "../../write-engine/parse-boundary";
++import type { Leaf, PreparedProjection } from "./query";
+ import {
+   buildMembershipView,
+   buildPhysicalFieldView,
+@@ -125,6 +127,31 @@ export function entries(value: unknown): Input[] {
+   return Array.isArray(value) ? value : [record(value)];
+ }
+ 
++/**
++ * What this engine resolves once per (adapter, model) and never again.
++ *
++ * Both members are a pure function of the schema and the dialect, which is why
++ * they may be shared at all (rule 1): a scalar leaf is the field's declared
++ * type, nullability and the adapter's own `dateTime` representation; the
++ * DEFAULT projection is `scalarFieldNames` minus the model's own `omit`, and an
++ * operation-level `omit` never reaches the projection owner — admission
++ * desugars it into `select`, which takes the per-operation path. Nothing
++ * admitted and nothing a provider answered is stored (rule 5).
++ *
++ * The two member types are the query owner's, imported for their names only:
++ * `import type` adds no runtime edge, so `shared/query.ts` keeps its one
++ * runtime import of this file and this file keeps none of it.
++ */
++export type QueryViews = {
++  readonly leaves: WeakMap<AnyModel, Map<string, Leaf>>;
++  readonly defaultProjections: WeakMap<AnyModel, PreparedProjection>;
++};
++
++const createQueryViews = (): QueryViews => ({
++  leaves: new WeakMap(),
++  defaultProjections: new WeakMap(),
++});
++
+ export class EngineSchema {
+   readonly index;
+   readonly registry;
+@@ -508,6 +535,36 @@ export class EngineSchema {
+     }
+     return descriptor;
+   }
++  /**
++   * One adapter's {@link QueryViews}, created on its first use.
++   *
++   * `EngineSchema` already owns the lazy immutable per-model views this engine
++   * resolves from the schema alone, but these two are also a fact of the
++   * DIALECT — a scalar leaf carries the adapter's own `dateTime`
++   * representation — and a `Queries` instance is per-operation for writes, so
++   * neither owner alone can hold them. The adapter is the second key and it is
++   * held weakly, so a view store lives exactly as long as the adapter it
++   * describes. What it may hold is what every view here may hold: facts
++   * derived from the schema and the dialect, never an admitted input, an
++   * alias, an operation demand or a provider row (rule 5).
++   *
++   * The accessor names its one fact, like every other view on this class, so
++   * the store cannot be reached for a second shape: an anonymous
++   * `scope(adapter, create)` would hand a second caller the first caller's
++   * object under the second caller's type, and the cast would hide it.
++   */
++  private readonly queryViewsByAdapter = new WeakMap<
++    DatabaseAdapter,
++    QueryViews
++  >();
++  queryViews(adapter: DatabaseAdapter): QueryViews {
++    let views = this.queryViewsByAdapter.get(adapter);
++    if (views === undefined) {
++      views = createQueryViews();
++      this.queryViewsByAdapter.set(adapter, views);
++    }
++    return views;
++  }
+   storedFields(model: AnyModel): readonly string[] {
+     let fields = this.storedFieldLists.get(model);
+     if (!fields) {
+diff --git a/src/query-engine/raptor3/shared/transport-attempt.ts b/src/query-engine/raptor3/shared/transport-attempt.ts
+index 6c1068241..ee39e530d 100644
+--- a/src/query-engine/raptor3/shared/transport-attempt.ts
++++ b/src/query-engine/raptor3/shared/transport-attempt.ts
+@@ -3,16 +3,60 @@ import type { UniqueConstraintError } from "@errors";
+ import type { Member } from "./operation-context";
+ import type { Query } from "./query";
+ 
+-/** Disposable batch construction and rejection evidence; never committed progress. */
++/** One assertion this attempt raises if its statement disagrees with the world. */
++type AssertedPremise = { query: Query; present: boolean; failure: Error };
++
++/**
++ * Disposable batch construction and rejection evidence; never committed progress.
++ *
++ * Only {@link pending} belongs to every attempt. The three evidence collections
++ * exist from the first fact each one records, because an operation that records
++ * none — every read, prepared or executed — would otherwise pay two `Map`s and a
++ * `Set` per operation for collections nothing ever reads (rule 7,
++ * `g4/perf2/note.md` §2). An absent collection IS empty: the drain accessors
++ * below answer an empty copy, and {@link hasAssertedPremises} answers `false`,
++ * so no reader can tell absent from empty.
++ */
+ export class TransportAttempt {
+   readonly pending: BatchQuery[] = [];
+-  readonly insertProducers = new Map<BatchQuery, object>();
+   rejectedInsert?: { error: UniqueConstraintError; producer: object };
+-  readonly assertionFailures = new Map<
+-    BatchQuery,
+-    { query: Query; present: boolean; failure: Error }
+-  >();
+-  readonly pendingMembers = new Set<Member>();
+   scratchId?: string;
+   nextField = 0;
++  private producers?: Map<BatchQuery, object>;
++  private premises?: Map<BatchQuery, AssertedPremise>;
++  private members?: Set<Member>;
++  /** Attribute one queued INSERT to the producer whose row it writes. */
++  recordInsertProducer(insert: BatchQuery, producer: object): void {
++    (this.producers ??= new Map()).set(insert, producer);
++  }
++  /** Record the failure one queued assertion raises when it disagrees. */
++  assertPremise(assertion: BatchQuery, premise: AssertedPremise): void {
++    (this.premises ??= new Map()).set(assertion, premise);
++  }
++  /** Declare one queued statement as belonging to a record-series member. */
++  recordMember(member: Member): void {
++    (this.members ??= new Set()).add(member);
++  }
++  /** Whether any assertion has been recorded, without creating the map. */
++  get hasAssertedPremises(): boolean {
++    return this.premises !== undefined && this.premises.size > 0;
++  }
++  /** The producers recorded so far; this attempt keeps none of them. */
++  drainInsertProducers(): Map<BatchQuery, object> {
++    const producers = this.producers ?? new Map<BatchQuery, object>();
++    this.producers = undefined;
++    return producers;
++  }
++  /** The assertions recorded so far; this attempt keeps none of them. */
++  drainAssertedPremises(): Map<BatchQuery, AssertedPremise> {
++    const premises = this.premises ?? new Map<BatchQuery, AssertedPremise>();
++    this.premises = undefined;
++    return premises;
++  }
++  /** The members declared so far; this attempt keeps none of them. */
++  drainMembers(): Member[] {
++    const members = this.members ? [...this.members] : [];
++    this.members = undefined;
++    return members;
++  }
+ }
+diff --git a/tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts b/tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts
+new file mode 100644
+index 00000000..ca2b8475
+--- /dev/null
++++ b/tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts
+@@ -0,0 +1,256 @@
++/**
++ * G4 performance pass 2, item 2 — an immutable schema fact is resolved once.
++ *
++ * `Queries.prepareProjection` rebuilt the model's DEFAULT projection on every
++ * read: `Object.fromEntries(scalarFieldNames.filter(…).map(…))`, then a fresh
++ * frozen descriptor and a fresh frozen leaf per field, on an input that names
++ * neither `select` nor `include` and therefore depends on nothing but the model
++ * and the dialect (`g4/perf2/note.md` §0.4, rows 1 and 3). It is now memoised
++ * per (adapter, model), and each scalar leaf per (adapter, model, field).
++ *
++ * A memo is only as good as what it refuses to hold, so these cells pin the
++ * refusals, not the speed:
++ *
++ * - an operation that names `select`, `include` or `omit` still prepares its
++ *   own projection, and never receives — or replaces — the shared one. `omit`
++ *   is the load-bearing case, because the memo's whole safety argument is that
++ *   admission desugars an operation-level `omit` into `select` before the
++ *   projection owner ever sees it (rule 5: capture is not permanent truth);
++ * - a second ADAPTER does not read the first adapter's memo, which is why the
++ *   store is keyed by the adapter at all: a leaf carries the adapter's own
++ *   `dateTime` representation;
++ * - what is shared holds no alias and no `Sql` — a memo that captured a
++ *   statement-local alias would publish one operation's alias in another's SQL.
++ *
++ * Not registered in `scripts/raptor3-manifest.mjs` by this pass (it edits no
++ * manifest); the count is reported to the integrator for `g4-unit02-author`.
++ */
++
++import assert from "node:assert/strict";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
++import { Queries } from "@query-engine/raptor3/shared/query";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import { Sql } from "@sql";
++import { describe, it } from "vitest";
++
++function reuseSchema() {
++  const author = s
++    .model({
++      id: s.int().id(),
++      name: s.string(),
++      secret: s.string(),
++      posts: s.toMany(() => post).name("authored"),
++    })
++    .map("g4_perf2_reuse_authors");
++  const post = s
++    .model({
++      id: s.int().id(),
++      title: s.string(),
++      authorId: s.int().map("author_id"),
++      author: s
++        .toOne(() => author)
++        .fields("authorId")
++        .references("id")
++        .name("authored"),
++    })
++    .map("g4_perf2_reuse_posts");
++  return { author, post };
++}
++
++/** Every field name the prepared projection publishes, in its own order. */
++function names(projection: { fields: readonly { name: string }[] }): string[] {
++  return projection.fields.map((field) => field.name);
++}
++
++/** Whether any alias or lowered SQL is reachable from a value that is shared. */
++function holdsSql(value: unknown, seen = new WeakSet<object>()): boolean {
++  if (value instanceof Sql) return true;
++  if (value === null || typeof value !== "object" || seen.has(value)) return false;
++  seen.add(value);
++  for (const key of Reflect.ownKeys(value))
++    if (holdsSql(Reflect.get(value, key), seen)) return true;
++  return false;
++}
++
++describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)", () => {
++  it("answers the same projection for every operation that names no selection", () => {
++    const schema = reuseSchema();
++    const engine = new EngineSchema(schema);
++    const adapter = new SQLiteAdapter();
++    const first = new Queries(engine, adapter);
++    const second = new Queries(engine, adapter);
++
++    const one = first.prepareProjection(schema.author, {});
++    const two = first.prepareProjection(schema.author, { where: { id: 1 } });
++    const three = second.prepareProjection(schema.author, {});
++
++    assert.equal(one, two, "two default projections of one model differ");
++    assert.equal(
++      one,
++      three,
++      "a second Queries over the same schema and adapter rebuilt the default"
++    );
++    assert.deepEqual(names(one), ["id", "name", "secret"]);
++    assert.equal(Object.isFrozen(one), true);
++    assert.equal(Object.isFrozen(one.fields), true);
++    assert.equal(Object.isFrozen(one.shape), true);
++    assert.equal(holdsSql(one), false, "a shared projection retained lowered SQL");
++
++    // And a different MODEL of the same schema gets its own, not this one.
++    const other = first.prepareProjection(schema.post, {});
++    assert.notEqual(other, one);
++    assert.deepEqual(names(other), ["id", "title", "authorId"]);
++  });
++
++  it("never hands the shared projection to an operation that names a selection", () => {
++    const schema = reuseSchema();
++    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
++    const shared = queries.prepareProjection(schema.author, {});
++
++    const selected = queries.prepareProjection(schema.author, {
++      select: { id: true, name: true },
++    });
++    assert.notEqual(selected, shared);
++    assert.deepEqual(names(selected), ["id", "name"]);
++
++    const included = queries.prepareProjection(schema.author, {
++      include: { posts: true },
++    });
++    assert.notEqual(included, shared);
++    assert.deepEqual(names(included), ["id", "name", "secret", "posts"]);
++
++    // Neither replaced the shared one, and neither is remembered itself.
++    assert.equal(queries.prepareProjection(schema.author, {}), shared);
++    assert.notEqual(
++      queries.prepareProjection(schema.author, {
++        select: { id: true, name: true },
++      }),
++      selected
++    );
++  });
++
++  it("refuses the shared projection to an omit, because admission desugared it", () => {
++    const schema = reuseSchema();
++    const engine = new EngineSchema(schema);
++    const queries = new Queries(engine, new SQLiteAdapter());
++    const shared = queries.prepareProjection(schema.author, {});
++
++    const admitted = engine.admit(schema.author, "findMany", {
++      omit: { secret: true },
++    });
++    assert.notEqual(
++      admitted.select,
++      undefined,
++      "admission no longer desugars omit into select, which the memo relies on"
++    );
++
++    const omitted = queries.prepareProjection(schema.author, admitted);
++    assert.notEqual(omitted, shared, "an omit received the default projection");
++    assert.deepEqual(names(omitted), ["id", "name"]);
++    assert.deepEqual(names(queries.prepareProjection(schema.author, {})), [
++      "id",
++      "name",
++      "secret",
++    ]);
++  });
++
++  it("keys the store by the adapter, and one leaf per (adapter, model, field)", () => {
++    const schema = reuseSchema();
++    const engine = new EngineSchema(schema);
++    const sqlite = new Queries(engine, new SQLiteAdapter());
++    const other = new Queries(engine, new SQLiteAdapter());
++
++    const mine = sqlite.prepareProjection(schema.author, {});
++    const theirs = other.prepareProjection(schema.author, {});
++    assert.notEqual(mine, theirs, "a second adapter read the first one's memo");
++    assert.deepEqual(names(mine), names(theirs));
++
++    // One leaf per field, shared by every projection of that adapter.
++    const selected = sqlite.prepareProjection(schema.author, {
++      select: { name: true },
++    });
++    assert.equal(
++      selected.shape.fields.name,
++      mine.shape.fields.name,
++      "the same field's leaf was rebuilt for a selected projection"
++    );
++    assert.notEqual(
++      theirs.shape.fields.name,
++      mine.shape.fields.name,
++      "two adapters shared one leaf"
++    );
++  });
++});
++
++/**
++ * G4 performance pass 2, item 4 — the prepared predicate is frozen; each of its
++ * operands is not.
++ *
++ * `prepareOperand` froze one box per admitted member, so an
++ * `id: { in: ids₁₀₀ }` paid 100 `Object.freeze` map transitions per operation
++ * — measured at 1.98–2.20 µs against 0.25–0.28 µs for the same 100 boxes
++ * (`g4/perf2/receipts/micro-in-list.json`), which is `prepareOperand`'s whole
++ * measured self time on `bulk-update-returning-100/prepare`. One owner builds
++ * an operand (`Queries.prepareOperations`) and one reads it
++ * (`Queries.lowerOperation`), both inside `shared/query.ts`, and no cell of
++ * this harness ever observed a prepared operand's frozen-ness; the immutability
++ * that IS observable — the predicate and the operand list — stays.
++ */
++/** The prepared predicate type, read from the one owner that publishes it. */
++type PreparedPredicate = NonNullable<
++  ReturnType<Queries["prepareSelector"]>["predicate"]
++>;
++
++/** The one `in` operation of a prepared predicate tree, wherever it sits. */
++function findIn(
++  predicate: PreparedPredicate | undefined
++): Extract<PreparedPredicate, { kind: "operation" }> | undefined {
++  if (!predicate) return undefined;
++  if (predicate.kind === "operation")
++    return predicate.operator === "in" ? predicate : undefined;
++  if (predicate.kind === "and" || predicate.kind === "or") {
++    for (const member of predicate.predicates) {
++      const found = findIn(member);
++      if (found) return found;
++    }
++  }
++  if (predicate.kind === "not") return findIn(predicate.predicate);
++  return undefined;
++}
++
++describe("G4 perf pass 2 item 4 — one freeze per predicate, not per member", () => {
++  it("freezes the predicate and its operand list, and binds every member once", () => {
++    const schema = reuseSchema();
++    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
++    const ids = Array.from({ length: 8 }, (_, index) => index + 1);
++    const selector = queries.prepareSelector(schema.author, {
++      id: { in: ids },
++    });
++
++    const conjunction = selector.predicate;
++    assert.ok(conjunction && conjunction.kind === "and");
++    assert.equal(Object.isFrozen(conjunction), true);
++    assert.equal(Object.isFrozen(conjunction.predicates), true);
++    const operation = findIn(conjunction);
++    assert.ok(operation, "the prepared selector carries no `in` operation");
++    assert.equal(Object.isFrozen(operation), true);
++    assert.ok(operation.operands);
++    assert.equal(Object.isFrozen(operation.operands), true);
++    assert.deepEqual(
++      operation.operands.map((operand) =>
++        operand.kind === "value" ? operand.value : "field"
++      ),
++      ids
++    );
++
++    // The one thing a consumer can see: the same selector lowers to the same
++    // statement and the same parameters, twice.
++    const first = queries.lowerSelector(selector, "q0");
++    const second = queries.lowerSelector(selector, "q0");
++    assert.ok(first && second);
++    assert.equal(first.toStatement("?"), second.toStatement("?"));
++    assert.deepEqual(first.values, ids);
++    assert.deepEqual(second.values, ids);
++  });
++});

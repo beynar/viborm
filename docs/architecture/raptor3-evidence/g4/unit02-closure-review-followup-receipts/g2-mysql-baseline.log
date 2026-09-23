@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-legacy.test.ts (7 tests) 399ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-legacy.test.ts (2 tests) 160ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-legacy.test.ts (3 tests) 159ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-legacy.test.ts (1 test) 65ms
+
+ Test Files  4 passed (4)
+      Tests  13 passed (13)
+   Start at  16:07:16
+   Duration  3.24s (transform 1.28s, setup 13ms, collect 2.26s, tests 783ms, environment 0ms, prepare 42ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-dd6L0d/vitest.json
+Vitest resources: 6.95s wall, 672.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-mysql-baseline contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-dd6L0d

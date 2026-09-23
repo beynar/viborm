@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rint
+
+ ✓ |extended-local| tests/contracts/engine/write/child-held-to-one-multi-kind.test.ts (7 tests) 684ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  12:36:20
+   Duration  2.01s (transform 796ms, setup 9ms, collect 1.17s, tests 684ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.65s wall, 1463.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

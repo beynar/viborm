@@ -1,0 +1,7 @@
+exit=1
+    at ChildProcess.<anonymous> (file:///private/tmp/viborm-g4-perf-baseline/benchmarks/operation-pipeline-compare.mjs:519:11)
+    at ChildProcess.wrapper (node:events:639:12)
+    at ChildProcess.emit (node:events:514:28)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12)
+
+Node.js v24.21.0

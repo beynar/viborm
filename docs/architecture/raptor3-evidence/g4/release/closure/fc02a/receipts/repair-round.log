@@ -1,0 +1,19 @@
+# FC-02A repair round (2026-09-21) — re-runs after the documentation repair
+
+$ node scripts/run-vitest-safe.mjs run tests/raptor3/g4/parity/cascaded-current-identity.test.ts
+ RUN  v3.1.4 /private/tmp/viborm-fc02a
+
+ ✓ |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests) 112ms
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  22:24:00
+   Duration  1.70s (transform 890ms, setup 9ms, collect 1.36s, tests 112ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 3.54s wall, 541.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+$ node_modules/.bin/biome check tests/raptor3/g4/parity/cascaded-current-identity.test.ts
+Checked 1 file in 33ms. No fixes applied.
+
+$ node scripts/run-typecheck.mjs  -> exit 0
+TypeScript (whole estate, native): 5.85s wall, 5318.6 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

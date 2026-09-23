@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/ownership/commands.test.ts (6 tests) 19ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  01:14:09
+   Duration  1.47s (transform 790ms, setup 10ms, collect 1.20s, tests 19ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-KvFwb0/vitest.json
+Vitest resources: 3.67s wall, 442.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g27-contracts contract gate verified. Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-KvFwb0

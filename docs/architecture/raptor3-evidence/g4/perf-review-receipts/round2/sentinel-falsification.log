@@ -1,0 +1,24 @@
+Reviewer round-2 falsification of the registered sentinel cell (independent run).
+
+Mutation: src/query-engine/raptor3/shared/operation-context.ts:174-178, the
+`incompletePreparation` getter body replaced with
+  return new Error("Raptor 3 operation requires dynamic execution");
+(the `??=` memo dropped, nothing else changed).
+File backed up first to the session scratchpad; sha256 of the mutated file
+3e2ad5412b18bbae9e4b9812654a8fed4353cf783534249e62e74ebaad43a892.
+
+node scripts/run-vitest-safe.mjs run tests/raptor3/g4/unit02/prepared-operation.test.ts
+  -> 6 tests | 1 failed
+     the five pre-existing cells green
+     x "answers undefined for an operation that cannot be packaged, every time"
+       Error: Raptor 3 operation requires dynamic execution
+         at OperationContext.get incompletePreparation (operation-context.ts:175:12)
+         ... Object.prepareBatch (commands/index.ts:202 / :231)
+
+Restored from the scratchpad copy; sha256
+53acb07c45ebd4efdd67435071a34d6335f697eb5026cd885cc8797149f12277
+(the hash recorded in round 1 and by the author in round 2).
+Production identity recomputed after the restore:
+2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975
+g4-unit02-author re-run: 19 files, 128 passed, exit 1 on the registered-count
+check only ("Missing candidate/profile/scenario cell ... 6 !== 5").

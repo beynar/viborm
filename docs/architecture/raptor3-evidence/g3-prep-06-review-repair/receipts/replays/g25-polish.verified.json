@@ -1,0 +1,23 @@
+{
+  "mode": "replay",
+  "identity": {
+    "production": "934ef37d910c99efcea7c435e2db9ce65df6080cf91868bc0704dab1f1401ecb",
+    "harness": "a33ee9da46496cb2239ee567effc54766b6ca7011f89dfee5d559f0eafb41d70",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "replayInput": {
+    "path": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Pv1t87/g25-polish-corpus.json",
+    "sha256": "a50aeb8ba69e4563aad80f8c4e77ec13481137f6e3c7e5366439fef6e52b2147"
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "comment": "captureRaptor3Identity() in /private/tmp/viborm-g4-perf-candidate at commit be447a3b (production + harness copied, cutover NOT yet applied). Byte-identical to the same call in /Users/arnaud/code/viborm at the same moment, which is how the copy was verified.",
+  "commit": "be447a3b",
+  "production": "69dcfd215b36afb10b0089411156e258d4a409871d745396a716cc91d8255546",
+  "harness": "eadf9d76888be1be448c579a1b078e487ffbfd7d8b2cad7eb77ec264abb9ca66",
+  "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sqliteDriver": "12.6.0",
+    "vitest": "3.1.4"
+  },
+  "mainTreeAtCopyTime": {
+    "production": "69dcfd215b36afb10b0089411156e258d4a409871d745396a716cc91d8255546",
+    "harness": "eadf9d76888be1be448c579a1b078e487ffbfd7d8b2cad7eb77ec264abb9ca66"
+  }
+}

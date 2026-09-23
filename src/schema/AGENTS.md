@@ -3,6 +3,13 @@
 **Location:** `src/schema/`  
 **Layer:** L2-L5 - Schema Definition (see [root AGENTS.md](../../AGENTS.md))
 
+> **One provenance citation in this layer names a V1 file that no longer exists.**
+> The pattern retirement (Arnaud's decision D-15) deleted `query-engine/builders/`
+> whole. `field-ref.ts:31` carries an editor link,
+> `{@link file://../query-engine/builders/where-builder.ts}`, which now resolves to
+> nothing: it records WHERE V1 decided the SAME-MODEL rule for a field reference,
+> so read it in git history (`e8114ed9`), not on disk.
+
 ## Purpose
 
 Defines database schema using type-safe builders (scalars, models, relations) that enable fully-typed queries without code generation.
@@ -161,9 +168,13 @@ unique-selector grammar; `referenceableKeys` adds total unique indexes and is
 the one physical-key view used by stored-reference validation and relation
 cardinality derivation. Compound ID, compound unique, index, and relation
 field/reference tuples reject repeated members at their declaration owners.
-A compound selector name identifies one tuple across IDs and uniques; a second
-explicit or underscore-derived name collision is refused at declaration rather
-than overwriting the first tuple. Model key and index declarations snapshot
+A compound selector is not a model field. Its model-local public query name
+must not overlap a model field, `AND`/`OR`/`NOT`, or another compound selector;
+the mandatory definition-validation rule I006 refuses the schema once before
+operation-schema construction can merge those names. Mapped columns and
+provider constraint names belong to separate physical namespaces. Same-kind
+compound declarations still refuse before Record storage can overwrite the
+first tuple. Model key and index declarations snapshot
 their member arrays. Index options are read once by their four public names so
 later caller mutation cannot change the model and inherited accessors do not
 silently lose a partial predicate or uniqueness fact.

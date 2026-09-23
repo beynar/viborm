@@ -1,0 +1,240 @@
+/**
+ * D-40 REVIEW PROBE — independent reproduction of the author's measurement.
+ *
+ * Installs, above the SHIPPED (post-deletion) adapter `parseResult`, a recorder
+ * that ALSO asks what the DELETED leg would have decided about the same raw
+ * (the helper bodies below are copied verbatim from `383f830c`), and then runs
+ * the same operation set a second time with the DELETED leg reinstalled, so the
+ * public answers before and after the deletion are compared on a live provider.
+ *
+ * Removed from the tree once its receipt is taken.
+ */
+
+import assert from "node:assert/strict";
+import { createClient } from "@client/client";
+import type { AnyDriver } from "@drivers";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+
+// ---- verbatim from 383f830c src/adapters/shared/result-parsing.ts ----------
+const COUNT_RESULT_KEY = "0viborm_count_result" as const;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+function extractCountValue(row: Record<string, unknown>): unknown | undefined {
+  const entries = Object.entries(row);
+  if (entries.length !== 1) return undefined;
+  for (const [key, value] of entries) {
+    if (key === COUNT_RESULT_KEY || key.toLowerCase().startsWith("count(")) {
+      return value;
+    }
+  }
+  return undefined;
+}
+export function normalizeCountResult(
+  raw: unknown
+): [{ [COUNT_RESULT_KEY]: unknown }] | undefined {
+  if (Array.isArray(raw) && raw.length === 1) {
+    const firstRow = raw[0];
+    if (isRecord(firstRow)) {
+      const countValue = extractCountValue(firstRow);
+      if (countValue !== undefined) return [{ [COUNT_RESULT_KEY]: countValue }];
+    }
+  }
+  if (isRecord(raw)) {
+    const countValue = extractCountValue(raw);
+    if (countValue !== undefined) return [{ [COUNT_RESULT_KEY]: countValue }];
+  }
+  return undefined;
+}
+export function convertBigIntToNumber(value: unknown): number | undefined {
+  if (typeof value === "bigint") return Number(value);
+  return undefined;
+}
+// ---------------------------------------------------------------------------
+
+const widget = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    rank: s.int(),
+    active: s.boolean(),
+  })
+  .map("o2r_review_widgets");
+
+const schema = { widget };
+
+const show = (value: unknown): string =>
+  JSON.stringify(value, (_key, inner) =>
+    typeof inner === "bigint" ? `${inner}n` : inner
+  ) ?? String(value);
+
+type Leg = (
+  raw: unknown,
+  operation: string,
+  next: (value?: unknown) => unknown
+) => unknown;
+
+/** The MySQL leg exactly as `383f830c` shipped it. */
+const deletedMysqlLeg: Leg = (raw, operation, next) => {
+  if (operation === "count" || operation === "exist") {
+    const normalized = normalizeCountResult(raw);
+    if (normalized) return next(normalized);
+  }
+  return next();
+};
+
+/** The PostgreSQL leg exactly as `383f830c` shipped it. */
+const deletedPostgresLeg: Leg = (raw, _operation, next) => {
+  const converted = convertBigIntToNumber(raw);
+  if (converted !== undefined) return converted;
+  return next();
+};
+
+export const DELETED_LEGS = {
+  mysql: deletedMysqlLeg,
+  postgres: deletedPostgresLeg,
+} as const;
+
+export async function runReviewProbe(options: {
+  readonly provider: string;
+  readonly driver: AnyDriver;
+  readonly deletedLeg: Leg;
+}): Promise<void> {
+  const { provider, driver, deletedLeg } = options;
+  const client = createClient({ schema, driver });
+  await syncLiveSchema(client);
+  await client.widget.deleteMany({});
+  await client.widget.create({
+    data: { id: 1, name: "first", rank: 3, active: true },
+  });
+  await client.widget.create({
+    data: { id: 2, name: "second", rank: 5, active: false },
+  });
+
+  const shipped = driver.adapter.result.parseResult;
+  let phase = "shipped";
+  let legDecisions = 0;
+  let asks = 0;
+
+  // Phase 1: the SHIPPED pass-through, with a recorder that asks the DELETED
+  // leg's own helper what it would have decided about the very same raw.
+  driver.adapter.result.parseResult = (raw, operation, next) => {
+    let nextCalls = 0;
+    let nextArgument = "not-called";
+    let nextAnswer: unknown;
+    const observed = (value?: unknown): unknown => {
+      nextCalls += 1;
+      nextArgument = value === undefined ? "next()" : `next(${show(value)})`;
+      nextAnswer = next(value);
+      return nextAnswer;
+    };
+    const returned = shipped(raw, operation, observed);
+    const decision =
+      provider === "mysql"
+        ? operation === "count" || operation === "exist"
+          ? normalizeCountResult(raw)
+          : "arm-not-entered"
+        : convertBigIntToNumber(raw);
+    if (decision !== undefined && decision !== "arm-not-entered") {
+      legDecisions += 1;
+    }
+    asks += 1;
+    process.stdout.write(
+      `O2RPROBE ${provider} phase=${phase} op=${operation} raw=${show(raw)} deletedLegWouldDecide=${show(decision) ?? "undefined"} nextCalls=${nextCalls} next=${nextArgument} returnedNextAnswer=${String(nextCalls > 0 && Object.is(returned, nextAnswer))}\n`
+    );
+    return returned;
+  };
+
+  const reads = async () => ({
+    count: await client.widget.count({}),
+    filteredCount: await client.widget.count({ where: { rank: 5 } }),
+    countAll: await client.widget.count({ select: { _all: true } }),
+    existTrue: await client.widget.exist({ where: { rank: 5 } }),
+    existFalse: await client.widget.exist({ where: { rank: 99 } }),
+    aggregate: await client.widget.aggregate({ _sum: { rank: true } }),
+    findManyIds: (await client.widget.findMany({ orderBy: { id: "asc" } })).map(
+      (row) => row.id
+    ),
+    findUnique: (await client.widget.findUnique({ where: { id: 1 } }))?.rank,
+  });
+
+  const preparedReads = async () => {
+    const rows = await client.$transaction([
+      client.widget.count({}),
+      client.widget.count({ where: { rank: 5 } }),
+      client.widget.count({ select: { _all: true } }),
+      client.widget.exist({ where: { rank: 5 } }),
+      client.widget.exist({ where: { rank: 99 } }),
+      client.widget.aggregate({ _sum: { rank: true } }),
+      client.widget.findMany({ orderBy: { id: "asc" } }),
+      client.widget.findUnique({ where: { id: 1 } }),
+    ]);
+    return {
+      count: rows[0],
+      filteredCount: rows[1],
+      countAll: rows[2],
+      existTrue: rows[3],
+      existFalse: rows[4],
+      aggregate: rows[5],
+      findManyIds: (rows[6] as { id: number }[]).map((row) => row.id),
+      findUnique: (rows[7] as { rank: number } | null)?.rank,
+    };
+  };
+
+  const writes = async (id: number) => ({
+    created: (
+      await client.widget.create({
+        data: { id, name: `w${id}`, rank: 7, active: true },
+      })
+    ).rank,
+    updated: (await client.widget.update({ where: { id }, data: { rank: 9 } }))
+      .rank,
+    preparedWrites: (
+      await client.$transaction([
+        client.widget.create({
+          data: { id: id + 1, name: `w${id + 1}`, rank: 1, active: false },
+        }),
+        client.widget.update({ where: { id: id + 1 }, data: { rank: 11 } }),
+      ])
+    ).map((row) => (row as { rank: number }).rank),
+  });
+
+  const shippedLive = await reads();
+  const shippedPrepared = await preparedReads();
+  const shippedWrites = await writes(11);
+  await client.widget.deleteMany({ where: { id: { in: [11, 12] } } });
+  const shippedAsks = asks;
+
+  // Phase 2: the DELETED leg reinstalled above the shipped pass-through — the
+  // pre-deletion behavior, on the same live provider and the same state.
+  phase = "deleted-leg-reinstalled";
+  driver.adapter.result.parseResult = (raw, operation, next) =>
+    deletedLeg(raw, operation, next);
+  const restoredLive = await reads();
+  const restoredPrepared = await preparedReads();
+  const restoredWrites = await writes(21);
+  await client.widget.deleteMany({ where: { id: { in: [21, 22] } } });
+
+  const same = (left: unknown, right: unknown) =>
+    JSON.stringify(left) === JSON.stringify(right);
+  process.stdout.write(
+    `O2RPROBE ${provider} shippedLive=${show(shippedLive)}\n` +
+      `O2RPROBE ${provider} shippedPrepared=${show(shippedPrepared)}\n` +
+      `O2RPROBE ${provider} deletedLegLive=${show(restoredLive)}\n` +
+      `O2RPROBE ${provider} deletedLegPrepared=${show(restoredPrepared)}\n` +
+      `O2RPROBE ${provider} shippedWrites=${show(shippedWrites)}\n` +
+      `O2RPROBE ${provider} deletedLegWrites=${show(restoredWrites)}\n` +
+      `O2RPROBE ${provider} VERDICT asks=${shippedAsks} legWouldHaveDecided=${legDecisions} liveSame=${same(shippedLive, restoredLive)} preparedSame=${same(shippedPrepared, restoredPrepared)} writesSame=${same(shippedWrites, restoredWrites)}\n`
+  );
+
+  assert.equal(legDecisions, 0, "the deleted leg decides nothing on this live provider");
+  assert.ok(same(shippedLive, restoredLive), "live answers unchanged by the deletion");
+  assert.ok(
+    same(shippedPrepared, restoredPrepared),
+    "prepared answers unchanged by the deletion"
+  );
+  assert.ok(same(shippedWrites, restoredWrites), "write answers unchanged by the deletion");
+
+  driver.adapter.result.parseResult = shipped;
+  await client.$disconnect();
+}

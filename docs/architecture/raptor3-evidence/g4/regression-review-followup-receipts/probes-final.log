@@ -1,0 +1,18 @@
+▲ [WARNING] Cannot find base config file "astro/tsconfigs/strict" [tsconfig.json]
+
+    docs/tsconfig.json:2:13:
+      2 │   "extends": "astro/tsconfigs/strict",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests) 255ms
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts (8 tests) 118ms
+
+ Test Files  2 passed (2)
+      Tests  19 passed (19)
+   Start at  22:50:23
+   Duration  7.95s (transform 4.35s, setup 0ms, collect 7.31s, tests 373ms, environment 0ms, prepare 75ms)
+
+Vitest resources: 8.82s wall, 564.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

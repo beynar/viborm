@@ -1,0 +1,14 @@
+# Workspace lock scan, 2026-09-20T16:20:52Z
+
+## Every /private/tmp/viborm-*-tmp lock file, its owner, and whether that PID is alive
+/private/tmp/viborm-perf-tmp/viborm-test-c33ebb4c906dfea8.lock
+  owner={"pid":33729,"label":"Vitest","startedAt":1789857604255}
+  pid=33729 DEAD
+  mtime=Sep 20 00:40:04 2026
+/private/tmp/viborm-perf-tmp/viborm-test-c33ebb4c906dfea8.lock
+  owner={"pid":33729,"label":"Vitest","startedAt":1789857604255}
+  pid=33729 DEAD
+  mtime=Sep 20 00:40:04 2026
+
+## Live workspace-verification processes (vitest / tsc / tsdown / tinypool)
+none

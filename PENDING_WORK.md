@@ -1,6 +1,6 @@
 # VibORM - Pending Work Summary
 
-**Last Updated:** August 2026
+**Last Updated:** September 2026
 
 This document tracks the actual remaining work for VibORM, replacing outdated planning documents.
 
@@ -26,22 +26,7 @@ _No `TODO`/`FIXME` markers currently tracked in `src/`. The MySQL migrations ada
 
 ## 🔵 Future Features
 
-### 1. Recursive Queries
-
-**Spec:** `features-docs/recursive-query.md`
-
-Implementation plan for `WITH RECURSIVE` CTE queries on self-referencing models:
-
-```typescript
-const user = await orm.user.findUnique({
-  where: { id: "manager-1" },
-  include: {
-    subordinates: { recurse: { depth: 5 } }
-  }
-});
-```
-
-**Estimated effort:** Medium (CTE adapters already exist)
+_No future feature currently tracked._
 
 ---
 
@@ -83,9 +68,10 @@ For historical reference, these were previously documented as pending but are no
 | **Case-insensitive mode on `equals`/`in`** | `src/query-engine/builders/where-builder.ts` |
 | **Polymorphic to-one slots** (a variant `s.toOne`) | `src/schema/relation/polymorphic.ts`; `features-docs/polymorphic-relations.md` §§2–16 |
 | **Polymorphic collection slots** (a variant `s.toMany`) — declaration, migration, reads, direct writes, both inverse arities, and the bulk/progressive routes | `src/schema/relation/junction-topology.ts`, `src/query-engine/write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts`; `features-docs/polymorphic-relations.md` §17 |
+| **Recursive relation projections** (`recurse` on a self-relation node in `select`/`include`) | `src/validation/relations/recurrence.ts`, `src/query-engine/raptor3/shared/query.ts`; `features-docs/recursive-query.md` |
 
 ---
 
 ## Priority Order
 
-1. **Future:** recursive queries
+_Nothing pending; hosted-provider qualification of recursive projections is deferred (`features-docs/recursive-query.md` §1)._

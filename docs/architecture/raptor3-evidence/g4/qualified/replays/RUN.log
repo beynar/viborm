@@ -1,0 +1,48 @@
+restored g4-seeds-20000 bytes=338001 sha256=3f7aa7664d33b4bffdf2eba0e17f4a4ae114946a06989a0430503838fc5e998a (archive receipt matches)
+=== 20:02:49 replay g4-seeds-20000 ===
+replay g4-seeds-20000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8uMiX0
+restored g4-transport-seeds-50000 bytes=324201 sha256=9bfdc729b9d886b9b3a69ce0536410caae6753c61b36587cc21cc6e6caf1e938 (archive receipt matches)
+=== 20:02:54 replay g4-transport-seeds-50000 ===
+replay g4-transport-seeds-50000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tMUqZw
+restored g4-write-seeds-75000 bytes=61371797 sha256=8b8634d0423a77663141cc45a84ffce32ae88e8a15ea4d21c4cd46564355480a (archive receipt matches)
+=== 20:02:59 replay g4-write-seeds-75000 ===
+replay g4-write-seeds-75000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tko
+restored g4-write-transport-seeds-100000 bytes=64091456 sha256=924e9acd4eda70447deb8e3e0268f54913bbe2ad76e70c12104f79eb15a7be10 (archive receipt matches)
+=== 20:03:06 replay g4-write-transport-seeds-100000 ===
+replay g4-write-transport-seeds-100000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-LwL
+restored g3-seeds-8000 bytes=76689772 sha256=2a37a038b75c3859c5055c0ac9178f2203b3cf117053756f38ba90abe50c8a2e (archive receipt matches)
+=== 20:03:12 replay g3-seeds-8000 ===
+replay g3-seeds-8000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2i4
+restored g3-transport-seeds-8000 bytes=83679271 sha256=2c7d224231d9b77fd13706311231adcac9bf1740a4aedb47fb823675be557568 (archive receipt matches)
+=== 20:03:18 replay g3-transport-seeds-8000 ===
+replay g3-transport-seeds-8000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-dyB
+=== 20:03:26 replay cs03-extension-a-seeds ===
+replay cs03-extension-a-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kLS
+=== 20:03:33 replay cs03-extension-b-seeds ===
+replay cs03-extension-b-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Wpb
+=== 20:03:41 replay cs03-extension-composition-seeds ===
+replay cs03-extension-composition-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-a47
+=== 20:03:51 stale cs03-extension-a-stale (refusal expected) ===
+stale cs03-extension-a-stale exit=1 refused-as-expected
+=== 20:03:56 stale cs03-extension-b-stale (refusal expected) ===
+stale cs03-extension-b-stale exit=1 refused-as-expected
+=== 20:04:01 stale cs03-extension-composition-stale (refusal expected) ===
+stale cs03-extension-composition-stale exit=1 refused-as-expected
+=== 20:04:06 stale g2-conditional-upsert-stale (refusal expected) ===
+stale g2-conditional-upsert-stale exit=1 refused-as-expected
+=== 20:04:10 stale g25-polish-stale (refusal expected) ===
+stale g25-polish-stale exit=1 refused-as-expected
+=== 20:04:14 stale g3-sqlite-8000-stale (refusal expected) ===
+stale g3-sqlite-8000-stale exit=1 refused-as-expected
+=== 20:04:19 stale g3-transport-8000-stale (refusal expected) ===
+stale g3-transport-8000-stale exit=1 refused-as-expected
+=== 20:04:24 stale historical-g2-conditional-upsert-stale (refusal expected) ===
+stale historical-g2-conditional-upsert-stale exit=1 refused-as-expected
+=== 20:04:29 stale historical-g25-polish-stale (refusal expected) ===
+stale historical-g25-polish-stale exit=1 refused-as-expected
+=== 20:04:33 replays done ===
+=== 20:27:09 reproduction g4-seed-batch-20000 ===
+reproduction g4-seed-batch-20000 exit=0 Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8
+=== 20:27:16 reproduction g4-transport-seed-batch-50000 ===
+reproduction g4-transport-seed-batch-50000 exit=0 Raptor 3 g4-transport-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /var/folders/2c/xh5rx
+=== 20:27:22 reproductions done ===

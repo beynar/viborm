@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2ab
+
+ ✓ |provider-mysql2| tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts (35 tests) 616ms
+
+ Test Files  1 passed (1)
+      Tests  35 passed (35)
+   Start at  11:55:11
+   Duration  1.92s (transform 799ms, setup 9ms, collect 1.18s, tests 616ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.60s wall, 531.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -15,6 +15,7 @@ import {
   resolveSchemaRelations,
 } from "./relation-resolution";
 import { allRules } from "./rules";
+import { publicSelectorNamesAreUnambiguous } from "./rules/model";
 import type {
   Schema,
   SchemaValidationIssue,
@@ -153,16 +154,19 @@ export class SchemaValidator {
     };
   }
 
-  /** Validate and throw if invalid */
-  validateOrThrow(rules?: ValidationRule[]): void {
+  /**
+   * Validate and throw if invalid; a valid schema publishes the one trusted
+   * topology. `validate` already reports every resolution issue by severity,
+   * so validity and a successful resolution are one fact stated here once.
+   */
+  validateOrThrow(rules?: ValidationRule[]): ResolvedRelationIndex {
     const result = this.validate(rules);
-    if (!result.valid) {
-      const resolution = this.resolve();
-      throw validationError(
-        result.errors,
-        resolution.ok ? undefined : resolution.cause
-      );
-    }
+    const resolution = this.resolve();
+    if (result.valid && resolution.ok) return resolution.index;
+    throw validationError(
+      result.errors,
+      resolution.ok ? undefined : resolution.cause
+    );
   }
 }
 
@@ -189,9 +193,7 @@ export function validateResolvedSchemaOrThrow(
   models: Record<string, Model<any>>,
   rules?: ValidationRule[]
 ): ResolvedRelationIndex {
-  const validator = new SchemaValidator().registerAll(models);
-  validator.validateOrThrow(rules);
-  return publish(validator);
+  return new SchemaValidator().registerAll(models).validateOrThrow(rules);
 }
 
 /**
@@ -206,7 +208,9 @@ export function validateResolvedSchemaOrThrow(
 export function resolveSchemaOrThrow(
   models: Record<string, Model<any>>
 ): ResolvedRelationIndex {
-  return publish(new SchemaValidator().registerAll(models));
+  return validateResolvedSchemaOrThrow(models, [
+    publicSelectorNamesAreUnambiguous,
+  ]);
 }
 
 /**
@@ -215,27 +219,17 @@ export function resolveSchemaOrThrow(
  * address a model at all (duplicate model name, duplicate table), resolved
  * exactly once.
  *
- * The EMPTY rule list is the whole difference between this boundary and
- * `validateSchemaOrThrow`, and it is deliberate. §7.3 requires structural
- * resolution here and says advisory rules "may remain optional"; advice about
- * how a schema is SPELLED — a missing id, a reserved model name, an index
- * shape — belongs to the boundary that writes DDL. Running it here would refuse
- * schemas a client has always built, which is a verdict change §9.4 does not
- * enumerate.
+ * Only effect-safe structural rules run here. Advisory rules about how a schema
+ * is spelled — a missing id, a reserved model name, an index shape — remain at
+ * the boundary that writes DDL. Public selector ambiguity is structural: every
+ * client operation relies on one stable meaning for each admitted selector.
  */
 export function validateClientSchemaOrThrow(
   models: Record<string, Model<any>>
 ): ResolvedRelationIndex {
-  return validateResolvedSchemaOrThrow(models, []);
-}
-
-function publish(validator: SchemaValidator): ResolvedRelationIndex {
-  const resolution = validator.resolve();
-  if (resolution.ok) return resolution.index;
-  throw validationError(
-    resolution.issues.filter((issue) => issue.severity === "error"),
-    resolution.cause
-  );
+  return validateResolvedSchemaOrThrow(models, [
+    publicSelectorNamesAreUnambiguous,
+  ]);
 }
 
 /** One construction path for every thrown schema-validation result. */

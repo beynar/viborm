@@ -1,0 +1,448 @@
+diff --git a/benchmarks/operation-pipeline-batch-workloads.mjs b/benchmarks/operation-pipeline-batch-workloads.mjs
+index 3f03a65b..5a03ce83 100644
+--- a/benchmarks/operation-pipeline-batch-workloads.mjs
++++ b/benchmarks/operation-pipeline-batch-workloads.mjs
+@@ -6,6 +6,7 @@ import {
+   benchmarkOperation,
+   consumeScalarRows,
+   observeBenchmarkContract,
++  planWitness,
+   prepareOperationPlan,
+   witnessChecksum,
+ } from "./operation-pipeline-harness.mjs";
+@@ -181,6 +182,11 @@ async function createPreparedBatchHarness(
+     fixtureOperation,
+     fixture.driver
+   );
++  if (fixturePlan.queries.length === 0) {
++    throw new Error(
++      `Bulk workload published no prepared statement on either seam (package seam: ${fixturePlan.packageRefusal})`
++    );
++  }
+   const rawFixture = freezeRawResults(
+     await fixture.driver._executeBatch(fixturePlan.queries)
+   );
+@@ -207,6 +213,7 @@ async function createPreparedBatchHarness(
+     witness,
+     semanticDigest: digest,
+     ...contract,
++    preparation: planWitness(fixturePlan),
+     "cold-prepare": async () => {
+       const plan = await prepareOperationPlan(
+         makeOperation(fixture.createColdClient()),
+diff --git a/benchmarks/operation-pipeline-catalog.mjs b/benchmarks/operation-pipeline-catalog.mjs
+index 6f1aa62f..07e43068 100644
+--- a/benchmarks/operation-pipeline-catalog.mjs
++++ b/benchmarks/operation-pipeline-catalog.mjs
+@@ -158,6 +158,12 @@ const stages = Object.freeze({
+ });
+ 
+ const ASYNC_STAGES = new Set([
++  // G4 cutover phase adapter (plan section 7). Preparation is measured at the
++  // PACKAGE seam both operation owners publish (`prepareBatch`), which is
++  // asynchronous on both sides, so every preparation stage is asynchronous.
++  // `bulk-*` already declared exactly this for the same reason.
++  "cold-prepare",
++  "prepare",
+   "cold-full",
+   "provider-execute",
+   "provider-parse",
+diff --git a/benchmarks/operation-pipeline-harness.mjs b/benchmarks/operation-pipeline-harness.mjs
+index c8449819..eca7af46 100644
+--- a/benchmarks/operation-pipeline-harness.mjs
++++ b/benchmarks/operation-pipeline-harness.mjs
+@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
+ import { readBenchmarkOperation } from "../dist/internal/benchmark-operation.mjs";
+ import {
+   assertSemanticDigest,
+-  freezeRawResult,
++  freezeRawResults,
+ } from "./operation-pipeline-semantics.mjs";
+ 
+ export function benchmarkOperation(operation) {
+@@ -216,28 +216,113 @@ export function witnessChecksum(witness) {
+   return checksum;
+ }
+ 
++/**
++ * The G4 cutover PHASE ADAPTER (plan section 7, "narrow test-only phase
++ * adapters where internal entry shapes differ").
++ *
++ * The two operation owners publish preparation at different shapes: the
++ * shipped owner answers `prepare()` with ONE statement and also answers
++ * `prepareBatch()` with the package that contains it; the candidate route
++ * answers only `prepareBatch()` — `prepare()` and `buildStatement()` are
++ * `undefined` there by design, because a routed operation publishes a complete
++ * package, never a bare statement.
++ *
++ * Preferring `prepare()` would therefore time one engine's single-statement
++ * seam against the other engine's package seam. Instead every measured
++ * preparation goes through the package seam first, which BOTH owners publish
++ * and which encloses the same work on both sides: admission plus construction
++ * of the same statement(s).
++ *
++ * The single-statement and `buildStatement()` arms remain for an operation
++ * whose owner REFUSES a package (the shipped owner refuses a batch for a
++ * statement carrying an unenforced postcondition, for example). A side that
++ * falls through to them prepared at a different boundary than a side that did
++ * not; `preparationSeam` records which arm answered, so that cell is reported
++ * as "not measurable comparably" instead of being compared.
++ *
++ * This is a measurement bracket, not a compatibility layer: it lives in
++ * `benchmarks/`, is byte-identical on both checkouts, and changes no
++ * production file on either side. The SQL, parameters and statement counts
++ * each side produced are retained in `preparation` and in the witness.
++ */
+ export async function prepareOperationPlan(operation, driver) {
+   const capability = benchmarkOperation(operation);
++  let packageRefusal;
++  try {
++    const batch = await capability.prepareBatch(driver);
++    if (batch) return { ...batch, preparationSeam: "package" };
++    packageRefusal = "the package seam published no package";
++  } catch (error) {
++    packageRefusal = `${error?.message ?? error}`;
++  }
+   const single = capability.prepare();
+   if (single) {
+     return {
+       queries: [single],
+       parseResult: (results) => capability.parseResult(results[0]),
++      preparationSeam: "statement",
++      packageRefusal,
+     };
+   }
+-  const batch = await capability.prepareBatch(driver);
+-  if (batch) return batch;
+   const statement = operation.buildStatement();
+-  if (!statement) {
+-    throw new Error("Operation exposed no executable preparation seam");
++  if (statement) {
++    const prepared = driver._prepare(statement);
++    return {
++      queries: [prepared],
++      parseResult: (results) => capability.parseResult(results[0]),
++      preparationSeam: "built-statement",
++      packageRefusal,
++    };
+   }
+-  const prepared = driver._prepare(statement);
++  // No seam at all. This is not an error: plan section 7 answers it with
++  // "measure the common enclosing boundary and retain end-to-end evidence".
++  // The caller drops its isolated phases and keeps the public full stage.
++  return {
++    queries: [],
++    parseResult: () => {
++      throw new Error(
++        "This operation published no prepared statement to parse"
++      );
++    },
++    preparationSeam: "none",
++    packageRefusal,
++  };
++}
++
++/**
++ * The witness of one prepared plan: its SQL, parameters and statement count,
++ * plus WHICH seam produced them.
++ *
++ * The seam is retained in the evidence on purpose. A cell whose two sides
++ * report different seams was not bracketed at one boundary and is reported as
++ * "not measurable comparably", never as passed.
++ */
++export function planWitness(plan, workloadShape) {
+   return {
+-    queries: [prepared],
+-    parseResult: (results) => capability.parseResult(results[0]),
++    ...batchWitness(plan.queries),
++    preparationSeam: plan.preparationSeam,
++    ...(plan.packageRefusal === undefined
++      ? {}
++      : { packageRefusal: plan.packageRefusal }),
++    ...(workloadShape === undefined ? {} : { workloadShape }),
+   };
+ }
+ 
++/**
++ * The one statement a single-statement workload's isolated phases need, or
++ * `undefined` when this side does not publish exactly one.
++ *
++ * A side that publishes no statement, or a package holding several, cannot be
++ * bracketed against the other side's single statement. The isolated phases are
++ * then dropped and only the common enclosing boundary (the public `full`
++ * stage) is measured — plan section 7's answer for a phase that cannot be
++ * isolated comparably. `preparationSeam` and the statement count stay in the
++ * evidence so the cell is reported as "not measurable comparably".
++ */
++export function packageStatement(plan) {
++  return plan.queries.length === 1 ? plan.queries[0] : undefined;
++}
++
+ export async function createReadHarness(
+   fixture,
+   semanticFixture,
+@@ -247,16 +332,28 @@ export async function createReadHarness(
+   workloadShape,
+   verifyContract
+ ) {
+-  const preparedOperation = makeOperation();
+-  const preparedCapability = benchmarkOperation(preparedOperation);
+-  const prepared = preparedCapability.prepare();
+-  if (!prepared) throw new Error("Read workload did not prepare one statement");
+-  const rawFixture = freezeRawResult(
+-    await fixture.driver._executeRaw(prepared.sql, prepared.params)
++  const preparedPlan = await prepareOperationPlan(
++    makeOperation(),
++    fixture.driver
+   );
+-  const parsedFixture = preparedCapability.parseResult(rawFixture);
++  const prepared = packageStatement(preparedPlan);
++  if (prepared === undefined) {
++    return createFullOnlyHarness(
++      "read",
++      semanticFixture,
++      makeOperation,
++      parsedConsumer,
++      preparedPlan,
++      workloadShape,
++      verifyContract
++    );
++  }
++  const rawFixture = freezeRawResults([
++    await fixture.driver._executeRaw(prepared.sql, prepared.params),
++  ]);
++  const parsedFixture = preparedPlan.parseResult(rawFixture);
+   parsedConsumer(parsedFixture);
+-  rawConsumer(rawFixture.rows);
++  rawConsumer(rawFixture[0].rows);
+   const contract = verifyContract
+     ? await observeBenchmarkContract(
+         semanticFixture,
+@@ -277,18 +374,19 @@ export async function createReadHarness(
+     witness: preparedWitness(prepared, workloadShape),
+     semanticDigest: digest,
+     ...contract,
+-    "cold-prepare": () => {
+-      const operation = makeOperation(fixture.createColdClient());
+-      const query = benchmarkOperation(operation).prepare();
+-      if (!query) throw new Error("Cold read stopped preparing one statement");
+-      return query.sql.length + (query.params?.length ?? 0);
++    // The phase adapter's own receipt: which seam prepared the measured
++    // statement, and the SQL/parameters/statement count it published.
++    preparation: planWitness(preparedPlan, workloadShape),
++    "cold-prepare": async () => {
++      const plan = await prepareOperationPlan(
++        makeOperation(fixture.createColdClient()),
++        fixture.driver
++      );
++      return witnessChecksum(batchWitness(plan.queries));
+     },
+-    prepare: () => {
+-      const operation = makeOperation();
+-      const query = benchmarkOperation(operation).prepare();
+-      if (!query)
+-        throw new Error("Read workload stopped preparing one statement");
+-      return query.sql.length + (query.params?.length ?? 0);
++    prepare: async () => {
++      const plan = await prepareOperationPlan(makeOperation(), fixture.driver);
++      return witnessChecksum(batchWitness(plan.queries));
+     },
+     execute: async () => {
+       const raw = await fixture.driver._executeRaw(
+@@ -297,14 +395,53 @@ export async function createReadHarness(
+       );
+       return rawConsumer(raw.rows);
+     },
+-    parse: () => parsedConsumer(preparedCapability.parseResult(rawFixture)),
++    parse: () => parsedConsumer(preparedPlan.parseResult(rawFixture)),
+     "raw-parse": async () => {
+       const raw = await fixture.driver._executeRaw(
+         prepared.sql,
+         prepared.params
+       );
+-      return parsedConsumer(preparedCapability.parseResult(raw));
++      return parsedConsumer(preparedPlan.parseResult([raw]));
+     },
+     full: async () => parsedConsumer(await makeOperation()),
+   };
+ }
++
++/**
++ * The common enclosing boundary when a side publishes no single statement to
++ * isolate: the public entry, observed once for its contract and then measured
++ * as the `full` stage. Every isolated phase disappears.
++ */
++export async function createFullOnlyHarness(
++  family,
++  semanticFixture,
++  makeOperation,
++  parsedConsumer,
++  plan,
++  workloadShape,
++  verifyContract
++) {
++  if (!verifyContract) {
++    throw new Error(
++      `A ${family} workload with no isolable single statement needs its contract observation to supply the physical witness`
++    );
++  }
++  const measuredValue = await makeOperation();
++  parsedConsumer(measuredValue);
++  const contract = await observeBenchmarkContract(
++    semanticFixture,
++    () => makeOperation(semanticFixture.client),
++    verifyContract
++  );
++  parsedConsumer(contract.contractObservation.outcome.value);
++  return {
++    semanticDigest: assertSemanticDigest(
++      `${family} public full across fresh fixtures`,
++      measuredValue,
++      contract.contractObservation.outcome.value
++    ),
++    ...contract,
++    preparation: planWitness(plan, workloadShape),
++    full: async () => parsedConsumer(await makeOperation()),
++  };
++}
+diff --git a/benchmarks/operation-pipeline-mutation-workloads.mjs b/benchmarks/operation-pipeline-mutation-workloads.mjs
+index 97d43ba0..5ce1aee6 100644
+--- a/benchmarks/operation-pipeline-mutation-workloads.mjs
++++ b/benchmarks/operation-pipeline-mutation-workloads.mjs
+@@ -2,10 +2,13 @@
+ 
+ import assert from "node:assert/strict";
+ import {
+-  benchmarkOperation,
+   consumeScalarRows,
++  createFullOnlyHarness,
+   observeBenchmarkContract,
++  packageStatement,
++  planWitness,
+   preparedWitness,
++  prepareOperationPlan,
+ } from "./operation-pipeline-harness.mjs";
+ import { assertSemanticDigest } from "./operation-pipeline-semantics.mjs";
+ 
+@@ -526,25 +529,35 @@ async function createMutationHarness(
+   workloadShape,
+   verifyContract
+ ) {
+-  const prepareForRawExecution = (operation) => {
+-    const capability = benchmarkOperation(operation);
+-    const prepared = capability.prepare();
+-    if (prepared) return { capability, prepared };
+-    const statement = operation.buildStatement();
+-    if (!statement) {
+-      throw new Error(
+-        "Mutation workload did not build one executable statement"
+-      );
+-    }
+-    return { capability, prepared: fixture.driver._prepare(statement) };
++  // G4 cutover phase adapter: the package seam both operation owners publish.
++  // See `prepareOperationPlan` in the harness module for why preparation is
++  // bracketed there and not at `prepare()`.
++  const prepareForRawExecution = async (operation) => {
++    const plan = await prepareOperationPlan(operation, fixture.driver);
++    return { plan, prepared: packageStatement(plan) };
+   };
+   const semanticOperation = makeOperation(fixture.client);
+-  const semanticEntry = prepareForRawExecution(semanticOperation);
++  const semanticEntry = await prepareForRawExecution(semanticOperation);
++  if (semanticEntry.prepared === undefined) {
++    // This side publishes no single statement to isolate. Keep the common
++    // enclosing boundary (the public entry) and drop the isolated phases,
++    // rather than bracketing one engine's statement against the other's
++    // multi-statement package.
++    return createFullOnlyHarness(
++      "mutation",
++      fullFixture,
++      makeOperation,
++      parsedConsumer,
++      semanticEntry.plan,
++      workloadShape,
++      verifyContract
++    );
++  }
+   const semanticRaw = await fixture.driver._executeRaw(
+     semanticEntry.prepared.sql,
+     semanticEntry.prepared.params
+   );
+-  const semanticValue = semanticEntry.capability.parseResult(semanticRaw);
++  const semanticValue = semanticEntry.plan.parseResult([semanticRaw]);
+   parsedConsumer(semanticValue);
+   const contract = verifyContract
+     ? await observeBenchmarkContract(
+@@ -562,13 +575,16 @@ async function createMutationHarness(
+     semanticValue,
+     fullSemantic
+   );
+-  const preparedOperations =
+-    stage === "execute" || stage === "raw-parse"
+-      ? Array.from({ length: operationCount }, () => {
+-          const operation = makeOperation(fixture.client);
+-          return prepareForRawExecution(operation);
+-        })
+-      : [];
++  const preparedOperations = [];
++  if (stage === "execute" || stage === "raw-parse") {
++    // Sequential, so the pool keeps the same per-client operation order the
++    // synchronous pool had.
++    for (let index = 0; index < operationCount; index++) {
++      preparedOperations.push(
++        await prepareForRawExecution(makeOperation(fixture.client))
++      );
++    }
++  }
+   let preparedIndex = 0;
+   const nextPrepared = () => {
+     const entry = preparedOperations[preparedIndex++];
+@@ -579,14 +595,15 @@ async function createMutationHarness(
+     witness: preparedWitness(semanticEntry.prepared, workloadShape),
+     semanticDigest: digest,
+     ...contract,
+-    "cold-prepare": () => {
+-      const { prepared } = prepareForRawExecution(
++    preparation: planWitness(semanticEntry.plan, workloadShape),
++    "cold-prepare": async () => {
++      const { prepared } = await prepareForRawExecution(
+         makeOperation(fixture.createColdClient())
+       );
+       return prepared.sql.length + (prepared.params?.length ?? 0);
+     },
+-    prepare: () => {
+-      const { prepared } = prepareForRawExecution(makeOperation());
++    prepare: async () => {
++      const { prepared } = await prepareForRawExecution(makeOperation());
+       return prepared.sql.length + (prepared.params?.length ?? 0);
+     },
+     execute: async () => {
+@@ -598,12 +615,12 @@ async function createMutationHarness(
+       return consumeScalarRows(raw.rows, Object.keys(raw.rows[0] ?? {})[0]);
+     },
+     "raw-parse": async () => {
+-      const { capability, prepared } = nextPrepared();
++      const { plan, prepared } = nextPrepared();
+       const raw = await fixture.driver._executeRaw(
+         prepared.sql,
+         prepared.params
+       );
+-      return parsedConsumer(capability.parseResult(raw));
++      return parsedConsumer(plan.parseResult([raw]));
+     },
+     full: async () => parsedConsumer(await makeOperation()),
+   };
+diff --git a/benchmarks/operation-pipeline-worker.mjs b/benchmarks/operation-pipeline-worker.mjs
+index 7601a6e2..e4e99fcd 100644
+--- a/benchmarks/operation-pipeline-worker.mjs
++++ b/benchmarks/operation-pipeline-worker.mjs
+@@ -408,6 +408,9 @@ process.stdout.write(
+     ...(harness.contractObservation
+       ? { contractObservation: harness.contractObservation }
+       : {}),
++    // G4 cutover phase adapter receipt (identical on both checkouts): the
++    // preparation seam this side used and the statement(s) it published.
++    ...(harness.preparation ? { preparation: harness.preparation } : {}),
+     ...(calibrationHash === undefined
+       ? {}
+       : { calibrationOnly: true, calibrationSourceSha256: calibrationHash }),

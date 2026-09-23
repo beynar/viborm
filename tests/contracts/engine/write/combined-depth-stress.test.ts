@@ -1,4 +1,5 @@
 import { PGliteDriver } from "@drivers/pglite";
+import { TransactionError } from "@errors";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -75,7 +76,11 @@ async function runObserved(
   seed: (c: AnyClient) => Promise<void>,
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
-): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
+): Promise<{
+  state: unknown;
+  engines: Set<"direct" | "production">;
+  rejection: unknown;
+}> {
   const family = getFamily();
   const base = family.client as AnyClient;
   await seed(base);
@@ -91,11 +96,20 @@ async function runObserved(
     schema: schema as never,
     driver,
   });
-  await op(observed.client);
+  // The operation's rejection is an OUTCOME of this substrate, not a runner
+  // failure: G3P-04 refuses the borrowed `skipDuplicates` member on the batch
+  // route, and the state after that refusal is the thing to pin.
+  let rejection: unknown;
+  try {
+    await op(observed.client);
+  } catch (error) {
+    rejection = error;
+  }
   const state = await snap(base);
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),
+    rejection,
   };
 }
 
@@ -208,15 +222,47 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
     ["w0", null, null, []],
   ];
 
+  // The seed, untouched: what a refusal raised before any member effect leaves
+  // behind (mechanism 3's `skipDuplicates` leaf is the only thing the batch
+  // route answers differently, and it answers before the root writes).
+  const seeded = [
+    ["adopt", null, null, []],
+    ["c1", "r0", null, []],
+    ["dup", null, null, []],
+    ["r0", null, null, []],
+    ["w0", null, null, []],
+  ];
+
   test("tx: all four mechanisms compose in one >=6-level tree, native Observed", async () => {
-    const { state, engines } = await runObserved("tx", seed, op, snap);
+    const { state, engines, rejection } = await runObserved(
+      "tx",
+      seed,
+      op,
+      snap
+    );
+    expect(rejection).toBeUndefined();
     expect(engines).toEqual(new Set(["production"]));
     expect(state).toEqual(expected);
   });
 
-  test("batch composes the same four mechanisms", async () => {
-    const { state, engines } = await runObserved("batch", seed, op, snap);
+  // G3P-04: root-conflict suppression is admitted only where the operation owns
+  // the member rollback region, and a batch route owns none - so mechanism 3's
+  // borrowed `createMany skipDuplicates` is refused in the command analysis
+  // pass, before the enclosing root can write (AGENTS.md "G3P-04 admits
+  // root-conflict suppression only when the operation owns the member rollback
+  // region"). The other three mechanisms are not reached on this substrate.
+  test("batch refuses mechanism 3's borrowed skipDuplicates before any write", async () => {
+    const { state, engines, rejection } = await runObserved(
+      "batch",
+      seed,
+      op,
+      snap
+    );
     expect(engines).toEqual(new Set(["production"]));
-    expect(state).toEqual(expected);
+    expect(rejection).toBeInstanceOf(TransactionError);
+    expect((rejection as Error).message).toBe(
+      "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region."
+    );
+    expect(state).toEqual(seeded);
   });
 });

@@ -1,0 +1,56 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-transactions.test.ts (13 tests | 1 failed) 83ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02/NS-05 one callback transaction commits, and a throw rolls every member back 22ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself 11ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-03 a nested transaction is a savepoint that keeps the outer effects 3ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction keeps admission order, per-member results and atomicity 6ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction containing a read is packaged on a batch-only driver on both routes 3ms
+   × G4-03 C13 candidate transactions, arrays and raw > D-5 CONTRACT a MULTI-statement array member is packaged atomically on a batch-only driver 12ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+- 'ok:[{"email":"d5@example.test"}]'
+
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-14 a statement-atomic write inside a callback transaction opens no region on either route 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-14 a multi-statement write inside a callback transaction opens exactly one region on either route 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on both routes 7ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > RF-09 a callback transaction stays refused on a non-interactive transport 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-05/LX-06/NS-03 raw SQL bypasses the route entirely 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > NS-05 two clients over one database keep their own bound drivers 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > D-5 CONTRACT a MULTI-statement array member is packaged atomically on a batch-only driver
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+- 'ok:[{"email":"d5@example.test"}]'
+
+
+Expected: [32m"ok:[{"email":"d5@example.test"}]"[39m
+Received: [31m"TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch."[39m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:487:12
+    485| 
+    486|     // THE CONTRACT: one native batch, committed rows, the array's own…
+    487|     assert.equal(
+       |            ^
+    488|       observations.shipped.outcome,
+    489|       'ok:[{"email":"d5@example.test"}]'
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Start at  18:03:52
+   Duration  2.02s (transform 1.23s, setup 9ms, collect 1.81s, tests 83ms, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FnC9Nn/vitest.json
+Vitest resources: 4.26s wall, 530.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FnC9Nn

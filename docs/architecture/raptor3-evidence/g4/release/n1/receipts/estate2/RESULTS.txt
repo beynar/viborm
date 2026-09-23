@@ -1,0 +1,4 @@
+lanex exit=0  Test Files 1 passed (1); Tests 9 passed (9);
+ordinary-10 exit=0  Test Files 3 passed (3); Tests 52 passed (52);
+ordinary-14 exit=0  Test Files 1 passed (1); Tests 4 passed (4);
+DONE

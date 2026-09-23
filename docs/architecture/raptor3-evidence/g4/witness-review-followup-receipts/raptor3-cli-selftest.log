@@ -1,0 +1,80 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-s9vRVd
+✔ the same replay command accepts saved fixed, cut/fault and clock corpora (13117.400875ms)
+✔ the command refuses filtering, missing required cases and profiles (8626.245292ms)
+✔ saved evidence with a stale identity, empty corpus or malformed wire fails (13430.265667ms)
+✔ the outer watchdog terminates an operation that actually reached its wait (120352.124708ms)
+✔ the outer watchdog terminates a public call awaiting a queued provider reply (10524.820917ms)
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (30375.528208ms)
+✔ the command refuses a filtered G4 mode and an off-boundary G4 child (216.863417ms)
+✔ a G4 campaign subject comes from the command, never from the shell (10160.476625ms)
+✔ test:all cannot replace the required lane through inherited specimen variables (13836.003709ms)
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (26.375083ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 8
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 226287.354417
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:179:1
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (30375.528208ms)
+  AssertionError [ERR_ASSERTION]: Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: '34644f06d61bc413cbd7104976ad259981d0ed55822abb6506150c7d8c37bcd3',
+  -   harness: 'fa06af7999a3ab2bbb1dc1d7e2032320c8da45191fccd934bcea41fc19c0625d',
+      production: '2b1c61ef3ba5733d785a0b383518b973b2d5fdbc72400a388e798ff3fa5d9765',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+      at assertRaptor3Identity (file:///Users/arnaud/code/viborm/scripts/raptor3-manifest.mjs:848:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:198:3)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:78:1
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (26.375083ms)
+  AssertionError [ERR_ASSERTION]: Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'fa06af7999a3ab2bbb1dc1d7e2032320c8da45191fccd934bcea41fc19c0625d',
+  -   harness: '34644f06d61bc413cbd7104976ad259981d0ed55822abb6506150c7d8c37bcd3',
+      production: '2b1c61ef3ba5733d785a0b383518b973b2d5fdbc72400a388e798ff3fa5d9765',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+      at assertRaptor3Identity (file:///Users/arnaud/code/viborm/scripts/raptor3-manifest.mjs:848:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:92:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.runHook (node:internal/test_runner/test:1289:20)
+      at after (node:internal/test_runner/test:1342:20)
+      at Test.run (node:internal/test_runner/test:1428:13) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+Node resources: 226.58s wall, 220.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

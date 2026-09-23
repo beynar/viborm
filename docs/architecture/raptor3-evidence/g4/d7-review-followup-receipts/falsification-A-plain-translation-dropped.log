@@ -1,0 +1,296 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (10 tests | 1 failed) 68ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 25ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 6ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 2ms
+   × G4-02 — an uncertain outcome is not a record series > 8. a malformed result AND a throwing listener: the refusal stays primary 7ms
+     → {
+  "candidate": {
+    "failure": {
+      "cause": {
+        "kind": "TypeError",
+        "message": "Invalid provider integer"
+      },
+      "errors": [
+        {
+          "kind": "TypeError",
+          "message": "Invalid provider integer"
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "create"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "uncertain"
+      }
+    ],
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "TypeError: Invalid provider integer"
+  },
+  "shipped": {
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "create",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "create",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "create"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "uncertain"
+      }
+    ],
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "QueryEngineError"
+  }
+}
++ actual - expected
+
+  {
+    cause: {
++     kind: 'TypeError',
++     message: 'Invalid provider integer'
+-     code: 'V9001',
+-     kind: 'QueryEngineError',
+-     meta: {
+-       driver: 'sqlite3',
+-       operation: 'create',
+-       scalarType: 'int'
+-     }
+    },
+    errors: [
+      {
++       kind: 'TypeError',
++       message: 'Invalid provider integer'
+-       code: 'V9001',
+-       kind: 'QueryEngineError',
+-       meta: {
+-         driver: 'sqlite3',
+-         operation: 'create',
+-         scalarType: 'int'
+-       }
+      },
+      {
+        code: 'V10004',
+        kind: 'CacheConfigurationError',
+        meta: {
+
+   ✓ G4-02 — an uncertain outcome is not a record series > 9. the same pair on the BATCH transport keeps the refusal primary too 6ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 10. a split write inside the operation's OWN region tells the cache nothing 4ms
+ ✓ |extended-local| tests/raptor3/g4/unit02/lone-statement-transport.test.ts (7 tests) 33ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 8. a malformed result AND a throwing listener: the refusal stays primary
+AssertionError: {
+  "candidate": {
+    "failure": {
+      "cause": {
+        "kind": "TypeError",
+        "message": "Invalid provider integer"
+      },
+      "errors": [
+        {
+          "kind": "TypeError",
+          "message": "Invalid provider integer"
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "create"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "uncertain"
+      }
+    ],
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "TypeError: Invalid provider integer"
+  },
+  "shipped": {
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "create",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "create",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "create"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "uncertain"
+      }
+    ],
+    "outcome": "raw:Query execution and write-outcome publication both failed.",
+    "primary": "QueryEngineError"
+  }
+}
++ actual - expected
+
+  {
+    cause: {
++     kind: 'TypeError',
++     message: 'Invalid provider integer'
+-     code: 'V9001',
+-     kind: 'QueryEngineError',
+-     meta: {
+-       driver: 'sqlite3',
+-       operation: 'create',
+-       scalarType: 'int'
+-     }
+    },
+    errors: [
+      {
++       kind: 'TypeError',
++       message: 'Invalid provider integer'
+-       code: 'V9001',
+-       kind: 'QueryEngineError',
+-       meta: {
+-         driver: 'sqlite3',
+-         operation: 'create',
+-         scalarType: 'int'
+-       }
+      },
+      {
+        code: 'V10004',
+        kind: 'CacheConfigurationError',
+        meta: {
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,24 +1,14 @@[39m
+[2m  {[22m
+[2m    "cause": {[22m
+[32m-     "code": "V9001",[39m
+[32m-     "kind": "QueryEngineError",[39m
+[32m-     "meta": {[39m
+[32m-       "driver": "sqlite3",[39m
+[32m-       "operation": "create",[39m
+[32m-       "scalarType": "int",[39m
+[32m-     },[39m
+[31m+     "kind": "TypeError",[39m
+[31m+     "message": "Invalid provider integer",[39m
+[2m    },[22m
+[2m    "errors": [[22m
+[2m      {[22m
+[32m-       "code": "V9001",[39m
+[32m-       "kind": "QueryEngineError",[39m
+[32m-       "meta": {[39m
+[32m-         "driver": "sqlite3",[39m
+[32m-         "operation": "create",[39m
+[32m-         "scalarType": "int",[39m
+[32m-       },[39m
+[31m+       "kind": "TypeError",[39m
+[31m+       "message": "Invalid provider integer",[39m
+[2m      },[22m
+[2m      {[22m
+[2m        "code": "V10004",[22m
+[2m        "kind": "CacheConfigurationError",[22m
+[2m        "meta": {[22m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:632:12
+    630|     );
+    631|     assert.equal(shipped.primary, "QueryEngineError", diagnostic);
+    632|     assert.deepEqual(candidate.failure, shipped.failure, diagnostic);
+       |            ^
+    633|     assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
+    634|     assert.equal(candidate.invalidations, shipped.invalidations, diagn…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 16 passed (17)
+   Start at  00:40:51
+   Duration  2.25s (transform 1.22s, setup 11ms, collect 1.91s, tests 101ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 4.63s wall, 675.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

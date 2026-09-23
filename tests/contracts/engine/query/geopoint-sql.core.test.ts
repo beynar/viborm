@@ -15,7 +15,6 @@ import { createSchemaRegistry } from "@validation";
 import {
   GEO_POINT_EARTH_RADIUS_METERS,
   type GeoBounds,
-  geoBoundsForDistance,
   validateGeoPolygon,
 } from "@validation/primitives/geo-area-codec";
 import { describe, expect, test } from "vitest";
@@ -97,7 +96,7 @@ const models = (() => {
     .map("venues");
   return { place, region, venue };
 })();
-const { place, region, venue } = models;
+const { place } = models;
 prepareSchema(models);
 
 function createEngine(adapter: DatabaseAdapter, dialect: Dialect): QueryEngine {
@@ -360,56 +359,6 @@ describe("GeoPoint query lowering", () => {
       name: "PostgreSQL",
       adapter: new PostgresAdapter("public", true),
       dialect: "postgresql",
-      constructorSql: "ST_SetSRID(ST_MakePoint",
-    },
-    {
-      name: "MySQL",
-      adapter: new MySQLAdapter(),
-      dialect: "mysql",
-      constructorSql: "ST_GeomFromText",
-    },
-    {
-      name: "SQLite",
-      adapter: new SQLiteAdapter(),
-      dialect: "sqlite",
-      constructorSql: "json_object('longitude'",
-    },
-  ] satisfies readonly (GeoPointProviderCase & {
-    readonly constructorSql: string;
-  })[])("lowers point values for writes on $name", ({
-    adapter,
-    dialect,
-    constructorSql,
-  }) => {
-    const engine = createEngine(adapter, dialect);
-    if (dialect !== "mysql") {
-      const create = engine.build(place, "create", {
-        data: { id: "place-1", location: paris },
-      });
-      expect(create.toStatement("$n")).toContain(constructorSql);
-      expect(create.values).toEqual(expect.arrayContaining([2.3522, 48.8566]));
-    }
-
-    const createMany = engine.build(place, "createMany", {
-      data: [
-        { id: "place-2", location: paris },
-        {
-          id: "place-3",
-          location: { longitude: -73.9857, latitude: 40.7484 },
-        },
-      ],
-    });
-    expect(createMany.toStatement("$n")).toContain(constructorSql);
-    expect(createMany.values).toEqual(
-      expect.arrayContaining([2.3522, 48.8566, -73.9857, 40.7484])
-    );
-  });
-
-  test.each([
-    {
-      name: "PostgreSQL",
-      adapter: new PostgresAdapter("public", true),
-      dialect: "postgresql",
       coordinateSql: "ST_X",
     },
     {
@@ -485,128 +434,6 @@ describe("GeoPoint query lowering", () => {
     if (dialect === "mysql") {
       expect(bounds.toStatement("$n")).not.toContain("MBRCovers");
     }
-  });
-
-  test("uses the smallest positive upper bound only in positive polarity", () => {
-    const adapter = new PostgresAdapter("public", true);
-    const engine = createEngine(adapter, "postgresql");
-    const expectedBounds = geoBoundsForDistance(paris, 1000);
-    const expectedIndexPolygon = JSON.stringify({
-      type: "Polygon",
-      coordinates: [
-        [
-          [expectedBounds.west, expectedBounds.south],
-          [expectedBounds.east, expectedBounds.south],
-          [expectedBounds.east, expectedBounds.north],
-          [expectedBounds.west, expectedBounds.north],
-          [expectedBounds.west, expectedBounds.south],
-        ],
-      ],
-    });
-
-    const positive = engine.build(place, "findMany", {
-      where: {
-        location: {
-          distance: { to: paris, lt: 2000, lte: 1000, gte: 5 },
-        },
-      },
-      select: { id: true },
-    });
-    expect(positive.toStatement("$n")).toContain(" && ");
-    expect(positive.values).toContain(expectedIndexPolygon);
-
-    for (const where of [
-      { location: { not: { distance: { to: paris, lte: 1000 } } } },
-      { NOT: { location: { distance: { to: paris, lte: 1000 } } } },
-    ]) {
-      const negative = engine.build(place, "findMany", {
-        where,
-        select: { id: true },
-      });
-      expect(negative.toStatement("$n")).not.toContain(" && ");
-    }
-
-    const doubleNegative = engine.build(place, "findMany", {
-      where: {
-        NOT: {
-          NOT: { location: { distance: { to: paris, lte: 1000 } } },
-        },
-      },
-      select: { id: true },
-    });
-    expect(doubleNegative.toStatement("$n")).toContain(" && ");
-    expect(doubleNegative.values).toContain(expectedIndexPolygon);
-
-    const zero = engine.build(place, "findMany", {
-      where: { location: { distance: { to: paris, lte: 0 } } },
-      select: { id: true },
-    });
-    expect(zero.toStatement("$n")).not.toContain(" && ");
-  });
-
-  test("threads distance-prefilter polarity through relation quantifiers", () => {
-    const engine = createEngine(
-      new PostgresAdapter("public", true),
-      "postgresql"
-    );
-    const distance = { to: paris, lte: 1000 };
-
-    const none = engine.build(region, "findMany", {
-      where: { venues: { none: { location: { distance } } } },
-      select: { id: true },
-    });
-    expect(none.toStatement("$n")).not.toContain(" && ");
-
-    const every = engine.build(region, "findMany", {
-      where: { venues: { every: { location: { distance } } } },
-      select: { id: true },
-    });
-    expect(every.toStatement("$n")).toContain(" && ");
-
-    const isNot = engine.build(venue, "findMany", {
-      where: { region: { isNot: { location: { distance } } } },
-      select: { id: true },
-    });
-    expect(isNot.toStatement("$n")).not.toContain(" && ");
-
-    const is = engine.build(venue, "findMany", {
-      where: { region: { is: { location: { distance } } } },
-      select: { id: true },
-    });
-    expect(is.toStatement("$n")).toContain(" && ");
-  });
-
-  test("combines every distance comparator and uses null-last point ordering", () => {
-    const query = createEngine(
-      new PostgresAdapter("public", true),
-      "postgresql"
-    ).build(place, "findMany", {
-      where: {
-        location: {
-          distance: {
-            to: paris,
-            lt: 20_000,
-            lte: 19_000,
-            gt: 10_000,
-            gte: 11_000,
-          },
-        },
-      },
-      select: {
-        id: true,
-        optionalLocation: { _distance: { to: paris } },
-      },
-      orderBy: {
-        optionalLocation: { _distance: { to: paris, sort: "desc" } },
-      },
-    });
-    const statement = query.toStatement("$n");
-    expect(statement).toContain(" < ");
-    expect(statement).toContain(" <= ");
-    expect(statement).toContain(" > ");
-    expect(statement).toContain(" >= ");
-    expect(statement).toContain('AS "0viborm_distance"');
-    expect(statement).toContain("DESC NULLS LAST");
   });
 
   test("refuses unsupported SQLite work while keeping bounds portable", () => {

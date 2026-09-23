@@ -1,0 +1,77 @@
+=== production files changed (356254a2..parity)
+ src/query-engine/raptor3/commands/execution.ts     | 194 ++++-
+ src/query-engine/raptor3/commands/index.ts         |  53 +-
+ src/query-engine/raptor3/commands/relation-body.ts | 105 ++-
+ .../raptor3/shared/operation-context.ts            | 447 ++++++++--
+ src/query-engine/raptor3/shared/query.ts           | 908 ++++++++++++++++++---
+ src/query-engine/raptor3/shared/storage.ts         |   6 +-
+ src/query-engine/result-aliases.ts                 |  23 +-
+ src/validation/model/args/aggregate.ts             |  47 +-
+ src/validation/model/args/mutation.ts              |  31 +-
+ src/validation/primitives/object.ts                |  27 +-
+ src/validation/relations/create.ts                 |   3 +-
+ src/validation/relations/filter.ts                 |  65 +-
+ src/validation/relations/index.ts                  |   2 +-
+ .../relations/polymorphic/collection-mutation.ts   |  11 +-
+ src/validation/relations/polymorphic/filter.ts     |  27 +-
+ src/validation/relations/polymorphic/index.ts      |   3 +-
+ src/validation/relations/update.ts                 |   3 +-
+ src/validation/scalars/json.ts                     | 198 ++++-
+ src/validation/scalars/negatable-filter.ts         |  55 +-
+ 23 files changed, 2406 insertions(+), 264 deletions(-)
+=== functions touched (hunk headers)
+ 109 export class Queries 
+  30 export class OperationContext 
+  13 export class CommandExecution 
+   8 import type 
+   8 import 
+   7 export class Commands 
+   7 export class Assignments 
+   5 export function createCommandEngine(config: EngineConfig) 
+   5 export class RelationBody 
+   3 function createObjectValidator(
+   3 export type PreparedProjectionField =
+   3 const buildJsonFilterSchema = <S extends V.Schema>(
+   2 type JsonComparisonOperand = V.Union<readonly [V.Number, V.String]>;
+   2 import v, 
+   2 export type ProjectionShape =
+   2 export type GroupByArgs<
+   2 export function polymorphicCollectionFilterFactory<
+   2 export const toManyFilterFactory = <
+   2 export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
+   2 export class CommandAttempt 
+=== smell scan on ADDED production lines
+  TODO|FIXME|HACK|XXX                                          0
+  legacy|shipped engine|V1 |parity                             5
+  as any|as never|as unknown as|@ts-ignore|@ts-expect-error    4
+  : boolean = (true|false)|Flag\b|Mode\b|mode:|flag:|isBatch|usesBatch|ownership === 5
+  try \{                                                       5
+  instanceof Error\b                                           0
+  console\.                                                    0
+  g2-|g3-|cs01|c08|c11|seed[0-9]|scenario                      1
+  switch \(|case "                                             2
+=== added lines mentioning transport mode or ownership (review each)
+259:+    if (membership && parentRequirement && ctx.usesBatch) {
+561:+    if (this.ownership !== "standalone") return;
+713:+    if (this.ownership !== "standalone") return undefined;
+733:+      if (this.ownership === "batch-preparation")
+=== test/recording files changed
+ scripts/query-engine-test-manifest.mjs             |   5 +
+ .../drivers/behaviors/ordering-plan-behavior.ts    |  47 ++-
+ .../engine/query/parity-admission.core.test.ts     | 364 ++++++++++++++++
+ .../engine/query/parity-assignments.core.test.ts   | 183 ++++++++
+ .../engine/query/parity-decoding.core.test.ts      | 226 ++++++++++
+ .../engine/query/parity-lowering.core.test.ts      | 378 +++++++++++++++++
+ .../engine/query/parity-preparation.core.test.ts   | 204 +++++++++
+ .../select-mode-capability-matrix.core.test.ts     |  11 +-
+ .../core-structure/extension-a.contract.test.ts    |  34 +-
+ .../g4/parity/integration-staleness.test.ts        | 281 +++++++++++++
+ tests/raptor3/g4/parity/lane-x-route-seam.test.ts  | 117 ++++++
+ .../raptor3/g4/parity/lane-x-set-mutations.test.ts | 464 +++++++++++++++++++++
+ .../cutover/round4-deleted-refusals.review.test.ts |  65 ++-
+ tests/raptor3/prep/set-preparation.test.ts         |  65 ++-
+ .../args/aggregate-args.core.test.ts               |  14 +-
+ .../relations/filter.core.test.ts                  |  19 +-
+ .../polymorphic-collection-filter.core.test.ts     |  12 +-
+ .../unit/scalars/json-scalar-schemas.core.test.ts  |  33 +-
+ 18 files changed, 2444 insertions(+), 78 deletions(-)

@@ -6,7 +6,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
 import { vector } from "@electric-sql/pglite/vector";
 import { MigrationError, VibORMErrorCode } from "@errors";
-import { introspect as introspectClient } from "@migrations/push";
+import { introspect as introspectClient } from "@migrations/push/planner";
 import { PG, s } from "@schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { syncLiveSchema } from "../../fixtures/sync-schema";

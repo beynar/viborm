@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-cache.test.ts (7 tests) 79ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  17:54:49
+   Duration  6.30s (transform 3.72s, setup 18ms, collect 5.72s, tests 79ms, environment 0ms, prepare 59ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-lqiEYA/vitest.json
+Vitest resources: 11.59s wall, 477.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-route-cache contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-lqiEYA

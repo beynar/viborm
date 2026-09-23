@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "status": "superseded-by-final-review-repair",
+  "identity": {
+    "production": "d7f14cc5973eb25e8ab80678bd55dfcb424e2a837907ce1f4c3728b1bbf66922",
+    "harness": "4b4783d8926b943a07066dc741106ea9caeeabc9ca35c58042f1d3cca2c2c18f",
+    "node": "v24.21.0"
+  },
+  "completed": {
+    "fixedModes": 31,
+    "fixedTests": 1095,
+    "credentialFreeFiles": 55,
+    "credentialFreeTests": 716,
+    "pgliteFiles": 5,
+    "pgliteTests": 11,
+    "postgresqlModes": 9,
+    "postgresqlTests": 56,
+    "mysqlModes": 8,
+    "mysqlTests": 45,
+    "campaignCells": 21000,
+    "campaignReplays": 63000,
+    "campaignSkips": 0,
+    "savedReplayCorpora": 5,
+    "historicalStaleIdentityProbes": 2,
+    "structuralCases": 28,
+    "structuralReplays": 60,
+    "structuralSkips": 0
+  },
+  "supersededBecause": "Final review found that one recursive materializePlacement map could lose the first local capture target when the same enclosing record recipe occupied both Choice arms.",
+  "redWitness": "final-review-red.md",
+  "archiveRule": "These receipts remain valid only for this pre-repair identity and must not be cited as final CS-04 qualification."
+}

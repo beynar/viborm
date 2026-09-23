@@ -1,0 +1,319 @@
+src/query-engine/raptor3/commands/execution.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { getAdapterInternals } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import {
+    3 │   NestedWriteError,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      19   19 │   import type { Assignments } from "./assignments";
+      20   20 │   import { CommandAttempt } from "./command-attempt";
+      21      │ - import·{
+      22      │ - ··isRecordOccurrence,
+      23      │ - ··isSeriesOccurrence,
+      24      │ - ··membershipRaceFailure,
+           21 │ + import·type·{
+           22 │ + ··Choose,
+           23 │ + ··Command,
+           24 │ + ··CommandOccurrence,
+           25 │ + ··Commands,
+           26 │ + ··MembershipRequirement,
+           27 │ + ··RecordCommand,
+           28 │ + ··SelectedSeriesMember,
+           29 │ + ··SeriesOccurrence,
+      25   30 │   } from "./commands";
+      26      │ - import·type·{
+      27      │ - ··Choose,
+      28      │ - ··Command,
+      29      │ - ··CommandOccurrence,
+      30      │ - ··Commands,
+      31      │ - ··MembershipRequirement,
+      32      │ - ··RecordCommand,
+      33      │ - ··SelectedSeriesMember,
+      34      │ - ··SeriesOccurrence,
+           31 │ + import·{
+           32 │ + ··isRecordOccurrence,
+           33 │ + ··isSeriesOccurrence,
+           34 │ + ··membershipRaceFailure,
+      35   35 │   } from "./commands";
+      36   36 │   import {
+  
+
+src/query-engine/raptor3/commands/execution.ts:51:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    49 │   private currentAttempt: CommandAttempt;
+    50 │   private readonly entered = new Set<CommandOccurrence>();
+  > 51 │   constructor(readonly commands: Commands) {
+       │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    52 │     this.context = commands.context;
+    53 │     this.currentAttempt = new CommandAttempt(this.context.transportAttempt);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/execution.ts:571:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    569 │     const command = occurrence.command;
+    570 │     this.entered.add(occurrence);
+  > 571 │     switch (command.kind) {
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+  > 572 │       case "record": {
+         ...
+  > 913 │         return;
+  > 914 │     }
+        │     ^
+    915 │   }
+    916 │   async records(
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/commands/execution.ts:954:68 lint/complexity/noCommaOperator ━━━━━━━━━━━━━━
+
+  × The comma operator is disallowed.
+  
+    952 │             command
+    953 │           )
+  > 954 │         : (await ctx.executeMember(() => this.run(record), command), true);
+        │                                                                    ^
+    955 │       if (!completed) {
+    956 │         await ctx.executeMember(() => this.adoptSuppressed(record), command);
+  
+  i Its use is often confusing and obscures side effects.
+  
+
+src/query-engine/raptor3/commands/selection.ts:152:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    151 │   constructor(
+  > 152 │     private readonly execution: CommandExecution,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    153 │     readonly model: AnyModel,
+    154 │     readonly source: SelectionSource,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/selection.ts:153:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    151 │   constructor(
+    152 │     private readonly execution: CommandExecution,
+  > 153 │     readonly model: AnyModel,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^
+    154 │     readonly source: SelectionSource,
+    155 │     readonly required?: DeferredFailure,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/selection.ts:154:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    152 │     private readonly execution: CommandExecution,
+    153 │     readonly model: AnyModel,
+  > 154 │     readonly source: SelectionSource,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    155 │     readonly required?: DeferredFailure,
+    156 │     facts?: SelectorFacts
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/selection.ts:155:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    153 │     readonly model: AnyModel,
+    154 │     readonly source: SelectionSource,
+  > 155 │     readonly required?: DeferredFailure,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    156 │     facts?: SelectorFacts
+    157 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/selection.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    167 167 │             field,
+    168 168 │             true,
+    169     │ - ········]),
+        169 │ + ········])
+    170 170 │         ),
+    171 171 │       });
+    172 172 │       this.identityProjection = queries.prepareProjection(model, {
+    173 173 │         select: Object.fromEntries(
+    174     │ - ········execution.context.schema.keys(model).map((field)·=>·[field,·true]),
+        174 │ + ········execution.context.schema.keys(model).map((field)·=>·[field,·true])
+    175 175 │         ),
+    176 176 │       });
+    ······· │ 
+    194 194 │       membership: BoundMembership | undefined,
+    195 195 │       identity?: Input,
+    196     │ - ····unlocked·=·false,
+        196 │ + ····unlocked·=·false
+    197 197 │     ) {
+    198 198 │       const ctx = this.execution.context;
+    ······· │ 
+    208 208 │           projection: this.rowProjection,
+    209 209 │           selector,
+    210     │ - ······},
+        210 │ + ······}
+    211 211 │       );
+    212 212 │     }
+    ······· │ 
+    249 249 │         { take: 1 },
+    250 250 │         bound && { ...bound, outside: true },
+    251     │ - ······{·projection:·this.identityProjection,·selector:·this.selector·},
+        251 │ + ······{·projection:·this.identityProjection,·selector:·this.selector·}
+    252 252 │       );
+    253 253 │     }
+    ······· │ 
+    261 261 │         this.membership(),
+    262 262 │         identity,
+    263     │ - ······this.insertsWhenAbsent,
+        263 │ + ······this.insertsWhenAbsent
+    264 264 │       );
+    265 265 │     }
+    ······· │ 
+    295 295 │           projection: this.identityProjection,
+    296 296 │           selector: condition.selector,
+    297     │ - ······},
+        297 │ + ······}
+    298 298 │       );
+    299 299 │     }
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:133:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    131 │     assert.match(
+    132 │       leftSql,
+  > 133 │       /"left_source"\."left_value"\s*>\s*"left_source"\."right_value"/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    134 │     );
+    135 │     assert.match(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:137:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    135 │     assert.match(
+    136 │       rightSql,
+  > 137 │       /"right_source"\."left_value"\s*>\s*"right_source"\."right_value"/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    138 │     );
+    139 │     assert.doesNotMatch(leftSql, /"right_source"/);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:139:34 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    137 │       /"right_source"\."left_value"\s*>\s*"right_source"\."right_value"/
+    138 │     );
+  > 139 │     assert.doesNotMatch(leftSql, /"right_source"/);
+        │                                  ^^^^^^^^^^^^^^^^
+    140 │     assert.doesNotMatch(rightSql, /"left_source"/);
+    141 │     assert(column.mock.calls.length > 0);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:140:35 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    138 │     );
+    139 │     assert.doesNotMatch(leftSql, /"right_source"/);
+  > 140 │     assert.doesNotMatch(rightSql, /"left_source"/);
+        │                                   ^^^^^^^^^^^^^^^
+    141 │     assert(column.mock.calls.length > 0);
+    142 │     assert(conjunction.mock.calls.length > 0);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:191:9 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    189 │       assert.match(
+    190 │         driver.statements[0] ?? "",
+  > 191 │         /"([^"]+)"\."left_value"\s*>\s*"\1"\."right_value"/
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    192 │       );
+    193 │       assert.match(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:195:9 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    193 │       assert.match(
+    194 │         driver.statements[1] ?? "",
+  > 195 │         /"([^"]+)"\."left_value"\s*=\s*"\1"\."right_value"/
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    196 │       );
+    197 │     } finally {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:229:9 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    227 │       assert.match(
+    228 │         failure.message,
+  > 229 │         /Field reference 'other\.right' cannot be used while filtering 'row': a field reference may only compare columns of the same model\./
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    230 │       );
+    231 │       assert.equal(driver.statements.length, 0);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/post-prep/selector-preparation.test.ts:324:62 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    323 │       assert.deepEqual(
+  > 324 │         driver.statements.map((statement) => statement.match(/^\w+/)?.[0]),
+        │                                                              ^^^^^^
+    325 │         ["SELECT", "SELECT", "SELECT", "UPDATE", "SELECT"]
+    326 │       );
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+Checked 4 files in 17ms. No fixes applied.
+Found 17 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

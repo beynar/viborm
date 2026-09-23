@@ -17,7 +17,7 @@ import { createClient } from "@client/client";
 import { PgDriver } from "@drivers/pg";
 import { MigrationError, VibORMErrorCode } from "@errors";
 import { getMigrationDriver } from "@migrations/drivers";
-import { introspect as introspectClient } from "@migrations/push";
+import { introspect as introspectClient } from "@migrations/push/planner";
 import { PG, s } from "@schema";
 import { createControlTableSQL } from "@src/migrations/control";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

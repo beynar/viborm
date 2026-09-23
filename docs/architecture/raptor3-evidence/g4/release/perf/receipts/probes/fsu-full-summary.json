@@ -1,0 +1,207 @@
+{
+ "cell": "flat-scalar-update/full",
+ "why": "The frozen harness refuses the whole flat-scalar-update workload on this protocol identity (no phase adapter): createMutationHarness calls prepareForRawExecution for every stage and the candidate publishes two statements. This probe retains the end-to-end evidence the protocol requires for a not-measurable-comparably cell, driving the PUBLIC entry exactly as the harness full stage does.",
+ "method": "5 alternating fresh-process pairs per side, medians, 5000 iterations after 1000 warmup, no forced collection between warmup and the measured loop (worker.mjs does not force one), sqlite3 :memory:.",
+ "metrics": {
+  "cpuUsPerOp": {
+   "B": 41.412,
+   "N": 28.6266,
+   "ratio": 0.6912634019124891,
+   "madBaseline": 0.8337999999999965,
+   "madCandidate": 0.18100000000000094,
+   "E": 1.667599999999993,
+   "budget": 2.0706,
+   "signedDelta": -12.7854,
+   "deltaPlusE": -11.117800000000006,
+   "verdict": "pass",
+   "samplesBaseline": [
+    40.5782,
+    41.3284,
+    41.412,
+    45.315,
+    44.698
+   ],
+   "samplesCandidate": [
+    28.9336,
+    28.8392,
+    28.4456,
+    28.6266,
+    28.5248
+   ]
+  },
+  "wallUsPerOp": {
+   "B": 23.6801834,
+   "N": 19.9045832,
+   "ratio": 0.8405586588489007,
+   "madBaseline": 0.5051334000000018,
+   "madCandidate": 0.22694979999999987,
+   "E": 1.0102668000000037,
+   "budget": 1.1840091700000002,
+   "signedDelta": -3.7756001999999995,
+   "deltaPlusE": -2.765333399999996,
+   "verdict": "pass",
+   "samplesBaseline": [
+    23.17505,
+    23.595416600000004,
+    23.6801834,
+    25.610258399999996,
+    25.4387418
+   ],
+   "samplesCandidate": [
+    20.2079416,
+    20.3304334,
+    19.6776334,
+    19.9045832,
+    19.7738084
+   ]
+  },
+  "peakRssBytes": {
+   "B": 140001280,
+   "N": 135970816,
+   "ratio": 0.9712112346401405,
+   "madBaseline": 1015808,
+   "madCandidate": 851968,
+   "E": 2031616,
+   "budget": 14000128,
+   "signedDelta": -4030464,
+   "deltaPlusE": -1998848,
+   "verdict": "pass",
+   "samplesBaseline": [
+    139067392,
+    138985472,
+    140001280,
+    179077120,
+    180191232
+   ],
+   "samplesCandidate": [
+    137265152,
+    135544832,
+    135970816,
+    137068544,
+    135118848
+   ]
+  }
+ },
+ "samples": [
+  {
+   "side": "baseline",
+   "pair": 0,
+   "root": "/private/tmp/viborm-perf-baseline",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 40.5782,
+   "wallUsPerOp": 23.17505,
+   "peakRssBytes": 139067392,
+   "checksum": 702000
+  },
+  {
+   "side": "candidate",
+   "pair": 0,
+   "root": "/private/tmp/viborm-perf-cand",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 28.9336,
+   "wallUsPerOp": 20.2079416,
+   "peakRssBytes": 137265152,
+   "checksum": 702000
+  },
+  {
+   "side": "baseline",
+   "pair": 1,
+   "root": "/private/tmp/viborm-perf-baseline",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 41.3284,
+   "wallUsPerOp": 23.595416600000004,
+   "peakRssBytes": 138985472,
+   "checksum": 702000
+  },
+  {
+   "side": "candidate",
+   "pair": 1,
+   "root": "/private/tmp/viborm-perf-cand",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 28.8392,
+   "wallUsPerOp": 20.3304334,
+   "peakRssBytes": 135544832,
+   "checksum": 702000
+  },
+  {
+   "side": "baseline",
+   "pair": 2,
+   "root": "/private/tmp/viborm-perf-baseline",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 41.412,
+   "wallUsPerOp": 23.6801834,
+   "peakRssBytes": 140001280,
+   "checksum": 702000
+  },
+  {
+   "side": "candidate",
+   "pair": 2,
+   "root": "/private/tmp/viborm-perf-cand",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 28.4456,
+   "wallUsPerOp": 19.6776334,
+   "peakRssBytes": 135970816,
+   "checksum": 702000
+  },
+  {
+   "side": "baseline",
+   "pair": 3,
+   "root": "/private/tmp/viborm-perf-baseline",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 45.315,
+   "wallUsPerOp": 25.610258399999996,
+   "peakRssBytes": 179077120,
+   "checksum": 702000
+  },
+  {
+   "side": "candidate",
+   "pair": 3,
+   "root": "/private/tmp/viborm-perf-cand",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 28.6266,
+   "wallUsPerOp": 19.9045832,
+   "peakRssBytes": 137068544,
+   "checksum": 702000
+  },
+  {
+   "side": "baseline",
+   "pair": 4,
+   "root": "/private/tmp/viborm-perf-baseline",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 44.698,
+   "wallUsPerOp": 25.4387418,
+   "peakRssBytes": 180191232,
+   "checksum": 702000
+  },
+  {
+   "side": "candidate",
+   "pair": 4,
+   "root": "/private/tmp/viborm-perf-cand",
+   "mode": "full",
+   "iterations": 5000,
+   "warmup": 1000,
+   "cpuUsPerOp": 28.5248,
+   "wallUsPerOp": 19.7738084,
+   "peakRssBytes": 135118848,
+   "checksum": 702000
+  }
+ ]
+}

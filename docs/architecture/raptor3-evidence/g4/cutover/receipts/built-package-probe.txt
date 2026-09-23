@@ -1,0 +1,5 @@
+RESULT public findMany rows = 2
+RESULT public create id = probe_1
+RESULT benchmark prepare() = undefined
+RESULT benchmark prepareBatch() = package
+RESULT buildStatement() = undefined

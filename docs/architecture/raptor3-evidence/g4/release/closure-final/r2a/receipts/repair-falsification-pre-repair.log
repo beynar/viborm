@@ -1,0 +1,24 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2ab
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts (5 tests | 1 failed) 823ms
+   ✓ MySQL2 schema attestation > pushes an enum-and-default schema and converges on a second push 275ms
+   ✓ MySQL2 schema attestation > the declared defaults are the DATABASE's, not admission's 118ms
+   ✓ MySQL2 schema attestation > an actual change is planned, applied and then converges 202ms
+   × MySQL2 schema attestation > an apostrophe survives MySQL's deparse of an expression default 123ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   ✓ MySQL2 schema attestation > a default MySQL's DDL does not read back is refused, not accepted 104ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts > MySQL2 schema attestation > an apostrophe survives MySQL's deparse of an expression default
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  11:10:59
+   Duration  3.49s (transform 1.59s, setup 13ms, collect 2.28s, tests 823ms, environment 0ms, prepare 59ms)
+
+Vitest resources: 6.31s wall, 466.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 97ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  23:31:41
+   Duration  1.56s (transform 841ms, setup 9ms, collect 1.27s, tests 97ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-NfQHPK/vitest.json
+Vitest resources: 3.55s wall, 471.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-filters contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-NfQHPK

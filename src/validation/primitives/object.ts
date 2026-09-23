@@ -53,6 +53,26 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
   omit?: TKeys[];
   /** Require at least one key to be present (object cannot be empty) */
   nonEmpty?: boolean;
+  /**
+   * The WHOLE-OBJECT refusal this object owns, with its own sentence.
+   *
+   * `atLeast`, `requiresOneOf` and `nonEmpty` each answer one shape of "which
+   * keys must be here", and each answers it with the primitive's own generic
+   * message. A completeness rule that reads more than key presence — "this
+   * filter states no OPERATION" (`path`/`mode` are modifiers, not operations),
+   * "this `mode` governs nothing here", "this `by` names the same column
+   * twice" — has no key-level spelling, and the ones that do still have a
+   * REGISTERED sentence the generic message cannot spell.
+   *
+   * So one hook: it runs after every member validated, over the validated
+   * output (a key spelled `undefined` is already absent there, which is the
+   * `{ f: undefined }` ≡ `{}` rule the whole surface follows), and returns the
+   * refusal sentence or `undefined`. It is deliberately NOT part of the
+   * inferred input type: these are runtime completeness facts about a
+   * recursive filter surface, and distributing them into the type would turn
+   * every filter object into a union of one variant per operator.
+   */
+  refuse?: (value: Record<string, unknown>) => string | undefined;
 }
 
 /**
@@ -411,6 +431,7 @@ function createObjectValidator(
     requiresOneOfKeySets,
     omit,
     nonEmpty,
+    refuse,
   } = options;
   let keys: readonly string[] = EMPTY_METADATA_ARRAY;
   let keyIndex = EMPTY_KEY_INDEX;
@@ -674,7 +695,8 @@ function createObjectValidator(
         }
       }
 
-      return { value: output };
+      const refusal = refuse?.(output);
+      return refusal ? { issues: [{ message: refusal }] } : { value: output };
     }
 
     // Slow path (partial: false or atLeast): output is intentionally DENSE —
@@ -747,7 +769,8 @@ function createObjectValidator(
       output[key] = result.value;
     }
 
-    return { value: output };
+    const refusal = refuse?.(output);
+    return refusal ? { issues: [{ message: refusal }] } : { value: output };
   };
 }
 

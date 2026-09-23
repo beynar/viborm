@@ -1,0 +1,754 @@
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +2
+++
+Progress: resolved 9, reused 0, downloaded 1, added 1
+Progress: resolved 9, reused 0, downloaded 2, added 2, done
+scripts/credential-free-test-manifest.mjs:4:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━
+
+  × Sort the imported names.
+  
+     2 │ import { dirname, relative, resolve } from "node:path";
+     3 │ import { fileURLToPath } from "node:url";
+   > 4 │ import {
+       │ ^^^^^^^^
+   > 5 │   CS01_EXTENSION_A_TESTS,
+        ...
+  > 91 │   RQ07_FOLLOWUP_TESTS,
+  > 92 │ } from "./raptor3-manifest.mjs";
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    93 │ 
+    94 │ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+  
+  i Safe fix: Organize imports and exports (Biome)
+  
+     23  23 │     G1_TRANSPORT_CAMPAIGN_TESTS,
+     24  24 │     G1_TRANSPORT_TESTS,
+     25     │ - ··G25_CONTRACT_TESTS,
+     26     │ - ··G25_PG_CONTRACT_TESTS,
+     27     │ - ··G27_CONTRACT_TESTS,
+     28     │ - ··G27_PG_CONTRACT_TESTS,
+     29     │ - ··G29_DEPENDENCY_BOUNDARY_TESTS,
+     30     │ - ··G29_DEPENDENCY_CHOICE_TESTS,
+     31     │ - ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+     32     │ - ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+     33     │ - ··G29_MEMBER_DEPENDENCY_TESTS,
+     34     │ - ··G29_RESULT_PROGRESS_TESTS,
+     35     │ - ··G2_BASELINE_TESTS,
+     36     │ - ··G2_CAMPAIGN_TESTS,
+     37     │ - ··G2_CONTRACT_TESTS,
+     38     │ - ··G2_DIAGNOSTIC_TESTS,
+     39     │ - ··G2_GENERATED_TESTS,
+     40     │ - ··G2_PG_BASELINE_TESTS,
+     41     │ - ··G2_PG_CONTRACT_TESTS,
+     42     │ - ··G2_TRANSPORT_TESTS,
+     43     │ - ··G3P02_CONTRACT_TESTS,
+     44     │ - ··G3P02_PG_CONTRACT_TESTS,
+     45     │ - ··G3P03_CONTRACT_TESTS,
+     46     │ - ··G3P03_PG_CONTRACT_TESTS,
+     47     │ - ··G3P04_CONTRACT_TESTS,
+     48     │ - ··G3P04_PG_CONTRACT_TESTS,
+     49     │ - ··G3P04_REVIEW_CONTRACT_TESTS,
+     50     │ - ··G3P05_CONTRACT_TESTS,
+     51     │ - ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+     52     │ - ··G3_BULK_RESULT_BOUNDARY_TESTS,
+     53     │ - ··G3_BULK_SERIES_TESTS,
+     54     │ - ··G3_DEPTH_RECURRENCE_TESTS,
+     55     │ - ··G3_EXECUTION_REVIEW_TESTS,
+     56     │ - ··G3_GENERATED_CAMPAIGN_TESTS,
+     57     │ - ··G3_GENERATED_SMOKE_TESTS,
+     58     │ - ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+     59     │ - ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+     60     │ - ··G3_SCOPE_COMPOSITION_PG_TESTS,
+     61     │ - ··G3_SCOPE_FAILURE_TESTS,
+     62     │ - ··G3_SUPPRESSION_RETRY_TESTS,
+     63     │ - ··G3_TRANSACTION_ARRAY_TESTS,
+     64     │ - ··G4_GENERATED_CAMPAIGN_TESTS,
+     65     │ - ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+     66     │ - ··G4_GENERATION_SELFTEST_TESTS,
+     67     │ - ··G4_NATIVE_MYSQL_TESTS,
+     68     │ - ··G4_NATIVE_PG_TESTS,
+     69     │ - ··G4_PARITY_TESTS,
+     70     │ - ··G4_READ_TESTS,
+     71     │ - ··G4_UNIT01_AUTHOR_TESTS,
+     72     │ - ··G4_UNIT02_AUTHOR_TESTS,
+     73     │ - ··G4_UNIT02_MYSQL_TESTS,
+     74     │ - ··G4_UNIT02_PG_TESTS,
+     75     │ - ··G4_WRITE_CAMPAIGN_TESTS,
+     76     │ - ··G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+         25 │ + ··G2_BASELINE_TESTS,
+         26 │ + ··G2_CAMPAIGN_TESTS,
+         27 │ + ··G2_CONTRACT_TESTS,
+         28 │ + ··G2_DIAGNOSTIC_TESTS,
+         29 │ + ··G2_GENERATED_TESTS,
+         30 │ + ··G2_PG_BASELINE_TESTS,
+         31 │ + ··G2_PG_CONTRACT_TESTS,
+         32 │ + ··G2_TRANSPORT_TESTS,
+         33 │ + ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+         34 │ + ··G3_BULK_RESULT_BOUNDARY_TESTS,
+         35 │ + ··G3_BULK_SERIES_TESTS,
+         36 │ + ··G3_DEPTH_RECURRENCE_TESTS,
+         37 │ + ··G3_EXECUTION_REVIEW_TESTS,
+         38 │ + ··G3_GENERATED_CAMPAIGN_TESTS,
+         39 │ + ··G3_GENERATED_SMOKE_TESTS,
+         40 │ + ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+         41 │ + ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+         42 │ + ··G3_SCOPE_COMPOSITION_PG_TESTS,
+         43 │ + ··G3_SCOPE_FAILURE_TESTS,
+         44 │ + ··G3_SUPPRESSION_RETRY_TESTS,
+         45 │ + ··G3_TRANSACTION_ARRAY_TESTS,
+         46 │ + ··G3P02_CONTRACT_TESTS,
+         47 │ + ··G3P02_PG_CONTRACT_TESTS,
+         48 │ + ··G3P03_CONTRACT_TESTS,
+         49 │ + ··G3P03_PG_CONTRACT_TESTS,
+         50 │ + ··G3P04_CONTRACT_TESTS,
+         51 │ + ··G3P04_PG_CONTRACT_TESTS,
+         52 │ + ··G3P04_REVIEW_CONTRACT_TESTS,
+         53 │ + ··G3P05_CONTRACT_TESTS,
+         54 │ + ··G4_GENERATED_CAMPAIGN_TESTS,
+         55 │ + ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+         56 │ + ··G4_GENERATION_SELFTEST_TESTS,
+         57 │ + ··G4_NATIVE_MYSQL_TESTS,
+         58 │ + ··G4_NATIVE_PG_TESTS,
+         59 │ + ··G4_PARITY_TESTS,
+         60 │ + ··G4_READ_TESTS,
+         61 │ + ··G4_UNIT01_AUTHOR_TESTS,
+         62 │ + ··G4_UNIT02_AUTHOR_TESTS,
+         63 │ + ··G4_UNIT02_MYSQL_TESTS,
+         64 │ + ··G4_UNIT02_PG_TESTS,
+         65 │ + ··G4_WRITE_CAMPAIGN_TESTS,
+         66 │ + ··G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+         67 │ + ··G25_CONTRACT_TESTS,
+         68 │ + ··G25_PG_CONTRACT_TESTS,
+         69 │ + ··G27_CONTRACT_TESTS,
+         70 │ + ··G27_PG_CONTRACT_TESTS,
+         71 │ + ··G29_DEPENDENCY_BOUNDARY_TESTS,
+         72 │ + ··G29_DEPENDENCY_CHOICE_TESTS,
+         73 │ + ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+         74 │ + ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+         75 │ + ··G29_MEMBER_DEPENDENCY_TESTS,
+         76 │ + ··G29_RESULT_PROGRESS_TESTS,
+     77  77 │     POST_G3_CLEARABILITY_CONTRACT_TESTS,
+     78  78 │     POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+  
+
+src/client/result-types.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     513  513 │    * relation select its own declaration as its inverse (§8.1 step 2).
+     514  514 │    */
+     515      │ - type·WrapRelation<
+     516      │ - ··S·extends·ModelState,
+     517      │ - ··K,
+     518      │ - ··R·extends·AnyRelation,
+     519      │ - ··T,
+     520      │ - >·=·Cardinality<R>·extends·"many"
+     521      │ - ··?·T[]
+     522      │ - ··:·SlotMayBeEmpty<SourceModelOf<S>,·K,·R>·extends·false
+     523      │ - ····?·T
+     524      │ - ····:·T·|·null;
+          515 │ + type·WrapRelation<S·extends·ModelState,·K,·R·extends·AnyRelation,·T>·=
+          516 │ + ··Cardinality<R>·extends·"many"
+          517 │ + ····?·T[]
+          518 │ + ····:·SlotMayBeEmpty<SourceModelOf<S>,·K,·R>·extends·false
+          519 │ + ······?·T
+          520 │ + ······:·T·|·null;
+     525  521 │   
+     526  522 │   type WrapRelationNode<S extends ModelState, K, R extends AnyRelation, T> = [
+    ········· │ 
+     597  593 │     Override,
+     598  594 │     ClientDefaults,
+     599      │ - >·=·Target·extends·Model<infer·TargetState>
+     600      │ - ··?·TargetState·extends·ModelState
+     601      │ - ····?·Override·extends·true
+     602      │ - ······?·ApplyOmit<
+     603      │ - ··········InferModelOutput<TargetState>,
+     604      │ - ··········ResolveClientOmit<Target,·ClientDefaults>
+     605      │ - ········>
+     606      │ - ······:·Override·extends·object
+     607      │ - ········?·InferSelectInclude<
+     608      │ - ············TargetState,
+     609      │ - ············Override,
+     610      │ - ············NodeSelect<Override>,
+     611      │ - ············MergeClientOmit<
+     612      │ - ··············ResolveClientOmit<Target,·ClientDefaults>,
+     613      │ - ··············NodeOmit<Override>
+     614      │ - ············>,
+     615      │ - ············ClientDefaults
+     616      │ - ··········>
+     617      │ - ········:·ApplyOmit<
+     618      │ - ············InferModelOutput<TargetState>,
+     619      │ - ············ResolveClientOmit<Target,·ClientDefaults>
+     620      │ - ··········>
+     621      │ - ····:·never
+     622      │ - ··:·never;
+          595 │ + >·=
+          596 │ + ··Target·extends·Model<infer·TargetState>
+          597 │ + ····?·TargetState·extends·ModelState
+          598 │ + ······?·Override·extends·true
+          599 │ + ········?·ApplyOmit<
+          600 │ + ············InferModelOutput<TargetState>,
+          601 │ + ············ResolveClientOmit<Target,·ClientDefaults>
+          602 │ + ··········>
+          603 │ + ········:·Override·extends·object
+          604 │ + ··········?·InferSelectInclude<
+          605 │ + ··············TargetState,
+          606 │ + ··············Override,
+          607 │ + ··············NodeSelect<Override>,
+          608 │ + ··············MergeClientOmit<
+          609 │ + ················ResolveClientOmit<Target,·ClientDefaults>,
+          610 │ + ················NodeOmit<Override>
+          611 │ + ··············>,
+          612 │ + ··············ClientDefaults
+          613 │ + ············>
+          614 │ + ··········:·ApplyOmit<
+          615 │ + ··············InferModelOutput<TargetState>,
+          616 │ + ··············ResolveClientOmit<Target,·ClientDefaults>
+          617 │ + ············>
+          618 │ + ······:·never
+          619 │ + ····:·never;
+     623  620 │   
+     624  621 │   /**
+    ········· │ 
+     631  628 │     Override,
+     632  629 │     ClientDefaults,
+     633      │ - >·=·GetPolymorphicTarget<R,·PublicType>·extends·infer·Target
+     634      │ - ··?·Target·extends·Model<any>
+     635      │ - ····?·InferPolymorphicTargetVariant<Target,·Override,·ClientDefaults>
+     636      │ - ····:·never
+     637      │ - ··:·never;
+          630 │ + >·=
+          631 │ + ··GetPolymorphicTarget<R,·PublicType>·extends·infer·Target
+          632 │ + ····?·Target·extends·Model<any>
+          633 │ + ······?·InferPolymorphicTargetVariant<Target,·Override,·ClientDefaults>
+          634 │ + ······:·never
+          635 │ + ····:·never;
+     638  636 │   
+     639  637 │   type PolymorphicProjectionAt<
+    ········· │ 
+     749  747 │     Projection = undefined,
+     750  748 │     ClientDefaults = never,
+     751      │ - >·=·Cardinality<R>·extends·"many"
+     752      │ - ··?·readonly·PolymorphicCollectionVariants<R,·Projection,·ClientDefaults>[]
+     753      │ - ··:·SlotMayBeEmpty<SourceModelOf<S>,·K,·R>·extends·false
+     754      │ - ····?·PolymorphicVariants<R,·Projection,·ClientDefaults>
+     755      │ - ····:·PolymorphicVariants<R,·Projection,·ClientDefaults>·|·null;
+          749 │ + >·=
+          750 │ + ··Cardinality<R>·extends·"many"
+          751 │ + ····?·readonly·PolymorphicCollectionVariants<R,·Projection,·ClientDefaults>[]
+          752 │ + ····:·SlotMayBeEmpty<SourceModelOf<S>,·K,·R>·extends·false
+          753 │ + ······?·PolymorphicVariants<R,·Projection,·ClientDefaults>
+          754 │ + ······:·PolymorphicVariants<R,·Projection,·ClientDefaults>·|·null;
+     756  755 │   
+     757  756 │   // =============================================================================
+    ········· │ 
+     809  808 │    * result. Keys outside the selected shape have no effect.
+     810  809 │    */
+     811      │ - type·InferSelectedRow<
+     812      │ - ··S·extends·ModelState,
+     813      │ - ··Args,
+     814      │ - ··Selection,
+     815      │ - ··ClientDefaults,
+     816      │ - >·=·undefined·extends·NodeInclude<Args>
+     817      │ - ··?·InferSelectResult<S,·Selection,·NodeOmit<Args>,·ClientDefaults>
+     818      │ - ··:·never;
+          810 │ + type·InferSelectedRow<S·extends·ModelState,·Args,·Selection,·ClientDefaults>·=
+          811 │ + ··undefined·extends·NodeInclude<Args>
+          812 │ + ····?·InferSelectResult<S,·Selection,·NodeOmit<Args>,·ClientDefaults>
+          813 │ + ····:·never;
+     819  814 │   
+     820  815 │   /**
+    ········· │ 
+     834  829 │     Omission = NodeOmit<Args>,
+     835  830 │     ClientDefaults = never,
+     836      │ - >·=·undefined·extends·NodeInclude<Args>
+     837      │ - ··?·ApplyOmit<InferModelOutput<S>,·Omission>
+     838      │ - ··:·ApplyOmit<
+     839      │ - ······InferIncludeResult<S,·NodeInclude<Args>,·ClientDefaults>,
+     840      │ - ······Omission
+     841      │ - ····>;
+          831 │ + >·=
+          832 │ + ··undefined·extends·NodeInclude<Args>
+          833 │ + ····?·ApplyOmit<InferModelOutput<S>,·Omission>
+          834 │ + ····:·ApplyOmit<
+          835 │ + ········InferIncludeResult<S,·NodeInclude<Args>,·ClientDefaults>,
+          836 │ + ········Omission
+          837 │ + ······>;
+     842  838 │   
+     843  839 │   /**
+    ········· │ 
+     890  886 │     Projection,
+     891  887 │     ClientDefaults,
+     892      │ - >·=·IsVariantTarget<R>·extends·true
+     893      │ - ··?·Projection·extends·true
+     894      │ - ····?·InferPolymorphicResult<S,·K,·R,·undefined,·ClientDefaults>
+     895      │ - ····:·Projection·extends·object
+     896      │ - ······?·InferPolymorphicResult<S,·K,·R,·Projection,·ClientDefaults>
+     897      │ - ······:·never
+     898      │ - ··:·Projection·extends·true
+     899      │ - ····?·InferRelationResult<S,·K,·R,·ClientDefaults>
+     900      │ - ····:·Projection·extends·object
+     901      │ - ······?·InferRelationNodeResult<S,·K,·R,·Projection,·ClientDefaults>
+     902      │ - ······:·never;
+          888 │ + >·=
+  27 more lines truncated
+  
+
+src/client/types.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     320  320 │     C extends VibORMConfig,
+     321  321 │     K extends keyof C["schema"],
+     322      │ - >·=·SameModelResultSurface<
+     323      │ - ··ModelResultSurface<C["schema"][K]>,
+     324      │ - ··ModelResultSurface<C["schema"][K]>
+     325      │ - >·extends·true
+     326      │ - ··?·[Exclude<ModelsWithResultSurface<C,·K>,·K>]·extends·[never]
+     327      │ - ····?·true
+     328      │ - ····:·false
+     329      │ - ··:·false;
+          322 │ + >·=
+          323 │ + ··SameModelResultSurface<
+          324 │ + ····ModelResultSurface<C["schema"][K]>,
+          325 │ + ····ModelResultSurface<C["schema"][K]>
+          326 │ + ··>·extends·true
+          327 │ + ····?·[Exclude<ModelsWithResultSurface<C,·K>,·K>]·extends·[never]
+          328 │ + ······?·true
+          329 │ + ······:·false
+          330 │ + ····:·false;
+     330  331 │   
+     331  332 │   type ClientRelationOmitEntries<C extends VibORMConfig> = {
+    ········· │ 
+     375  376 │     ResultArgs = ResolvedOperationResultArgs<Args, Merged>,
+     376  377 │     UnselectedOmit = ResolvedOperationResultOmit<Args, DefaultOmit, Merged>,
+     377      │ - >·=·M·extends·Model<infer·S>
+     378      │ - ··?·O·extends·"findFirst"·|·"findUnique"
+     379      │ - ····?·Prettify<
+     380      │ - ········InferSelectInclude<
+     381      │ - ··········S,
+     382      │ - ··········ResultArgs,
+     383      │ - ··········NodeSelect<ResultArgs>,
+     384      │ - ··········UnselectedOmit,
+     385      │ - ··········ClientDefaults
+     386      │ - ········>
+     387      │ - ······>·|·null
+     388      │ - ····:·O·extends·"findFirstOrThrow"·|·"findUniqueOrThrow"
+     389      │ - ······?·Prettify<
+     390      │ - ··········InferSelectInclude<
+     391      │ - ············S,
+     392      │ - ············ResultArgs,
+     393      │ - ············NodeSelect<ResultArgs>,
+     394      │ - ············UnselectedOmit,
+     395      │ - ············ClientDefaults
+          378 │ + >·=
+          379 │ + ··M·extends·Model<infer·S>
+          380 │ + ····?·O·extends·"findFirst"·|·"findUnique"
+          381 │ + ······?·Prettify<
+          382 │ + ··········InferSelectInclude<
+          383 │ + ············S,
+          384 │ + ············ResultArgs,
+          385 │ + ············NodeSelect<ResultArgs>,
+          386 │ + ············UnselectedOmit,
+          387 │ + ············ClientDefaults
+          388 │ + ··········>
+          389 │ + ········>·|·null
+          390 │ + ······:·O·extends·"findFirstOrThrow"·|·"findUniqueOrThrow"
+          391 │ + ········?·Prettify<
+          392 │ + ············InferSelectInclude<
+          393 │ + ··············S,
+          394 │ + ··············ResultArgs,
+          395 │ + ··············NodeSelect<ResultArgs>,
+          396 │ + ··············UnselectedOmit,
+          397 │ + ··············ClientDefaults
+          398 │ + ············>
+     396  399 │             >
+     397      │ - ········>
+     398      │ - ······:·O·extends·"findMany"
+     399      │ - ········?·Prettify<
+     400      │ - ············InferSelectInclude<
+     401      │ - ··············S,
+     402      │ - ··············ResultArgs,
+     403      │ - ··············NodeSelect<ResultArgs>,
+     404      │ - ··············UnselectedOmit,
+     405      │ - ··············ClientDefaults
+     406      │ - ············>
+     407      │ - ··········>[]
+     408      │ - ········:·O·extends·"create"·|·"update"·|·"delete"·|·"upsert"
+     409      │ - ··········?·Prettify<
+     410      │ - ··············InferSelectInclude<
+     411      │ - ················S,
+     412      │ - ················ResultArgs,
+     413      │ - ················NodeSelect<ResultArgs>,
+     414      │ - ················UnselectedOmit,
+     415      │ - ················ClientDefaults
+          400 │ + ········:·O·extends·"findMany"
+          401 │ + ··········?·Prettify<
+          402 │ + ··············InferSelectInclude<
+          403 │ + ················S,
+          404 │ + ················ResultArgs,
+          405 │ + ················NodeSelect<ResultArgs>,
+          406 │ + ················UnselectedOmit,
+          407 │ + ················ClientDefaults
+          408 │ + ··············>
+          409 │ + ············>[]
+          410 │ + ··········:·O·extends·"create"·|·"update"·|·"delete"·|·"upsert"
+          411 │ + ············?·Prettify<
+          412 │ + ················InferSelectInclude<
+          413 │ + ··················S,
+          414 │ + ··················ResultArgs,
+          415 │ + ··················NodeSelect<ResultArgs>,
+          416 │ + ··················UnselectedOmit,
+          417 │ + ··················ClientDefaults
+          418 │ + ················>
+     416  419 │                 >
+     417      │ - ············>
+     418      │ - ··········:·O·extends·"createMany"·|·"updateMany"·|·"deleteMany"
+     419      │ - ············?·BulkWriteResult<S,·Args,·DefaultOmit>
+     420      │ - ············:·O·extends·"count"
+     421      │ - ··············?·CountResultType<Args>
+     422      │ - ··············:·O·extends·"exist"
+     423      │ - ················?·boolean
+     424      │ - ················:·O·extends·"aggregate"
+     425      │ - ··················?·AggregateResultType<ExtractFields<M>,·Args>
+     426      │ - ··················:·O·extends·"groupBy"
+     427      │ - ····················?·GroupByResultType<ExtractFields<M>,·Args>[]
+     428      │ - ····················:·never
+     429      │ - ··:·never;
+          420 │ + ············:·O·extends·"createMany"·|·"updateMany"·|·"deleteMany"
+          421 │ + ··············?·BulkWriteResult<S,·Args,·DefaultOmit>
+          422 │ + ··············:·O·extends·"count"
+          423 │ + ················?·CountResultType<Args>
+          424 │ + ················:·O·extends·"exist"
+          425 │ + ··················?·boolean
+          426 │ + ··················:·O·extends·"aggregate"
+          427 │ + ····················?·AggregateResultType<ExtractFields<M>,·Args>
+          428 │ + ····················:·O·extends·"groupBy"
+          429 │ + ······················?·GroupByResultType<ExtractFields<M>,·Args>[]
+          430 │ + ······················:·never
+          431 │ + ····:·never;
+     430  432 │   
+     431  433 │   /** Public operation result helper for one operation and its declared args. */
+    ········· │ 
+     731  733 │     M extends Model<any>,
+     732  734 │     Clause extends "select" | "include",
+     733      │ - >·=·M·extends·Model<infer·State>
+     734      │ - ··?·string·extends·keyof·State["relations"]
+     735      │ - ····?·unknown
+     736      │ - ····:·Clause·extends·keyof·Arg
+     737      │ - ······?·{
+     738      │ - ··········[Key·in·Clause]?:·PolymorphicClauseGuard<
+     739      │ - ············Arg[Key],
+     740      │ - ············State["relations"]
+     741      │ - ··········>;
+     742      │ - ········}
+     743      │ - ······:·unknown
+     744      │ - ··:·unknown;
+          735 │ + >·=
+          736 │ + ··M·extends·Model<infer·State>
+          737 │ + ····?·string·extends·keyof·State["relations"]
+          738 │ + ······?·unknown
+          739 │ + ······:·Clause·extends·keyof·Arg
+          740 │ + ········?·{
+  39 more lines truncated
+  
+
+src/validation/relations/select-include.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    128 128 │   type UnavailableRecurrenceSchema = ReturnType<typeof unavailableRecurrence>;
+    129 129 │   
+    130     │ - type·RecurrenceFor<
+    131     │ - ··Source·extends·AnyModel,
+    132     │ - ··Key,
+    133     │ - ··S·extends·RelationState,
+    134     │ - >·=·StaticRecursiveMembership<Source,·Key,·S>·extends·StaticForeignKeyMembership
+    135     │ - ··?·ForeignKeyRecurrenceSchema
+    136     │ - ··:·StaticRecursiveMembership<Source,·Key,·S>·extends·StaticJunctionMembership
+    137     │ - ····?·GraphRecurrenceSchema
+    138     │ - ····:·never;
+        130 │ + type·RecurrenceFor<Source·extends·AnyModel,·Key,·S·extends·RelationState>·=
+        131 │ + ··StaticRecursiveMembership<Source,·Key,·S>·extends·StaticForeignKeyMembership
+        132 │ + ····?·ForeignKeyRecurrenceSchema
+        133 │ + ····:·StaticRecursiveMembership<Source,·Key,·S>·extends·StaticJunctionMembership
+        134 │ + ······?·GraphRecurrenceSchema
+        135 │ + ······:·never;
+    139 136 │   
+    140 137 │   /** A target projection whose asking key is refused, keeping its options. */
+  
+
+tests/raptor3/g4/review/perf/alias-scope.review.test.ts:69:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    67 │   for (const owner of STATEMENT_OWNERS) {
+    68 │     const original = prototype[owner];
+  > 69 │     assert.equal(
+       │     ^^^^^^
+    70 │       typeof original,
+    71 │       "function",
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/review/perf/alias-scope.review.test.ts:103:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    101 │ function assertNoDuplicateAlias(label: string, sql: string): void {
+    102 │   const declared = declaredAliases(sql);
+  > 103 │   assert.deepEqual(
+        │   ^^^^^^
+    104 │     [...new Set(declared)].length,
+    105 │     declared.length,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/review/perf/alias-scope.review.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    234 234 │         select: {
+    235 235 │           handle: true,
+    236     │ - ········posts:·{·orderBy:·{·id:·"asc"·},·take:·1,·skip:·0,·select:·{·id:·true·}·},
+        236 │ + ········posts:·{
+        237 │ + ··········orderBy:·{·id:·"asc"·},
+        238 │ + ··········take:·1,
+        239 │ + ··········skip:·0,
+        240 │ + ··········select:·{·id:·true·},
+        241 │ + ········},
+    237 242 │         },
+    238 243 │       },
+    ······· │ 
+    310 315 │         const sql = open.statements.map((statement) => statement.sql);
+    311 316 │         assert.ok(sql.length > 0, `${call.label} dispatched no statement`);
+    312     │ - ······for·(const·statement·of·sql)·assertNoDuplicateAlias(call.label,·statement);
+        317 │ + ······for·(const·statement·of·sql)
+        318 │ + ········assertNoDuplicateAlias(call.label,·statement);
+    313 319 │         observed.set(call.label, sql);
+    314 320 │       }
+    ······· │ 
+    320 326 │       assert.equal(maxDepth, 1, "no statement owner ran at all");
+    321 327 │       // The battery really does exercise nested scopes, or cell (2) is vacuous.
+    322     │ - ····const·nested·=·observed.get("findMany·nested·to-many·+·to-one·+·counts")![0]!;
+        328 │ + ····const·nested·=·observed.get(
+        329 │ + ······"findMany·nested·to-many·+·to-one·+·counts"
+        330 │ + ····)![0]!;
+    323 331 │       assert.ok(
+    324 332 │         declaredAliases(nested).length > 2,
+  
+
+tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts:66:26 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    65 │   it("seeds real bytes and a real JSON document", () => {
+  > 66 │     assert.match(source, /payload_value:\s*Buffer\.from\(/);
+       │                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    67 │     assert.equal(
+    68 │       (source.match(/payload_value:\s*Buffer\.from\(/g) ?? []).length,
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts:72:26 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    70 │       "not every seeded row carries real bytes"
+    71 │     );
+  > 72 │     assert.match(source, /document_value:\s*JSON\.stringify\(/);
+       │                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    73 │   });
+    74 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts:95:18 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    93 │       "the withdrawn spatial claim came back"
+    94 │     );
+  > 95 │     assert.equal(/s\.point\(\)|s\.vector\(\)/.test(source), false);
+       │                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    96 │   });
+    97 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts:102:26 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    100 │     // `Queries.recursive` builder and its `OperationContext` entry are
+    101 │     // retired; the cell reads `recurse` on the ordinary `children` node.
+  > 102 │     assert.match(source, /candidate\.execute\("node", "findMany", \{/);
+        │                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    103 │     assert.match(source, /children: \{\s*recurse: \{ depth: 2 \},/);
+    104 │     assert.match(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts:103:26 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    101 │     // retired; the cell reads `recurse` on the ordinary `children` node.
+    102 │     assert.match(source, /candidate\.execute\("node", "findMany", \{/);
+  > 103 │     assert.match(source, /children: \{\s*recurse: \{ depth: 2 \},/);
+        │                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    104 │     assert.match(
+    105 │       source,
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts:106:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    104 │     assert.match(
+    105 │       source,
+  > 106 │       /world\.statements\.length,\s*\n?\s*1,/,
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    107 │       "the one-statement claim of the native fit is gone"
+    108 │     );
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:182:32 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    180 │       distanceAlone
+    181 │     );
+  > 182 │     assert.match(distanceOnly, /_distance: number/);
+        │                                ^^^^^^^^^^^^^^^^^^^
+    183 │     assert.doesNotMatch(distanceOnly, /VibORMRecursiveNode/);
+    184 │     const relationOnly = renderOperationResultType(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:183:39 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    181 │     );
+    182 │     assert.match(distanceOnly, /_distance: number/);
+  > 183 │     assert.doesNotMatch(distanceOnly, /VibORMRecursiveNode/);
+        │                                       ^^^^^^^^^^^^^^^^^^^^^
+    184 │     const relationOnly = renderOperationResultType(
+    185 │       schema,
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:190:32 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    188 │       relationAlone
+    189 │     );
+  > 190 │     assert.match(relationOnly, /_distance\?: Array<VibORMRecursiveNode1>/);
+        │                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    191 │     assert.doesNotMatch(relationOnly, /_distance: number/);
+    192 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:191:39 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    189 │     );
+    190 │     assert.match(relationOnly, /_distance\?: Array<VibORMRecursiveNode1>/);
+  > 191 │     assert.doesNotMatch(relationOnly, /_distance: number/);
+        │                                       ^^^^^^^^^^^^^^^^^^^
+    192 │   });
+    193 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:211:57 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    209 │     if (distance.shape.kind !== "object") return;
+    210 │     assert.equal(distance.shape.fields._distance?.kind, "scalar");
+  > 211 │     assert.doesNotMatch(distance.sql.toStatement("$n"), /WITH RECURSIVE/);
+        │                                                         ^^^^^^^^^^^^^^^^
+    212 │ 
+    213 │     const relation = queries().select(place, relationAlone as never);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:217:50 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    215 │     if (relation.shape.kind !== "object") return;
+    216 │     assert.equal(relation.shape.fields._distance?.kind, "recursive");
+  > 217 │     assert.match(relation.sql.toStatement("$n"), /WITH RECURSIVE/);
+        │                                                  ^^^^^^^^^^^^^^^^
+    218 │   });
+    219 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/unit/operation-schemas/relations/recursive-query.core.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    148 148 │     });
+    149 149 │   
+    150     │ - ··test.each([
+    151     │ - ····0,
+    152     │ - ····-1,
+    153     │ - ····1.5,
+    154     │ - ····1001,
+    155     │ - ····Number.MAX_SAFE_INTEGER·+·1,
+    156     │ - ··])("refuses·invalid·depth·%s",·(depth)·=>·{
+    157     │ - ····expect(
+    158     │ - ······parse(schemas.node.relations.children.include,·{·recurse:·{·depth·}·})
+    159     │ - ········.issues
+    160     │ - ····).toBeDefined();
+    161     │ - ··});
+        150 │ + ··test.each([0,·-1,·1.5,·1001,·Number.MAX_SAFE_INTEGER·+·1])(
+        151 │ + ····"refuses·invalid·depth·%s",
+        152 │ + ····(depth)·=>·{
+        153 │ + ······expect(
+        154 │ + ········parse(schemas.node.relations.children.include,·{·recurse:·{·depth·}·})
+        155 │ + ··········.issues
+        156 │ + ······).toBeDefined();
+        157 │ + ····}
+        158 │ + ··);
+    162 159 │   
+    163 160 │     test("refuses recursive pagination, duplicate asking keys, and typos", () => {
+  
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 139.
+Checked 34 files in 272ms. No fixes applied.
+Found 158 errors.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -1,0 +1,31 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |coverage-client| tests/contracts/public-client/official-cache-instrumentation.core.test.ts (8 tests) 36ms
+ ✓ |coverage-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 14ms
+ ✓ |coverage-client| tests/contracts/public-client/official-cache-swr.core.test.ts (7 tests) 8ms
+ ✓ |coverage-client| tests/contracts/public-client/protected-cache-observers.core.test.ts (7 tests) 5ms
+ ✓ |coverage-client| tests/contracts/public-client/official-cache-extension.core.test.ts (10 tests) 3ms
+ ✓ |coverage-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 11ms
+ ✓ |coverage-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 3ms
+ ✓ |coverage-client| tests/contracts/public-client/raw-observation-closure.core.test.ts (1 test) 3ms
+ ✓ |layer-client| tests/contracts/public-client/official-cache-instrumentation.core.test.ts (8 tests) 35ms
+ ✓ |layer-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 15ms
+ ✓ |layer-client| tests/contracts/public-client/official-cache-swr.core.test.ts (7 tests) 9ms
+ ✓ |layer-client| tests/contracts/public-client/protected-cache-observers.core.test.ts (7 tests) 5ms
+ ✓ |layer-client| tests/contracts/public-client/official-cache-extension.core.test.ts (10 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 12ms
+ ✓ |layer-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/raw-observation-closure.core.test.ts (1 test) 3ms
+ ✓ |coverage-cache| tests/contracts/public-client/official-cache-instrumentation.core.test.ts (8 tests) 34ms
+ ✓ |coverage-cache| tests/contracts/public-client/official-cache-swr.core.test.ts (7 tests) 9ms
+ ✓ |coverage-cache| tests/contracts/public-client/protected-cache-observers.core.test.ts (7 tests) 5ms
+ ✓ |coverage-cache| tests/contracts/public-client/official-cache-extension.core.test.ts (10 tests) 3ms
+ ✓ |coverage-extensions| tests/contracts/public-client/official-cache-extension.core.test.ts (10 tests) 9ms
+
+ Test Files  21 passed (21)
+      Tests  176 passed (176)
+   Start at  00:09:08
+   Duration  8.46s (transform 4.11s, setup 39ms, collect 7.41s, tests 228ms, environment 0ms, prepare 105ms)
+
+Vitest resources: 10.71s wall, 734.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests) 125ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/member-boundary-packaging.test.ts (5 tests) 23ms
+ ✓ |raptor3| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests) 124ms
+ ✓ |raptor3| tests/raptor3/g4/parity/member-boundary-packaging.test.ts (5 tests) 25ms
+
+ Test Files  4 passed (4)
+      Tests  42 passed (42)
+   Start at  10:13:54
+   Duration  4.31s (transform 2.02s, setup 28ms, collect 3.21s, tests 298ms, environment 0ms, prepare 57ms)
+
+Vitest resources: 6.48s wall, 613.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

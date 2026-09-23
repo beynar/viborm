@@ -1,0 +1,45 @@
+# repair round 2026-09-20 — Biome, per changed file, against the base copy
+# both changed files are Markdown; biome.jsonc does not process .md — the check reports them as ignored paths on BOTH the changed file and its base copy, so the per-file diagnostic counts are identical (none, not applicable).
+
+$ npx biome check src/query-engine/raptor3/AGENTS.md
+Checked 0 files in 3ms. No fixes applied.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × No files were processed in the specified paths.
+  
+  i Check your biome.json or biome.jsonc to ensure the paths are not ignored by the configuration.
+  
+  i These paths were provided but ignored:
+  
+  - src/query-engine/raptor3/AGENTS.md
+  
+
+
+$ npx biome check docs/architecture/raptor3-evidence/g4/release/p1/note.md
+Checked 0 files in 8ms. No fixes applied.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × No files were processed in the specified paths.
+  
+  i Check your biome.json or biome.jsonc to ensure the paths are not ignored by the configuration.
+  
+  i These paths were provided but ignored:
+  
+  - docs/architecture/raptor3-evidence/g4/release/p1/note.md
+  
+
+
+$ npx biome check <base copies of both files>
+Checked 0 files in 337µs. No fixes applied.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × No files were processed in the specified paths.
+  
+  i Check your biome.json or biome.jsonc to ensure the paths are not ignored by the configuration.
+  
+  i These paths were provided but ignored:
+  
+  - /private/tmp/viborm-p1-tmp/repair-backup/AGENTS.md.bak
+  - /private/tmp/viborm-p1-tmp/repair-backup/note.md.bak
+  
+

@@ -1,0 +1,623 @@
+▲ [WARNING] Cannot find base config file "astro/tsconfigs/strict" [tsconfig.json]
+
+    docs/tsconfig.json:2:13:
+      2 │   "extends": "astro/tsconfigs/strict",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests | 5 failed) 72ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P1 a root update rejected before dispatch answers the shipped failure 31ms
+     → P1 {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update",
+        "statementIndex": 0
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'update',
+-       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P2 a nested write inside a root create rejected before dispatch answers the shipped failure 9ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P3 an array member rejected before dispatch answers the shipped failure 5ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P4 createMany rejected before dispatch publishes no progress on either engine 6ms
+     → P4 createMany {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
+
+undefined !== 0
+
+   × G4 regression review — neighbouring uncertain-outcome shapes > P5 updateMany rejected before dispatch publishes no progress on either engine 3ms
+     → P5 updateMany {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
+
+undefined !== 0
+
+   × G4 regression review — neighbouring uncertain-outcome shapes > P6 deleteMany rejected before dispatch publishes no progress on either engine 2ms
+     → P6 deleteMany {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
+
+undefined !== 0
+
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on both routes 4ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P8 a committed set window with a malformed result still publishes progress on the candidate only 2ms
+     → P8 {
+  "candidate": {
+    "corrupted": true,
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "create",
+        "scalarType": "int"
+      },
+      "name": "QueryEngineError"
+    },
+    "stored": [
+      {
+        "id": 31,
+        "owner_label": "written"
+      }
+    ]
+  },
+  "shipped": {
+    "corrupted": true,
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "create",
+        "scalarType": "int"
+      },
+      "name": "QueryEngineError"
+    },
+    "stored": [
+      {
+        "id": 31,
+        "owner_label": "written"
+      }
+    ]
+  }
+}
++ actual - expected
+
++ undefined
+- {
+-   atomicity: 'segment',
+-   committedSegments: 1,
+-   committedWriteMembers: 1,
+-   completedMembers: 0,
+-   phase: 'result'
+- }
+
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.1 a relation-bearing root create faulted after 1 dispatched statement(s) 3ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.2 a relation-bearing root create faulted after 2 dispatched statement(s) 4ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.3 a relation-bearing root create faulted after 3 dispatched statement(s) 3ms
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts (8 tests | 1 failed) 33ms
+   ✓ G4 seam round review — the cache rail's neighbours > S1 a rolled-back root create invalidates on neither engine 6ms
+   ✓ G4 seam round review — the cache rail's neighbours > S2 a successful root create on a transaction-capable driver invalidates exactly once 3ms
+   ✓ G4 seam round review — the cache rail's neighbours > S3 a failed root create on a transaction-capable driver invalidates on neither engine 3ms
+   ✓ G4 seam round review — the cache rail's neighbours > S4 a multi-segment write notifies the same number of times on both engines 3ms
+   ✓ G4 seam round review — the cache rail's neighbours > S5 a write inside $transaction(callback) invalidates the same on both engines 2ms
+   × G4 seam round review — the cache rail's neighbours > S6 a throwing cache invalidation on the uncertain root create answers the same on both engines 4ms
+     → S6 candidate outcome {
+  "candidate": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  },
+  "shipped": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  }
+}
++ actual - expected
+
++ 'raw:Query execution and write-outcome publication both failed.'
+- 'CacheConfigurationError'
+
+   ✓ G4 seam round review — the cache rail's neighbours > S8 a guard-aborted atomic batch invalidates the same on both engines 7ms
+   ✓ G4 seam round review — the cache rail's neighbours > S7 a throwing cache invalidation on a SUCCESSFUL write answers the same on both engines 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts > G4 seam round review — the cache rail's neighbours > S6 a throwing cache invalidation on the uncertain root create answers the same on both engines
+AssertionError: S6 candidate outcome {
+  "candidate": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  },
+  "shipped": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  }
+}
++ actual - expected
+
++ 'raw:Query execution and write-outcome publication both failed.'
+- 'CacheConfigurationError'
+
+
+Expected: [32m"CacheConfigurationError"[39m
+Received: [31m"raw:Query execution and write-outcome publication both failed."[39m
+
+ ❯ tests/raptor3/g4/review/regression/seam-followup.review.test.ts:364:12
+    362|       report("S6 shipped outcome", { shipped })
+    363|     );
+    364|     assert.equal(
+       |            ^
+    365|       candidate.outcome,
+    366|       "CacheConfigurationError",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P1 a root update rejected before dispatch answers the shipped failure
+AssertionError: P1 {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update",
+        "statementIndex": 0
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'update',
+-       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,11 +3,10 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "update",[22m
+[32m-       "statementIndex": 0,[39m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "notes": [],[22m
+[2m    "owners": [[22m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:271:12
+    269|     );
+    270|     assert.equal(shipped.failure.meta.recordSeriesProgress, undefined);
+    271|     assert.deepEqual(candidate, shipped, report("P1", { candidate, shi…
+       |            ^
+    272|   });
+    273| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P4 createMany rejected before dispatch publishes no progress on either engine
+AssertionError: P4 createMany {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
+
+undefined !== 0
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:339:14
+    337|       assert.equal(shipped.failure.meta.statementIndex, undefined);
+    338|       // The recorded blocker, reproduced on a bulk verb.
+    339|       assert.equal(
+       |              ^
+    340|         candidate.failure.meta.statementIndex,
+    341|         0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P5 updateMany rejected before dispatch publishes no progress on either engine
+AssertionError: P5 updateMany {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
+
+undefined !== 0
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:339:14
+    337|       assert.equal(shipped.failure.meta.statementIndex, undefined);
+    338|       // The recorded blocker, reproduced on a bulk verb.
+    339|       assert.equal(
+       |              ^
+    340|         candidate.failure.meta.statementIndex,
+    341|         0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P6 deleteMany rejected before dispatch publishes no progress on either engine
+AssertionError: P6 deleteMany {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany"
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
+
+undefined !== 0
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:339:14
+    337|       assert.equal(shipped.failure.meta.statementIndex, undefined);
+    338|       // The recorded blocker, reproduced on a bulk verb.
+    339|       assert.equal(
+       |              ^
+    340|         candidate.failure.meta.statementIndex,
+    341|         0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P8 a committed set window with a malformed result still publishes progress on the candidate only
+AssertionError: P8 {
+  "candidate": {
+    "corrupted": true,
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "create",
+        "scalarType": "int"
+      },
+      "name": "QueryEngineError"
+    },
+    "stored": [
+      {
+        "id": 31,
+        "owner_label": "written"
+      }
+    ]
+  },
+  "shipped": {
+    "corrupted": true,
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "create",
+        "scalarType": "int"
+      },
+      "name": "QueryEngineError"
+    },
+    "stored": [
+      {
+        "id": 31,
+        "owner_label": "written"
+      }
+    ]
+  }
+}
++ actual - expected
+
++ undefined
+- {
+-   atomicity: 'segment',
+-   committedSegments: 1,
+-   committedWriteMembers: 1,
+-   completedMembers: 0,
+-   phase: 'result'
+- }
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:443:12
+    441|     assert.equal(candidate.corrupted, true);
+    442|     assert.equal(shipped.failure.meta.recordSeriesProgress, undefined);
+    443|     assert.deepEqual(
+       |            ^
+    444|       candidate.failure.meta.recordSeriesProgress,
+    445|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 13 passed (19)
+   Start at  23:21:20
+   Duration  2.05s (transform 1.20s, setup 0ms, collect 1.83s, tests 105ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 2.51s wall, 507.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

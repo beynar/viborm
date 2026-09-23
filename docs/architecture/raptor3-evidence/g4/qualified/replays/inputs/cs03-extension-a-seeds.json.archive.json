@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "source": "cs03-extension-a-seeds.json",
+  "file": "cs03-extension-a-seeds.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 5312428,
+  "originalSha256": "aca9fdbd55b359feff0496cb66a205661b279dce1d89765cd69dab821f118991",
+  "archiveBytes": 152073,
+  "archiveSha256": "c7633d960dd05939055d6557ff725937f17286f12b54c5608f72954a927e4455",
+  "identity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
+  },
+  "role": "replay input",
+  "restoreWorkingDirectory": "the directory containing this descriptor",
+  "restoreCommand": "g4_replay_restore_dir=$(mktemp -d); gzip -dc \"cs03-extension-a-seeds.json.gz\" > \"$g4_replay_restore_dir/cs03-extension-a-seeds.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm\"; node scripts/run-raptor3.mjs replay \"$g4_replay_restore_dir/cs03-extension-a-seeds.json\""
+}

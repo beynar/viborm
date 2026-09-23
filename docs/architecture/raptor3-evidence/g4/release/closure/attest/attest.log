@@ -1,0 +1,16 @@
+candidate a9e62d8dc47bc73d49eca4d367a718d9108bccde clean=0 baseline 5a37bcd7f371fe393cf7cecb8ec9f82ef8bd3062 2026-09-20T21:54:31Z
+23:54  up 20 days, 23:34, 3 users, load averages: 16.07 13.17 12.10
+=== fixed-collection-rowref-1000/parse cpu pass 1
+exit=0
+valid: undefined | ratio cpu/wall: undefined undefined | verdict: (see json)
+=== fixed-collection-rowref-1000/parse cpu pass 2
+exit=0
+valid: undefined | ratio cpu/wall: undefined undefined | verdict: (see json)
+=== fixed-collection-rowref-1000/full cpu pass 1
+exit=0
+valid: undefined | ratio cpu/wall: undefined undefined | verdict: (see json)
+=== fixed-collection-rowref-1000/full cpu pass 2
+exit=0
+valid: undefined | ratio cpu/wall: undefined undefined | verdict: (see json)
+23:55  up 20 days, 23:36, 3 users, load averages: 9.58 11.78 11.65
+DONE

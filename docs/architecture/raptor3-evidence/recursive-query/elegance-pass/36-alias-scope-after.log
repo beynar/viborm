@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-perf-review| tests/raptor3/g4/review/perf/alias-scope.review.test.ts (3 tests) 89ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:06:34
+   Duration  3.04s (transform 1.92s, setup 11ms, collect 2.79s, tests 89ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 3.65s wall, 417.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

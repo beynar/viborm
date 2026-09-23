@@ -1,6 +1,5 @@
 import type { AnyDriver } from "@drivers";
 import { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
-import { resolveConsumableResultCandidate } from "@drivers/consumable-result-candidate";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { TransactionWriteOutcomes } from "@extensions/query";
 import type { InstrumentationContext } from "@instrumentation";
@@ -16,13 +15,16 @@ import {
   type PrepareWriteOutcomeRegistration,
 } from "./pending-operation";
 import {
+  type ClientOperationRoute,
+  createCandidateRoute,
+} from "./raptor3/route/client-route";
+import {
   type ModelRegistry,
   type Operation,
   type OperationSchemaRegistry,
   type PrepareOptions,
   QueryEngineError,
 } from "./types";
-import { OperationExecutor } from "./write-engine/OperationExecutor";
 
 /** Client-scoped owner of query infrastructure and operation creation. */
 export class QueryEngine {
@@ -39,8 +41,14 @@ export class QueryEngine {
   readonly clientId: symbol;
   /** Identity of the current root or transaction-bound execution scope. */
   readonly scopeId: symbol;
-  private readonly operationExecutor: OperationExecutor;
-  private readonly cacheOperationExecutor: OperationExecutor;
+  /**
+   * The ONE operation owner of this engine (C-01). A client builds it in
+   * `VibORM`'s constructor and `bind()` forwards it; an engine constructed
+   * without one provisions it from the driver and registry it already holds
+   * ({@link provisionedRoute}), so every engine has exactly one operation
+   * owner and no engine has two.
+   */
+  readonly route: ClientOperationRoute | undefined;
 
   constructor(
     driver: AnyDriver,
@@ -48,9 +56,11 @@ export class QueryEngine {
     clientId = Symbol("viborm.client"),
     scopeId = Symbol("viborm.scope"),
     extensionChain?: ResolvedExtensionChain,
-    transactionWriteOutcomes?: TransactionWriteOutcomes
+    transactionWriteOutcomes?: TransactionWriteOutcomes,
+    route?: ClientOperationRoute
   ) {
     this.driver = driver;
+    this.route = route ?? provisionedRoute(driver, registry);
     this.registry = registry;
     if (!registry.schemas) {
       throw new QueryEngineError(
@@ -63,11 +73,6 @@ export class QueryEngine {
     this.transactionWriteOutcomes = transactionWriteOutcomes;
     this.clientId = clientId;
     this.scopeId = scopeId;
-    const candidate = resolveConsumableResultCandidate(driver);
-    this.operationExecutor = new OperationExecutor(this, candidate);
-    this.cacheOperationExecutor = candidate
-      ? new OperationExecutor(this)
-      : this.operationExecutor;
   }
 
   get adapter() {
@@ -110,7 +115,8 @@ export class QueryEngine {
       this.clientId,
       Symbol("viborm.scope"),
       extensionChain,
-      transactionWriteOutcomes
+      transactionWriteOutcomes,
+      this.route
     );
   }
 
@@ -153,7 +159,6 @@ export class QueryEngine {
       operation,
       args,
       options,
-      this.operationExecutor,
       prepareInput,
       prepareWriteOutcomeRegistration
     );
@@ -173,7 +178,6 @@ export class QueryEngine {
       operation,
       args,
       options,
-      this.cacheOperationExecutor,
       prepareInput
     );
   }
@@ -189,6 +193,32 @@ export class QueryEngine {
   ): Promise<T> {
     return this.prepare<T>(model, operation, args);
   }
+}
+
+/**
+ * The route an engine constructed without one provisions for itself.
+ *
+ * The registry already carries the two resolved views the route's engine
+ * consumes — the topology index and the operation schema registry — which is
+ * exactly the pair `VibORM`'s constructor hands to `createCandidateRoute`. The
+ * model map is rebuilt from the index's keys, which enumerate every model of
+ * the schema, under the same name the route and `PendingOperation` look a model
+ * up by (`model["~"].names.ts`). Nothing is resolved, hydrated or registered a
+ * second time, and there is no second route factory.
+ */
+function provisionedRoute(
+  driver: AnyDriver,
+  registry: ModelRegistry
+): ClientOperationRoute | undefined {
+  if (!(registry.schemas && registry.relations)) return undefined;
+  const schema: Record<string, Model<any>> = {};
+  for (const model of registry.relations.keys()) {
+    schema[model["~"].names.ts ?? "unknown"] = model;
+  }
+  return createCandidateRoute(schema, driver, {
+    index: registry.relations,
+    registry: registry.schemas,
+  });
 }
 
 /**

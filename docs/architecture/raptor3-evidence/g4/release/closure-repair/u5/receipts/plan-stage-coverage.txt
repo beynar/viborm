@@ -1,0 +1,55 @@
+## Stage coverage of the 868 registered file(s), by project
+
+Of them 124 are covered by a stage whose file list this plan
+holds and 744 by none. A `runner-mode` stage's files belong to
+`scripts/run-raptor3.mjs`'s own mode table, which asserts its counts and is
+not restated here, so the files those modes run are counted as covered by no
+enumerated stage. A project with no covering stage is not a defect by itself —
+this gate is the closure gate, not the whole estate — but a file that JOINS a
+project the gate does run and no stage's list is exactly the omission this
+plan exists to show.
+
+- `coverage-raptor3`: 185 file(s); covered by fixed 89, parity 24; covered by no enumerated stage: 96
+- `raptor3`: 193 file(s); covered by fixed 89, parity 24; covered by no enumerated stage: 104
+- `raptor3-provider`: 8 file(s); covered by pglite-provider 3; covered by no enumerated stage: 5
+- `raptor3-live-provider`: 25 file(s); covered by none; covered by no enumerated stage: 25
+- `layer-validation`: 38 file(s); covered by none; covered by no enumerated stage: 38
+- `layer-scalars`: 19 file(s); covered by none; covered by no enumerated stage: 19
+- `layer-operation-schemas`: 47 file(s); covered by none; covered by no enumerated stage: 47
+- `layer-relations`: 6 file(s); covered by none; covered by no enumerated stage: 6
+- `layer-schema-validation`: 22 file(s); covered by none; covered by no enumerated stage: 22
+- `layer-schema-json`: 6 file(s); covered by none; covered by no enumerated stage: 6
+- `layer-query-engine`: 33 file(s); covered by none; covered by no enumerated stage: 33
+- `layer-write-engine`: 4 file(s); covered by none; covered by no enumerated stage: 4
+- `layer-adapters`: 9 file(s); covered by none; covered by no enumerated stage: 9
+- `layer-drivers`: 43 file(s); covered by none; covered by no enumerated stage: 43
+- `layer-client`: 42 file(s); covered by none; covered by no enumerated stage: 42
+- `layer-cache`: 6 file(s); covered by none; covered by no enumerated stage: 6
+- `layer-instrumentation`: 16 file(s); covered by none; covered by no enumerated stage: 16
+- `layer-migrations`: 112 file(s); covered by none; covered by no enumerated stage: 112
+- `coverage-schema`: 10 file(s); covered by none; covered by no enumerated stage: 10
+- `coverage-public`: 4 file(s); covered by none; covered by no enumerated stage: 4
+- `coverage-extensions`: 17 file(s); covered by none; covered by no enumerated stage: 17
+- `coverage-errors`: 7 file(s); covered by none; covered by no enumerated stage: 7
+- `coverage-cli`: 4 file(s); covered by none; covered by no enumerated stage: 4
+- `coverage-cache`: 10 file(s); covered by none; covered by no enumerated stage: 10
+- `coverage-client`: 41 file(s); covered by none; covered by no enumerated stage: 41
+- `coverage-drivers`: 59 file(s); covered by none; covered by no enumerated stage: 59
+- `coverage-migrations`: 120 file(s); covered by none; covered by no enumerated stage: 120
+- `coverage-write-engine-core`: 4 file(s); covered by none; covered by no enumerated stage: 4
+- `coverage-write-engine`: 5 file(s); covered by none; covered by no enumerated stage: 5
+- `extended-local`: 191 file(s); covered by conformance 6, parity 7; covered by no enumerated stage: 178
+- `provider-pglite`: 6 file(s); covered by none; covered by no enumerated stage: 6
+- `provider-sqlite3`: 6 file(s); covered by none; covered by no enumerated stage: 6
+- `provider-libsql`: 6 file(s); covered by none; covered by no enumerated stage: 6
+- `provider-pg`: 6 file(s); covered by native provider-pg 6; covered by no enumerated stage: 0
+- `provider-postgres`: 4 file(s); covered by none; covered by no enumerated stage: 4
+- `provider-mysql2`: 13 file(s); covered by native provider-mysql2 13; covered by no enumerated stage: 0
+- `provider-transaction-options`: 1 file(s); covered by none; covered by no enumerated stage: 1
+- `provider-neon-http`: 2 file(s); covered by none; covered by no enumerated stage: 2
+- `provider-planetscale`: 1 file(s); covered by none; covered by no enumerated stage: 1
+- `provider-bun`: 2 file(s); covered by none; covered by no enumerated stage: 2
+- `package`: 1 file(s); covered by none; covered by no enumerated stage: 1
+- `provider-d1`: 1 file(s); covered by none; covered by no enumerated stage: 1
+
+## 83 test file(s) in the tree that NO workspace project registers

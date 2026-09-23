@@ -71,10 +71,11 @@ type RuntimeRelationMap = Record<string, AnyRelation>;
  *
  * This is the FRONT LINE: past the cap the schema simply stops offering
  * relation keys, so an over-deep chain is rejected here as an unknown key.
- * MIRRORED by MAX_RELATION_ORDER_DEPTH in
- * src/query-engine/builders/relation-orderby-builder.ts, which re-checks the
- * same cap while building joins. The two constants must stay equal;
- * tests/query-engine/orderby-relation-depth.test.ts pins that they do.
+ * It is now also the ONLY line. The V1 builder that re-checked the same cap
+ * while building joins (`query-engine/builders/relation-orderby-builder.ts`)
+ * was retired with the pattern experiment, so there is no second constant to
+ * keep equal; tests/contracts/engine/query/orderby-relation-depth.core.test.ts
+ * pins that this one owns it.
  */
 const MAX_RELATION_ORDER_DEPTH = 8;
 

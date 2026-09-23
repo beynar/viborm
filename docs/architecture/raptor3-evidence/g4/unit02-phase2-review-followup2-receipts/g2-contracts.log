@@ -1,0 +1,39 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 131ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 271ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 59ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 161ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 74ms
+ ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 103ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 104ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 84ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 53ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 130ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 243ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 110ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 123ms
+ ✓ |raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 73ms
+ ✓ |raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 113ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 137ms
+
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+   Start at  13:31:20
+   Duration  5.96s (transform 1.54s, setup 21ms, collect 3.68s, tests 1.97s, environment 0ms, prepare 55ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-A4pk39/vitest.json
+Vitest resources: 8.79s wall, 816.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Stale Raptor 3 evidence: executed source or runtime changed
++ actual - expected
+
+  {
++   harness: 'fa23725cea5af5d8ea7e572dbe7b50b661d9320010424fa74115b6a270d7caae',
+-   harness: '20f2da3a660c450f93643e1a7835e8d3f759a0dde7bf565da6178eab1dc69866',
+    production: '3bbaa936ad5b3d52fc2d849324f2a6fa054633fb4e0128dd78049b6704c4c43c',
+    runtime: {
+      architecture: 'arm64',
+      node: 'v24.21.0',
+      platform: 'darwin',
+

@@ -1,0 +1,180 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AGREE  nested upsert, target ABSENT, int key set+increment
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+DIFFER  nested upsert, target ABSENT, number key increment
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}]}
+    candidate {"answer":"Error: Raptor 3 G1 scalar codec is not implemented: number","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+DIFFER  nested upsert, target PRESENT, int key set+increment (control)
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":11,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+DIFFER  nested updateMany, where matches NOTHING, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+DIFFER  nested update, target ABSENT, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"NestedWriteError: Cannot update relation 'items': target record was not found for this parent.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+DIFFER  nested updateMany, where matches NOTHING, number key increment
+    shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"Error: Raptor 3 G1 scalar codec is not implemented: number","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, relation-free update, int key set+increment
+    shipped   {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, relation-free update, number key increment
+    shipped   {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+DIFFER  root upsert, update NAMES a relation, int key set+increment
+    shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"NestedWriteError: Cannot update relation 'items' with onUpdate('restrict') while the current relation is occupied.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+ ❯ |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts (3 tests | 3 failed) 316ms
+   × freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm 276ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'nested upsert, target ABSENT, number key increment',
++   'nested upsert, target PRESENT, int key set+increment (control)'
++ ]
+- []
+
+   × freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target 19ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'nested updateMany, where matches NOTHING, int key set+increment',
++   'nested update, target ABSENT, int key set+increment',
++   'nested updateMany, where matches NOTHING, number key increment'
++ ]
+- []
+
+   × freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert 22ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'root upsert, update NAMES a relation, int key set+increment'
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'nested upsert, target ABSENT, number key increment',
++   'nested upsert, target PRESENT, int key set+increment (control)'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "nested upsert, target ABSENT, number key increment",[39m
+[31m+   "nested upsert, target PRESENT, int key set+increment (control)",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts:225:12
+    223|     ]);
+    224|     // biome-ignore lint/suspicious/noMisplacedAssertion: this IS the …
+    225|     assert.deepEqual(divergences, []);
+       |            ^
+    226|   });
+    227| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'nested updateMany, where matches NOTHING, int key set+increment',
++   'nested update, target ABSENT, int key set+increment',
++   'nested updateMany, where matches NOTHING, number key increment'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "nested updateMany, where matches NOTHING, int key set+increment",[39m
+[31m+   "nested update, target ABSENT, int key set+increment",[39m
+[31m+   "nested updateMany, where matches NOTHING, number key increment",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts:273:12
+    271|     ]);
+    272|     // biome-ignore lint/suspicious/noMisplacedAssertion: this IS the …
+    273|     assert.deepEqual(divergences, []);
+       |            ^
+    274|   });
+    275| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'root upsert, update NAMES a relation, int key set+increment'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "root upsert, update NAMES a relation, int key set+increment",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts:319:12
+    317|     ]);
+    318|     // biome-ignore lint/suspicious/noMisplacedAssertion: this IS the …
+    319|     assert.deepEqual(divergences, []);
+       |            ^
+    320|   });
+    321| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  18:58:01
+   Duration  2.35s (transform 1.31s, setup 10ms, collect 1.89s, tests 316ms, environment 0ms, prepare 39ms)
+
+Vitest resources: 3.65s wall, 498.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

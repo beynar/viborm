@@ -3,7 +3,13 @@
 import type { AnyModel, ModelState } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
+import type {
+  StaticForeignKeyMembership,
+  StaticJunctionMembership,
+  StaticRecursiveMembership,
+} from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { withOmitProjection } from "../model/args/omit";
 import {
   type PaginationSkipSchema,
@@ -13,9 +19,17 @@ import {
 } from "../model/args/pagination";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
 import { projectableScalarNames } from "../model/core/projection";
+import { createSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
-import type { VibSchema } from "../types";
+import type { ValidationResult, VibSchema } from "../types";
+import { isRecord } from "../value-guards";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
+import {
+  type ForeignKeyRecurrenceSchema,
+  type GraphRecurrenceSchema,
+  type RecurrenceSchema,
+  recurrenceSchema,
+} from "./recurrence";
 
 // =============================================================================
 // TRANSFORM HELPERS
@@ -70,6 +84,169 @@ const withNestedOmit = <Schema extends V.Object<any>>(
 ): Schema =>
   withOmitForModel(getTargetModel(relation), nestedOmitLabel(relation), schema);
 
+const unavailableRecurrence = () =>
+  v.optional(
+    v.refused(
+      "recurse is available only on an ordinary self relation (a foreign key or a junction, never variant storage) whose model has a complete primary key"
+    )
+  );
+
+const unavailableRecursiveClause = (clause: string) =>
+  v.optional(v.refused(`${clause} cannot be combined with recurse`));
+
+/** The asking key cannot have a second producer inside its own repeated node. */
+const askingKeyRefusal = (key: string) =>
+  v.optional(
+    v.refused(
+      `${key} is produced by recurse and cannot be selected again inside its own recursive node`
+    )
+  );
+
+/**
+ * The node language of a slot that can recurse. A spelled `recurse` decides
+ * the node form, so it meets only the recursive node and that node's own
+ * refusals; every other value meets the ordinary language exactly as a slot
+ * that cannot recurse does. JSON Schema still reads the three forms as one
+ * union.
+ */
+const withRecursiveNode = (
+  ordinary: V.Union<readonly [VibSchema<any, any>, VibSchema<any, any>]>,
+  recursive: VibSchema<any, any>
+) => {
+  const validateOrdinary = ordinary["~standard"].validate;
+  const validateRecursive = recursive["~standard"].validate;
+  const schema = createSchema(
+    "union",
+    (value) =>
+      (isRecord(value) && value.recurse !== undefined
+        ? validateRecursive(value)
+        : validateOrdinary(value)) as ValidationResult<unknown>
+  );
+  return Object.assign(schema, { options: [...ordinary.options, recursive] });
+};
+
+type UnavailableRecurrenceSchema = ReturnType<typeof unavailableRecurrence>;
+
+type RecurrenceFor<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = StaticRecursiveMembership<Source, Key, S> extends StaticForeignKeyMembership
+  ? ForeignKeyRecurrenceSchema
+  : StaticRecursiveMembership<Source, Key, S> extends StaticJunctionMembership
+    ? GraphRecurrenceSchema
+    : never;
+
+/** A target projection whose asking key is refused, keeping its options. */
+type ProjectionWithoutAsking<Schema extends V.Object<any, any>, Key> = V.Object<
+  Omit<Schema["entries"], Extract<Key, keyof Schema["entries"]>> &
+    Record<Extract<Key, string>, ReturnType<typeof askingKeyRefusal>>
+>;
+
+const projectionWithoutAsking = (schema: V.Object<any, any>, key: string) =>
+  schema.extend({ [key]: askingKeyRefusal(key) });
+
+/** The clauses a to-many recursive node adds beside the shared entries. */
+type RecursiveClauses = Readonly<
+  Record<string, VibSchema<any, any> | (() => VibSchema<any, any>)>
+>;
+
+/** A to-many node's `orderBy`: one order term, or a list of them. */
+const termOrList = <Term extends VibSchema<any, any>>(term: Term) =>
+  v.union([term, v.array(term)]);
+
+/**
+ * The one recursive node: the four entries every recursive node shares, beside
+ * the collection clauses a to-many node adds, under the ordinary node's
+ * `rejectSelectInclude` + `withNestedOmit` + `includeToField` chain.
+ */
+const buildRecursiveNode = <S extends RelationState, T extends SchemaGetter<S>>(
+  relation: AnyRelation,
+  field: string,
+  recurrence: RecurrenceSchema,
+  targetSchemas: T,
+  collectionClauses: RecursiveClauses = {}
+) =>
+  v.coerce(
+    withNestedOmit(
+      relation,
+      rejectSelectInclude(
+        v.object({
+          ...collectionClauses,
+          select: () =>
+            projectionWithoutAsking(targetSchemas().core.select, field),
+          include: () =>
+            projectionWithoutAsking(targetSchemas().core.include, field),
+          omit: () => targetSchemas().core.omit,
+          recurse: recurrence,
+        })
+      )
+    ),
+    includeToField(relation)
+  );
+
+/**
+ * The factory tail every relation node shares: the ordinary language alone
+ * where the slot cannot recurse, and beside it the recursive node where it can.
+ * The collection clauses are built only for a slot that recurses.
+ */
+const withRecurrence = <S extends RelationState, T extends SchemaGetter<S>>(
+  ordinary: V.Union<readonly [VibSchema<any, any>, VibSchema<any, any>]>,
+  relation: AnyRelation,
+  resolved: ResolvedSlot,
+  targetSchemas: T,
+  collectionClauses?: () => RecursiveClauses
+) => {
+  const recurrence = recurrenceSchema(resolved);
+  if (!recurrence) return ordinary;
+  return withRecursiveNode(
+    ordinary,
+    buildRecursiveNode(
+      relation,
+      resolved.slot.field,
+      recurrence,
+      targetSchemas,
+      collectionClauses?.()
+    )
+  );
+};
+
+type RecursiveProjectionSchemas<S extends RelationState, Key> = {
+  readonly select: ProjectionWithoutAsking<
+    GetTargetSchemas<S>["core"]["select"],
+    Key
+  >;
+  readonly include: ProjectionWithoutAsking<
+    GetTargetSchemas<S>["core"]["include"],
+    Key
+  >;
+};
+
+type ToOneRecursiveNodeSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = IncludeToField<
+  V.Object<
+    {
+      recurse: RecurrenceFor<Source, Key, S>;
+      select: () => RecursiveProjectionSchemas<S, Key>["select"];
+      include: () => RecursiveProjectionSchemas<S, Key>["include"];
+      omit: () => GetTargetSchemas<S>["core"]["omit"];
+    },
+    { atLeast: ["recurse"] }
+  >
+>;
+
+type RecursiveArm<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+  Node,
+> = [RecurrenceFor<Source, Key, S>] extends [never]
+  ? readonly []
+  : readonly [Node];
+
 /**
  * Nested `distinct`: scalar field names of the RELATED model, deduplicating
  * that relation's ordered rows before `take`/`skip` window them (the same
@@ -87,7 +264,7 @@ const nestedDistinctNames = <S extends RelationState>(
     TargetModel<S>["~"]["state"]["scalars"]
   >[];
 
-type IncludeToField<Schema extends V.Object<any>> = V.Coerce<
+type IncludeToField<Schema extends V.Object<any, any>> = V.Coerce<
   Schema,
   Schema[" vibInferred"]["1"] & { select?: Record<string, true> }
 >;
@@ -147,7 +324,11 @@ const booleanToSelect = (relation: AnyRelation): BooleanToSelect =>
  * `select` and `include` are mutually exclusive on the same node (Prisma parity)
  */
 
-export type ToOneIncludeSchema<S extends RelationState> = V.Union<
+export type ToOneIncludeSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = V.Union<
   readonly [
     BooleanToSelect,
     IncludeToField<
@@ -155,18 +336,23 @@ export type ToOneIncludeSchema<S extends RelationState> = V.Union<
         select: () => GetTargetSchemas<S>["core"]["select"];
         include: () => GetTargetSchemas<S>["core"]["include"];
         omit: () => GetTargetSchemas<S>["core"]["omit"];
+        recurse: UnavailableRecurrenceSchema;
       }>
     >,
+    ...RecursiveArm<Source, Key, S, ToOneRecursiveNodeSchema<Source, Key, S>>,
   ]
 >;
 export const toOneIncludeFactory = <
+  Source extends AnyModel,
+  Key,
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
   relation: AnyRelation,
+  resolved: ResolvedSlot,
   targetSchemas: T
-): ToOneIncludeSchema<S> => {
-  return v.union([
+): ToOneIncludeSchema<Source, Key, S> => {
+  const ordinary = v.union([
     booleanToSelect(relation),
     v.coerce(
       withNestedOmit(
@@ -176,12 +362,14 @@ export const toOneIncludeFactory = <
             select: () => targetSchemas().core.select,
             include: () => targetSchemas().core.include,
             omit: () => targetSchemas().core.omit,
+            recurse: unavailableRecurrence(),
           })
         )
       ),
       includeToField(relation)
     ),
   ]);
+  return withRecurrence(ordinary, relation, resolved, targetSchemas) as never;
 };
 
 /**
@@ -237,6 +425,7 @@ export type ToManyNestedNodeSchema<
     select: () => Core["select"];
     include: () => Core["include"];
     omit: () => Core["omit"];
+    recurse: UnavailableRecurrenceSchema;
   }>
 >;
 
@@ -262,10 +451,7 @@ export const buildToManyNestedNode = <
       rejectSelectInclude(
         v.object({
           where: () => at("where"),
-          orderBy: () => {
-            const orderBySchema = at("orderBy");
-            return v.union([orderBySchema, v.array(orderBySchema)]);
-          },
+          orderBy: () => termOrList(at("orderBy")),
           take: paginationTake(),
           skip: paginationSkip(),
           cursor: () => at("whereUnique"),
@@ -273,6 +459,7 @@ export const buildToManyNestedNode = <
           select: () => at("select"),
           include: () => at("include"),
           omit: () => at("omit"),
+          recurse: unavailableRecurrence(),
         })
       )
     ),
@@ -280,23 +467,58 @@ export const buildToManyNestedNode = <
   );
 };
 
-export type ToManyIncludeSchema<S extends RelationState> = V.Union<
+type ToManyRecursiveNodeSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = IncludeToField<
+  V.Object<
+    {
+      where: () => GetTargetSchemas<S>["core"]["where"];
+      orderBy: () => V.Union<
+        readonly [
+          GetTargetSchemas<S>["core"]["orderBy"],
+          V.Array<GetTargetSchemas<S>["core"]["orderBy"]>,
+        ]
+      >;
+      take: ReturnType<typeof unavailableRecursiveClause>;
+      skip: ReturnType<typeof unavailableRecursiveClause>;
+      cursor: ReturnType<typeof unavailableRecursiveClause>;
+      distinct: ReturnType<typeof unavailableRecursiveClause>;
+      select: () => RecursiveProjectionSchemas<S, Key>["select"];
+      include: () => RecursiveProjectionSchemas<S, Key>["include"];
+      omit: () => GetTargetSchemas<S>["core"]["omit"];
+      recurse: RecurrenceFor<Source, Key, S>;
+    },
+    { atLeast: ["recurse"] }
+  >
+>;
+
+export type ToManyIncludeSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = V.Union<
   readonly [
     BooleanToSelect,
     ToManyNestedNodeSchema<
       GetTargetSchemas<S>["core"],
       NestedDistinctSchema<S>
     >,
+    ...RecursiveArm<Source, Key, S, ToManyRecursiveNodeSchema<Source, Key, S>>,
   ]
 >;
 export const toManyIncludeFactory = <
+  Source extends AnyModel,
+  Key,
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
   relation: AnyRelation,
+  resolved: ResolvedSlot,
   targetSchemas: T
-): ToManyIncludeSchema<S> => {
-  return v.union([
+): ToManyIncludeSchema<Source, Key, S> => {
+  const ordinary = v.union([
     booleanToSelect(relation),
     buildToManyNestedNode({
       targetModel: getTargetModel(relation),
@@ -305,15 +527,30 @@ export const toManyIncludeFactory = <
       scalarNames: nestedDistinctNames<S>(relation),
     }),
   ]);
+  return withRecurrence(ordinary, relation, resolved, targetSchemas, () => ({
+    where: () => targetSchemas().core.where,
+    orderBy: () => termOrList(targetSchemas().core.orderBy),
+    take: unavailableRecursiveClause("take"),
+    skip: unavailableRecursiveClause("skip"),
+    cursor: unavailableRecursiveClause("cursor"),
+    distinct: unavailableRecursiveClause("distinct"),
+  })) as never;
 };
 
 /**
  * Relation-level args are the same shape in select and include position
  * (Prisma parity: select/include can alternate down the relation tree)
  */
-export type ToOneSelectSchema<S extends RelationState> = ToOneIncludeSchema<S>;
+export type ToOneSelectSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = ToOneIncludeSchema<Source, Key, S>;
 export const toOneSelectFactory = toOneIncludeFactory;
 
-export type ToManySelectSchema<S extends RelationState> =
-  ToManyIncludeSchema<S>;
+export type ToManySelectSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = ToManyIncludeSchema<Source, Key, S>;
 export const toManySelectFactory = toManyIncludeFactory;

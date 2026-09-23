@@ -1,0 +1,19 @@
+{
+  "mode": "g4-read-envelope-mysql-contracts",
+  "identity": {
+    "production": "eb93c64dd2d4c80360cb8ba749065a5466612feeaaa3a0345d13adee293dd990",
+    "harness": "854ad639f24dd7bc48f2559e476edfbed5212951cb290b97322c85da57cece0b",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

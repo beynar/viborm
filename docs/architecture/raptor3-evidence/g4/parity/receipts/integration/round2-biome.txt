@@ -1,0 +1,21 @@
+=== round 2 touched files ===
+--- current: operation-context.ts ---
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+src/query-engine/raptor3/shared/operation-context.ts:299:5 lint/style/noParameterProperties ━━━━━━━━━━
+src/query-engine/raptor3/shared/operation-context.ts:301:5 lint/style/noParameterProperties ━━━━━━━━━━
+src/query-engine/raptor3/shared/operation-context.ts:302:5 lint/style/noParameterProperties ━━━━━━━━━━
+src/query-engine/raptor3/shared/operation-context.ts:312:5 lint/style/noParameterProperties ━━━━━━━━━━
+src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Checked 1 file in 55ms. No fixes applied.
+Found 6 errors.
+--- base 356254a2: operation-context.ts ---
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/base/src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/base/src/query-engine/raptor3/shared/operation-context.ts:257:5 lint/style/noParameterProperties ━━━━━━━━━━
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/base/src/query-engine/raptor3/shared/operation-context.ts:259:5 lint/style/noParameterProperties ━━━━━━━━━━
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/base/src/query-engine/raptor3/shared/operation-context.ts:260:5 lint/style/noParameterProperties ━━━━━━━━━━
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/base/src/query-engine/raptor3/shared/operation-context.ts:270:5 lint/style/noParameterProperties ━━━━━━━━━━
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/base/src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━
+Checked 1 file in 29ms. No fixes applied.
+Found 6 errors.
+--- integration-staleness.test.ts ---
+Checked 1 file in 6ms. No fixes applied.

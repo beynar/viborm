@@ -1,0 +1,13 @@
+BEGIN provider=provider-mysql2 ordinal=2/15 file=tests/providers/docker/mysql2-cascaded-identity.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-cascaded-identity.test.ts (4 tests) 269ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  11:04:27
+   Duration  2.07s (transform 1.11s, setup 10ms, collect 1.66s, tests 269ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 3.98s wall, 484.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-mysql2 ordinal=2/15 file=tests/providers/docker/mysql2-cascaded-identity.test.ts exit=0

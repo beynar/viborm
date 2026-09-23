@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/parity/lax-to-one.test.ts (10 tests) 50ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  00:35:59
+   Duration  1.52s (transform 841ms, setup 10ms, collect 1.24s, tests 50ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.46s wall, 504.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

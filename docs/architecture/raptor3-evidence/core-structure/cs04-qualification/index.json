@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "status": "qualification-evidence-complete",
+  "identity": {
+    "production": "36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377",
+    "harness": "87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e",
+    "node": "v24.21.0",
+    "vitest": "3.1.4",
+    "sqliteDriver": "12.6.0"
+  },
+  "source": {
+    "directory": "source",
+    "foundationPatchSha256": "0b101afa1a1a6cb2dcb1e747a30c070717486f9dd5286cf9caa135e65a16bc83",
+    "foundationIdentity": "d6a72b648bb295f846ec1f4abcc5f9dab72716d53deba9360dec1ad7aa1dfcaf",
+    "extensionAIdentity": "821f40dbfd6d5753f741cfe14a58609b94094bb48c9d1bdf47c7bf973586827f",
+    "extensionBIdentity": "c05956648b7295d9198a44d615f288108e29937ec139ce69ab78f8a4541f786a",
+    "combinedIdentity": "36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377"
+  },
+  "completed": {
+    "fixedModes": 31,
+    "fixedTests": 1095,
+    "credentialFreeFiles": 55,
+    "credentialFreeTests": 717,
+    "pgliteFiles": 5,
+    "pgliteTests": 11,
+    "postgresqlModes": 9,
+    "postgresqlTests": 56,
+    "mysqlModes": 8,
+    "mysqlTests": 45,
+    "focusedAlternativeReceipts": 4,
+    "focusedAlternativeTests": 20,
+    "campaignCells": 21000,
+    "campaignReplays": 63000,
+    "campaignSkips": 0,
+    "savedReplayCorpora": 5,
+    "historicalStaleIdentityProbes": 2,
+    "receiptOwnerTests": 15,
+    "cliOwnerTests": 7,
+    "structuralCases": 28,
+    "structuralReplays": 60,
+    "structuralSkips": 0
+  },
+  "campaignReceipts": {
+    "g2-seeds": "rOU4P4",
+    "g2-transport-seeds": "34B05O",
+    "g3p06-seeds": "519ugj",
+    "g3p06-transport-seeds": "8xqE5l",
+    "cs03-extension-a-seeds": "XI4ptK",
+    "cs03-extension-b-seeds": "r1T2Ef",
+    "cs03-extension-composition-seeds": "04SAhX"
+  },
+  "savedReplayReceipts": {
+    "g25-polish": "zFdfkd",
+    "g2-conditional-upsert": "2y1unZ",
+    "cs03-extension-a": "b2eOsu",
+    "cs03-extension-b": "qJqqc8",
+    "cs03-extension-composition": "aOytDl"
+  },
+  "focusedReceipts": {
+    "candidateExtensionA": "ObEKKZ",
+    "candidateExtensionB": "bSGBoZ",
+    "referenceExtensionA": "3KUd15",
+    "referenceExtensionB": "3RVCNv"
+  },
+  "structuralReceipt": "UUKxtm",
+  "evidence": {
+    "registered": "receipts/fixed",
+    "nativePostgresql": "receipts/native-pg",
+    "nativeMysql": "receipts/native-mysql",
+    "campaigns": "receipts/campaigns",
+    "savedReplays": "receipts/replays",
+    "staleReplayProbes": "receipts/stale-replay",
+    "focusedAlternatives": "receipts/focused",
+    "corpora": "corpora",
+    "support": "support",
+    "structuralMeasurement": "structural-measurement",
+    "preFinalReview": "pre-final-review"
+  },
+  "reproduction": "reproduction.md",
+  "checksums": "SHA256SUMS",
+  "priorSeal": {
+    "reason": "Evidence-complete candidate archive before the independent reviewer required durable raw reference measurement provenance.",
+    "manifest": "support/pre-reference-addition-SHA256SUMS",
+    "sha256": "988f442eb6ccf3cd1504f7cb5a1b41fa217d6b6d6725850cab79c87c8614aa6e"
+  },
+  "qualificationBoundary": "This index records completed source-bound evidence. Global acceptance, commit, G3 work, and public adoption remain separate decisions."
+}

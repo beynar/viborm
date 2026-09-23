@@ -1,0 +1,108 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+(node:16164) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts (95 tests) 132511ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert creates the row when missing  1232ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert updates the row when present  1276ms
+   ✓ pg Driver > pg upsert atomicity behavior > does not take the update branch for a conflict outside the requested target  1534ms
+   ✓ pg Driver > pg upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces  2072ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert returns the row when the update is a no-op  1818ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert create branch resolves auto-increment ids  1773ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert update branch may rewrite the unique where field  1687ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert supports select on both branches  1561ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert with include returns the relation payload on both branches  1692ms
+   ✓ pg Driver > pg upsert atomicity behavior > delete with include returns the relation payload  1450ms
+   ✓ pg Driver > pg upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed  1446ms
+   ✓ pg Driver > pg upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed  1484ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)  2063ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)  1630ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (batch)  1534ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (batch)  2088ms
+   ✓ pg Driver > pg nested-write concurrency behavior > planned-path create-branch race loser surfaces a UniqueConstraintError, then the retry converges  1954ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx)  1903ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx)  1841ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (batch)  1751ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (batch)  1497ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > an adopter whose captured owner was replaced aborts, re-plans once, and converges  1637ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that captured the SAME old owner produce exactly one winner  1894ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that both observed the slot EMPTY produce exactly one winner  1339ms
+   ✓ pg Driver > pg filtered m2m deleteMany staleness > a member added after the plan-time read aborts the guard, then the retry converges  1831ms
+   ✓ pg Driver > pg nested write behavior > declares an atomic strategy for nested writes  1232ms
+   ✓ pg Driver > pg nested write behavior > rejects default-only createMany duplicate skipping before writing  1284ms
+   ✓ pg Driver > pg nested write behavior > rejects nested default-only duplicate skipping before the parent write  1312ms
+   ✓ pg Driver > pg nested write behavior > create derives to-one and to-many foreign keys  1699ms
+   ✓ pg Driver > pg nested write behavior > create connects and connect-or-creates nullable children  1784ms
+   ✓ pg Driver > pg nested write behavior > update creates, createManys, and connects children  1543ms
+   ✓ pg Driver > pg nested write behavior > update disconnects and sets nullable children  1793ms
+   ✓ pg Driver > pg nested write behavior > update and updateMany keep child mutations parent-correlated  1619ms
+   ✓ pg Driver > pg nested write behavior > delete and deleteMany keep child mutations parent-correlated  1466ms
+   ✓ pg Driver > pg nested write behavior > to-many upsert creates and updates the current parent's child  1336ms
+   ✓ pg Driver > pg nested write behavior > to-one upsert creates and updates the current target  1347ms
+   ✓ pg Driver > pg nested write behavior > to-one nested update modifies the connected author  1426ms
+   ✓ pg Driver > pg nested write behavior > to-one disconnect true nulls the foreign key, both rows survive  1481ms
+   ✓ pg Driver > pg nested write behavior > to-one delete true deletes the related row  1377ms
+   ✓ pg Driver > pg nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author  1366ms
+   ✓ pg Driver > pg nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives  1321ms
+   ✓ pg Driver > pg nested write behavior > explicit join rows work as a practical many-to-many case  1274ms
+   ✓ pg Driver > pg nested write behavior > unsupported nested create keys reject before parent mutation  1302ms
+   ✓ pg Driver > pg nested write behavior > nested child failures roll back parent and prior children  1390ms
+   ✓ pg Driver > pg nested write behavior > to-many updates cannot target another parent's child  1438ms
+   ✓ pg Driver > pg nested write behavior > non-nullable child foreign keys reject disconnect atomically  1389ms
+   ✓ pg Driver > pg nested write behavior > nested create propagates foreign keys through mapped columns  1365ms
+   ✓ pg Driver > pg nested write behavior > nested create derives mapped foreign keys for createMany and connect  1382ms
+   ✓ pg Driver > pg nested write behavior > set keeping all required-FK children is a no-op and succeeds  1443ms
+   ✓ pg Driver > pg nested write behavior > set on required-FK children rejects only when rows would be orphaned  1483ms
+   ✓ pg Driver > pg nested write behavior > set disconnects only nullable-FK children leaving the set  1917ms
+   ✓ pg Driver > pg nested write behavior > connect with a list of targets reparents every one of them  1657ms
+   ✓ pg Driver > pg nested write behavior > a connect list with one absent target writes nothing  1832ms
+   ✓ pg Driver > pg nested write behavior > disconnect with a list nulls every one of them  1682ms
+   ✓ pg Driver > pg nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing  1510ms
+   ✓ pg Driver > pg nested write behavior > a create tree's connect list reparents every one of them  1489ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone  1501ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone  1460ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > the `include` spelling is unaffected  1484ms
+   ✓ pg Driver > pg advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes  1485ms
+   ✓ pg Driver > pg advanced nested write behavior > top-level upsert guards gate nested update branch  1511ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip  1277ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order  1215ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment  1380ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params  1160ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path  1082ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement  1083ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError  1005ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError  1029ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found  1046ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches  1066ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found  1015ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist  1120ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > exist > returns true when a matching row exists  1156ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > exist > returns false when no row matches  977ms
+   ✓ pg Driver > raw/model array transactions (Docker PostgreSQL) > execute in declared order and return each public result  901ms
+   ✓ pg Driver > raw/model array transactions (Docker PostgreSQL) > a later raw failure rolls model and raw writes back  934ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK  1041ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs  1123ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK  1156ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches  1210ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create  1219ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it  1269ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it  1236ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it  1182ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it  1149ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it  1068ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it  1089ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create  1057ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > failure after generated refs rolls back parent and children  1050ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > unsupported compound primary-key dataflow rejects before parent mutation  1029ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > unsafe PK update shape rejects before parent mutation  1022ms
+   ✓ pg Driver > pg createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order  981ms
+   ✓ pg Driver > pg createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order  912ms
+   ✓ pg Driver > pg createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted  898ms
+
+ Test Files  1 passed (1)
+      Tests  95 passed (95)
+   Start at  18:34:26
+   Duration  134.21s (transform 1.03s, setup 10ms, collect 1.54s, tests 132.51s, environment 0ms, prepare 40ms)
+
+Vitest resources: 136.21s wall, 507.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

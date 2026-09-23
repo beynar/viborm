@@ -1,0 +1,6 @@
+     → expected [ Array(1) ] to deeply equal []
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |extended-local| tests/contracts/architecture/decimal-language-census.test.ts > decimal-language census: no floating transport > finds no decimal transport through JavaScript number
+AssertionError: expected [ Array(1) ] to deeply equal []
+[31m+ Received[39m
+[31m+ [[39m

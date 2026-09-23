@@ -1,0 +1,306 @@
+
+[test:all] raptor3-provider: tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3-provider| tests/raptor3/post-prep/g29-result-progress-pglite.test.ts (1 test) 708ms
+   ✓ G2.9 generated-result progress [commands] > preserves malformed generated-id translation on the statement the fold uses  707ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  20:31:44
+   Duration  2.11s (transform 852ms, setup 8ms, collect 1.25s, tests 708ms, environment 0ms, prepare 32ms)
+
+[test:all] raptor3-provider: tests/raptor3/post-prep/g29-result-progress-pglite.test.ts: 4.08s wall, 1404.3 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.
+
+[test:all] extended-local imported-pglite shard 1/2 (17 suites)
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |extended-local| tests/contracts/engine/query/nested-create-many.test.ts (37 tests) 786ms
+ ✓ |extended-local| tests/contracts/architecture/database-namespace-census.test.ts (24 tests) 87ms
+ ✓ |extended-local| tests/contracts/public-client/cli/utils.test.ts (26 tests) 140ms
+ ↓ |extended-local| tests/contracts/engine/write/mutation-dependency-fold-docker.test.ts (6 tests | 6 skipped)
+ ✓ |extended-local| tests/contracts/public-client/cli/push.test.ts (16 tests) 4ms
+ ↓ |extended-local| tests/contracts/engine/write/nested-arm-dispatch-docker.test.ts (14 tests | 14 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/fresh-produced-field-docker.test.ts (13 tests | 13 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/update-many-relation-series-docker.test.ts (54 tests | 54 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/shared-pk-connect-or-create-docker.test.ts (18 tests | 18 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/create-many-relation-series-docker.test.ts (38 tests | 38 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/compound-relation-adoption-docker.test.ts (4 tests | 4 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/parent-held-compound-edge-docker.test.ts (14 tests | 14 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/destination-cast-docker.test.ts (12 tests | 12 skipped)
+ ✓ |extended-local| tests/contracts/engine/query/named-inverse-nested-writes.test.ts (1 test) 505ms
+ ↓ |extended-local| tests/contracts/engine/write/compiled-key-transition-docker.test.ts (14 tests | 14 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/junction-upsert-arm-probe-docker.test.ts (10 tests | 10 skipped)
+ ↓ |extended-local| tests/contracts/engine/write/vacate-then-supply-docker.test.ts (30 tests | 30 skipped)
+
+ Test Files  5 passed | 12 skipped (17)
+      Tests  104 passed | 227 skipped (331)
+   Start at  20:31:48
+   Duration  7.21s (transform 977ms, setup 15ms, collect 5.49s, tests 1.52s, environment 0ms, prepare 26ms)
+
+[test:all] extended-local imported-pglite shard 1/2 (17 suites): 9.14s wall, 1662.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.
+
+[test:all] extended-local imported-pglite shard 2/2 (10 suites)
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ❯ |extended-local| tests/contracts/public-client/operations.test.ts (101 tests | 1 failed) 874ms
+   ✓ Find Operations > findFirst > returns null when no records exist 5ms
+   ✓ Find Operations > findFirst > returns first record when records exist 4ms
+   ✓ Find Operations > findFirst > filters with where clause 4ms
+   ✓ Find Operations > findFirst > orders results with orderBy 3ms
+   ✓ Find Operations > findFirst > selects specific fields 3ms
+   ✓ Find Operations > findFirst > includes relations 5ms
+   ✓ Find Operations > findFirst > take -1 returns the last row of the orderBy window 3ms
+   ✓ Find Operations > findFirst > take -1 applies the where filter before taking from the end 3ms
+   ✓ Find Operations > findFirst > take 0 returns null even when rows match 2ms
+   ✓ Find Operations > findFirst > positive take still returns the first row 2ms
+   ✓ Find Operations > findFirstOrThrow > returns record when found 3ms
+   ✓ Find Operations > findFirstOrThrow > throws NotFoundError when not found 2ms
+   ✓ Find Operations > findFirstOrThrow > take -1 returns the last row of the orderBy window 3ms
+   ✓ Find Operations > findFirstOrThrow > take 0 throws NotFoundError even when rows match 3ms
+   ✓ Find Operations > findMany > returns empty array when no records exist 1ms
+   ✓ Find Operations > findMany > returns all records 2ms
+   ✓ Find Operations > findMany > filters with where clause 2ms
+   ✓ Find Operations > findMany > orders results with orderBy 2ms
+   ✓ Find Operations > findMany > paginates with take and skip 2ms
+   ✓ Find Operations > findMany > cursor includes cursor row by default 2ms
+   ✓ Find Operations > findMany > skip 1 excludes cursor row 3ms
+   ✓ Find Operations > findMany > cursor without orderBy uses deterministic default ordering 2ms
+   ✓ Find Operations > findMany > negative take pages backward in logical order 2ms
+   ✓ Find Operations > findMany > negative take honors explicit orderBy without cursor 2ms
+   ✓ Find Operations > findMany > compound unique cursor paginates by compound fields 2ms
+   ✓ Find Operations > findMany > invalid pagination values reject during validation 2ms
+   ✓ Find Operations > findMany > filters with multiple conditions (AND) 3ms
+   ✓ Find Operations > findMany > filters with OR conditions 2ms
+   ✓ Find Operations > findMany > includes relations with nested filtering 4ms
+   ✓ Find Operations > findUnique > returns null when not found 1ms
+   ✓ Find Operations > findUnique > finds by id 2ms
+   ✓ Find Operations > findUnique > finds by unique field 1ms
+   ✓ Find Operations > findUnique > rejects empty where before preparing operation 1ms
+   ✓ Find Operations > findUniqueOrThrow > returns record when found 1ms
+   ✓ Find Operations > findUniqueOrThrow > throws NotFoundError when not found 1ms
+   ✓ Create Operations > create > creates a record with all fields 1ms
+   ✓ Create Operations > create > creates a record with nullable field as null 1ms
+   ✓ Create Operations > create > creates a record with default values 1ms
+   ✓ Create Operations > create > returns created record with select 1ms
+   ✓ Create Operations > create > returns created record with include 4ms
+   ✓ Create Operations > createMany > creates multiple records 2ms
+   ✓ Create Operations > createMany > returns BatchPayload with count 1ms
+   ✓ Update Operations > update > updates a record by id 2ms
+   ✓ Update Operations > update > updates multiple fields 2ms
+   ✓ Update Operations > update > updates nullable field to null 1ms
+   ✓ Update Operations > update > returns updated record with select 2ms
+   ✓ Update Operations > update > throws NotFoundError when target row does not exist 1ms
+   ✓ Update Operations > update > rejects empty where before preparing operation 1ms
+   ✓ Update Operations > updateMany > updates multiple records matching where 2ms
+   ✓ Update Operations > updateMany > updates all records when no where 2ms
+   ✓ Update Operations > updateMany > returns BatchPayload with count 2ms
+   ✓ Update Operations > updateMany > returns BatchPayload with count zero when no matches 2ms
+   ✓ Update Operations > updateMany > applies relation data alongside scalars, in one call 6ms
+   ✓ Update Operations > updateMany > applies relation-only data, with no scalar column written 4ms
+   × Update Operations > updateMany > refuses a child-held connect across more than one matched row 7ms
+     → Cannot read properties of undefined (reading 'message')
+   ✓ Update Operations > updateMany with select (implicit returning) > scalar-only data updates and returns the affected rows 2ms
+   ✓ Update Operations > updateMany with select (implicit returning) > the same call without select returns { count } 2ms
+   ✓ Update Operations > updateMany with select (implicit returning) > include is rejected with a message naming the alternative 1ms
+   ✓ Update Operations > updateMany with select (implicit returning) > applies relation data alongside scalars and returns the projection 4ms
+   ✓ Update Operations > updateMany with select (implicit returning) > a relation key in select is still refused while data accepts one 2ms
+   ✓ Delete Operations > delete > deletes a record by id 3ms
+   ✓ Delete Operations > delete > returns deleted record 2ms
+   ✓ Delete Operations > delete > returns deleted record with select 1ms
+   ✓ Delete Operations > delete > throws NotFoundError when target row does not exist 1ms
+   ✓ Delete Operations > delete > rejects empty where before preparing operation 1ms
+   ✓ Delete Operations > deleteMany > deletes multiple records matching where 2ms
+   ✓ Delete Operations > deleteMany > deletes all records when no where 1ms
+   ✓ Delete Operations > deleteMany > returns BatchPayload with count zero when no matches 1ms
+   ✓ Aggregate Operations > count > counts all records 2ms
+   ✓ Aggregate Operations > count > counts with where filter 1ms
+   ✓ Aggregate Operations > count > counts paginated input rows 1ms
+   ✓ Aggregate Operations > count > counts ordered cursor input rows 2ms
+   ✓ Aggregate Operations > count > returns 0 when no records 1ms
+   ✓ Aggregate Operations > aggregate > calculates _sum 3ms
+   ✓ Aggregate Operations > aggregate > calculates _avg 3ms
+   ✓ Aggregate Operations > aggregate > calculates _min and _max 3ms
+   ✓ Aggregate Operations > aggregate > calculates _count 2ms
+   ✓ Aggregate Operations > aggregate > aggregates with where filter 3ms
+   ✓ Aggregate Operations > aggregate > aggregates ordered and paginated input rows 4ms
+   ✓ Aggregate Operations > aggregate > aggregates cursor-paginated input rows 2ms
+   ✓ Aggregate Operations > groupBy > groups by single field 3ms
+   ✓ Aggregate Operations > groupBy > groups with aggregates 2ms
+   ✓ Utility Operations > upsert > creates when record does not exist 3ms
+   ✓ Utility Operations > upsert > updates when record exists 3ms
+   ✓ Utility Operations > upsert > rejects empty where before preparing operation 1ms
+   ✓ Utility Operations > exist > returns true when record exists 1ms
+   ✓ Utility Operations > exist > returns false when record does not exist 2ms
+   ✓ Utility Operations > exist > returns false when no records 1ms
+   ✓ Transaction & Raw SQL > $transaction > commits multiple operations 2ms
+   ✓ Transaction & Raw SQL > $transaction > rolls back on error 3ms
+   ✓ Transaction & Raw SQL > $transaction > returns transaction result 1ms
+   ✓ Transaction & Raw SQL > $executeRaw > returns the affected count for mutations 2ms
+   ✓ Transaction & Raw SQL > $executeRaw > binds a tagged interpolation 1ms
+   ✓ Transaction & Raw SQL > $queryRaw > binds tagged interpolations and returns the rows 1ms
+   ✓ Transaction & Raw SQL > $queryRaw > returns all rows 1ms
+   ✓ Transaction & Raw SQL > $queryRawUnsafe > executes a hand-written statement with positional params 1ms
+   ✓ Relation Queries > includes to-many relation 3ms
+   ✓ Relation Queries > includes to-one relation 4ms
+   ✓ Relation Queries > filters by relation (some) 3ms
+   ✓ Relation Queries > nested select on relation 2ms
+   ✓ Relation Queries > orders and limits relation 2ms
+ ❯ |extended-local| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts (1 test | 1 failed) 16ms
+   × collects the frozen CS-02 structural work matrix 16ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
++   activationIds: [],
+-   activationIds: [
+-     'activation:structure/depth-create/1:attempt/0/unconditional'
+-   ],
+    commandIds: [
+      'command:structure/depth-create/1:root',
+      'command:structure/depth-create/1:root/children/0'
+    ],
+    occurrences: [
+      {
+-       commandId: 'command:structure/depth-create/1:root',
+-       occurrenceId: 'occurrence:structure/depth-create/1:root'
+-     },
+-     {
+        commandId: 'command:structure/depth-create/1:root/children/0',
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0'
+      }
+    ],
+    reads: [],
+...
+      {
+-       occurrenceId: 'occurrence:structure/depth-create/1:root',
+-       writeId: 'write:structure/depth-create/1:root'
+-     },
+-     {
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0',
+        writeId: 'write:structure/depth-create/1:root/children/0'
+      }
+    ]
+  }
+
+ ↓ |extended-local| tests/unit/migrations/pinned-session-docker.test.ts (9 tests | 9 skipped)
+ ✓ |extended-local| tests/contracts/public-client/select-include-result.test.ts (20 tests) 513ms
+ ↓ |extended-local| tests/unit/migrations/postgres-namespace-docker.test.ts (5 tests | 5 skipped)
+ ✓ |extended-local| tests/unit/migrations/geopoint-ddl.test.ts (6 tests) 905ms
+   ✓ PostGIS live migration preflight > refuses visible shadow objects that do not belong to the PostGIS extension  433ms
+   ✓ PostGIS live migration preflight > refuses missing PostGIS before predicate canonicalization can create a temporary view  446ms
+ ✓ |extended-local| tests/contracts/public-client/relation-filter.test.ts (5 tests) 509ms
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-route-seam.test.ts (3 tests) 3ms
+ ✓ |extended-local| tests/raptor3/g3/generation/failure-minimization.test.ts (1 test) 20ms
+ ✓ |extended-local| tests/contracts/public-client/official-cache-extension.test.ts (1 test) 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/contracts/public-client/operations.test.ts > Update Operations > updateMany > refuses a child-held connect across more than one matched row
+TypeError: Cannot read properties of undefined (reading 'message')
+ ❯ tests/contracts/public-client/operations.test.ts:791:31
+    789|       );
+    790| 
+    791|       expect((error as Error).message).toContain("updateMany matched 2…
+       |                               ^
+    792|       expect((error as Error).message).toContain("'connect'");
+    793|       expect((error as Error).message).toContain("'posts'");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts > collects the frozen CS-02 structural work matrix
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
++   activationIds: [],
+-   activationIds: [
+-     'activation:structure/depth-create/1:attempt/0/unconditional'
+-   ],
+    commandIds: [
+      'command:structure/depth-create/1:root',
+      'command:structure/depth-create/1:root/children/0'
+    ],
+    occurrences: [
+      {
+-       commandId: 'command:structure/depth-create/1:root',
+-       occurrenceId: 'occurrence:structure/depth-create/1:root'
+-     },
+-     {
+        commandId: 'command:structure/depth-create/1:root/children/0',
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0'
+      }
+    ],
+    reads: [],
+...
+      {
+-       occurrenceId: 'occurrence:structure/depth-create/1:root',
+-       writeId: 'write:structure/depth-create/1:root'
+-     },
+-     {
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0',
+        writeId: 'write:structure/depth-create/1:root/children/0'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,30 +1,20 @@[39m
+[2m  {[22m
+[32m-   "activationIds": [[39m
+[32m-     "activation:structure/depth-create/1:attempt/0/unconditional",[39m
+[32m-   ],[39m
+[31m+   "activationIds": [],[39m
+[2m    "commandIds": [[22m
+[2m      "command:structure/depth-create/1:root",[22m
+[2m      "command:structure/depth-create/1:root/children/0",[22m
+[2m    ],[22m
+[2m    "occurrences": [[22m
+[32m-     {[39m
+[32m-       "commandId": "command:structure/depth-create/1:root",[39m
+[32m-       "occurrenceId": "occurrence:structure/depth-create/1:root",[39m
+[32m-     },[39m
+[2m      {[22m
+[2m        "commandId": "command:structure/depth-create/1:root/children/0",[22m
+[2m        "occurrenceId": "occurrence:structure/depth-create/1:root/children/0",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "reads": [],[22m
+[2m    "selectionIds": [],[22m
+[2m    "writes": [[22m
+[32m-     {[39m
+[32m-       "occurrenceId": "occurrence:structure/depth-create/1:root",[39m
+[32m-       "writeId": "write:structure/depth-create/1:root",[39m
+[32m-     },[39m
+[2m      {[22m
+[2m        "occurrenceId": "occurrence:structure/depth-create/1:root/children/0",[22m
+[2m        "writeId": "write:structure/depth-create/1:root/children/0",[22m
+[2m      },[22m
+[2m    ],[22m
+
+ ❯ measureCreate tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1045:10
+    1043|     }
+    1044|   );
+    1045|   assert.deepEqual(
+       |          ^
+    1046|     captured.semanticInventory,
+    1047|     canonicalInventory(recipe.semanticInventory)
+ ❯ tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1097:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 6 passed | 2 skipped (10)
+      Tests  2 failed | 136 passed | 14 skipped (152)
+   Start at  20:31:57
+   Duration  5.42s (transform 1.16s, setup 15ms, collect 2.37s, tests 2.84s, environment 0ms, prepare 29ms)
+
+[test:all] extended-local imported-pglite shard 2/2 (10 suites): 7.28s wall, 1792.0 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

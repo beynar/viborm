@@ -1,0 +1,20 @@
+/** D-40 PROBE — MySQL. Removed once its receipt is taken. */
+import { normalizeCountResult } from "@adapters/shared/result-parsing";
+import { describe, it } from "vitest";
+import { createMySQL2Driver, TEST_CONNECTION_STRING } from "./mysql2-fixtures";
+import { runLegProbe } from "./o2-leg-probe";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+
+describeIf("D-40 probe — the MySQL adapter parseResult leg", () => {
+  it("records every raw the count leg decides about", async () => {
+    await runLegProbe({
+      provider: "mysql",
+      driver: createMySQL2Driver(),
+      legDecision: (raw, operation) =>
+        operation === "count" || operation === "exist"
+          ? normalizeCountResult(raw)
+          : "not-asked",
+    });
+  }, 120_000);
+});

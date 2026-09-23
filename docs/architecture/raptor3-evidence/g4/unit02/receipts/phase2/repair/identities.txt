@@ -1,0 +1,48 @@
+# G4-02 repair round 3 — identities, captured after the last edit
+# 2026-09-15T07:48:36Z
+
+## production
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  src/query-engine/raptor3/shared/query.ts
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  src/query-engine/raptor3/shared/operation-context.ts
+761d5943f991b548e76335e2acbdab3e5f60b46dbc11c3362c14ab1a564a85ae  src/query-engine/raptor3/shared/schema.ts
+a208e1f26856822de46afec09b0098d9b53014382ebec98016bd6240ea978bfe  src/query-engine/raptor3/commands/commands.ts
+f551151f6d279eb783a911e6c1f7794af141704df40cd202c334fc6d4c7c3be9  src/query-engine/raptor3/commands/index.ts
+752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2  src/query-engine/raptor3/shared/storage.ts
+1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102  src/query-engine/raptor3/commands/assignments.ts
+54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2  src/query-engine/raptor3/commands/execution.ts
+4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd  src/query-engine/raptor3/program/index.ts
+ab95ed3cd1b8542e4ef19c0efdd7a8a9e340eefb156bdd068c1bd5866644e2c5  src/adapters/database-adapter.ts
+679de883012390217143900b1f52539a767c67460c7e0a1c8ea1a79b58ae450d  src/adapters/databases/sqlite/sqlite-adapter.ts
+b29d1393a2148369228b0a359138e1d3d8df30d48bd872ffc520c4e9dcef3f7e  src/adapters/databases/postgres/postgres-adapter.ts
+1dd38ed31a23679b247402e5c609179945032df87e1915de44e43bc5fe2beb00  src/adapters/databases/mysql/mysql-adapter.ts
+
+## tests
+45f00ca5c5e49597cab18eb67cabb845d8a2c6243741a6876d130db12bb593cc  tests/raptor3/g4/unit02/borrowed-envelope.test.ts
+bdb32e29edfee9b61ec528c225d193b7ead2cafeffc518744469972b3bc92114  tests/raptor3/g4/unit02/decimal-having-operand.test.ts
+2c5f47a243903e553f2c51df6ee60d2a854546959460062ed9c5ddaacecf3ce2  tests/raptor3/g4/unit02/k-competing-refusals.test.ts
+a938702a59be3e9231ce72f90bdecd02b5582fc8d29fca55adc49c245c1a8c78  tests/raptor3/g4/unit02/k-decimal-world.ts
+23819398330ef68fc70e0d708e437b1b6958140a3d6c7b018c147e9ae6dfce57  tests/raptor3/g4/unit02/k-refusal-order-history.test.ts
+491b4b6a68889d773c5d94c9d68243a721f1035539d94add1c81e4b1ae51d35d  tests/raptor3/g4/unit02/key-arithmetic.test.ts
+21a44cc23d0f7a611a3ed480bcd771e0463b601abffd8ffac95fbd461c3b0c6a  tests/raptor3/g4/unit02/malformed-result-cuts.test.ts
+be0159ac1a9202728fe7067bca73bba4ae7bfbc69b7c12f2dcaa247dcd3abe9f  tests/raptor3/g4/unit02/native-date-codec.test.ts
+23391b402c4ff4628da0e9e483f9797fc283522c34f32f5823b4e42cf91ada3c  tests/raptor3/g4/unit02/native-key-arithmetic.test.ts
+c2160fb61726eddcff70c9d32ddcc90c3029ecf4a5e97246248f6147ef9d659f  tests/raptor3/g4/unit02/packaged-array.test.ts
+149f8bab12966dfeb0d613010907995a2d1d95aaff28ab9130de97a7b5e1bb78  tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts
+bb7e4d1a2408d0dd0602f2c0da38e6cc2cbc554056fd8366ace954c98a3af1ec  tests/raptor3/g4/unit02/physical-envelope.test.ts
+cad8642c4692674fe90343a0886b5b1c419ef226d646f42a954c1ac3f3117c04  tests/raptor3/g4/unit02/prepared-operation.test.ts
+257fd2ede0746a2104e71524c78824c8e22b4d084632d96f2f8f1370f1d83710  tests/raptor3/g4/unit02/recursive-codec-fit.test.ts
+c65572788cb951ca79dded175a4d5a3dc087fad26dd27c4f570170647b7cc9ae  tests/raptor3/g4/unit02/returning-safety-gate.test.ts
+5a9b97e91afb677a1f1ea930f1859d2a97274cabcecfdaf94f6fc50cde011ef8  tests/raptor3/g4/unit02/root-delete.test.ts
+ecc9bc0429c311cbf567c44a0d78d0a1dd1e4c5ad7e0280ea8d079727677f74b  tests/raptor3/g4/unit02/root-member-cut-trace.test.ts
+22c72cf880e671ff5d0493ecf90c63f9f80e2a0d53fefd541f5d618bcf7d8124  tests/raptor3/g4/unit02/unit02.workspace.ts
+de3bd9ee7e168cc723debc97c3b291429bf36955be06e9a7c7ded21536299f99  tests/raptor3/g4/unit02/vector-capability.test.ts
+61b3b53f0a01e244558b1a415424b482986ce4e0bea62f54cab77a5bfe505572  tests/raptor3/g4/unit02/world.ts
+63abd327c13a12681f4c6683fe42c90ea7e0c10675fb81a12c356e6cd6298d67  tests/raptor3/post-prep/g29-result-progress.test.ts
+17806c600e672b3578c32f59209647f28c1cad92dfd5acd651a0ee6f683548de  tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
+d9a9ad63a5ce6a5520fcfbd9a84b088f3296d12596a5888af578a3fed0b71f9b  tests/contracts/adapters/dialect-vocabulary.core.test.ts
+
+## patches
+9f9adfd739c0aed7a02cdd27fcd8ecf2c441f7296241536f80601ec018d4326c  docs/architecture/raptor3-evidence/g4/unit02/production-phase2.patch
+680a2956166337b350a1dac9a688211e8401c5d4aa137b60482235d60b93a12d  docs/architecture/raptor3-evidence/g4/unit02/tests-phase2.patch
+8295d338569b68a5e181754c0deba94d6c22e5dc83247ce6ddccc3334936d974  docs/architecture/raptor3-evidence/g4/unit02/production.patch
+7ac5724fc757a5396dc6e1fabd6009f0c69f4b5a703f81c5ebb1e3aec9463a67  docs/architecture/raptor3-evidence/g4/unit02/tests.patch

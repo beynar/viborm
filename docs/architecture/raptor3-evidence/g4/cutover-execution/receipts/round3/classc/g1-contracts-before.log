@@ -1,0 +1,107 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/cleanup-failure.test.ts (2 tests) 198ms
+ ❯ |raptor3| tests/raptor3/expanded/lifetime-commands.test.ts (16 tests | 2 failed) 68ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-interactive > g1-upsert-illegal-update-selected 7ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-interactive > g1-upsert-illegal-update-untaken 2ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-interactive > g1-upsert-invalid-create-untaken 1ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-interactive > g1-upsert-invalid-update-untaken 1ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-interactive > g1-upsert-invalid-nested-update-untaken 1ms
+   × G1 legality and engine lifetimes: commands sqlite-interactive > g1-upsert-nested-admission-publication 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      name: 'author.name.transform',
+      value: 'Changed-1'
+    },
+-   {
+-     name: 'author.name.transform',
+-     value: 'Changed-2'
+-   }
+  ]
+
+   ✓ G1 legality and engine lifetimes: commands sqlite-interactive > g1-reuse-after-rollback 4ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-interactive > g1-concurrent-queued-creates 6ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-upsert-illegal-update-selected 2ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-upsert-illegal-update-untaken 1ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-upsert-invalid-create-untaken 1ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-upsert-invalid-update-untaken 1ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-upsert-invalid-nested-update-untaken 1ms
+   × G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-upsert-nested-admission-publication 1ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      name: 'author.name.transform',
+      value: 'Changed-1'
+    },
+-   {
+-     name: 'author.name.transform',
+-     value: 'Changed-2'
+-   }
+  ]
+
+   ✓ G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-reuse-after-rollback 4ms
+   ✓ G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-concurrent-queued-creates 2ms
+ ✓ |raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 2ms
+ ✓ |raptor3| tests/raptor3/expanded/commands.test.ts (82 tests) 170ms
+ ✓ |raptor3| tests/raptor3/expanded/variant-identity-commands.test.ts (42 tests) 136ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/expanded/lifetime-commands.test.ts > G1 legality and engine lifetimes: commands sqlite-interactive > g1-upsert-nested-admission-publication
+ FAIL  |raptor3| tests/raptor3/expanded/lifetime-commands.test.ts > G1 legality and engine lifetimes: commands sqlite-atomic-batch > g1-upsert-nested-admission-publication
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      name: 'author.name.transform',
+      value: 'Changed-1'
+    },
+-   {
+-     name: 'author.name.transform',
+-     value: 'Changed-2'
+-   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "name": "author.name.transform",[22m
+[2m      "value": "Changed-1",[22m
+[2m    },[22m
+[32m-   {[39m
+[32m-     "name": "author.name.transform",[39m
+[32m-     "value": "Changed-2",[39m
+[32m-   },[39m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/expanded/upsert-legality.ts:155:18
+    153|                 : initial
+    154|           );
+    155|           assert.deepEqual(
+       |                  ^
+    156|             observation.defaults,
+    157|             transformedUpdate
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/expanded/lifetime-commands.test.ts:38:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  2 failed | 141 passed (143)
+   Start at  23:10:54
+   Duration  2.31s (transform 846ms, setup 18ms, collect 1.57s, tests 574ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PmuXgH/vitest.json
+Vitest resources: 4.36s wall, 673.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PmuXgH

@@ -1,0 +1,16 @@
+### tests/contracts/engine/write/parent-held-lookup.test.ts
+      Tests  56 passed (56)
+### tests/contracts/engine/write/shared-pk-connect-or-create.test.ts
+      Tests  29 passed (29)
+### tests/contracts/engine/write/upsert-arm-referenced-edge.test.ts
+      Tests  18 passed (18)
+### tests/contracts/engine/write/parent-held-compound-edge.test.ts
+      Tests  16 passed (16)
+### tests/contracts/engine/query/nested-write-conformance-fk.test.ts
+      Tests  28 passed (28)
+### tests/contracts/engine/query/nested-write-conformance-to-one.test.ts
+      Tests  19 passed (19)
+### tests/providers/local/pglite-nested-writes.test.ts (--project provider-pglite)
+      Tests  126 passed (126)
+### tests/raptor3/g4/parity/ordered-observation.test.ts
+      Tests  39 passed (39)

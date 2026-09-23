@@ -1,0 +1,93 @@
+{
+ "reviewer": "round-2 independent re-run of the author's seam-probe-v6.mjs (probe unchanged; runner is the reviewer's own copy writing only to review-round2-receipts)",
+ "TMPDIR": "/private/tmp/viborm-perf-tmp-r",
+ "authorReading": {
+  "statementCpuRatio": 1.4105,
+  "packageCpuRatio": 1.325
+ },
+ "trees": {
+  "baseline": "/private/tmp/viborm-perf-baseline",
+  "candidate": "/private/tmp/viborm-perf-cand"
+ },
+ "cells": [
+  {
+   "workload": "bulk-update-returning-100",
+   "published": {
+    "baseline": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     }
+    },
+    "candidate": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     }
+    }
+   },
+   "seams": {
+    "statement": {
+     "baselineCpuMedian": 41.615,
+     "candidateCpuMedian": 58.428,
+     "cpuRatio": 1.404012976090352,
+     "baselineWallMedian": 20.147417000000004,
+     "candidateWallMedian": 25.070459000000014,
+     "wallRatio": 1.2443510252455692,
+     "baselineCpuSamples": [
+      41.615,
+      53.354,
+      42.657,
+      40.5,
+      40.37
+     ],
+     "candidateCpuSamples": [
+      58.428,
+      58.665,
+      58.175,
+      57.801,
+      58.606
+     ]
+    },
+    "package": {
+     "baselineCpuMedian": 44.147,
+     "candidateCpuMedian": 57.15,
+     "cpuRatio": 1.2945387002514328,
+     "baselineWallMedian": 23.000165999999993,
+     "candidateWallMedian": 25.361292000000006,
+     "wallRatio": 1.102656911258815,
+     "baselineCpuSamples": [
+      44.41,
+      44.147,
+      43.77,
+      43.761,
+      45.481
+     ],
+     "candidateCpuSamples": [
+      56.529,
+      57.361,
+      56.951,
+      57.15,
+      57.47
+     ]
+    }
+   },
+   "allSamplesPublishOneStatementPerSeam": true,
+   "stageKind": "async"
+  }
+ ]
+}

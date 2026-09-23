@@ -74,7 +74,12 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
-import { getMySQLType, MYSQL_TYPE_DEFAULTS } from "../type-mapping";
+import {
+  getMySQLType,
+  MYSQL_TYPE_DEFAULTS,
+  mysqlEnumType,
+  mysqlStringLiteral,
+} from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import { introspect as introspectMySQL } from "./introspect";
@@ -101,6 +106,77 @@ const MYSQL_POINT_SRID_ATTRIBUTE = MYSQL_TYPE_DEFAULTS.point.slice(
  * documented behaviour.
  */
 const MIGRATION_LOCK_TIMEOUT_SECONDS = 30;
+
+/**
+ * The storage classes MySQL refuses a literal `DEFAULT` on. Its own error names
+ * them: "BLOB, TEXT, GEOMETRY or JSON column can't have a default value"
+ * (errno 1101, measured on MySQL 8.4 under `STRICT_TRANS_TABLES`). MySQL 8.0.13
+ * gave exactly those four an EXPRESSION default instead — `DEFAULT ('value')` —
+ * which is the spelling the JSON decimal-list container already used, so it is
+ * the one spelling for all four.
+ */
+function mysqlRefusesLiteralDefault(columnType: string): boolean {
+  const upper = columnType.toUpperCase();
+  return (
+    upper.includes("TEXT") ||
+    upper.includes("BLOB") ||
+    upper.includes("JSON") ||
+    SPATIAL_TYPE_PATTERNS.some((pattern) => pattern.test(upper))
+  );
+}
+
+/**
+ * A MySQL temporal type, with the fractional-seconds precision it declares.
+ */
+const MYSQL_TIMESTAMP_TYPE = /^(?:DATETIME|TIMESTAMP)\s*(?:\((\d+)\))?$/i;
+
+/**
+ * `CURRENT_TIMESTAMP` as the RESOLVED column type takes it, or `undefined` for
+ * a type that takes no such default at all.
+ *
+ * MySQL requires the expression's precision to AGREE with the column's:
+ * `DATETIME(3) DEFAULT CURRENT_TIMESTAMP` is errno 1067, ER_INVALID_DEFAULT
+ * (measured on 8.4.11), and `DATETIME(3)` is what `.dateTime()` resolves to
+ * unless a native type says otherwise — so a declared `.now()` could not be
+ * pushed to MySQL at all. The precision is READ OFF the type this driver just
+ * mapped instead of being restated as a constant here, which is the same
+ * reason a resolved DATE or TIME carries no database default rather than an
+ * expression MySQL refuses.
+ */
+function mysqlNowExpression(columnType: string): string | undefined {
+  const precision = MYSQL_TIMESTAMP_TYPE.exec(columnType.trim());
+  if (precision === null) {
+    return undefined;
+  }
+  return precision[1] === undefined
+    ? "CURRENT_TIMESTAMP"
+    : `CURRENT_TIMESTAMP(${precision[1]})`;
+}
+
+/**
+ * One column, as MySQL will hold and report it.
+ *
+ * Both rewrites belong to the same moment — after this, the desired snapshot
+ * and the live one are comparable — and both are MySQL facts, not schema
+ * decisions: a keyed TEXT column has to carry a key length, and a default on a
+ * storage class that refuses a literal is carried as an expression. Leaving
+ * the second one to the DDL emitter is what silently DROPPED the declared
+ * default: the estate asked for one, the emitter wrote none, and the final
+ * push attestation reported the column it did not get.
+ */
+function finalizeMySQLColumn(column: ColumnDef, keyed: boolean): ColumnDef {
+  const type =
+    column.type.toUpperCase() === "TEXT" && keyed
+      ? "VARCHAR(191)"
+      : column.type;
+  const spelled =
+    column.default !== undefined && mysqlRefusesLiteralDefault(type)
+      ? `(${column.default})`
+      : column.default;
+  return type === column.type && spelled === column.default
+    ? column
+    : { ...column, type, default: spelled };
+}
 
 /** Exact integer storage that can be adopted without inventing a source scale. */
 function isMySQLExactIntegerType(type: string): boolean {
@@ -165,6 +241,19 @@ export class MySQLMigrationDriver
   // ===========================================================================
   // IDENTIFIER ESCAPING (MySQL uses backticks)
   // ===========================================================================
+
+  /**
+   * A string value, spelled the way MySQL reads it back.
+   *
+   * The base doubles `'` and leaves everything else alone, which is right
+   * where a backslash is an ordinary character. MySQL reads it as an escape
+   * introducer, so that spelling silently changed the value it carried —
+   * `DEFAULT ('a\b')` created a column holding a BACKSPACE, measured. One
+   * spelling serves both snapshot producers (`mysqlStringLiteral`).
+   */
+  override escapeValue(value: string | null | undefined): string {
+    return value == null ? "NULL" : mysqlStringLiteral(String(value));
+  }
 
   override escapeIdentifier(name: string): string {
     if (name == null) {
@@ -234,6 +323,14 @@ export class MySQLMigrationDriver
     if (scalarState.hasDefault && scalarState.default === null) {
       return undefined;
     }
+    // `now` is the one generator MySQL spells natively, and it is spelled from
+    // the RESOLVED column type, so it is answered here — where that type is —
+    // rather than by the generator hook, which is handed the declaration only.
+    // (`uuid` stays application-level: MySQL 8 has `UUID()`, but not as a
+    // column default.)
+    if (scalarState.autoGenerate?.kind === "now") {
+      return mysqlNowExpression(this.mapScalarType(scalar, scalarState));
+    }
     return super.getDefaultExpression(scalar, scalarState);
   }
 
@@ -290,9 +387,7 @@ export class MySQLMigrationDriver
     return {
       ...table,
       columns: table.columns.map((column) =>
-        column.type.toUpperCase() === "TEXT" && keyedColumns.has(column.name)
-          ? { ...column, type: "VARCHAR(191)" }
-          : column
+        finalizeMySQLColumn(column, keyedColumns.has(column.name))
       ),
       indexes: [...table.indexes, ...uniquesAsIndexes],
       uniqueConstraints: [],
@@ -307,24 +402,6 @@ export class MySQLMigrationDriver
   }
 
   /**
-   * MySQL supports native auto-generation for certain values.
-   */
-  protected override getAutoGenerateExpression(
-    autoGenerate: ScalarState["autoGenerate"]
-  ): string | undefined {
-    switch (autoGenerate?.kind) {
-      case "now":
-        return "CURRENT_TIMESTAMP";
-      case "uuid":
-        // MySQL 8.0+ has UUID() function, but it's not suitable for DEFAULT
-        // Use application-level generation instead
-        return undefined;
-      default:
-        return undefined;
-    }
-  }
-
-  /**
    * MySQL enum values are part of the column definition.
    * Returns ENUM('val1', 'val2', ...) syntax.
    */
@@ -333,10 +410,7 @@ export class MySQLMigrationDriver
     _columnName: string,
     values: string[]
   ): string {
-    const escapedValues = values
-      .map((v) => `'${v.replace(/'/g, "''")}'`)
-      .join(", ");
-    return `ENUM(${escapedValues})`;
+    return mysqlEnumType(values);
   }
 
   // ===========================================================================
@@ -409,31 +483,12 @@ export class MySQLMigrationDriver
       parts.push(MYSQL_POINT_SRID_ATTRIBUTE);
     }
 
-    // DEFAULT clause (skip for auto-increment columns and types that do not
-    // support a simple default). JSON stays suppressed except for the exact
-    // decimal-list expression the serializer owns below.
+    // DEFAULT clause (an auto-increment column has no default to spell).
+    // `finalizeMySQLColumn` already spelled a default whose storage class
+    // refuses a literal as MySQL's expression default, so every default that
+    // reaches here is one MySQL can take.
     if (column.default !== undefined && !column.autoIncrement) {
-      const upperType = column.type.toUpperCase();
-      const isTextOrBlob =
-        upperType.includes("TEXT") ||
-        upperType.includes("BLOB") ||
-        upperType === "TINYTEXT" ||
-        upperType === "MEDIUMTEXT" ||
-        upperType === "LONGTEXT" ||
-        upperType === "TINYBLOB" ||
-        upperType === "MEDIUMBLOB" ||
-        upperType === "LONGBLOB";
-      const isJson = upperType.includes("JSON");
-      const isDecimalList =
-        column.decimal !== undefined &&
-        mysqlDecimalStorageKind(column) === "list";
-      const isSpatial = SPATIAL_TYPE_PATTERNS.some((pattern) =>
-        pattern.test(upperType)
-      );
-
-      if (!(isTextOrBlob || (isJson && !isDecimalList) || isSpatial)) {
-        parts.push(`DEFAULT ${column.default}`);
-      }
+      parts.push(`DEFAULT ${column.default}`);
     }
 
     // The descriptor marker for a JSON-backed decimal LIST. A scalar needs

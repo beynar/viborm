@@ -1,0 +1,6 @@
+tests/contracts/engine/query/relation-key-update-legality-occupied-to-many.test.ts
+tests/contracts/engine/query/relation-key-update-legality-occupied-to-one.test.ts
+tests/contracts/engine/query/relation-key-update-legality-referenced-column.test.ts
+tests/contracts/engine/query/relation-key-update-legality-transition-arm.test.ts
+tests/contracts/public-client/batch-transaction.test.ts
+tests/contracts/public-client/operations.test.ts

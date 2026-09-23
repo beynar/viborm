@@ -1,0 +1,27 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts (34 tests | 11 failed) 1652ms
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected true to be false // Object.is equality
+     → expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m connectOrCreate string-selector array rejects unk
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m overlapping set and deleteMany reject membership 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m connectOrCreate then deleteMany rejects target de
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m explicit delete then deleteMany rejects target de
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m disconnect then deleteMany rejects membership dep
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m update then deleteMany rejects target dependency
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m updateMany then deleteMany rejects filter depende
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m multiple deleteMany filters reject internal depen
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m upsert then deleteMany: the removal cannot read p
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: named m2m targets (tx vs batch) > named likes create then stars connectOrCreate re
+AssertionError: expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: self-referential m2m (tx vs batch) > self m2m connect then inverse upsert rejects 
+AssertionError: expected true to be false // Object.is equality
+ Test Files  1 failed (1)
+      Tests  11 failed | 23 passed (34)

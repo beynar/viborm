@@ -1,0 +1,28 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |coverage-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 13ms
+ ✓ |coverage-client| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 32ms
+ ✓ |coverage-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 18ms
+ ✓ |coverage-client| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 8ms
+ ✓ |coverage-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 15ms
+ ✓ |coverage-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 4ms
+ ✓ |coverage-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 13ms
+ ✓ |layer-client| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 31ms
+ ✓ |layer-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 17ms
+ ✓ |layer-client| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 8ms
+ ✓ |layer-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 12ms
+ ✓ |layer-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+ ✓ |coverage-extensions| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 13ms
+ ✓ |coverage-extensions| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 62ms
+ ✓ |coverage-extensions| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 13ms
+ ✓ |coverage-extensions| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 5ms
+
+ Test Files  18 passed (18)
+      Tests  389 passed (389)
+   Start at  23:51:29
+   Duration  9.50s (transform 4.47s, setup 43ms, collect 8.33s, tests 271ms, environment 0ms, prepare 135ms)
+
+Vitest resources: 12.62s wall, 683.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

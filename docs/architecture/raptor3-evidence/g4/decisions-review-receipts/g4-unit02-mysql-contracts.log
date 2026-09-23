@@ -1,0 +1,18 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 756ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  420ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 107ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  18:04:19
+   Duration  2.95s (transform 1.28s, setup 9ms, collect 1.96s, tests 863ms, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-LSOIXB/vitest.json
+Vitest resources: 4.99s wall, 672.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Missing candidate/profile/scenario cell in tests/raptor3/g4/unit02/unique-discriminator.test.ts
+
+9 !== 5
+

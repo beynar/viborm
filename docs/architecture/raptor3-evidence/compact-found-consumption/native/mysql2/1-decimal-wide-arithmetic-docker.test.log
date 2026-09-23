@@ -1,0 +1,14 @@
+BEGIN provider=provider-mysql2 ordinal=1/15 file=tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts (35 tests) 1137ms
+   ✓ MySQL decimal arithmetic at ('40,2') > multiply is exact on small values  337ms
+
+ Test Files  1 passed (1)
+      Tests  35 passed (35)
+   Start at  11:04:22
+   Duration  2.81s (transform 1.01s, setup 10ms, collect 1.47s, tests 1.14s, environment 0ms, prepare 40ms)
+
+Vitest resources: 4.69s wall, 512.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-mysql2 ordinal=1/15 file=tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts exit=0

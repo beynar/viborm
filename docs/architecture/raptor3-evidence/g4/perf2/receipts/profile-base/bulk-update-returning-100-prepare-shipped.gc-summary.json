@@ -1,0 +1,1 @@
+{"file":"bulk-update-returning-100-prepare-shipped.gc.json","cpuUsPerOp":26.349,"wallUsPerOp":18.852,"iterations":5000,"scavenges":48,"scavengeMs":8.55,"majorCount":1,"majorMs":0.62,"totalGcMs":9.17,"gcUsPerOp":1.834,"steadyScavengeMsMedian":0.12,"steadyCapMB":35.2,"steadyBeforeMB":26.2,"steadyAfterMB":18.3}

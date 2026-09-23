@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-transactions.test.ts (12 tests) 75ms
+ ✓ |raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 10ms
+ ✓ |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests) 13ms
+
+ Test Files  3 passed (3)
+      Tests  18 passed (18)
+   Start at  10:40:59
+   Duration  2.50s (transform 1.33s, setup 11ms, collect 2.15s, tests 98ms, environment 0ms, prepare 30ms)
+
+Vitest resources: 4.91s wall, 703.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

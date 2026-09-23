@@ -1,0 +1,31 @@
+ ❯ |extended-local| tests/contracts/public-client/batch-transaction.test.ts (70 tests | 3 failed) 1275ms
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-fk.test.ts (28 tests | 1 failed) 1211ms
+ ✓ |extended-local| tests/contracts/public-client/official-cache-reads.test.ts (11 tests) 650ms
+ ✓ |extended-local| tests/contracts/engine/query/decimal-list-surface.test.ts (41 tests) 726ms
+ ❯ |extended-local| tests/contracts/engine/write/junction-create-many-routing.test.ts (9 tests | 4 failed) 696ms
+ ❯ |extended-local| tests/contracts/engine/write/create-many-skip-depth.test.ts (6 tests | 2 failed) 588ms
+ ✓ |extended-local| tests/contracts/engine/write/upsert-envelope-parse-boundary.test.ts (6 tests) 464ms
+ ❯ |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-many.test.ts (6 tests | 2 failed) 671ms
+ ❯ |extended-local| tests/contracts/engine/write/nested-error-attribution.test.ts (6 tests | 1 failed) 489ms
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-connect-or-create.test.ts (29 tests) 783ms
+ ❯ |extended-local| tests/contracts/engine/write/parent-held-compound-edge.test.ts (16 tests | 2 failed) 645ms
+ ✓ |extended-local| tests/contracts/engine/write/batch-updated-pk-dataflow-witness.test.ts (3 tests) 751ms
+ ✓ |extended-local| tests/unit/cache/brand-token-keys.test.ts (4 tests) 549ms
+ ✓ |extended-local| tests/unit/migrations/forward-fk-ordering.test.ts (1 test) 475ms
+ FAIL  |extended-local| tests/contracts/public-client/batch-transaction.test.ts > $transaction with array (batch mode) > batch-only driver batches nested write operations atomically
+ FAIL  |extended-local| tests/contracts/public-client/batch-transaction.test.ts > $transaction with array (batch mode) > batch-only shared parsing keeps exact partitions with insert ids
+ FAIL  |extended-local| tests/contracts/public-client/batch-transaction.test.ts > $transaction([...]) guard attribution after rollback > batch-only: a premise the rollback does NOT restore is still at
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-fk.test.ts > nested-write conformance: FK relations (tx vs batch) > createMany duplicate PK rolls back parent and prior ch
+ FAIL  |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-many.test.ts > relation-key update legality > rejects an occupied setNull TO-MANY UPDATE under a PK transi
+ FAIL  |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-many.test.ts > relation-key update legality > rejects an occupied target UPDATE while an occupied sibling 
+ FAIL  |extended-local| tests/contracts/engine/write/create-many-skip-depth.test.ts > X1b mechanism 3 — createMany skipDuplicates under a located update target > batch: skip keeps the fresh child un
+ FAIL  |extended-local| tests/contracts/engine/write/create-many-skip-depth.test.ts > X1b mechanism 3 — createMany skipDuplicates under a fresh create at depth > batch: skip under a fresh create att
+ FAIL  |extended-local| tests/contracts/engine/write/junction-create-many-routing.test.ts > residual F1 — junction skip disposition is row-local and ordered > a spelled scalar key links only when th
+ FAIL  |extended-local| tests/contracts/engine/write/junction-create-many-routing.test.ts > residual F1 — junction skip disposition is row-local and ordered > a relation-bearing spelled duplicate su
+ FAIL  |extended-local| tests/contracts/engine/write/junction-create-many-routing.test.ts > residual F1 — junction skip disposition is row-local and ordered > a scalar adopter plans after a relation
+ FAIL  |extended-local| tests/contracts/engine/write/junction-create-many-routing.test.ts > residual F1 — unnameable indexes dominate an adoptable selector > a spelled key does not link when only a 
+ FAIL  |extended-local| tests/contracts/engine/write/nested-error-attribution.test.ts > nested statement error attribution > a tree folded into ONE statement keeps the operation's model
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-compound-edge.test.ts > E6.4 parent-held to-one over a compound edge (transaction) > a NULL member makes the edge name NO target, on al
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-compound-edge.test.ts > E6.4 parent-held to-one over a compound edge (atomic batch) > a NULL member makes the edge name NO target, on a
+ Test Files  7 failed | 7 passed (14)
+      Tests  15 failed | 221 passed (236)

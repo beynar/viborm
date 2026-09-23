@@ -1,0 +1,28 @@
+# Machine state recorded AFTER the stage-2c 20-cell series (both passes)
+date: 2026-09-16T14:04:06Z (UTC)  /  2026-09-16 16:04:06 CEST (local)
+host cores: 14  physical: 14
+
+## uptime
+16:04  up 16 days, 15:44, 2 users, load averages: 12.39 15.59 25.60
+
+## top five CPU processes (ps -Ao pcpu,pid,comm -r | head -6)
+ %CPU   PID COMM
+134.2 84485 /Applications/Dia.app/Contents/Frameworks/ArcCore.framework/Helpers/Browser Helper (Renderer).app/Contents/MacOS/Browser Helper (Renderer)
+ 97.1 44270 node
+ 91.3 97416 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node
+ 85.1 42339 /Applications/Dia.app/Contents/Frameworks/ArcCore.framework/Helpers/Browser Helper (Renderer).app/Contents/MacOS/Browser Helper (Renderer)
+ 85.0 85281 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer)
+
+## viborm verification processes
+(none)
+
+## load observed DURING the two passes (1-minute average, sampled per command)
+pass 1 (13:11-13:22 UTC): 5.79 at start, 11.91 at end
+pass 2 attempt 1, ABORTED (13:22-13:44 UTC): 11.9 rising to 143; see cells/aborted-pass2-attempt1/
+pass 2 attempt 2, the recorded repeat (13:54-14:03 UTC): 8.69-13.14 across all 40 commands
+
+## lock files
+TMPDIR of pass 1: /private/tmp/viborm-g4-cutover-tmp
+-rw-r--r--@ 1 arnaud  wheel  89 Sep 16 15:44 /private/tmp/viborm-g4-cutover-tmp/viborm-test-c33ebb4c906dfea8.lock
+TMPDIR of pass 2: /private/tmp/viborm-g4-cutover-tmp2
+(no lock file)

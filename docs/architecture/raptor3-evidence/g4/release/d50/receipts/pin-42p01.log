@@ -1,0 +1,67 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts (2 tests | 2 failed) 1135ms
+   × D-50: the exact identity scratch on a PostgreSQL batch-only transport > carries a generated parent key to its nested creates in one native batch, through the INSERT's own RETURNING 646ms
+     → driver?.close is not a function
+   × D-50: the exact identity scratch on a PostgreSQL batch-only transport > carries the key to a nested createMany the same way 488ms
+     → QueryError: Query execution failed
+[
+ [
+  "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\")) ON COMMIT DROP",
+  "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = $1",
+  "WITH \"__viborm_inserted\" AS (INSERT INTO \"public\".\"d50_owners\" (\"label\") VALUES ($1) RETURNING \"id\") INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") SELECT $2, $3, CAST(\"id\" AS TEXT) FROM \"__viborm_inserted\"",
+  "INSERT INTO \"public\".\"d50_children\" (\"id\", \"ownerId\") VALUES ($1, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = $2 AND \"ref_key\" = $3 LIMIT 1) AS INTEGER)))"
+ ],
+ [
+  "INSERT INTO \"public\".\"d50_children\" (\"id\", \"ownerId\") VALUES ($1, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = $2 AND \"ref_key\" = $3 LIMIT 1) AS INTEGER)))"
+ ]
+]
+     → driver?.close is not a function
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts > D-50: the exact identity scratch on a PostgreSQL batch-only transport > carries a generated parent key to its nested creates in one native batch, through the INSERT's own RETURNING
+ FAIL  |extended-local| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts > D-50: the exact identity scratch on a PostgreSQL batch-only transport > carries the key to a nested createMany the same way
+TypeError: driver?.close is not a function
+ ❯ tests/raptor3/g4/parity/postgres-identity-scratch.test.ts:61:19
+     59|   let driver: RecordingBatchOnlyPGliteDriver;
+     60|   afterEach(async () => {
+     61|     await driver?.close();
+       |                   ^
+     62|   });
+     63| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts > D-50: the exact identity scratch on a PostgreSQL batch-only transport > carries the key to a nested createMany the same way
+Error: QueryError: Query execution failed
+[
+ [
+  "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\")) ON COMMIT DROP",
+  "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = $1",
+  "WITH \"__viborm_inserted\" AS (INSERT INTO \"public\".\"d50_owners\" (\"label\") VALUES ($1) RETURNING \"id\") INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") SELECT $2, $3, CAST(\"id\" AS TEXT) FROM \"__viborm_inserted\"",
+  "INSERT INTO \"public\".\"d50_children\" (\"id\", \"ownerId\") VALUES ($1, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = $2 AND \"ref_key\" = $3 LIMIT 1) AS INTEGER)))"
+ ],
+ [
+  "INSERT INTO \"public\".\"d50_children\" (\"id\", \"ownerId\") VALUES ($1, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = $2 AND \"ref_key\" = $3 LIMIT 1) AS INTEGER)))"
+ ]
+]
+ ❯ tests/raptor3/g4/parity/postgres-identity-scratch.test.ts:100:15
+     98|       })
+     99|       .catch((error: unknown) => {
+    100|         throw new Error(`${String(error)}\n${JSON.stringify(driver.bat…
+       |               ^
+    101|       });
+    102|     const rows = await client.child.findMany({ orderBy: { id: "asc" } …
+ ❯ tests/raptor3/g4/parity/postgres-identity-scratch.test.ts:95:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  20:42:16
+   Duration  2.55s (transform 841ms, setup 8ms, collect 1.26s, tests 1.13s, environment 0ms, prepare 24ms)
+
+Vitest resources: 4.21s wall, 1673.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

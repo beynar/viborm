@@ -1,0 +1,71 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ❯ |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts (7 tests | 2 failed) 8ms
+   ✓ consumable provider result proof > publishes rows only while the registered producer identity stays eligible 2ms
+   ✓ consumable provider result proof > does not activate or resolve a driver after candidate eligibility is revoked 0ms
+   ✓ consumable provider result proof > withdraws proof when the typed entry changes during execution 0ms
+   ✓ consumable provider result proof > withdraws proof when the producer changes during execution 0ms
+   × consumable provider result proof > sqlite3: stock only while its result surface IS the shipped one 4ms
+     → expected { stock: true, …(3) } to deeply equal { stock: true, …(3) }
+   × consumable provider result proof > pglite: stock only while its result surface IS the shipped one 1ms
+     → expected { stock: true, …(3) } to deeply equal { stock: true, …(3) }
+   ✓ consumable provider result proof > withdraws proof when the active transport stops being eligible 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts > consumable provider result proof > sqlite3: stock only while its result surface IS the shipped one
+AssertionError: expected { stock: true, …(3) } to deeply equal { stock: true, …(3) }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "stock": true,[22m
+[32m-   "withFieldMiddleware": false,[39m
+[31m+   "withFieldMiddleware": true,[39m
+[2m    "withReenteredAdapter": false,[22m
+[2m    "withResultMiddleware": false,[22m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/consumable-result-proof.core.test.ts:274:47
+    272| 
+    273|   test("sqlite3: stock only while its result surface IS the shipped on…
+    274|     expect(consumableAnswers(SQLITE3_FAMILY)).toEqual(STOCK_ONLY);
+       |                                               ^
+    275|   });
+    276| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts > consumable provider result proof > pglite: stock only while its result surface IS the shipped one
+AssertionError: expected { stock: true, …(3) } to deeply equal { stock: true, …(3) }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "stock": true,[22m
+[32m-   "withFieldMiddleware": false,[39m
+[31m+   "withFieldMiddleware": true,[39m
+[2m    "withReenteredAdapter": false,[22m
+[2m    "withResultMiddleware": false,[22m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/consumable-result-proof.core.test.ts:278:46
+    276| 
+    277|   test("pglite: stock only while its result surface IS the shipped one…
+    278|     expect(consumableAnswers(PGLITE_FAMILY)).toEqual(STOCK_ONLY);
+       |                                              ^
+    279|   });
+    280| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  00:20:29
+   Duration  1.45s (transform 826ms, setup 11ms, collect 1.23s, tests 8ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 4.09s wall, 417.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

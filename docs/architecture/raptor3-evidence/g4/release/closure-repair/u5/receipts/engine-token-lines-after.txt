@@ -1,0 +1,2 @@
+queryEngine.tokenLines after U5: 16098
+definition: Physical lines on which at least one parser-owned TypeScript token starts; comments and blank lines are excluded.

@@ -1,0 +1,1190 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-base
+
+(node:51515) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg.test.ts (227 tests | 38 failed | 7 skipped) 71585ms
+   × pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections 141ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds 60ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions 73ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs 51ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh 54ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions 56ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical 63ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering 65ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases 57ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes 72ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset 69ms
+     → promise rejected "MigrationError: PostGIS GeoPoint prefligh… { …(4) }" instead of resolving
+   × pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates 53ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude 82ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression 69ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate 82ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   ✓ pg Driver > Driver Creation > creates driver with connection string 48ms
+   ✓ pg Driver > Driver Creation > creates driver with options 46ms
+   ✓ pg Driver > attributes a sequential atomic-batch failure to its exact statement 167ms
+   ✓ pg Driver > Raw SQL Execution > executes INSERT and returns row count 210ms
+   ✓ pg Driver > Raw SQL Execution > executes SELECT and returns rows 198ms
+   ✓ pg Driver > Raw SQL Execution > executes UPDATE and returns affected count 163ms
+   ✓ pg Driver > Raw SQL Execution > executes DELETE and returns affected count 162ms
+   ✓ pg Driver > Transactions > commits transaction on success 172ms
+   ✓ pg Driver > Transactions > rolls back transaction on error 163ms
+   ✓ pg Driver > Transactions > supports nested transactions with savepoints 163ms
+   ✓ pg Driver > Transactions > rejects removed isolation before opening a transaction 180ms
+   ✓ pg Driver > VibORM Client Integration > creates client with schema 92ms
+   ✓ pg Driver > VibORM Client Integration > performs CRUD operations via client 161ms
+   ✓ pg Driver > VibORM Client Integration > performs transactions via client  352ms
+   ✓ pg Driver > VibORM Client Integration > rejects removed isolation at the client boundary 219ms
+   ✓ pg Driver > pg list/json filter and update behavior > list round-trip > create returns real arrays with typed elements 184ms
+   ✓ pg Driver > pg list/json filter and update behavior > list round-trip > empty and null lists round-trip 219ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches the exact list 190ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals is order-sensitive 206ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches empty lists 267ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches int lists 192ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals null matches null lists only 204ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > not excludes the matching list and null lists 175ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has matches string elements 223ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has matches int elements 291ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has with no match returns empty 157ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has null is rejected consistently 214ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > hasEvery requires all elements 297ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > hasSome requires any element 270ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list 264ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect 242ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > set replaces the whole list 298ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push appends a single value 230ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push expands an array value element-wise 174ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push appends int elements 199ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push onto an empty list 211ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push onto a null list creates the list 174ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > unshift prepends a single value 206ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > unshift expands an array value element-wise 184ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals matches the exact document 191ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals does not match a partial document 232ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals null matches null json only 287ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > not equals excludes the matching document and nulls 215ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches the scoped value 203ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a nested path 237ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches numbers 276ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents  361ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a missing path matches nothing 237ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys 298ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > integer path segments address array elements 205ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > path segments with dots stay literal 183ms
+   × pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution 209ms
+     → promise resolved "[]" instead of rejecting
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_contains at a path 198ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND 189ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode 189ms
+   × pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots 252ms
+     → Unexpected token 'j', "just a string" is not valid JSON
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains requires every candidate element 176ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate 248ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains without a path matches array roots only 247ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_starts_with matches the first element 205ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_ends_with matches the last element 196ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > not at a path inherits the path 207ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators  309ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract  379ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded 201ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold  304ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode  454ms
+   × pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode 276ms
+     → expected [ 'light' ] to deeply equal [ 'dark', 'light' ]
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too 292ms
+   × pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored 356ms
+     → promise resolved "[ 'dark' ]" instead of rejecting
+   × pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form 812ms
+     → expected [] to deeply equal [ 'dark' ]
+   × pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements 400ms
+     → expected [] to deeply equal [ 'dark' ]
+   × pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root 504ms
+     → Unexpected token 'j', "just a string" is not valid JSON
+   × pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form 468ms
+     → expected [] to deeply equal [ 'dark' ]
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form  411ms
+   × pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution 609ms
+     → promise resolved "[]" instead of rejecting
+   × pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal 578ms
+     → promise resolved "[]" instead of rejecting
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only  575ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types  618ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point  605ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation  597ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross  526ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error  407ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object  743ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices  320ms
+   × pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root 295ms
+     → Unexpected token 'z', "zebra" is not valid JSON
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows 275ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution  303ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only 234ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only  402ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals AnyNull matches both 217ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not DbNull matches every row that holds a document 269ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs 243ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not AnyNull matches only real documents 266ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > the three equals predicates partition the table 279ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > DbNull and JsonNull are different stored values 224ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > update moves a row between the two nulls 196ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > upsert stores a sentinel on either arm 212ms
+   × pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column 222ms
+     → Driver "pg" returned a malformed json scalar for operation "create": a required scalar is null.
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a bare null in write position is refused, not guessed  340ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > AnyNull is filter-only 195ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column 191ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a sentinel nested inside a document is refused 197ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a sentinel under a path is refused before execution 187ms
+   × pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused 188ms
+     → promise resolved "[ 'doc', 'js', 'nest' ]" instead of rejecting
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root 195ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL 198ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there 219ms
+   ✓ pg Driver > pg field references > gt compares two columns of the same row 232ms
+   ✓ pg Driver > pg field references > lt compares two columns of the same row 240ms
+   ✓ pg Driver > pg field references > gte and lte include the equal row 244ms
+   ✓ pg Driver > pg field references > equals and not compare two columns of the same row 265ms
+   ✓ pg Driver > pg field references > a bare reference is the equals shorthand 253ms
+   ✓ pg Driver > pg field references > a reference resolves through .map()ed column names 251ms
+   ✓ pg Driver > pg field references > string prefix/suffix/substring predicates accept a reference  315ms
+   ✓ pg Driver > pg field references > a callback is refused where only the token is accepted 251ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation 250ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column 294ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive contains folds the referenced column 247ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive startsWith folds the referenced column 233ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive endsWith folds the referenced column 239ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive `not` complements the folded comparison 201ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive mode folds ASCII only 208ms
+   × pg Driver > pg field references > enum references > equals compares two enum columns of the same row 215ms
+     → Query execution failed
+   × pg Driver > pg field references > enum references > not complements it 244ms
+     → Query execution failed
+   × pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand 216ms
+     → Query execution failed
+   × pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name 235ms
+     → Query execution failed
+   ✓ pg Driver > pg field references > enum references > lt on an enum is refused with the portability reason 213ms
+   ✓ pg Driver > pg field references > enum references > lte on an enum is refused with the portability reason 234ms
+   ✓ pg Driver > pg field references > enum references > gt on an enum is refused with the portability reason 251ms
+   ✓ pg Driver > pg field references > enum references > gte on an enum is refused with the portability reason  504ms
+   ✓ pg Driver > pg field references > enum references > literal enum filters are untouched  455ms
+   ✓ pg Driver > pg field references > a reference mixes with literal operands in one filter object  391ms
+   ✓ pg Driver > pg field references > a reference works inside a nested relation where 293ms
+   ✓ pg Driver > pg field references > the nested scope's own model is the one a reference must name 253ms
+   ✓ pg Driver > pg field references > a reference drives updateMany and deleteMany 209ms
+   ✓ pg Driver > pg field references > two decimals of the SAME domain compare exactly 220ms
+   ✓ pg Driver > pg field references > two decimals of DIFFERENT domains are refused before any I/O 227ms
+   ✓ pg Driver > pg field references > a cross-model reference is refused before any I/O 239ms
+   ✓ pg Driver > pg field references > a reference of the wrong scalar type is refused 210ms
+   ✓ pg Driver > pg field references > a reference is refused in in/notIn 208ms
+   ✓ pg Driver > pg field references > a reference is refused in `having`, however deeply nested  302ms
+   ✓ pg Driver > pg field references > a reference is refused in JSON filters and JSON write data 276ms
+   ✓ pg Driver > pg field references > SQL fragment operands > an arithmetic expression compares against the row 219ms
+   × pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table 216ms
+     → Query execution failed
+   ✓ pg Driver > pg field references > SQL fragment operands > an interpolated value rides as a bound parameter  303ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter  492ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment drives updateMany and deleteMany  415ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment survives both execution substrates  598ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment is refused where a reference is  465ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime round-trips exactly through create and findMany  481ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime filters match the stored instant  485ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime update round-trips exactly  565ms
+   ✓ pg Driver > pg scalar round-trip behavior > decimal reads back as its exact canonical value  433ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST round-trips member by member  328ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST filters by containment on its logical members  456ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary  406ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST survives a grouped projection 283ms
+   ✓ pg Driver > pg scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly  375ms
+   ✓ pg Driver > pg scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly  417ms
+   ✓ pg Driver > pg decimal exactness > round-trips every value in the domain exactly  576ms
+   ✓ pg Driver > pg decimal exactness > callback transactions materialize fresh Decimal scalar and list results  533ms
+   ✓ pg Driver > pg decimal exactness > array transactions materialize fresh Decimal scalar and list results  674ms
+   ✓ pg Driver > pg decimal exactness > a nullable decimal stores and reads NULL, not zero  397ms
+   ✓ pg Driver > pg decimal exactness > equals matches on value, not on spelling  561ms
+   ✓ pg Driver > pg decimal exactness > equals distinguishes the two values a double cannot  548ms
+   ✓ pg Driver > pg decimal exactness > in / notIn compare numerically  624ms
+   ✓ pg Driver > pg decimal exactness > gt/lt compare numerically, not lexicographically  519ms
+   ✓ pg Driver > pg decimal exactness > orderBy sorts numerically, windowed and not  632ms
+   × pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision 657ms
+     → Driver "pg" returned a malformed decimal scalar for operation "aggregate": the value is not an exact decimal in this column's declared domain.
+   ✓ pg Driver > pg decimal exactness > _avg of an all-null column is NULL, not zero and not an error  476ms
+   × pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs 411ms
+     → Driver "pg" returned a malformed decimal scalar for operation "aggregate": the value is not an exact decimal in this column's declared domain.
+   ✓ pg Driver > pg decimal exactness > groupBy orders groups and filters them on exact aggregates  918ms
+   × pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision 733ms
+     → Driver "pg" returned a malformed decimal scalar for operation "groupBy": the sum is not an exact decimal at this column's scale.
+   ✓ pg Driver > pg decimal exactness > increment and decrement are exact and never round  473ms
+   ✓ pg Driver > pg decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact  482ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour  471ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd  526ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour  532ms
+   ✓ pg Driver > pg decimal exactness > a rounded tie CARRIES across the whole value  491ms
+   ✓ pg Driver > pg decimal exactness > divide rounds by the same rule, in both signs  596ms
+   ✓ pg Driver > pg decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign  583ms
+   ✓ pg Driver > pg decimal exactness > arithmetic on a NULL column stays NULL  792ms
+   ✓ pg Driver > pg decimal exactness > division by zero fails BEFORE any statement is issued  773ms
+   ✓ pg Driver > pg decimal exactness > a result past the field's precision fails and leaves the row alone  657ms
+   ✓ pg Driver > pg decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float  709ms
+   ✓ pg Driver > pg decimal exactness > an operand finer than the field's scale is refused, never rounded  601ms
+   ✓ pg Driver > pg blob in/notIn filters > in matches exactly the listed byte arrays  472ms
+   ✓ pg Driver > pg blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out  554ms
+   ✓ pg Driver > pg blob in/notIn filters > in with no matching member returns nothing  506ms
+   ✓ pg Driver > pg blob in/notIn filters > empty in matches nothing (Prisma semantics)  454ms
+   ✓ pg Driver > pg blob in/notIn filters > notIn excludes exactly the listed byte arrays  370ms
+   ✓ pg Driver > pg blob in/notIn filters > empty notIn matches everything (Prisma semantics)  651ms
+   ✓ pg Driver > pg blob in/notIn filters > notIn on a nullable column excludes NULL rows  407ms
+   ✓ pg Driver > pg blob in/notIn filters > in on a nullable column excludes NULL rows  554ms
+   ✓ pg Driver > pg blob in/notIn filters > empty notIn on a nullable column keeps the NULL row  456ms
+   ✓ pg Driver > pg blob in/notIn filters > Buffer members are accepted alongside Uint8Array  595ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with not  467ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with arbitrarily nested not  499ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with the boolean wrappers  602ms
+   ✓ pg Driver > pg blob in/notIn filters > in drives deleteMany, not just reads  466ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly top-level  453ms
+   × pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include 528ms
+     → Unexpected token 'j', "just a json string" is not valid JSON
+   × pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types 477ms
+     → Unexpected token 'h', "hello" is not valid JSON
+   ✓ pg Driver > pg full scalar-type round-trip behavior > aggregates are scalar-aware  724ms
+   ↓ pg vector distance ordering > orders nearest-first by l2 distance and honors take
+   ↓ pg vector distance ordering > orders farthest-first by l2 distance when distance sort is desc
+   ↓ pg vector distance ordering > orders nearest-first by cosine distance and honors take
+   ↓ pg vector distance ordering > selects l2 distance scores as numbers
+   ↓ pg vector distance ordering > orders by distance and returns matching selected scores
+   ↓ pg vector distance ordering > orders included docs nearest-first by vector distance and honors take
+   ↓ pg vector distance ordering > throws on vector dimension mismatch before execution
+ ❯ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts (95 tests | 13 failed) 49393ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert creates the row when missing  357ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert updates the row when present  454ms
+   ✓ pg Driver > pg upsert atomicity behavior > does not take the update branch for a conflict outside the requested target  606ms
+   ✓ pg Driver > pg upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces  578ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert returns the row when the update is a no-op  431ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert create branch resolves auto-increment ids  474ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert update branch may rewrite the unique where field  423ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert supports select on both branches  386ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert with include returns the relation payload on both branches  500ms
+   ✓ pg Driver > pg upsert atomicity behavior > delete with include returns the relation payload  417ms
+   × pg Driver > pg upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed 356ms
+     → Unique constraint violation
+   × pg Driver > pg upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed 470ms
+     → Unique constraint violation
+   × pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx) 366ms
+     → Unique constraint violation
+   × pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx) 325ms
+     → Unique constraint violation
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (batch) 297ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (batch)  332ms
+   ✓ pg Driver > pg nested-write concurrency behavior > planned-path create-branch race loser surfaces a UniqueConstraintError, then the retry converges  355ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx)  425ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx)  552ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (batch)  473ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (batch)  547ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > an adopter whose captured owner was replaced fails and leaves the winner's row  557ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that captured the SAME old owner produce exactly one winner  548ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that both observed the slot EMPTY produce exactly one winner  956ms
+   × pg Driver > pg filtered m2m deleteMany staleness > a member added after the plan-time read aborts the guard, then the retry converges 519ms
+     → expected 0 to be greater than or equal to 1
+   ✓ pg Driver > pg nested write behavior > declares an atomic strategy for nested writes  632ms
+   ✓ pg Driver > pg nested write behavior > rejects default-only createMany duplicate skipping before writing  464ms
+   × pg Driver > pg nested write behavior > rejects nested default-only duplicate skipping before the parent write 560ms
+     → promise resolved "{ id: 'default-only-parent' }" instead of rejecting
+   ✓ pg Driver > pg nested write behavior > create derives to-one and to-many foreign keys  464ms
+   ✓ pg Driver > pg nested write behavior > create connects and connect-or-creates nullable children  424ms
+   ✓ pg Driver > pg nested write behavior > update creates, createManys, and connects children  434ms
+   ✓ pg Driver > pg nested write behavior > update disconnects and sets nullable children  466ms
+   × pg Driver > pg nested write behavior > update and updateMany keep child mutations parent-correlated 435ms
+     → Nested operation 'updateMany' on relation 'posts' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   × pg Driver > pg nested write behavior > delete and deleteMany keep child mutations parent-correlated 480ms
+     → Nested operation 'deleteMany' on relation 'posts' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.
+   ✓ pg Driver > pg nested write behavior > to-many upsert creates and updates the current parent's child  606ms
+   ✓ pg Driver > pg nested write behavior > to-one upsert creates and updates the current target  487ms
+   ✓ pg Driver > pg nested write behavior > to-one nested update modifies the connected author  537ms
+   ✓ pg Driver > pg nested write behavior > to-one disconnect true nulls the foreign key, both rows survive  548ms
+   ✓ pg Driver > pg nested write behavior > to-one delete true deletes the related row  345ms
+   ✓ pg Driver > pg nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author  426ms
+   ✓ pg Driver > pg nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives  488ms
+   ✓ pg Driver > pg nested write behavior > explicit join rows work as a practical many-to-many case  500ms
+   ✓ pg Driver > pg nested write behavior > unsupported nested create keys reject before parent mutation  600ms
+   ✓ pg Driver > pg nested write behavior > nested child failures roll back parent and prior children  847ms
+   ✓ pg Driver > pg nested write behavior > to-many updates cannot target another parent's child  601ms
+   ✓ pg Driver > pg nested write behavior > non-nullable child foreign keys reject disconnect atomically  796ms
+   ✓ pg Driver > pg nested write behavior > nested create propagates foreign keys through mapped columns  507ms
+   ✓ pg Driver > pg nested write behavior > nested create derives mapped foreign keys for createMany and connect  517ms
+   ✓ pg Driver > pg nested write behavior > set keeping all required-FK children is a no-op and succeeds  501ms
+   ✓ pg Driver > pg nested write behavior > set on required-FK children rejects only when rows would be orphaned  635ms
+   ✓ pg Driver > pg nested write behavior > set disconnects only nullable-FK children leaving the set  541ms
+   ✓ pg Driver > pg nested write behavior > connect with a list of targets reparents every one of them  583ms
+   ✓ pg Driver > pg nested write behavior > a connect list with one absent target writes nothing  524ms
+   ✓ pg Driver > pg nested write behavior > disconnect with a list nulls every one of them  507ms
+   ✓ pg Driver > pg nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing  611ms
+   ✓ pg Driver > pg nested write behavior > a create tree's connect list reparents every one of them  815ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone  582ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone  474ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > the `include` spelling is unaffected  602ms
+   ✓ pg Driver > pg advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes  493ms
+   ✓ pg Driver > pg advanced nested write behavior > top-level upsert guards gate nested update branch  501ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip  353ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order  403ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment  389ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params  455ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path  735ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement  386ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError  390ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError  524ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found  480ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches  640ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found  426ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist  615ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > exist > returns true when a matching row exists  369ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > exist > returns false when no row matches 286ms
+   ✓ pg Driver > raw/model array transactions (Docker PostgreSQL) > execute in declared order and return each public result  375ms
+   ✓ pg Driver > raw/model array transactions (Docker PostgreSQL) > a later raw failure rolls model and raw writes back  373ms
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK 425ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs 382ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK 510ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches 590ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create 676ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it  594ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it  635ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it  471ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it  787ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it  650ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it  618ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create  714ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > failure after generated refs rolls back parent and children  673ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > unsupported compound primary-key dataflow rejects before parent mutation  764ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > unsafe PK update shape rejects before parent mutation  688ms
+   ✓ pg Driver > pg createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order  677ms
+   ✓ pg Driver > pg createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order  568ms
+   ✓ pg Driver > pg createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted  526ms
+ ❯ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts (60 tests | 5 failed) 35349ms
+   ✓ pg Driver > pg foreign-key index > push creates an index over the manyToOne FK column  457ms
+   ✓ pg Driver > pg foreign-key index > re-pushing the schema is not an index change  518ms
+   ✓ pg Driver > pg foreign-key index > re-pushing the schema is not a foreign-key change  467ms
+   ✓ pg Driver > pg foreign-key index > a declared .index() on the FK column is not duplicated  593ms
+   ✓ pg Driver > pg foreign-key index > a wider declared index over the FK columns replaces it in one push  592ms
+   ✓ pg Driver > pg foreign-key index > a compound unique over the FK columns replaces it in one push  652ms
+   ✓ pg Driver > pg declared index on a mapped field > push creates the index over the mapped column names  454ms
+   ✓ pg Driver > pg declared index on a mapped field > re-pushing the schema is not an index change  488ms
+   ✓ pg Driver > pg declared index on a mapped field > the declared index leaves the FK index nothing to add  378ms
+   ✓ pg Driver > pg compound junction storage > round-trips two complete string-key sides and their cascade  526ms
+   ✓ pg Driver > pg polymorphic member junction storage > creates, enforces and converges the member tables  715ms
+   ✓ pg Driver > pg partial index predicate churn > re-pushing the same declaration is not an index change  735ms
+   ✓ pg Driver > pg partial index predicate churn > the same predicate in another spelling is not an index change  651ms
+   ✓ pg Driver > pg partial index predicate churn > a real predicate change is still an index change  589ms
+   ✓ pg Driver > pg partial index predicate churn > a canonicalization that fails answers nothing, and the change stands  427ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips  358ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > multi-model forward chain: push + create through the chain  478ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > self reference: push + parent/child round-trip  421ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables  661ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips  468ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > multi-model forward chain: push + create through the chain  462ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > self reference: push + parent/child round-trip  385ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables  700ms
+   ✓ pg Driver > pg polymorphic relations > direct writes preserve the generated private storage pair  349ms
+   ✓ pg Driver > pg polymorphic relations > inverse create publishes a generated parent identity  467ms
+   ✓ pg Driver > pg polymorphic relations > direct and inverse reads correlate exact variants without N+1  503ms
+   ✓ pg Driver > pg polymorphic relations > target-local omit subtracts from polymorphic select  447ms
+   ✓ pg Driver > pg polymorphic relations > inverse reads use the generated discriminator/id index  496ms
+   × pg Driver > pg polymorphic relations > empty storage is optional but orphaned membership is invalid 304ms
+     → promise resolved "{ id: 2, body: 'optional orphan', …(1) }" instead of rejecting
+   ✓ pg Driver > pg polymorphic collection reads > an empty collection reads as a fresh empty array, never null  457ms
+   ✓ pg Driver > pg polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly  575ms
+   ✓ pg Driver > pg polymorphic collection reads > equal ids in two target tables return two correctly tagged rows  358ms
+   ✓ pg Driver > pg polymorphic collection reads > order, window and distinct stay ARM-LOCAL  463ms
+   ✓ pg Driver > pg polymorphic collection reads > a negative arm take restores the logical order  374ms
+   ✓ pg Driver > pg polymorphic collection reads > only narrows the returned variants without reordering  328ms
+   × pg Driver > pg polymorphic collection reads > total and filtered counts, and count ordering 480ms
+     → Raptor 3 G1 physical field is not implemented: type
+   ✓ pg Driver > pg polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table  788ms
+   × pg Driver > pg polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 733ms
+     → promise resolved "{ id: 1, name: 'main', …(1) }" instead of rejecting
+   ✓ pg Driver > pg polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array  530ms
+   × pg Driver > pg polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 437ms
+     → promise resolved "{ id: 1, title: 'first', rank: 1, …(2) }" instead of rejecting
+   ✓ pg Driver > pg polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement  521ms
+   ✓ pg Driver > pg polymorphic collection writes > a fresh owner writes memberships across several variants at once  477ms
+   ✓ pg Driver > pg polymorphic collection writes > connect is idempotent for the same owner and target  727ms
+   ✓ pg Driver > pg polymorphic collection writes > a plural member admits SEVERAL owners for one target  829ms
+   ✓ pg Driver > pg polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it  699ms
+   ✓ pg Driver > pg polymorphic collection writes > connectOrCreate finds, then creates, without doubling either  1113ms
+   ✓ pg Driver > pg polymorphic collection writes > `set` clears every configured variant once, then refills  631ms
+   ✓ pg Driver > pg polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row  900ms
+   ✓ pg Driver > pg polymorphic collection writes > `set: []` empties every variant and deletes no target  904ms
+   ✓ pg Driver > pg polymorphic collection writes > disconnect removes this owner's membership and nothing else  719ms
+   ✓ pg Driver > pg polymorphic collection writes > update and updateMany reach only the connected targets  892ms
+   ✓ pg Driver > pg polymorphic collection writes > upsert creates then updates, scoped to this owner's membership  615ms
+   ✓ pg Driver > pg polymorphic collection writes > createMany writes one bulk group per variant  622ms
+   × pg Driver > pg polymorphic collection writes > duplicate singular createMany targets transfer once 803ms
+     → expected [ 't1/left/eu/111' ] to deeply equal [ 't1/right/eu/111' ]
+   ✓ pg Driver > pg polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership  649ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it  635ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER  669ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner  685ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse upsert takes both arms through the membership  821ms
+   ✓ pg Driver > pg polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote  1171ms
+ ❯ |provider-pg| tests/providers/docker/pg-read-surface.test.ts (76 tests | 1 failed) 25274ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > select _count returns exact counts, including zero  445ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > returns multiple counts with a long public relation name  426ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > includes a long relation under its exact public name  444ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > select _count on findUnique with zero relations  650ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > filtered _count only counts rows matching the where  426ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > _count alongside relation rows returns both  497ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation _count selection > _count inside include returns counts alongside relations  496ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > select _count: true counts every to-many relation  370ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > select _count: true equals the explicit object form  367ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > include _count: true counts every to-many relation  365ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > include _count: true sits alongside included relations  465ms
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true on findUnique counts for the single row  551ms
+   × pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key) 533ms
+     → expected [ { id: 'p1', _count: {} } ] to deeply equal [ { id: 'p1' } ]
+   ✓ pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true inside a nested include  504ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy posts._count desc yields exact order  422ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy posts._count asc yields exact order  330ms
+   ✓ pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy to-one relation scalar asc/desc  374ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-one relation filters > isNot with real conditions includes null-FK rows  409ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-one relation filters > findMany applies same-object is and isNot filters independent of key order 282ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-one relation filters > findMany combines null and object to-one filters 299ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and none filters independent of key order  372ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and every filters independent of key order  483ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches zero related rows  313ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches one related row  431ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches several related rows  540ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every matches vacuously for zero relations  513ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > none excludes any user with a matching relation  326ms
+   ✓ pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > none with empty condition means zero relations 278ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders root rows by a two-hop to-one chain  369ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders root rows by a three-hop to-one chain  442ms
+   ✓ pg Driver > pg nested relation orderBy behavior > runs the sorting docs three-hop author chain example  327ms
+   ✓ pg Driver > pg nested relation orderBy behavior > places null relation-chain rows according to explicit nulls  311ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders a self-relation chain by parent.parent.name  331ms
+   ✓ pg Driver > pg nested relation orderBy behavior > rejects ordering through a to-many relation mid-chain  323ms
+   ✓ pg Driver > pg nested relation orderBy behavior > combines nested orderBy with take, skip, and scalar tiebreakers 271ms
+   ✓ pg Driver > pg nested relation orderBy behavior > orders included to-many rows by a nested relation chain  312ms
+   ✓ pg Driver > pg omit > findMany drops exactly the omitted scalar 277ms
+   ✓ pg Driver > pg omit > findUnique / findFirst honor omit 249ms
+   ✓ pg Driver > pg omit > omit composes with include, and the relation keeps its own shape 291ms
+   ✓ pg Driver > pg omit > nested omit reduces the relation payload only  300ms
+   ✓ pg Driver > pg omit > omit at both levels applies independently 293ms
+   ✓ pg Driver > pg omit > create / update / upsert / delete honor omit 261ms
+   ✓ pg Driver > pg omit > create composes select with omit 251ms
+   ✓ pg Driver > pg omit > a bulk write with omit returns the projected rows, not a count 232ms
+   ✓ pg Driver > pg omit > a bulk write composes select with omit 248ms
+   ✓ pg Driver > pg omit > a bulk write WITHOUT a projection still counts 216ms
+   ✓ pg Driver > pg omit > select + omit returns the selected shape minus overlaps 222ms
+   ✓ pg Driver > pg omit > an omit that hides every field is refused 218ms
+   ✓ pg Driver > pg omit > a model-level omitted column never comes back 253ms
+   ✓ pg Driver > pg omit > neither select nor omit can re-include it 217ms
+   ✓ pg Driver > pg omit > a model-level omitted column cannot be selected through a relation 219ms
+   ✓ pg Driver > pg omit > client-level omit hides the field on every read of that model 265ms
+   ✓ pg Driver > pg omit > client-level omit reaches relation payloads 241ms
+   ✓ pg Driver > pg omit > a local omit: { field: false } re-includes a globally hidden field 253ms
+   ✓ pg Driver > pg omit > a local omit adds to the global one instead of replacing it 259ms
+   ✓ pg Driver > pg omit > an explicit select overrides the client default before local omit subtracts 229ms
+   ✓ pg Driver > pg omit > select + omit composes through a selected relation include and all omit layers 295ms
+   ✓ pg Driver > pg omit > client-level omit does not turn a bulk write into a row-returning one  335ms
+   ✓ pg Driver > pg omit > a client that configures nothing is unaffected  307ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit below the matching count removes exactly limit rows 290ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit equal to the matching count removes all of them 279ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit above the matching count is the uncapped delete 232ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit 0 removes nothing and reports count 0 249ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit without a where caps a whole-table delete  302ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit below the matching count updates exactly limit rows  307ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit at or above the matching count updates all of them  385ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit 0 changes nothing and reports count 0  307ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit composes with an arithmetic update 280ms
+   ✓ pg Driver > pg bulk-write limit > updateMany limit composes with a relation filter 267ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit composes with a relation filter 298ms
+   ✓ pg Driver > pg bulk-write limit > updateMany with select returns exactly the capped rows 272ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany with select returns exactly the capped rows 218ms
+   ✓ pg Driver > pg bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set 271ms
+   ✓ pg Driver > pg bulk-write limit > limit works on a model with a compound primary key 269ms
+   ✓ pg Driver > pg bulk-write limit > limit 0 is the same no-op inside $transaction([...]) 245ms
+   ✓ pg Driver > pg bulk-write limit > a negative or fractional limit is rejected before any write 273ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 57 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed
+UniqueConstraintError: Unique constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '23505' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+UniqueConstraintError: Unique constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '23505' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+UniqueConstraintError: Unique constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '23505' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+UniqueConstraintError: Unique constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '23505' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg filtered m2m deleteMany staleness > a member added after the plan-time read aborts the guard, then the retry converges
+AssertionError: expected 0 to be greater than or equal to 1
+ ❯ tests/contracts/drivers/behaviors/m2m-deletemany-staleness-behavior.ts:153:36
+    151|         // The first atomic batch aborted on the staleness guard (fail…
+    152|         // not silently missing the new member).
+    153|         expect(batchErrors.length).toBeGreaterThanOrEqual(1);
+       |                                    ^
+    154| 
+    155|         // Converged: the post has no matching-tag members left, and b…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > rejects nested default-only duplicate skipping before the parent write
+AssertionError: promise resolved "{ id: 'default-only-parent' }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "id": "default-only-parent",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/nested-write-behavior.ts:85:7
+     83|           },
+     84|         })
+     85|       ).rejects.toThrow("no portable duplicate-only DEFAULT VALUES pri…
+       |       ^
+     86| 
+     87|       expect(await currentClient.defaultOnlyParent.count()).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > update and updateMany keep child mutations parent-correlated
+NestedWriteError: Nested operation 'updateMany' on relation 'posts' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > delete and deleteMany keep child mutations parent-correlated
+NestedWriteError: Nested operation 'deleteMany' on relation 'posts' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:1838:17
+    1836|           adapter.capabilities.supportsCteWithMutations
+    1837|         )
+    1838|           throw new Error(
+       |                 ^
+    1839|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    1840|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:297:25
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:202:9
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:597:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:1838:17
+    1836|           adapter.capabilities.supportsCteWithMutations
+    1837|         )
+    1838|           throw new Error(
+       |                 ^
+    1839|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    1840|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:297:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:284:45
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:202:9
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:597:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior.ts:127:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic relations > empty storage is optional but orphaned membership is invalid
+AssertionError: promise resolved "{ id: 2, body: 'optional orphan', …(1) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "body": "optional orphan",[39m
+[31m+   "commentable": null,[39m
+[31m+   "id": 2,[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-relation-behavior.ts:558:32
+    556|         include: { commentable: true },
+    557|       });
+    558|       await expect(optionalRead).rejects.toBeInstanceOf(QueryEngineErr…
+       |                                ^
+    559|       await expect(optionalRead).rejects.toThrow(
+    560|         "Polymorphic relation 'commentable' references a missing 'post…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > total and filtered counts, and count ordering
+Error: Raptor 3 G1 physical field is not implemented: type
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:210:9
+    208|     if (field === idColumn.name) return idColumn;
+    209|   }
+    210|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    211| }
+    212| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:542:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:189:17
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:1177:17
+ ❯ src/query-engine/raptor3/shared/query.ts:1156:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:1128:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:978:16
+ ❯ Queries.prepareCounts src/query-engine/raptor3/shared/query.ts:3250:20
+ ❯ Queries.prepareProjection src/query-engine/raptor3/shared/query.ts:3079:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+AssertionError: promise resolved "{ id: 1, name: 'main', …(1) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "id": 1,[39m
+[31m+   "items": [[39m
+[31m+     {[39m
+[31m+       "data": {[39m
+[31m+         "id": 1,[39m
+[31m+         "rank": 1,[39m
+[31m+         "sectionId": null,[39m
+[31m+         "title": "first",[39m
+[31m+       },[39m
+[31m+       "type": "article",[39m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "data": {[39m
+[31m+         "id": 2,[39m
+[31m+         "rank": 2,[39m
+[31m+         "sectionId": null,[39m
+[31m+         "title": "second",[39m
+[31m+       },[39m
+[31m+       "type": "article",[39m
+[31m+     },[39m
+[31m+   ],[39m
+[31m+   "name": "main",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior.ts:453:24
+    451|         include: { items: true },
+    452|       });
+    453|       await expect(full).rejects.toBeInstanceOf(QueryEngineError);
+       |                        ^
+    454|       await expect(full).rejects.toThrow(
+    455|         "Polymorphic relation 'items' references a missing 'clip' reco…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT
+AssertionError: promise resolved "{ id: 1, title: 'first', rank: 1, …(2) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "gallery": {[39m
+[31m+     "id": 1,[39m
+[31m+     "name": "main",[39m
+[31m+   },[39m
+[31m+   "id": 1,[39m
+[31m+   "rank": 1,[39m
+[31m+   "sectionId": null,[39m
+[31m+   "title": "first",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior.ts:530:7
+    528|           include: { gallery: true },
+    529|         })
+    530|       ).rejects.toBeInstanceOf(QueryEngineError);
+       |       ^
+    531|       // The other half of the §13.3 row — "even when a target filter …
+    532|       // leave one visible row" — is pinned as BYTES in
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > duplicate singular createMany targets transfer once
+AssertionError: expected [ 't1/left/eu/111' ] to deeply equal [ 't1/right/eu/111' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "t1/right/eu/111",[39m
+[31m+   "t1/left/eu/111",[39m
+[2m  ][22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts:567:35
+    565|       });
+    566| 
+    567|       expect(await bookMembers()).toEqual(["t1/right/eu/111"]);
+       |                                   ^
+    568|     });
+    569| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key)
+AssertionError: expected [ { id: 'p1', _count: {} } ] to deeply equal [ { id: 'p1' } ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[31m+     "_count": {},[39m
+[2m      "id": "p1",[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/contracts/drivers/behaviors/relation-read-aggregate-behavior.ts:337:27
+    335|         });
+    336| 
+    337|         expect(shorthand).toEqual([{ id: "p1" }]);
+       |                           ^
+    338|         expect(shorthand).toEqual(explicitEmpty);
+    339|       });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset
+AssertionError: promise rejected "MigrationError: PostGIS GeoPoint prefligh… { …(4) }" instead of resolving
+ ❯ tests/contracts/drivers/behaviors/geopoint-migration-lifecycle-behavior.ts:51:40
+     49|       try {
+     50|         await migrations.generate({ name: "geopoint-init" });
+     51|         await expect(migrations.apply()).resolves.toMatchObject({
+       |                                        ^
+     52|           outcome: "applied",
+     53|         });
+
+Caused by: MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V11009', meta: { dialect: 'postgresql', feature: 'GeoPoint' }, timestamp: '2026-09-17T12:51:17.151Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution
+AssertionError: promise resolved "[]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[]
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:525:9
+    523|             metadata: { path: ['pet".name'], equals: "Fido" },
+    524|           })
+    525|         ).rejects.toThrow("portable JSON path");
+       |         ^
+    526|         await expect(
+    527|           findNames({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root
+SyntaxError: Unexpected token 'j', "just a string" is not valid JSON
+ ❯ Queries.decodeScalar src/query-engine/raptor3/shared/query.ts:3816:49
+    3814|         );
+    3815|       case "json":
+    3816|         return typeof value === "string" ? JSON.parse(value) : value;
+       |                                                 ^
+    3817|       case "blob":
+    3818|         return decodeBlob(value);
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3626:46
+ ❯ src/query-engine/raptor3/shared/query.ts:3656:14
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3654:36
+ ❯ src/query-engine/raptor3/shared/query.ts:3559:35
+ ❯ Queries.decodeProjection src/query-engine/raptor3/shared/query.ts:3559:17
+ ❯ Queries.decodeQuery src/query-engine/raptor3/shared/query.ts:3550:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode
+AssertionError: expected [ 'light' ] to deeply equal [ 'dark', 'light' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "dark",[39m
+[2m    "light",[22m
+[2m  ][22m
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:777:13
+    775|               },
+    776|             })
+    777|           ).toEqual(["dark", "light"]);
+       |             ^
+    778|         });
+    779| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored
+AssertionError: promise resolved "[ 'dark' ]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[
+  "dark",
+]
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:803:11
+    801|               },
+    802|             })
+    803|           ).rejects.toThrow("mode: 'insensitive'");
+       |           ^
+    804|           expect(await requireClient(client).entry.count()).toBe(5);
+    805|         });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form
+AssertionError: expected [] to deeply equal [ 'dark' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "dark",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:835:11
+    833|         expect(
+    834|           await findNames({ metadata: { path: "$.theme", equals: "dark…
+    835|         ).toEqual(
+       |           ^
+    836|           await findNames({ metadata: { path: ["theme"], equals: "dark…
+    837|         );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements
+AssertionError: expected [] to deeply equal [ 'dark' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "dark",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:849:11
+    847|             metadata: { path: "$.pet.toys[0]", equals: "ball" },
+    848|           })
+    849|         ).toEqual(["dark"]);
+       |           ^
+    850|         expect(
+    851|           await findNames({ metadata: { path: "$[1]", equals: "beta" }…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form
+AssertionError: expected [] to deeply equal [ 'dark' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "dark",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:866:11
+    864|         expect(
+    865|           await findNames({ metadata: { path: "$.level", gte: 2 } })
+    866|         ).toEqual(["dark"]);
+       |           ^
+    867|         expect(
+    868|           await findNames({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution
+AssertionError: promise resolved "[]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[]
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:911:11
+    909|           await expect(
+    910|             findNames({ metadata: { path, equals: "dark" } })
+    911|           ).rejects.toThrow("unsupported path string");
+       |           ^
+    912|         }
+    913|         expect(await requireClient(client).entry.count()).toBe(3);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal
+AssertionError: promise resolved "[]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[]
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:921:9
+    919|         await expect(
+    920|           findNames({ metadata: { path: '$."a b"', equals: "x" } })
+    921|         ).rejects.toThrow("portable JSON path");
+       |         ^
+    922|         await expect(
+    923|           findNames({ metadata: { path: "$.a\\b", equals: "x" } })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root
+SyntaxError: Unexpected token 'z', "zebra" is not valid JSON
+ ❯ Queries.decodeScalar src/query-engine/raptor3/shared/query.ts:3816:49
+    3814|         );
+    3815|       case "json":
+    3816|         return typeof value === "string" ? JSON.parse(value) : value;
+       |                                                 ^
+    3817|       case "blob":
+    3818|         return decodeBlob(value);
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3626:46
+ ❯ src/query-engine/raptor3/shared/query.ts:3656:14
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3654:36
+ ❯ src/query-engine/raptor3/shared/query.ts:3559:35
+ ❯ Queries.decodeProjection src/query-engine/raptor3/shared/query.ts:3559:17
+ ❯ Queries.decodeQuery src/query-engine/raptor3/shared/query.ts:3550:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column
+QueryEngineError: Driver "pg" returned a malformed json scalar for operation "create": a required scalar is null.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused
+AssertionError: promise resolved "[ 'doc', 'js', 'nest' ]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[
+  "doc",
+  "js",
+  "nest",
+]
+
+ ❯ tests/contracts/drivers/behaviors/json-null-sentinel-behavior.ts:316:9
+    314|         await expect(
+    315|           findIds({ meta: { mode: "insensitive", not: DbNull } })
+    316|         ).rejects.toThrow(INERT_MODE);
+       |         ^
+    317|         expect(await requireClient(client).entry.count()).toBe(5);
+    318|       });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > equals compares two enum columns of the same row
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > not complements it
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42601' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision
+QueryEngineError: Driver "pg" returned a malformed decimal scalar for operation "aggregate": the value is not an exact decimal in this column's declared domain.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs
+QueryEngineError: Driver "pg" returned a malformed decimal scalar for operation "aggregate": the value is not an exact decimal in this column's declared domain.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision
+QueryEngineError: Driver "pg" returned a malformed decimal scalar for operation "groupBy": the sum is not an exact decimal at this column's scale.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include
+SyntaxError: Unexpected token 'j', "just a json string" is not valid JSON
+ ❯ Queries.decodeScalar src/query-engine/raptor3/shared/query.ts:3816:49
+    3814|         );
+    3815|       case "json":
+    3816|         return typeof value === "string" ? JSON.parse(value) : value;
+       |                                                 ^
+    3817|       case "blob":
+    3818|         return decodeBlob(value);
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3626:46
+ ❯ src/query-engine/raptor3/shared/query.ts:3656:14
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3654:36
+ ❯ src/query-engine/raptor3/shared/query.ts:3646:14
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3645:28
+ ❯ src/query-engine/raptor3/shared/query.ts:3656:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[52/57]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types
+SyntaxError: Unexpected token 'h', "hello" is not valid JSON
+ ❯ Queries.decodeScalar src/query-engine/raptor3/shared/query.ts:3816:49
+    3814|         );
+    3815|       case "json":
+    3816|         return typeof value === "string" ? JSON.parse(value) : value;
+       |                                                 ^
+    3817|       case "blob":
+    3818|         return decodeBlob(value);
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3626:46
+ ❯ src/query-engine/raptor3/shared/query.ts:3656:14
+ ❯ Queries.decodeValue src/query-engine/raptor3/shared/query.ts:3654:36
+ ❯ src/query-engine/raptor3/shared/query.ts:3559:35
+ ❯ Queries.decodeProjection src/query-engine/raptor3/shared/query.ts:3559:17
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:1537:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[53/57]⎯
+
+
+ Test Files  4 failed (4)
+      Tests  57 failed | 394 passed | 7 skipped (458)
+   Start at  14:51:14
+   Duration  188.80s (transform 1.85s, setup 129ms, collect 6.82s, tests 181.60s, environment 0ms, prepare 32ms)
+
+Vitest resources: 191.76s wall, 545.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

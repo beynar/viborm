@@ -1,0 +1,29 @@
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/flat-scalar-update/full/retained replicate 1/5: baseline
+sqlite3/flat-scalar-update/full/retained replicate 1/5: candidate
+file:///private/tmp/viborm-perf-baseline/benchmarks/operation-pipeline-compare.mjs:519
+          new Error(
+          ^
+
+Error: candidate worker failed (1):
+file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:535
+      throw new Error(
+            ^
+
+Error: Mutation workload did not build one executable statement
+    at prepareForRawExecution (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:535:13)
+    at createMutationHarness (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:542:25)
+    at buildMutationWorkload (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:97:12)
+    at createWorkloadHarness (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-workloads.mjs:61:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-worker.mjs:335:25
+
+Node.js v24.21.0
+
+    at ChildProcess.<anonymous> (file:///private/tmp/viborm-perf-baseline/benchmarks/operation-pipeline-compare.mjs:519:11)
+    at ChildProcess.wrapper (node:events:639:12)
+    at ChildProcess.emit (node:events:514:28)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12)
+
+Node.js v24.21.0

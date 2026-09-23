@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ✓ |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests) 6ms
+ ✓ |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests) 6ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  23:24:21
+   Duration  1.41s (transform 565ms, setup 16ms, collect 846ms, tests 12ms, environment 0ms, prepare 57ms)
+
+Vitest resources: 3.28s wall, 466.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1057,7 +1057,7 @@ These items need a written disposition. They are choices, not defects.
 
 ### Decision 7.1 — The scalar-upsert ON CONFLICT door
 
-ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level scalar upsert with an expressible conflict target ([`ATOM.md:243-262`](../../src/query-engine/write-engine/ATOM.md), the "legal, but observably divergent" note at `:250-254`). The current sequence is at [`UpsertOperation.ts:342-351, 446-492`](../../src/query-engine/write-engine/UpsertOperation.ts). This changes four or five round trips into one on PostgreSQL and SQLite. MySQL stays on the probe path: its `ON DUPLICATE KEY` fires on any unique collision ([`mysql-adapter.ts:408-414`](../../src/adapters/databases/mysql/mysql-adapter.ts)), which breaks the documented unrelated-collision behavior. The disposition must state the accepted observable divergence against the oracle.
+ATOM §4 permits a native `INSERT … ON CONFLICT DO UPDATE` for a top-level scalar upsert with an expressible conflict target ([`ATOM.md:243-262`](retired/write-engine-ATOM.md), the "legal, but observably divergent" note at `:250-254`). The current sequence is at [`UpsertOperation.ts:342-351, 446-492`](../../src/query-engine/write-engine/UpsertOperation.ts). This changes four or five round trips into one on PostgreSQL and SQLite. MySQL stays on the probe path: its `ON DUPLICATE KEY` fires on any unique collision ([`mysql-adapter.ts:408-414`](../../src/adapters/databases/mysql/mysql-adapter.ts)), which breaks the documented unrelated-collision behavior. The disposition must state the accepted observable divergence against the oracle.
 
 #### DISPOSITION — TAKE the door. Delivered 2026-08-03, branch `nested-write-boundaries`.
 
@@ -1410,7 +1410,7 @@ Each mutation with an include sends a separate terminal SELECT. A nested-create 
 
 - The terminal reads: [`UpdateOperation.ts:951`](../../src/query-engine/write-engine/UpdateOperation.ts), [`CreateOperation.ts:399-401`](../../src/query-engine/write-engine/CreateOperation.ts).
 - The capability flag `supportsCteWithMutations` is declared at [`adapter-capabilities.ts:6`](../../src/adapters/adapter-capabilities.ts), true on PostgreSQL (`postgres-adapter.ts:393`) and true on SQLite (`sqlite-adapter.ts:502`). **The SQLite value is false in fact:** SQLite CTEs cannot contain DML. Correct the flag in this phase (or in Phase 10 if this phase runs later).
-- The guard-free fresh-parent ladder that makes the fold legal: [`ATOM.md:886-899`](../../src/query-engine/write-engine/ATOM.md) (fresh-parent elision) and the Pin Rule class 2 note at [`OperationFragment.ts:128-134`](../../src/query-engine/write-engine/OperationFragment.ts).
+- The guard-free fresh-parent ladder that makes the fold legal: [`ATOM.md:886-899`](retired/write-engine-ATOM.md) (fresh-parent elision) and the Pin Rule class 2 note at [`OperationFragment.ts:128-134`](../../src/query-engine/write-engine/OperationFragment.ts).
 - The select builder needs the RETURNING columns as its alias root (study [`select-builder.ts:158-185`](../../src/query-engine/builders/select-builder.ts)).
 
 ### Correction (PostgreSQL only)
@@ -1558,7 +1558,7 @@ The plan's other two constraints hold as written, and are witnessed declining: a
 scalar-only root projection (an `include` of the relation the tree just populated
 would report the empty pre-statement truth), and no adopt-family member. The
 second is spelled as **empty planning** rather than as a kind list, because that
-is what the fresh-parent elision ladder ([`ATOM.md` §4](../../src/query-engine/write-engine/ATOM.md))
+is what the fresh-parent elision ladder ([`ATOM.md` §4](retired/write-engine-ATOM.md))
 actually says — a tree that asks the database nothing before it writes — and it
 is also what keeps the folded operation statement-atomic: one round trip, no
 envelope. A child-held `connect` under a fresh root has no correlated probe

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 21ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  14:57:02
+   Duration  3.23s (transform 1.73s, setup 22ms, collect 2.71s, tests 21ms, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-uQD5t2/vitest.json
+Vitest resources: 7.16s wall, 433.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-history-analysis contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-uQD5t2

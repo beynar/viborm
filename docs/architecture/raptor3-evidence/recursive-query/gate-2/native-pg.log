@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/recursive-query/provider-sql-native.test.ts (3 tests) 1156ms
+   ✓ recursive relation provider SQL on native pg > RQ-03 foreign-key chains and hierarchies  844ms
+RQ-06 pg receipt: docs/architecture/raptor3-evidence/recursive-query/rq6-campaign-pg.json
+ ✓ |raptor3-live-provider| tests/raptor3/recursive-query/campaign-native.test.ts (4 tests) 2020ms
+   ✓ RQ-06 saved recursive cases on native pg > singular-fk: 100 saved cases, one public read each, against the oracle  516ms
+   ✓ RQ-06 saved recursive cases on native pg > collection-fk: 100 saved cases, one public read each, against the oracle  586ms
+   ✓ RQ-06 saved recursive cases on native pg > junction: 100 saved cases, one public read each, against the oracle  882ms
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  11:13:33
+   Duration  4.50s (transform 697ms, setup 9ms, collect 1.09s, tests 3.18s, environment 0ms, prepare 36ms)
+
+Vitest resources: 6.60s wall, 545.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

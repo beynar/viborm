@@ -1,0 +1,1329 @@
+{
+  "version": 1,
+  "label": "final local closure",
+  "assembledBy": "scripts/closure-final-index.mjs",
+  "assembledAt": "2026-09-21T12:16:18.786Z",
+  "gateDirectory": "docs/architecture/raptor3-evidence/g4/release/closure-final/gate",
+  "source": {
+    "commit": "b5fde8c1eec56992eaadd898c72e462a191151e5",
+    "describe": "b5fde8c1eec56992eaadd898c72e462a191151e5 2026-09-21T13:55:17+02:00 fix(raptor3): the third arm whose probe let go — a nested to-one upsert demands its target's keys",
+    "workingTree": "M CONTEXT.md\n M docs/architecture/raptor3-evidence/g4/final-report.md\n M docs/architecture/raptor3-evidence/g4/release/closure/fc00/inventory.md\n M docs/architecture/raptor3-final-closure-handoff.md\n M docs/architecture/raptor3-implementation-plan.md\n M features-docs/recursive-query.md\n M memory.md\n?? docs/architecture/raptor3-evidence/baseline.json\n?? docs/architecture/raptor3-evidence/calibration-protocol.json.gz\n?? docs/architecture/raptor3-evidence/calibration-transport-diagnostic.json.gz\n?? docs/architecture/raptor3-evidence/calibration-v1-scalar-find-unique-cold-prepare-1.json.gz\n?? docs/architecture/raptor3-evidence/calibration-v1-scalar-find-unique-prepare-1.json.gz\n?? docs/architecture/raptor3-evidence/calibration-v1-scalar-find-unique-prepare-2.json.gz\n?? docs/architecture/raptor3-evidence/calibration-v1-scalar-full-1.json.gz\n?? docs/architecture/raptor3-evidence/g0-contract-evidence-checkpoint.tar.gz\n?? docs/architecture/raptor3-evidence/g0-contract-evidence.tar.gz\n?? docs/architecture/raptor3-evidence/g0.json\n?? docs/architecture/raptor3-evidence/g1-closure-cost.json\n?? docs/architecture/raptor3-evidence/g1-closure-evidence.tar.gz\n?? docs/architecture/raptor3-evidence/g1-closure-index.json\n?? docs/architecture/raptor3-evidence/g1-comparison-evidence.tar.gz\n?? docs/architecture/raptor3-evidence/g1-comparison-index.json\n?? docs/architecture/raptor3-evidence/g1-cost.json\n?? docs/architecture/raptor3-evidence/g1-expanded-cost.json\n?? docs/architecture/raptor3-evidence/g1-expanded-evidence.tar.gz\n?? docs/architecture/raptor3-evidence/g1-expanded-index.json\n?? docs/architecture/raptor3-evidence/g2-closure-evidence.tar.gz\n?? docs/architecture/raptor3-evidence/g2-closure-index.json\n?? docs/architecture/raptor3-evidence/g2-closure-runs.log\n?? docs/architecture/raptor3-evidence/g2-cost.json\n?? docs/architecture/raptor3-evidence/g25-closure-evidence.tar.gz\n?? docs/architecture/raptor3-evidence/g25-closure-index.json\n?? docs/architecture/raptor3-evidence/g25-closure-runs.log\n?? docs/architecture/raptor3-evidence/g25-compression-cost.json\n?? docs/architecture/raptor3-evidence/g25-compression-index.json\n?? docs/architecture/raptor3-evidence/g25-compression-runs.log\n?? docs/architecture/raptor3-evidence/g25-cost.json\n?? docs/architecture/raptor3-evidence/g27-baseline-cost.json\n?? docs/architecture/raptor3-evidence/g27-closure-evidence.sha256\n?? docs/architecture/raptor3-evidence/g27-closure-evidence.tar.gz\n?? docs/architecture/raptor3-evidence/g27-closure-index.json\n?? docs/architecture/raptor3-evidence/g27-closure-runs.log\n?? docs/architecture/raptor3-evidence/g27-cost.json\n?? docs/architecture/raptor3-evidence/g27-unit2-red.json\n?? docs/architecture/raptor3-evidence/g3-prep-01/final-snapshot.json\n?? docs/architecture/raptor3-evidence/g3-prep-01/g3-prep-01-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-01/g3-prep-01-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-01/g3-prep-01-replay-overlay.json.gz\n?? docs/architecture/raptor3-evidence/g3-prep-01/initial-snapshot.json\n?? docs/architecture/raptor3-evidence/g3-prep-01/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-02-final/g3-prep-02-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-02-final/g3-prep-02-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-02-final/g3-prep-02-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-02-final/g3-prep-02-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-02-final/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-02/g3-prep-02-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-02/g3-prep-02-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-02/g3-prep-02-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-02/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-03-review-repair/g3-prep-03-repair-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-03-review-repair/g3-prep-03-repair-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-03-review-repair/g3-prep-03-repair-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-03-review-repair/g3-prep-03-repair-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-03-review-repair/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-03/g3-prep-03-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-03/g3-prep-03-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-03/g3-prep-03-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-03/g3-prep-03-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-03/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair-02/g3-prep-04-repair-02-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair-02/g3-prep-04-repair-02-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair-02/g3-prep-04-repair-02-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair-02/g3-prep-04-repair-02-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair-02/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair/g3-prep-04-repair-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair/g3-prep-04-repair-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair/g3-prep-04-repair-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair/g3-prep-04-repair-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-04-review-repair/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-04/g3-prep-04-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-04/g3-prep-04-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-04/g3-prep-04-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-04/g3-prep-04-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-04/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-05-review-repair/g3-prep-05-repair-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-05-review-repair/g3-prep-05-repair-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-05-review-repair/g3-prep-05-repair-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-05-review-repair/g3-prep-05-repair-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-05-review-repair/g3-prep-05-repair-recursive-metrics.json\n?? docs/architecture/raptor3-evidence/g3-prep-05-review-repair/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-05/g3-prep-05-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-05/g3-prep-05-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-05/g3-prep-05-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-05/g3-prep-05-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-05/g3-prep-05-recursive-metrics.json\n?? docs/architecture/raptor3-evidence/g3-prep-05/receipts/\n?? docs/architecture/raptor3-evidence/g3-prep-06/corpora/\n?? docs/architecture/raptor3-evidence/g3-prep-06/g3-prep-06-SHA256SUMS\n?? docs/architecture/raptor3-evidence/g3-prep-06/g3-prep-06-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-06/g3-prep-06-index.json\n?? docs/architecture/raptor3-evidence/g3-prep-06/g3-prep-06-matched-cost.json\n?? docs/architecture/raptor3-evidence/g3-prep-06/receipts/\n?? docs/architecture/raptor3-evidence/g3/unit03/trial100/sqlite-c11-red/generated-failure-158.json\n?? docs/architecture/raptor3-evidence/g3/unit03/trial100/transport-c08-red/generated-failure-144.json\n?? docs/architecture/raptor3-evidence/g3/unit03/trial100/transport-c11-red/generated-failure-182.json\n?? docs/architecture/raptor3-evidence/g3/unit03/trial20/sqlite-green/generated-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit03/trial20/transport-green/generated-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/cs03-extension-a-seeds/receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/cs03-extension-b-seeds/receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/cs03-extension-composition-seeds/receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-3jxvBm.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-3jxvBm.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-3koGK5.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-3koGK5.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-3stXbF.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-3stXbF.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-4d5sKS.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-4d5sKS.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-5hpiZx.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-5hpiZx.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-5ldDMK.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-5ldDMK.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-5rlK9P.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-5rlK9P.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-6UrtnI.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-6UrtnI.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-8QY2XL.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-8QY2XL.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-8pmvrB.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-8pmvrB.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-92NaNH.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-92NaNH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-9NKR40.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-9NKR40.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-9R0sHK.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-9R0sHK.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-AFJo6o.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-AFJo6o.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-DTRfYo.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-DTRfYo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-DjHHAi.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-DjHHAi.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-HgZhzL.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-HgZhzL.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-HqN1Ck.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-HqN1Ck.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-JMejZr.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-JMejZr.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-JYQy7s.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-JYQy7s.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-KcMnUY.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-KcMnUY.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-PKiias.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-PKiias.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-Q7G4tZ.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-Q7G4tZ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-QVzwqI.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-QVzwqI.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ScJhuW.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ScJhuW.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-StTsMB.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-StTsMB.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-TyAcHr.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-TyAcHr.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-UNsQZj.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-UNsQZj.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-Yk8PP7.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-Yk8PP7.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ZmQmd6.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ZmQmd6.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-beyQeJ.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-beyQeJ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-d1FA69.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-d1FA69.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-d31kLm.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-d31kLm.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-hEBFD4.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-hEBFD4.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ia2QUa.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ia2QUa.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ija99D.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ija99D.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-jqxXdh.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-jqxXdh.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-kDB2iP.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-kDB2iP.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-knWpL1.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-knWpL1.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-mX6jN6.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-mX6jN6.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-oOXWe9.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-oOXWe9.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-pogww5.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-pogww5.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-t0zIHm.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-t0zIHm.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-tfuNKX.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-tfuNKX.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ulz1fE.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-ulz1fE.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-v5FXXu.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-v5FXXu.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-vvPBdu.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-vvPBdu.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-y8KTe2.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-y8KTe2.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-yhIUGo.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-yhIUGo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-yy8pTH.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-seeds/viborm-raptor3-g0-yy8pTH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-0Qbu6d.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-0Qbu6d.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-0YbrUO.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-0YbrUO.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-3Le0W0.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-3Le0W0.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-5DaipC.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-5DaipC.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-5jKNyY.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-5jKNyY.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-5xbrOz.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-5xbrOz.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-6dTx8p.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-6dTx8p.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-76RwDJ.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-76RwDJ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-8EfQzG.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-8EfQzG.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-B4v1Kk.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-B4v1Kk.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-COLpak.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-COLpak.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-DAcATG.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-DAcATG.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-F0BkVp.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-F0BkVp.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-FDTZMj.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-FDTZMj.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-FlW1eL.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-FlW1eL.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ItMXfg.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ItMXfg.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-J9V7gN.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-J9V7gN.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-JAps2v.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-JAps2v.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-LDgQe5.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-LDgQe5.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-LTCkkh.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-LTCkkh.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-QbmbFE.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-QbmbFE.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-RWaVsw.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-RWaVsw.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-TLJCMU.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-TLJCMU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-TSwAk7.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-TSwAk7.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-Vsrv1Y.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-Vsrv1Y.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-X638eQ.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-X638eQ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ZJSu1z.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ZJSu1z.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-aoPqoz.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-aoPqoz.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-c2JQFW.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-c2JQFW.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-cJ6NpN.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-cJ6NpN.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-cdLOf8.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-cdLOf8.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-eGDYeA.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-eGDYeA.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ey8Hdo.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ey8Hdo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-g2gBO3.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-g2gBO3.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-hTqumg.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-hTqumg.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-iaTRfx.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-iaTRfx.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-imCw3f.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-imCw3f.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-nXNQSB.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-nXNQSB.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-p4TEup.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-p4TEup.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-p9Z66m.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-p9Z66m.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-reXArE.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-reXArE.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-t3jyOW.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-t3jyOW.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-tDsPx0.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-tDsPx0.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-tZZzRD.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-tZZzRD.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-txepgH.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-txepgH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-wXoNnp.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-wXoNnp.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-xkALjP.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-xkALjP.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ypo4WH.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-ypo4WH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-zWbLTI.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-zWbLTI.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-zrrYTt.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g2-transport-seeds/viborm-raptor3-g0-zrrYTt.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-0ooQo8.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-1GV2Rt.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-26GPy0.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-3oNjWi.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-4EWr6d.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-4oZj9C.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-5sq7Is.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-63kRmL.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-6eDHlN.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-7R7OPA.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-7ajzT4.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-7iCoZk.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-98C1p7.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-9Hnymz.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-9pcte7.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-Aqe6b3.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-Aqh70c.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-B1oQpy.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-BeKwKw.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-DKqvxm.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-Dw9gRe.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-FDJq7b.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-FPKunq.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-GNvv5K.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-GxWfni.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-Hx2KV8.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-JQOUYU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-Jpdwfu.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-M0f79w.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-MJElyn.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-N2Yp2d.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-N3hKaX.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-NTmwUe.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-P6Zbpu.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-P7CO2C.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-PnPGSQ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-QGfV6Y.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-QVSaDC.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-QeOtKR.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-QonFjk.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-R7yB3T.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-REWoOM.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-RxqtNR.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-SSRpc9.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-SUF1n7.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-TKkD5y.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-Tna73u.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-TuxNob.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-UsXD06.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-VUJIU7.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-XSXDeQ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-XbTBJZ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-YIFL3T.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-YNcyK0.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-YsvcFc.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-YwoSfd.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-Zvwhvq.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-azN0d2.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-bLIVRo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-bMh3SG.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-d0FZCD.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-dP3r3G.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-dYubtA.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-f6e84K.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-gADk2w.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-hAlso6.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-hK4UAt.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-hNnCww.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-hSzx7j.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-hUFOpe.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-i91U2a.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-iKpt7C.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-iRRaMt.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-jmaEiy.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-jmvZQw.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-k5bM0M.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-k6WLsr.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-kkZBfa.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-lbIprW.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-lxzKat.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-nXJBNT.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-oNiFfo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-r2dZob.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-s0VFt6.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-sDj3DQ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-tKCFBU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-tN2X8n.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-ufUEDs.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-vemHgs.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-vmC7Pu.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-vmxvsF.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-wfWZwY.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-x0QC9l.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-x0T7VU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-yQkyUC.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-yRTVUP.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-yVER6H.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-yySyER.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-yzwcFn.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds/viborm-raptor3-g0-zE4FQl.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-01AbnV.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-1G0NaN.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-2WdnIu.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-31FTwW.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-3FJy0M.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-4WvX6a.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-4q4RA9.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-4tPDUo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-55BGsy.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-5PsP1a.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-5cP6DV.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-6BsCv4.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-7X5zzh.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-7hUJHK.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-8Q4Iew.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-8ZpFvD.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-8e6o9j.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-BH0YTl.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-BRekjk.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-DbKj6F.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-EI405S.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-FbV3JD.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Fysyqo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-GaS1kD.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-HP7Pdd.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Hv46Sd.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-JDlgQ6.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-JScR7v.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-JWNrjS.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Jt44IV.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-KhEw76.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-KpTJLf.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-KxciZO.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-LbOxJH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-LgD5S6.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-MDFleU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-MK8tD1.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-MZI8CU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-NL8KaN.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-NYkXLz.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Ni3mWl.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Nn4qsU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-NnE4Y2.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-OOlgN1.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-OxHeaU.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-P0pEhH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-PKSpWm.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Pwxc57.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Qbhzp2.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-QnAHas.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-RJIoHn.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-RTJUuH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-SUNpaB.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-SzeBuf.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-U5xjXN.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-VYfdFk.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Vw5rET.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-X34Gti.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-X91oCo.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Xg1nmr.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Y73sc0.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Ywixm6.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-ZWygIV.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Zezcak.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-Zo9s2P.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-bTSegN.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-c9itHZ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-cXyjPq.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-ckTttb.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-eDq5N5.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-ec9o6t.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-egRgxi.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-ehthUH.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-ejeeNq.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-hnYlkK.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-k7YavD.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-k8eUSO.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-kKOsIB.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-kXszBG.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-muYOtf.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-nPoUqK.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-o8sNSs.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-oCScev.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-pXK2xR.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-qVzxBG.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-rAnygy.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-rHWvnh.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-rhLiij.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-s3Be6r.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-sewNOV.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-t3PYlJ.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-tlVwgr.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-uDb2Cb.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-uf5ism.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-uoZOAW.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-v1AiBr.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-va4GSI.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-vq6Mr8.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-wCTbxm.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds/viborm-raptor3-g0-wFIohG.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3p06-seeds/viborm-raptor3-g0-47GCCq.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3p06-seeds/viborm-raptor3-g0-47GCCq.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3p06-transport-seeds/viborm-raptor3-g0-WwLIj5.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3p06-transport-seeds/viborm-raptor3-g0-WwLIj5.receipt/generated-campaign-progress.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g0.receipt/corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-compare.receipt/adjudicated-instance-admission-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-contracts.receipt/adjudicated-upsert-admission-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-contracts.receipt/cleanup-sqlite-atomic-batch-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-contracts.receipt/cleanup-sqlite-interactive-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-generated.receipt/shrink-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-lost-progress-scripted-returning-ack-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-lost-progress-scripted-returning-weak-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-multifault-scripted-returning-ack-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-multifault-scripted-returning-weak-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-overlap-scripted-returning-ack-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-overlap-scripted-returning-weak-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-wrong-publication-scripted-returning-ack-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g1-transport.receipt/transport-wrong-publication-scripted-returning-weak-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-baseline.receipt/g2-conditional-upsert-legacy-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-baseline.receipt/g2-junction-identity-legacy-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-baseline.receipt/g2-membership-own-write-legacy-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-baseline.receipt/g2-mixed-key-transitions-legacy-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-baseline.receipt/g2-own-write-legacy-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-baseline.receipt/g2-shared-key-suppliers-legacy-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-baseline.receipt/g2-variant-removals-legacy-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-conditional-upsert-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-junction-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-junction-identity-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-key-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-lattice-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-membership-own-write-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-mixed-key-transitions-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-occupied-keys-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-own-write-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-required-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-series-staleness-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-shared-key-suppliers-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-singular-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-staleness-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-supplier-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-contracts.receipt/g2-variant-removals-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-generated.receipt/g2-generated-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-transport.receipt/g2-transport-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g25-contracts.receipt/g25-polish-corpus.json\n?? docs/architecture/raptor3-evidence/g3/unit04/structural-measurement/work-copy-path.txt\n?? docs/architecture/raptor3-evidence/g4/release/closure-final/gate/\n?? docs/architecture/raptor3-evidence/g4/release/closure-final/perf/\n?? docs/architecture/raptor3-evidence/g4/release/closure-final/receipts/\n?? docs/architecture/raptor3-evidence/g4/release/closure-final/recount/\n?? docs/architecture/raptor3-local-release-finish.md\n?? exa-results/raptor3-code-reduction-2026-09-01.md\n?? exa-results/raptor3-orm-pattern-audit-2026-09-07.md\n?? transport-lost-progress-scripted-returning-ack-corpus.json\n?? transport-lost-progress-scripted-returning-weak-corpus.json\n?? transport-multifault-scripted-returning-ack-corpus.json\n?? transport-multifault-scripted-returning-weak-corpus.json\n?? transport-overlap-scripted-returning-ack-corpus.json\n?? transport-overlap-scripted-returning-weak-corpus.json\n?? transport-wrong-publication-scripted-returning-ack-corpus.json\n?? transport-wrong-publication-scripted-returning-weak-corpus.json",
+    "identity": "cb7f60efd02ac772b1670d8100048beacba2bd1466d2e03b4c009fc380f3e874",
+    "identityScope": "src/, benchmarks/, scripts/, package.json, pnpm-lock.yaml, tsconfig.json, tsdown.config.ts, biome.jsonc — the existing calibration owner"
+  },
+  "runtime": {
+    "node": "v24.21.0",
+    "v8": "13.6.233.17-node.53",
+    "platform": "darwin",
+    "arch": "arm64",
+    "pnpm": "10.11.0",
+    "lockfileSha256": "c366c9806e268e19970626c34e0c5ea1bb74cc7c24b388fa072d580d7bf9aceb",
+    "packageJsonSha256": "2dd00d97b15fdd2ae20a4fa054bd1befa7fad7c8e18bb2331e7264d90e32961a",
+    "dependencies": {
+      "@clack/prompts": "^0.7.0",
+      "@opentelemetry/semantic-conventions": "^1.39.0",
+      "@paralleldrive/cuid2": "^3.3.0",
+      "@standard-schema/spec": "^1.0.0",
+      "arktype": "^2.2.3",
+      "commander": "^12.0.0",
+      "decimal.js": "10.6.0",
+      "nanoid": "^5.1.5",
+      "ulidx": "^2.4.1",
+      "valibot": "^1.2.0"
+    },
+    "peerDependencies": {
+      "@cloudflare/workers-types": "^4.20260103.0",
+      "@electric-sql/pglite": "^0.3.2",
+      "@libsql/client": "^0.14.0",
+      "@neondatabase/serverless": "^0.10.0",
+      "@opentelemetry/api": "^1.9.0",
+      "@planetscale/database": "^1.19.0",
+      "better-sqlite3": "^12.6.0",
+      "mysql2": "^3.14.1",
+      "pg": "^8.16.0",
+      "postgres": "^3.4.0"
+    },
+    "packageManager": "pnpm@10.11.0"
+  },
+  "harness": {
+    "sha256": "7daded95c7a9e96e810c096c3da8e95cab3a2d726b1ec132574cbb58bce04264",
+    "registeredFiles": 663,
+    "missingFiles": [],
+    "manifestModules": [
+      {
+        "module": "scripts/raptor3-manifest.mjs",
+        "sha256": "0c5cbdf1f3c68304af2753ded37495c63f9e8a65658c6b1e8100587fe4e5a645"
+      },
+      {
+        "module": "scripts/credential-free-test-manifest.mjs",
+        "sha256": "99696bf1d759ea6fe6d63eacd125b5489731ffac0edcf431fb463d1b4df63d7a"
+      },
+      {
+        "module": "scripts/client-test-manifest.mjs",
+        "sha256": "428020660c3028dd2eb36ce722d9eb9e692c779a19fd0b154edb43c761a47a28"
+      },
+      {
+        "module": "scripts/driver-test-manifest.mjs",
+        "sha256": "2a027df21d54fd332332764646b6b9680faa888751583ad9b9281ecb8a5ca8e0"
+      },
+      {
+        "module": "scripts/migration-test-manifest.mjs",
+        "sha256": "28b01fa5f8b0bd45c3c151d7df456b903894660cbcbbba15a9b57fff60e28a5c"
+      },
+      {
+        "module": "scripts/query-engine-test-manifest.mjs",
+        "sha256": "bca818458f2bd9284d7836db3c6e83b57a96801b48b634ce0978654f7d9ed81a"
+      }
+    ],
+    "lists": {
+      "CS01_EXTENSION_A_TESTS": 1,
+      "CS01_EXTENSION_B_TESTS": 1,
+      "CS01_EXTENSION_COMPOSITION_TESTS": 1,
+      "CS01_STRUCTURAL_REFERENCE_TESTS": 1,
+      "CS02_REPEATED_OCCURRENCE_TESTS": 1,
+      "CS02_STRUCTURE_MEASUREMENT_TESTS": 1,
+      "CS03_EXTENSION_CAMPAIGN_TESTS": 1,
+      "CS03_EXTENSION_SUPPORT_TESTS": 2,
+      "CS03_MEMBER_SCOPE_TESTS": 1,
+      "D50_PROVIDER_TESTS": 2,
+      "D53_PROVIDER_TESTS": 1,
+      "G0_FALSIFIERS": 21,
+      "G1_BASELINE_TESTS": 4,
+      "G1_CAMPAIGN_TESTS": 1,
+      "G1_COMPARISON_TESTS": 4,
+      "G1_CONTRACT_TESTS": 5,
+      "G1_GENERATED_TESTS": 2,
+      "G1_PROVIDER_BASELINE_TESTS": 2,
+      "G1_PROVIDER_TESTS": 3,
+      "G1_TRANSPORT_CAMPAIGN_TESTS": 1,
+      "G1_TRANSPORT_TESTS": 1,
+      "G25_CONTRACT_TESTS": 1,
+      "G25_PG_CONTRACT_TESTS": 1,
+      "G27_CONTRACT_TESTS": 1,
+      "G27_MYSQL_CONTRACT_TESTS": 1,
+      "G27_PG_CONTRACT_TESTS": 1,
+      "G29_DEPENDENCY_BOUNDARY_TESTS": 1,
+      "G29_DEPENDENCY_CHOICE_TESTS": 1,
+      "G29_MEMBER_DEPENDENCY_MYSQL_TESTS": 1,
+      "G29_MEMBER_DEPENDENCY_PG_TESTS": 1,
+      "G29_MEMBER_DEPENDENCY_TESTS": 1,
+      "G29_RESULT_PROGRESS_TESTS": 1,
+      "G2_BASELINE_TESTS": 16,
+      "G2_CAMPAIGN_TESTS": 1,
+      "G2_CONTRACT_TESTS": 16,
+      "G2_DIAGNOSTIC_TESTS": 1,
+      "G2_GENERATED_TESTS": 2,
+      "G2_MYSQL_BASELINE_TESTS": 4,
+      "G2_MYSQL_CONTRACT_TESTS": 4,
+      "G2_PG_BASELINE_TESTS": 6,
+      "G2_PG_CONTRACT_TESTS": 6,
+      "G2_PROVIDER_BASELINE_TESTS": 3,
+      "G2_PROVIDER_CONTRACT_TESTS": 3,
+      "G2_TRANSPORT_CAMPAIGN_TESTS": 1,
+      "G2_TRANSPORT_TESTS": 1,
+      "G3P02_CONTRACT_TESTS": 1,
+      "G3P02_MYSQL_CONTRACT_TESTS": 1,
+      "G3P02_PG_CONTRACT_TESTS": 1,
+      "G3P03_CONTRACT_TESTS": 1,
+      "G3P03_MYSQL_CONTRACT_TESTS": 1,
+      "G3P03_PG_CONTRACT_TESTS": 1,
+      "G3P04_CONTRACT_TESTS": 1,
+      "G3P04_MYSQL_CONTRACT_TESTS": 1,
+      "G3P04_PG_CONTRACT_TESTS": 1,
+      "G3P04_REVIEW_CONTRACT_TESTS": 1,
+      "G3P05_CONTRACT_TESTS": 3,
+      "G3P05_RECURSIVE_READ_FIT_TESTS": 1,
+      "G3P05_SELECTOR_DEPENDENCY_TESTS": 1,
+      "G3P05_VARIANT_COLLECTION_ORDER_TESTS": 1,
+      "G3P06_CAMPAIGN_TESTS": 1,
+      "G3P06_TRANSPORT_CAMPAIGN_TESTS": 1,
+      "G3_AUTHOR_EXECUTION_REGRESSION_TESTS": 1,
+      "G3_BULK_RESULT_BOUNDARY_TESTS": 1,
+      "G3_BULK_SERIES_TESTS": 1,
+      "G3_DEPTH_RECURRENCE_TESTS": 1,
+      "G3_EXECUTION_REVIEW_TESTS": 1,
+      "G3_GENERATED_CAMPAIGN_TESTS": 1,
+      "G3_GENERATED_MINIMIZATION_TESTS": 1,
+      "G3_GENERATED_SMOKE_TESTS": 1,
+      "G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS": 1,
+      "G3_GENERATED_TRANSPORT_SMOKE_TESTS": 1,
+      "G3_SCOPE_COMPOSITION_MYSQL_TESTS": 1,
+      "G3_SCOPE_COMPOSITION_PG_TESTS": 1,
+      "G3_SCOPE_FAILURE_TESTS": 1,
+      "G3_SUPPRESSION_RETRY_TESTS": 1,
+      "G3_TRANSACTION_ARRAY_TESTS": 1,
+      "G4_GENERATED_CAMPAIGN_TESTS": 1,
+      "G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS": 1,
+      "G4_GENERATION_SELFTEST_TESTS": 1,
+      "G4_NATIVE_MYSQL_TESTS": 1,
+      "G4_NATIVE_PG_TESTS": 1,
+      "G4_PARITY_TESTS": 24,
+      "G4_READ_AGGREGATE_TESTS": 1,
+      "G4_READ_CODEC_TESTS": 1,
+      "G4_READ_CONTRACT_FAMILIES": 5,
+      "G4_READ_FILTERS_TESTS": 1,
+      "G4_READ_OPERATIONS_TESTS": 1,
+      "G4_READ_ORDERING_TESTS": 1,
+      "G4_READ_PAGINATION_TESTS": 1,
+      "G4_READ_PROJECTION_TESTS": 1,
+      "G4_READ_RECURSIVE_FIT_TESTS": 1,
+      "G4_READ_SCHEMA_FAMILIES": 3,
+      "G4_READ_TESTS": 8,
+      "G4_UNIT01_AUTHOR_TESTS": 10,
+      "G4_UNIT01_REVIEW_TESTS": 29,
+      "G4_UNIT02_AUTHOR_TESTS": 21,
+      "G4_UNIT02_MYSQL_TESTS": 3,
+      "G4_UNIT02_PG_TESTS": 1,
+      "G4_WRITE_CAMPAIGN_TESTS": 1,
+      "G4_WRITE_TRANSPORT_CAMPAIGN_TESTS": 1,
+      "POST_G3_CLEARABILITY_CONTRACT_TESTS": 1,
+      "POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS": 1,
+      "POST_G3_CLEARABILITY_PG_CONTRACT_TESTS": 1,
+      "POST_G3_HISTORY_ANALYSIS_TESTS": 1,
+      "POST_G3_PROJECTION_PREPARATION_TESTS": 1,
+      "POST_G3_SCHEMA_VIEW_TESTS": 1,
+      "POST_G3_SELECTOR_PREPARATION_TESTS": 1,
+      "RAPTOR3_DETERMINISTIC_TESTS": 186,
+      "RAPTOR3_LIVE_PROVIDER_TESTS": 29,
+      "RAPTOR3_PROJECT_TESTS": 194,
+      "RAPTOR3_PROVIDER_TESTS": 8,
+      "RAPTOR3_RUNNER_ONLY_TESTS": 8,
+      "RAPTOR3_TESTS": 2,
+      "EXTENDED_LOCAL_PGLITE_TESTS": 12,
+      "EXTENDED_LOCAL_SHARED_FAMILY_TESTS": 113,
+      "EXTENDED_LOCAL_TESTS": 191,
+      "LIBSQL_PROVIDER_TESTS": 6,
+      "PGLITE_PROVIDER_TESTS": 6,
+      "RAPTOR3_FIXED_LOCAL_TESTS": 89,
+      "SQLITE3_PROVIDER_TESTS": 6,
+      "CLIENT_COVERAGE_TESTS": 41,
+      "DRIVER_CORE_TESTS": 43,
+      "DRIVER_COVERAGE_TESTS": 59,
+      "MIGRATION_COVERAGE_TESTS": 120,
+      "QUERY_ENGINE_CORE_TESTS": 32,
+      "WRITE_ENGINE_CORE_TESTS": 4,
+      "WRITE_ENGINE_COVERAGE_TESTS": 5,
+      "WRITE_ENGINE_EXTENDED_COVERAGE_TESTS": 1
+    },
+    "declaredCells": {
+      "CS01_EXTENSION_A_COUNTS": 6,
+      "CS01_EXTENSION_B_COUNTS": 4,
+      "CS01_EXTENSION_COMPOSITION_COUNTS": 4,
+      "CS01_STRUCTURAL_REFERENCE_COUNTS": 10,
+      "CS02_REPEATED_OCCURRENCE_COUNTS": 5,
+      "CS02_STRUCTURE_MEASUREMENT_COUNTS": 1,
+      "CS03_EXTENSION_CAMPAIGN_COUNTS": 1,
+      "CS03_EXTENSION_SUPPORT_COUNTS": 47,
+      "CS03_MEMBER_SCOPE_COUNTS": 8,
+      "G0_RESOURCES": 122304,
+      "G1_BASELINE_COUNTS": 141,
+      "G1_COMPARISON_COUNTS": 36,
+      "G1_CONTRACT_COUNTS": 143,
+      "G1_GENERATED_COUNTS": 35,
+      "G1_TRANSPORT_COUNTS": 44,
+      "G25_CONTRACT_COUNTS": 6,
+      "G25_PG_CONTRACT_COUNTS": 2,
+      "G27_CONTRACT_COUNTS": 6,
+      "G27_MYSQL_CONTRACT_COUNTS": 1,
+      "G27_PG_CONTRACT_COUNTS": 1,
+      "G27_PROVIDER_CONTRACT_COUNTS": 1,
+      "G29_DEPENDENCY_BOUNDARY_COUNTS": 4,
+      "G29_DEPENDENCY_CHOICE_COUNTS": 10,
+      "G29_MEMBER_DEPENDENCY_COUNTS": 14,
+      "G29_MEMBER_DEPENDENCY_MYSQL_COUNTS": 2,
+      "G29_MEMBER_DEPENDENCY_PG_COUNTS": 2,
+      "G29_MEMBER_DEPENDENCY_PROVIDER_COUNTS": 2,
+      "G29_RESULT_PROGRESS_COUNTS": 2,
+      "G2_BASELINE_COUNTS": 216,
+      "G2_CONTRACT_COUNTS": 216,
+      "G2_DIAGNOSTIC_COUNTS": 2,
+      "G2_GENERATED_COUNTS": 52,
+      "G2_MYSQL_BASELINE_COUNTS": 13,
+      "G2_MYSQL_CONTRACT_COUNTS": 13,
+      "G2_PG_BASELINE_COUNTS": 17,
+      "G2_PG_CONTRACT_COUNTS": 18,
+      "G2_PROVIDER_BASELINE_COUNTS": 11,
+      "G2_PROVIDER_CONTRACT_COUNTS": 11,
+      "G2_TRANSPORT_COUNTS": 16,
+      "G3P02_CONTRACT_COUNTS": 4,
+      "G3P02_MYSQL_CONTRACT_COUNTS": 5,
+      "G3P02_PG_CONTRACT_COUNTS": 5,
+      "G3P02_PROVIDER_CONTRACT_COUNTS": 5,
+      "G3P03_CONTRACT_COUNTS": 6,
+      "G3P03_MYSQL_CONTRACT_COUNTS": 5,
+      "G3P03_PG_CONTRACT_COUNTS": 5,
+      "G3P03_PROVIDER_CONTRACT_COUNTS": 5,
+      "G3P04_CONTRACT_COUNTS": 5,
+      "G3P04_MYSQL_CONTRACT_COUNTS": 4,
+      "G3P04_PG_CONTRACT_COUNTS": 4,
+      "G3P04_PROVIDER_CONTRACT_COUNTS": 4,
+      "G3P04_REVIEW_CONTRACT_COUNTS": 5,
+      "G3P05_CONTRACT_COUNTS": 21,
+      "G3P05_RECURSIVE_READ_FIT_COUNTS": 6,
+      "G3P05_SELECTOR_DEPENDENCY_COUNTS": 11,
+      "G3P05_VARIANT_COLLECTION_ORDER_COUNTS": 4,
+      "G3_AUTHOR_EXECUTION_REGRESSION_COUNTS": 3,
+      "G3_BULK_RESULT_BOUNDARY_COUNTS": 5,
+      "G3_BULK_SERIES_COUNTS": 6,
+      "G3_DEPTH_RECURRENCE_COUNTS": 6,
+      "G3_EXECUTION_REVIEW_COUNTS": 6,
+      "G3_GENERATED_MINIMIZATION_COUNTS": 1,
+      "G3_GENERATED_SMOKE_COUNTS": 6,
+      "G3_GENERATED_TRANSPORT_SMOKE_COUNTS": 1,
+      "G3_SCOPE_COMPOSITION_MYSQL_COUNTS": 2,
+      "G3_SCOPE_COMPOSITION_PG_COUNTS": 2,
+      "G3_SCOPE_COMPOSITION_PROVIDER_COUNTS": 2,
+      "G3_SCOPE_FAILURE_COUNTS": 2,
+      "G3_SUPPRESSION_RETRY_COUNTS": 2,
+      "G3_TRANSACTION_ARRAY_COUNTS": 4,
+      "G4_GENERATION_SELFTEST_COUNTS": 6,
+      "G4_NATIVE_MYSQL_COUNTS": 5,
+      "G4_NATIVE_PG_COUNTS": 5,
+      "G4_NATIVE_PROVIDER_COUNTS": 5,
+      "G4_PARITY_COUNTS": 227,
+      "G4_READ_AGGREGATE_COUNTS": 5,
+      "G4_READ_CODEC_COUNTS": 12,
+      "G4_READ_COUNTS": 62,
+      "G4_READ_FILTERS_COUNTS": 13,
+      "G4_READ_OPERATIONS_COUNTS": 11,
+      "G4_READ_ORDERING_COUNTS": 5,
+      "G4_READ_PAGINATION_COUNTS": 6,
+      "G4_READ_PROJECTION_COUNTS": 7,
+      "G4_READ_RECURSIVE_FIT_COUNTS": 3,
+      "G4_UNIT01_AUTHOR_COUNTS": 83,
+      "G4_UNIT01_REVIEW_COUNTS": 198,
+      "G4_UNIT02_AUTHOR_COUNTS": 131,
+      "G4_UNIT02_MYSQL_COUNTS": 17,
+      "G4_UNIT02_PG_COUNTS": 1,
+      "POST_G3_CLEARABILITY_CONTRACT_COUNTS": 4,
+      "POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS": 2,
+      "POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS": 2,
+      "POST_G3_CLEARABILITY_PROVIDER_COUNTS": 2,
+      "POST_G3_HISTORY_ANALYSIS_COUNTS": 5,
+      "POST_G3_PROJECTION_PREPARATION_COUNTS": 4,
+      "POST_G3_SCHEMA_VIEW_COUNTS": 1,
+      "POST_G3_SELECTOR_PREPARATION_COUNTS": 4
+    }
+  },
+  "stages": [
+    {
+      "stage": "build",
+      "log": "build.log",
+      "exit": 0,
+      "bytes": 16847,
+      "sha256": "153ccb54d969cf3c22ed835dfd236ac24bb9535addc3719ded5a8fdc757f50c7",
+      "resources": "Node resources: 2.57s wall, 867.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true
+    },
+    {
+      "stage": "campaign-receipts",
+      "log": "campaign-receipts.log",
+      "exit": 0,
+      "bytes": 3684,
+      "sha256": "7e442838cb2d7ea63a33c9e1e0fa67ca2676bf4e6185f56b445e34eb9a6231cf",
+      "resources": "Node resources: 0.48s wall, 62.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true
+    },
+    {
+      "stage": "census",
+      "log": "census.log",
+      "exit": 0,
+      "bytes": 24522,
+      "sha256": "3a186c0bca7e0406861ef30951644cd9d06ee64926a61a83bcc39bae4f13e21b",
+      "teardownVerified": false
+    },
+    {
+      "stage": "conf-fk",
+      "log": "conf-fk.log",
+      "exit": 0,
+      "bytes": 476,
+      "sha256": "3df8bcbefafe3d8bea49a788f45bc5368ec045842122b920b018bd67f1b11c35",
+      "resources": "Vitest resources: 4.53s wall, 1588.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  28 passed (28)"
+    },
+    {
+      "stage": "conf-m2m",
+      "log": "conf-m2m.log",
+      "exit": 0,
+      "bytes": 477,
+      "sha256": "54884647aea832bd9761abd67de38ccc9e57f251120a5c80271245442a582732",
+      "resources": "Vitest resources: 6.02s wall, 1535.4 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  34 passed (34)"
+    },
+    {
+      "stage": "conf-membership",
+      "log": "conf-membership.log",
+      "exit": 0,
+      "bytes": 485,
+      "sha256": "073d629934b6f86fbc5a16bfc8c2d00e471cca32cdc2939ffd4edcf87aa64c64",
+      "resources": "Vitest resources: 6.66s wall, 1582.0 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  30 passed (30)"
+    },
+    {
+      "stage": "conf-root-dependency",
+      "log": "conf-root-dependency.log",
+      "exit": 0,
+      "bytes": 490,
+      "sha256": "bfdd3dad2dc505bd172c52e2404fb589f2b4119c41776c2a4cf9799a9b8756be",
+      "resources": "Vitest resources: 5.22s wall, 1575.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  30 passed (30)"
+    },
+    {
+      "stage": "conf-to-one",
+      "log": "conf-to-one.log",
+      "exit": 0,
+      "bytes": 481,
+      "sha256": "6f0efb59fda3658ff835f00cb602a5c492f66a63ac72077c320c573ebb615cf9",
+      "resources": "Vitest resources: 4.79s wall, 1553.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  19 passed (19)"
+    },
+    {
+      "stage": "conf-transitive",
+      "log": "conf-transitive.log",
+      "exit": 0,
+      "bytes": 485,
+      "sha256": "87811ef5f49fa1b1d75b908bf91d8088b3022a07a41d88ddd4ece9742d275b75",
+      "resources": "Vitest resources: 5.05s wall, 1667.4 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  31 passed (31)"
+    },
+    {
+      "stage": "coverage-policy",
+      "log": "coverage-policy.log",
+      "exit": 0,
+      "bytes": 5476,
+      "sha256": "fa05be1da103368516d55c60c00c8ed4233577ab7c62108695cb71a8769ecef9",
+      "resources": "Node resources: 6.70s wall, 310.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true
+    },
+    {
+      "stage": "fixed",
+      "log": "fixed.log",
+      "exit": 0,
+      "bytes": 8136,
+      "sha256": "f400c09955135a31095316072a2f75b2cb33ef56db9e73bc2c3b36d7368bc558",
+      "resources": "[test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 14.12s wall, 60.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  89 passed (89)",
+      "tests": "Tests  955 passed (955)"
+    },
+    {
+      "stage": "g1-compare",
+      "log": "g1-compare.log",
+      "exit": 0,
+      "bytes": 819,
+      "sha256": "2e195e0a748c0a6438ba597bba2ec7829e76770edb886374461cd53e0cb2b182",
+      "resources": "Vitest resources: 3.60s wall, 589.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  4 passed (4)",
+      "tests": "Tests  36 passed (36)"
+    },
+    {
+      "stage": "g2-baseline",
+      "log": "g2-baseline.log",
+      "exit": 0,
+      "bytes": 1932,
+      "sha256": "6b4774a4d59574ad9438a56d80b8072a139fbec6afdbc379a275501662ae4480",
+      "resources": "Vitest resources: 4.61s wall, 711.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  16 passed (16)",
+      "tests": "Tests  216 passed (216)"
+    },
+    {
+      "stage": "g2-contracts",
+      "log": "g2-contracts.log",
+      "exit": 0,
+      "bytes": 1973,
+      "sha256": "8b08a64c390e96701fd6dd432a5a91e497d7e50d5a88595911d18848844cdafb",
+      "resources": "Vitest resources: 5.93s wall, 757.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  16 passed (16)",
+      "tests": "Tests  216 passed (216)"
+    },
+    {
+      "stage": "mysql2__mysql-strict-mode-docker",
+      "log": "mysql2__mysql-strict-mode-docker.log",
+      "exit": 0,
+      "bytes": 436,
+      "sha256": "c7d2671cb030c2a05c9871789803b2511162877432cd44d805704f43a0aad2f5",
+      "resources": "Vitest resources: 3.85s wall, 510.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  8 passed (8)"
+    },
+    {
+      "stage": "mysql2__mysql2-cascaded-identity",
+      "log": "mysql2__mysql2-cascaded-identity.log",
+      "exit": 0,
+      "bytes": 437,
+      "sha256": "dca7e4c109745ede08e9f4bb119294873e39d984a18fd2aa5d6af1f4137e31e9",
+      "resources": "Vitest resources: 3.30s wall, 480.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  4 passed (4)"
+    },
+    {
+      "stage": "mysql2__mysql2-concurrency-policy",
+      "log": "mysql2__mysql2-concurrency-policy.log",
+      "exit": 0,
+      "bytes": 442,
+      "sha256": "52696e893692f73f6dab9debc32cb125b2c6b3fd7d55fbfc47bb77082b4d526b",
+      "resources": "Vitest resources: 4.53s wall, 615.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  11 passed (11)"
+    },
+    {
+      "stage": "mysql2__mysql2-generated-key",
+      "log": "mysql2__mysql2-generated-key.log",
+      "exit": 0,
+      "bytes": 433,
+      "sha256": "b9071373a41f261097076bdf686b424c095b698fe10dff70291c95b92732f143",
+      "resources": "Vitest resources: 3.21s wall, 476.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  5 passed (5)"
+    },
+    {
+      "stage": "mysql2__mysql2-read-surface",
+      "log": "mysql2__mysql2-read-surface.log",
+      "exit": 0,
+      "bytes": 444,
+      "sha256": "86b4eea64aef392721feb08b0a995e614456c27086c376c86ec5a054c5a66666",
+      "resources": "Vitest resources: 13.52s wall, 669.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  122 passed (122)"
+    },
+    {
+      "stage": "mysql2__mysql2-reference-representability",
+      "log": "mysql2__mysql2-reference-representability.log",
+      "exit": 0,
+      "bytes": 446,
+      "sha256": "0e79e50eb016eb93e52cb2be233afbad31fed1c11cec4a0b86a9ab22df48b17f",
+      "resources": "Vitest resources: 3.35s wall, 488.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  5 passed (5)"
+    },
+    {
+      "stage": "mysql2__mysql2-relations-ddl",
+      "log": "mysql2__mysql2-relations-ddl.log",
+      "exit": 0,
+      "bytes": 564,
+      "sha256": "afcb04fc805a3f2df67ecf04799fc33b7618eb97d980f1e5976847c891438e9f",
+      "resources": "Vitest resources: 19.65s wall, 654.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  106 passed (106)"
+    },
+    {
+      "stage": "mysql2__mysql2-scalars",
+      "log": "mysql2__mysql2-scalars.log",
+      "exit": 0,
+      "bytes": 438,
+      "sha256": "050c15f10d58957c24aabe11b3aa0c2266f6f1feab582c1481a11a657deacbd6",
+      "resources": "Vitest resources: 24.08s wall, 673.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  293 passed (293)"
+    },
+    {
+      "stage": "mysql2__mysql2-schema-attestation",
+      "log": "mysql2__mysql2-schema-attestation.log",
+      "exit": 0,
+      "bytes": 438,
+      "sha256": "48472b2552aa352101cecc35c9e1db6389bfd7019293b0930795122b4f500ce9",
+      "resources": "Vitest resources: 3.64s wall, 537.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  5 passed (5)"
+    },
+    {
+      "stage": "mysql2__mysql2-writes-raw",
+      "log": "mysql2__mysql2-writes-raw.log",
+      "exit": 0,
+      "bytes": 557,
+      "sha256": "cd76d36c3220d55b5b787001d10958c928d24712f25dc355b77dddea2bfeaa0f",
+      "resources": "Vitest resources: 15.65s wall, 642.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  92 passed (92)"
+    },
+    {
+      "stage": "mysql2__mysql2",
+      "log": "mysql2__mysql2.log",
+      "exit": 0,
+      "bytes": 680,
+      "sha256": "a474ae0034c85849d16c3371ec423af3a87365f9837b864d018212dbeb30d13d",
+      "resources": "Vitest resources: 15.08s wall, 650.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  84 passed | 1 skipped (85)"
+    },
+    {
+      "stage": "parity-1",
+      "log": "parity-1.log",
+      "exit": 0,
+      "bytes": 2092,
+      "sha256": "3a7d1ebdabc7c612a9dbf256dce1ffda1173051dde2690901acbcc2775e9a8b5",
+      "resources": "Vitest resources: 8.09s wall, 747.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  19 passed (19)",
+      "tests": "Tests  172 passed (172)"
+    },
+    {
+      "stage": "parity-2",
+      "log": "parity-2.log",
+      "exit": 0,
+      "bytes": 1666,
+      "sha256": "d35c1e007dde8feb631d57590dadd7e7d87798a1d774cdad78a88f309e7e142b",
+      "resources": "Vitest resources: 8.16s wall, 681.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  15 passed (15)",
+      "tests": "Tests  140 passed (140)"
+    },
+    {
+      "stage": "parity-3",
+      "log": "parity-3.log",
+      "exit": 0,
+      "bytes": 2246,
+      "sha256": "654156f313abbefaa631c389e7982056ab603b6b17eac4461f1b5f9f5939605a",
+      "resources": "Vitest resources: 8.60s wall, 738.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  21 passed (21)",
+      "tests": "Tests  215 passed (215)"
+    },
+    {
+      "stage": "pg__pg-captured-set-concurrency",
+      "log": "pg__pg-captured-set-concurrency.log",
+      "exit": 0,
+      "bytes": 4828,
+      "sha256": "fbdff7eccde2e3c60bd4d953bfd98bec517509eea88b30d12630f81d9c7eaa35",
+      "resources": "Vitest resources: 16.42s wall, 500.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  17 passed (17)"
+    },
+    {
+      "stage": "pg__pg-nested-write-races",
+      "log": "pg__pg-nested-write-races.log",
+      "exit": 0,
+      "bytes": 12729,
+      "sha256": "8b7fc11b81f7aebb4a8a2b2141f60dc33cb8ac866857376b73c89939abd90d51",
+      "resources": "Vitest resources: 122.77s wall, 506.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  95 passed (95)"
+    },
+    {
+      "stage": "pg__pg-polymorphism-ddl",
+      "log": "pg__pg-polymorphism-ddl.log",
+      "exit": 0,
+      "bytes": 7873,
+      "sha256": "1ca2fe15f0edeae9c276d743dc924c19232d0a7ae44fb1e6ec865ccc9747df2c",
+      "resources": "Vitest resources: 105.52s wall, 497.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  60 passed (60)"
+    },
+    {
+      "stage": "pg__pg-read-surface",
+      "log": "pg__pg-read-surface.log",
+      "exit": 0,
+      "bytes": 9722,
+      "sha256": "48e0c8c7b9c7e162c85af16b0a0bbd40a281e1844be995db18f22b90e45b7cf6",
+      "resources": "Vitest resources: 91.79s wall, 507.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  76 passed (76)"
+    },
+    {
+      "stage": "pg__pg-reference-representability",
+      "log": "pg__pg-reference-representability.log",
+      "exit": 0,
+      "bytes": 439,
+      "sha256": "770eafe92f4486409b70054d7c4f3201f556a6f2fac3379fd73bc1f0de615cac",
+      "resources": "Vitest resources: 4.54s wall, 465.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  5 passed (5)"
+    },
+    {
+      "stage": "pg__pg",
+      "log": "pg__pg.log",
+      "exit": 0,
+      "bytes": 26589,
+      "sha256": "ff4ddbedeef76acca262b04183cee32f5c40224d697c4e4abc88896b36a149ef",
+      "resources": "Vitest resources: 259.01s wall, 503.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  220 passed | 7 skipped (227)"
+    },
+    {
+      "stage": "pglite-provider",
+      "log": "pglite-provider.log",
+      "exit": 0,
+      "bytes": 665,
+      "sha256": "43173572081c3f442cce262d5cd28646b63f43c1f4583ee1e9f1bd046d24650b",
+      "resources": "Vitest resources: 5.09s wall, 1716.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  3 passed (3)",
+      "tests": "Tests  7 passed (7)"
+    },
+    {
+      "stage": "transaction-array",
+      "log": "transaction-array.log",
+      "exit": 0,
+      "bytes": 631,
+      "sha256": "16b11c4711494311d174260805ab8563f508ffdf8e5644ec87d4c8eca8e4cf23",
+      "resources": "Vitest resources: 3.12s wall, 481.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  4 passed (4)"
+    },
+    {
+      "stage": "transport-smoke",
+      "log": "transport-smoke.log",
+      "exit": 0,
+      "bytes": 649,
+      "sha256": "7e7fab2de239bf5dec7ef89e42c0869ea1b817e0f126782192d4da0d0cfed787",
+      "resources": "Vitest resources: 3.29s wall, 474.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+      "teardownVerified": true,
+      "testFiles": "Test Files  1 passed (1)",
+      "tests": "Tests  1 passed (1)"
+    },
+    {
+      "stage": "typecheck",
+      "log": "typecheck.log",
+      "exit": 0,
+      "bytes": 167,
+      "sha256": "cb64b05914687a5edfc4e93694a60a7d8c8af24e186fe0f3ab831b2cda2275c8",
+      "teardownVerified": true
+    }
+  ],
+  "stagesWithoutLog": [],
+  "bundles": {
+    "status": "measured-source-and-bundles",
+    "measurementFile": "docs/architecture/raptor3-evidence/g4/release/closure-final/receipts/source-size-final.json",
+    "commit": "b5fde8c1eec56992eaadd898c72e462a191151e5",
+    "clean": false,
+    "sourceIdentity": "cb7f60efd02ac772b1670d8100048beacba2bd1466d2e03b4c009fc380f3e874",
+    "frozenTargets": {
+      "productionTokenRatio": 0.6,
+      "productionPhysicalRatio": 0.7,
+      "engineGzipRatio": 0.75,
+      "everyPublicPostgresGzipRatio": 1,
+      "qualification": "Size targets require review on a miss, not automatic abandonment"
+    },
+    "fixtures": [
+      {
+        "fixture": "engine",
+        "runtimeBytes": 360882,
+        "gzipBytes": 101533,
+        "modules": 180,
+        "sha256": "fc911a824251926e94bfbc9a7306bde2f731487224537e33b088b2c5ae988c74"
+      },
+      {
+        "fixture": "pg-simple",
+        "runtimeBytes": 656939,
+        "gzipBytes": 193224,
+        "modules": 313,
+        "sha256": "5eef6f7417810c5935366ada7a6b9fd42ac579ca254ab0d8a8faf13be6f8cc6b"
+      },
+      {
+        "fixture": "pg-relations",
+        "runtimeBytes": 657220,
+        "gzipBytes": 193352,
+        "modules": 313,
+        "sha256": "1201934577f526fbe226df6f3efb609d8cd8ff5e19d65577e83984e52a275a6d"
+      }
+    ]
+  },
+  "loc": {
+    "version": 1,
+    "producedAt": "2026-09-21T12:14:19.787Z",
+    "measurement": {
+      "file": "docs/architecture/raptor3-evidence/g4/release/closure-final/receipts/source-size-final.json",
+      "status": "measured-source-and-bundles",
+      "commit": "b5fde8c1eec56992eaadd898c72e462a191151e5",
+      "clean": false,
+      "sourceIdentity": "cb7f60efd02ac772b1670d8100048beacba2bd1466d2e03b4c009fc380f3e874",
+      "censusOwner": "scripts/query-engine-structure.mjs",
+      "censusFunctionSha256": "15889231a22297fcf001ae22ca01e6e8c9cd7489dd635c60529dfdc0ac06461e",
+      "definition": "Distinct lines containing parser-owned TypeScript token starts; exact existing census function, comments/JSDoc/EOF excluded"
+    },
+    "totals": {
+      "charged-engine": {
+        "files": 38,
+        "tokenLines": 16098,
+        "physical": 20700,
+        "bytes": 778824
+      },
+      "charged-integration": {
+        "files": 12,
+        "tokenLines": 3757,
+        "physical": 4502,
+        "bytes": 148971
+      },
+      "charged-adapter-integration": {
+        "files": 2,
+        "tokenLines": 101,
+        "physical": 165,
+        "bytes": 6631
+      },
+      "likeForLike": {
+        "files": 52,
+        "tokenLines": 19956,
+        "physical": 25367,
+        "bytes": 934426
+      },
+      "charged-g3-prep-shared": {
+        "files": 11,
+        "tokenLines": 3935,
+        "physical": 6098,
+        "bytes": 223511
+      },
+      "charged": {
+        "files": 63,
+        "tokenLines": 23891,
+        "physical": 31465,
+        "bytes": 1157937
+      }
+    },
+    "ratios": [
+      {
+        "name": "frozen 146-file census",
+        "provenance": "docs/architecture/raptor3-evidence/g4.md, \"Census corrected\", 16:40 2026-09-16",
+        "engineTokenLines": 46021,
+        "withIntegrationTokenLines": 49887,
+        "engineTokenRatio": 0.3498,
+        "withIntegrationTokenRatio": 0.4
+      },
+      {
+        "name": "ff5e77ca5 charged-engine",
+        "provenance": "docs/architecture/raptor3-evidence/g4/qualified/support/source-cost.json (the tool's own classification while the old engine shipped)",
+        "engineTokenLines": 45570,
+        "physical": 59815,
+        "bytes": 2121028,
+        "engineTokenRatio": 0.3533,
+        "enginePhysicalRatio": 0.3461,
+        "engineByteRatio": 0.3672
+      },
+      {
+        "name": "3a291a59 src/query-engine minus the retired pattern/ experiment",
+        "provenance": "the plan's provisional navigation denominator",
+        "engineTokenLines": 47625,
+        "physical": 62149,
+        "bytes": 2197061,
+        "engineTokenRatio": 0.338,
+        "enginePhysicalRatio": 0.3331,
+        "engineByteRatio": 0.3545
+      }
+    ],
+    "frozenTargets": {
+      "productionTokenRatio": 0.6,
+      "productionPhysicalRatio": 0.7,
+      "engineGzipRatio": 0.75,
+      "everyPublicPostgresGzipRatio": 1,
+      "qualification": "Size targets require review on a miss, not automatic abandonment"
+    },
+    "units": [
+      {
+        "name": "R4",
+        "range": "cdd787ac8..61c745f49",
+        "resolved": {
+          "base": "cdd787ac8bbdb735535552dd5851a4758eb8789c",
+          "tip": "61c745f4900fbc3e9ae5d09f15026e4f85a61b41"
+        },
+        "files": 23,
+        "buckets": {
+          "non-production:other": {
+            "files": 1,
+            "added": 80,
+            "deleted": 7,
+            "paths": [
+              "CHANGELOG.md"
+            ]
+          },
+          "non-production:docs": {
+            "files": 18,
+            "added": 50095,
+            "deleted": 0,
+            "paths": [
+              "docs/architecture/raptor3-evidence/g4.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/README.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/biome-after.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/closure-final-index-dry-run.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/coverage-policy-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/docs-validate-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/falsifications.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/manifest-consumers-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/query-engine-structure-after.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/recount/recount.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/recount/recount.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/runs.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/size-run-r4.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/source-size-r4-bundle.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/source-size-r4.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r4/receipts/typecheck-after.log",
+              "docs/content/docs/drivers/index.mdx"
+            ]
+          },
+          "non-production:scripts": {
+            "files": 3,
+            "added": 801,
+            "deleted": 0,
+            "paths": [
+              "scripts/closure-final-index.mjs",
+              "scripts/closure-final-recount.mjs",
+              "scripts/raptor3-manifest.mjs"
+            ]
+          },
+          "non-production:tests": {
+            "files": 1,
+            "added": 242,
+            "deleted": 0,
+            "paths": [
+              "tests/raptor3/g4/parity/read-only-build-contract.test.ts"
+            ]
+          }
+        }
+      },
+      {
+        "name": "R2ab",
+        "range": "61c745f49..50ad4fac4",
+        "resolved": {
+          "base": "61c745f4900fbc3e9ae5d09f15026e4f85a61b41",
+          "tip": "50ad4fac45c4f6f0215a6cf4f79bc11b472860f9"
+        },
+        "files": 66,
+        "buckets": {
+          "non-production:docs": {
+            "files": 49,
+            "added": 5303,
+            "deleted": 0,
+            "paths": [
+              "docs/architecture/raptor3-evidence/g4.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/enum-default.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/enum-list.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/enum.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/generated-defaults.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/minimal.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/relation.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/scalars.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/string-default.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/before/unique.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/falsification-base.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/mysql-default-rules.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/mysql2-r2a-probe.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/mysql2-relations-ddl-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/mysql2-scalars-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/mysql2-schema-attestation-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/mysql2-writes-raw-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/repair-deparse-measurements.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/repair-falsification-pre-repair.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/repair-mysql2-schema-attestation-after.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/runs.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/biome-query-ts.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/falsification-member-base.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/falsification-ordering-base.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/decimal-list-defaults-mysql-docker.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/decimal-wide-arithmetic-docker.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/diff-vs-m1.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql-strict-mode-docker.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2-cascaded-identity.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2-generated-key.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2-read-surface.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2-relations-ddl.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2-scalars.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2-schema-attestation.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2-writes-raw.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/lane-after/mysql2.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/mysql2-after-cells.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/create-many-traffic.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/datetime-list.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/ordered-include.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/other-members.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/probe-create-many-traffic.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/probe-other-members.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/probe-repaired-sql.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/probes/repaired-sql.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/runs.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/receipts/typecheck.log"
+            ]
+          },
+          "excluded-shared-boundary": {
+            "files": 6,
+            "added": 202,
+            "deleted": 89,
+            "paths": [
+              "src/adapters/database-adapter.ts",
+              "src/migrations/drivers/base.ts",
+              "src/migrations/drivers/mysql/index.ts",
+              "src/migrations/drivers/mysql/introspect.ts",
+              "src/migrations/drivers/type-mapping.ts",
+              "src/migrations/push-v1.ts"
+            ]
+          },
+          "removed-or-unclassified-production": {
+            "files": 2,
+            "added": 57,
+            "deleted": 0,
+            "paths": [
+              "src/migrations/AGENTS.md",
+              "src/query-engine/raptor3/AGENTS.md"
+            ]
+          },
+          "charged-engine": {
+            "files": 1,
+            "added": 24,
+            "deleted": 3,
+            "paths": [
+              "src/query-engine/raptor3/shared/query.ts"
+            ]
+          },
+          "non-production:tests": {
+            "files": 8,
+            "added": 508,
+            "deleted": 90,
+            "paths": [
+              "tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts",
+              "tests/contracts/drivers/behaviors/list-json-filter-behavior.ts",
+              "tests/contracts/drivers/behaviors/ordering-array-create-behavior.ts",
+              "tests/providers/docker/mysql2-schema-attestation.test.ts",
+              "tests/providers/docker/mysql2.test.ts",
+              "tests/unit/migrations/ddl-drivers.core.test.ts",
+              "tests/unit/migrations/decimal-list-defaults.core.test.ts",
+              "tests/unit/migrations/mysql-provider-free-catalog.core.test.ts"
+            ]
+          }
+        }
+      },
+      {
+        "name": "R2c",
+        "range": "50ad4fac4..7a1e9b0e2",
+        "resolved": {
+          "base": "50ad4fac45c4f6f0215a6cf4f79bc11b472860f9",
+          "tip": "7a1e9b0e2c8b3c58c8583932b5203e1f8f930082"
+        },
+        "files": 68,
+        "buckets": {
+          "non-production:docs": {
+            "files": 61,
+            "added": 5258,
+            "deleted": 0,
+            "paths": [
+              "docs/architecture/raptor3-evidence/g4.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-four-cells.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-interleavings.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-junction-upsert-probe.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-m8-race-retry.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-mysql2-main.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-nwc-to-one.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-pglite-nested-writes.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-shared-pk-coc.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-writes-raw-full.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/after-writes-raw-full2.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/base-competing-upserts.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/base-createmany-fold.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/base-mysql2-main.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/base-namespace-containment.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/census.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/engine-repair.patch",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/full-tracked-diff.patch",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/genlog-cell1-all.tsv",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/genlog-cell1.tsv",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/genlog-cell4-all.tsv",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/harness/genlog.mjs",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/harness/genlog2.mjs",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/harness/mysqlx.mjs",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/harness/schedule.mjs",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/harness/schedule2.mjs",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/policy-diag.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/policy-diag2.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/policy-falsified.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/policy-final.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/policy-run1.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/policy-run2.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-biome.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-cascaded-identity.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-census.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-fixture-falsified.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-four-cells.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-full-tracked-diff.patch",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-junction-upsert-probe.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-m8-race-retry.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-mysql2-concurrency-policy.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-mysql2-main.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-nwc-to-one.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-pglite-nested-writes.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-policy-after-sibling.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-policy-final.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-policy-restored.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-shared-pk-coc.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-structure-after.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-typecheck.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/r2-writes-raw-full.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/repro-cell1.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/repro-cell4.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/repro-four-cells.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/schedule-forupdate.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/schedule-found.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/schedule-nolock.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/structure-after.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/structure-before.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/receipts/typecheck.log"
+            ]
+          },
+          "removed-or-unclassified-production": {
+            "files": 1,
+            "added": 36,
+            "deleted": 0,
+            "paths": [
+              "src/query-engine/raptor3/AGENTS.md"
+            ]
+          },
+          "charged-engine": {
+            "files": 4,
+            "added": 73,
+            "deleted": 10,
+            "paths": [
+              "src/query-engine/raptor3/commands/commands.ts",
+              "src/query-engine/raptor3/commands/relation-body.ts",
+              "src/query-engine/raptor3/commands/selection.ts",
+              "src/query-engine/raptor3/shared/operation-context.ts"
+            ]
+          },
+          "non-production:tests": {
+            "files": 2,
+            "added": 721,
+            "deleted": 3,
+            "paths": [
+              "tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts",
+              "tests/providers/docker/mysql2-concurrency-policy.test.ts"
+            ]
+          }
+        }
+      },
+      {
+        "name": "R13",
+        "range": "7a1e9b0e2..5499cbed3",
+        "resolved": {
+          "base": "7a1e9b0e2c8b3c58c8583932b5203e1f8f930082",
+          "tip": "5499cbed31516989df2c73781447449ac25b765f"
+        },
+        "files": 60,
+        "buckets": {
+          "non-production:docs": {
+            "files": 47,
+            "added": 4168,
+            "deleted": 0,
+            "paths": [
+              "docs/architecture/raptor3-evidence/g4.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/after-green-reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/base-red-reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/biome.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/census-after.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/census-base.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/cs02-structure-measure-base.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/cs02-structure-measure.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/falsify-folded.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/falsify-stored.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/membership-pins-1.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/membership-pins-2.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/membership-pins-3.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/membership-pins-4.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/native-mysql2-reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/native-pg-reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/nested-write-conformance-fk.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/nested-write-conformance-membership.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/nested-write-conformance-to-one.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/parent-held-lookup.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/progress-probe.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/progress-probe.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/repair-green-reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/repair-typecheck.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/residual-probe.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/residual-probe.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/structure-after.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/structure-base.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r1/receipts/typecheck.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/biome.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/census-after.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/consumers-batch-captured-bulk-and-prepared-set.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/consumers-member-boundary-and-published-key.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/cs02-structure-measure.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/d58-fc05-outcome-pins.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/falsify-a-selector-dropped.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/falsify-b-identities-dropped.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/neighbour-family.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/nested-path-probe.test.ts.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/pg-captured-set-concurrency-final.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/pg-captured-set-concurrency-first-green.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/pg-fcpg-cells-under-d65.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/structure-after.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/structure-before.json",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r3/receipts/typecheck.log"
+            ]
+          },
+          "non-production:scripts": {
+            "files": 1,
+            "added": 1,
+            "deleted": 1,
+            "paths": [
+              "scripts/raptor3-manifest.mjs"
+            ]
+          },
+          "removed-or-unclassified-production": {
+            "files": 1,
+            "added": 77,
+            "deleted": 0,
+            "paths": [
+              "src/query-engine/raptor3/AGENTS.md"
+            ]
+          },
+          "charged-engine": {
+            "files": 6,
+            "added": 245,
+            "deleted": 112,
+            "paths": [
+              "src/query-engine/raptor3/commands/assignments.ts",
+              "src/query-engine/raptor3/commands/commands.ts",
+              "src/query-engine/raptor3/commands/execution.ts",
+              "src/query-engine/raptor3/commands/relation-body.ts",
+              "src/query-engine/raptor3/shared/operation-context.ts",
+              "src/query-engine/raptor3/shared/query.ts"
+            ]
+          },
+          "non-production:tests": {
+            "files": 5,
+            "added": 1315,
+            "deleted": 99,
+            "paths": [
+              "tests/providers/docker/mysql2-reference-representability.test.ts",
+              "tests/providers/docker/pg-captured-set-concurrency.test.ts",
+              "tests/providers/docker/pg-reference-representability.test.ts",
+              "tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts",
+              "tests/raptor3/g4/parity/reference-representability.test.ts"
+            ]
+          }
+        }
+      },
+      {
+        "name": "postwave",
+        "range": "5499cbed3..b5fde8c1e",
+        "resolved": {
+          "base": "5499cbed31516989df2c73781447449ac25b765f",
+          "tip": "b5fde8c1eec56992eaadd898c72e462a191151e5"
+        },
+        "files": 44,
+        "buckets": {
+          "non-production:other": {
+            "files": 1,
+            "added": 6,
+            "deleted": 13,
+            "paths": [
+              "CHANGELOG.md"
+            ]
+          },
+          "non-production:docs": {
+            "files": 34,
+            "added": 2610,
+            "deleted": 59,
+            "paths": [
+              "docs/architecture/raptor3-evidence/g4.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/integrated/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/after-green-concurrency-policy.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/base-red-child-held-coc.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/biome.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/census.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/child-held-to-one.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/falsify-selector-dropped.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/junction-upsert-probe.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/mysql-provider-free-catalog.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/mysql2-reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/mysql2-schema-attestation.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/mysql2-writes-raw.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/numstat.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/nwc-fk.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/nwc-membership.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/nwc-to-one.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/parent-held-lookup.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/pg-captured-set-concurrency.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/pg-captured-set-restored.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/pg-reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/pglite-nested-writes.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/postwave-tracked-diff.patch",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/reference-representability.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/shared-pk-coc.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/structure-after.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/structure-before.txt",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/postwave/receipts/typecheck.log",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/receipts/repair-deparse-measurements.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/note.md",
+              "docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/note.md",
+              "docs/content/docs/drivers/index.mdx"
+            ]
+          },
+          "removed-or-unclassified-production": {
+            "files": 2,
+            "added": 78,
+            "deleted": 25,
+            "paths": [
+              "src/migrations/AGENTS.md",
+              "src/query-engine/raptor3/AGENTS.md"
+            ]
+          },
+          "excluded-shared-boundary": {
+            "files": 1,
+            "added": 3,
+            "deleted": 3,
+            "paths": [
+              "src/migrations/drivers/mysql/introspect.ts"
+            ]
+          },
+          "charged-engine": {
+            "files": 2,
+            "added": 47,
+            "deleted": 10,
+            "paths": [
+              "src/query-engine/raptor3/commands/relation-body.ts",
+              "src/query-engine/raptor3/shared/query.ts"
+            ]
+          },
+          "non-production:tests": {
+            "files": 4,
+            "added": 388,
+            "deleted": 14,
+            "paths": [
+              "tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts",
+              "tests/providers/docker/mysql2-concurrency-policy.test.ts",
+              "tests/providers/docker/mysql2-schema-attestation.test.ts",
+              "tests/providers/docker/pg-captured-set-concurrency.test.ts"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

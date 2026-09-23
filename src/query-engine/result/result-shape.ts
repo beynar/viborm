@@ -7,9 +7,9 @@ import {
 } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { isRecord } from "@validation/value-guards";
 import { getDefaultScalarFieldNames } from "../context";
-import { getGroupByFields } from "../operations/groupby-fields";
 import {
   type AggregateResultName,
   DISTANCE_RESULT_KEY,
@@ -26,6 +26,7 @@ import {
   type Operation,
   QueryEngineError,
 } from "../types";
+import { getGroupByFields } from "./groupby-fields";
 
 const MODEL_ROW_OPERATIONS = new Set<Operation>([
   "findFirst",
@@ -39,6 +40,14 @@ const MODEL_ROW_OPERATIONS = new Set<Operation>([
   "deleteManyAndReturn",
   "upsert",
 ]);
+
+/**
+ * The registered sentence for the output key `_distance` claimed twice, stated
+ * once for both result views: this schema-only shape and Raptor 3's prepared
+ * projection (`raptor3/shared/query.ts`) raise it.
+ */
+export const DISTANCE_NAME_COLLISION =
+  "A distance result cannot be selected together with a model field named '_distance'.";
 
 const AGGREGATE_NAMES: readonly AggregateResultName[] = [
   "_count",
@@ -159,11 +168,6 @@ function buildModelShape(
     index
   );
 
-  if (hasDistance && selectedOutputKeys.has("_distance")) {
-    throw new QueryEngineError(
-      "A distance result cannot be selected together with a model field named '_distance'."
-    );
-  }
   addSelectedRelations(
     model,
     modelRelations,
@@ -181,6 +185,13 @@ function buildModelShape(
     selectedOutputKeys,
     index
   );
+  // The output key `_distance` has ONE producer: the distance, or a model
+  // field of that name — scalar or relation, selected or included. The guard
+  // sits after every producer has been gathered so an included relation named
+  // `_distance` is refused exactly as a selected one is.
+  if (hasDistance && selectedOutputKeys.has("_distance")) {
+    throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+  }
   const relationCountSelections = [
     getOwnValue(select, "_count"),
     getOwnValue(include, "_count"),
@@ -236,6 +247,16 @@ function buildModelShape(
 }
 
 /**
+ * The recurrence admission normalized onto this relation node. Admission
+ * (`validation/relations/recurrence.ts`) is its only producer, so the admitted
+ * value is read, never re-parsed; a node without `recurse` answers `undefined`.
+ */
+function admittedRecurrence(value: unknown): NormalizedRecurrence | undefined {
+  if (!isRecord(value)) return undefined;
+  return getOwnValue(value, "recurse") as NormalizedRecurrence | undefined;
+}
+
+/**
  * A negative nested `take` runs the relation subquery in reversed order with an
  * absolute limit; the rows therefore arrive last-first and the shape carries the
  * instruction to restore the logical order (top-level parity, `ReadOperation`).
@@ -272,11 +293,19 @@ function addSelectedRelations(
       index
     );
     const resolved = index.get(model)?.get(relationName);
+    const recurrence = admittedRecurrence(value);
+    // A recursive `_distance` slot whose repeated node selects a distance
+    // gives that node's key two producers (`Queries.relationShape` refuses
+    // the same pair for the engine).
+    if (recurrence && relationName === "_distance" && shape.distanceScalar) {
+      throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+    }
     relations.set(relationName, {
       model: targetModel,
       shape: pagesBackward(value) ? { ...shape, reversed: true } : shape,
       cardinality: relation["~"].state.cardinality,
       optional: resolved !== undefined && slotMayBeEmpty(resolved),
+      ...(recurrence ? { recurrence } : {}),
     });
   }
 }

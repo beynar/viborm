@@ -1,0 +1,5 @@
+dad9fe25d90a81f8912237063bfc6962f59cfd81757e8a2ee35609030d03c8ab  src/query-engine/raptor3/AGENTS.md
+654a27a2f8c59b5eaf0c3aa17dddce92b31adfad385220933355309dcb64592d  src/query-engine/raptor3/commands/assignments.ts
+38328088e4f3a5cea13723ff5dd0e3855ef7af5438b420d7818fa59816ef7bd6  src/query-engine/raptor3/shared/query.ts
+5b00a2d9347f3413f7766df18fa67558b0353fc4e572a06b98a66ff97d57c8c1  src/query-engine/raptor3/commands/relation-body.ts
+59487465e09dbdb6f2e68ddc717258b15bdf3f26980b177309d87b30a3607566  tests/raptor3/g4/unit02/nested-key-refusal.test.ts

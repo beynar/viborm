@@ -1,0 +1,127 @@
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -1092,13 +1092,17 @@ export class Commands {
+     }
+     const updateData = args.data;
+-    if (args.limit !== undefined || args.select || args.omit) {
+-      throw new UnsupportedOperationError(
+-        "Raptor 3 G3P-03 updateMany limit and returning are not implemented."
+-      );
+-    }
+     const relationBearing = model["~"].relationNames.some(
+       (name) => updateData[name] !== undefined
+     );
++    if (
++      args.limit !== undefined ||
++      raw.omit !== undefined ||
++      (args.select && !relationBearing)
++    ) {
++      throw new UnsupportedOperationError(
++        "Raptor 3 G3P-03 updateMany limit and returning are not implemented."
++      );
++    }
+     if (!relationBearing) {
+       return ctx.updateMany(
+         model,
+@@ -1119,8 +1122,10 @@ export class Commands {
+       mutation: { kind: "update", raw: raw.data },
+     };
+     const occurrence = this.analyzeSeries(series);
++    if (args.select)
++      return this.execution.series(occurrence, series.selection, args.select);
+     const count = await this.execution.series(occurrence);
+     await ctx.finish();
+     return { count };
+   }
+ }
+diff --git a/src/query-engine/raptor3/commands/execution.ts b/src/query-engine/raptor3/commands/execution.ts
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -563,10 +563,34 @@ export class CommandExecution {
+       ctx.queries.selectSeries(records[0]!.command.model, select, identities)
+     );
+   }
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    member?: Member,
++  ): Promise<number>;
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    member: Member,
++    select: Input,
++  ): Promise<Input[]>;
+   async series(
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+-    member: Member = occurrence.command.series.selection
+-  ): Promise<number> {
++    member: Member = occurrence.command.series.selection,
++    select?: Input,
++  ): Promise<number | Input[]> {
+     await this.captureSeries(occurrence, member);
+-    return this.executeSeries(occurrence);
++    const identities = select ? [] : undefined;
++    const count = await this.executeSeries(occurrence, identities);
++    if (!identities) return count;
++    if (identities.length === 0) {
++      await this.context.finish();
++      return [];
++    }
++    return this.context.finish(
++      this.context.queries.selectSeries(
++        occurrence.command.series.selection.model,
++        select,
++        identities,
++        "updateMany",
++      ),
++    );
+   }
+@@ -675,4 +699,5 @@ export class CommandExecution {
+   }
+   private async executeSeries(
+-    occurrence: CommandOccurrence<SeriesOccurrence>
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    identities?: Input[],
+   ): Promise<number> {
+@@ -698,5 +723,6 @@ export class CommandExecution {
+         await this.run(child);
+       }, command);
++      if (identities) identities.push(this.identity(command.fields));
+     }
+     return members.length;
+   }
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -527,6 +527,6 @@ export class OperationContext {
+         ? this.queries.decodeQuery(query, responses[resultIndex]!.rows)
+         : [];
+     } catch (error) {
+-      throw this.continuations.length ? this.failure(error, "result") : error;
++      throw this.failure(error, "result");
+     }
+   }
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -914,5 +914,10 @@ export class Queries {
+       shape: prepared.shape,
+     };
+   }
+-  selectSeries(model: AnyModel, select: Input, identities: Input[]): Query {
++  selectSeries(
++    model: AnyModel,
++    select: Input,
++    identities: Input[],
++    operation: "createMany" | "updateMany" = "createMany",
++  ): Query {
+     const alias = this.alias();
+@@ -936,5 +941,7 @@ export class Queries {
+       expectedRows: {
+         count: identities.length,
+         missing:
+-          "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.",
++          operation === "createMany"
++            ? "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls."
++            : "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
+       },

@@ -1,0 +1,11 @@
+measurementProtocolValid=false keepGate.eligible=false comparisonMode=semantic replicates=1
+baseline=e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0 source=0cc61e61f372945026b0b564fa643de67168c08e
+candidate=e6f9acc71ded960ca57d5bf6ee13dad94d335335
+protocolIdentity=6716a2229286205dac80b62ed962483ff26804f5580f614730be0d1fbd33089d
+NOTE: 2 measured iterations per sample. These numbers are infrastructure output, not a performance result.
+scalar-find-unique/prepare/cpu: Bcpu=174.5 Ncpu=195 seam=package/package preparedStatements=1/1 observedStatements=1/1
+scalar-find-unique/execute/cpu: Bcpu=21.5 Ncpu=25.5 seam=package/package preparedStatements=1/1 observedStatements=1/1
+scalar-find-unique/full/cpu: Bcpu=277.5 Ncpu=197.5 seam=package/package preparedStatements=1/1 observedStatements=1/1
+fixed-collection-rowref-20/prepare/cpu: Bcpu=333 Ncpu=189.5 seam=package/package preparedStatements=1/1 observedStatements=1/1
+fixed-collection-rowref-20/execute/cpu: Bcpu=56.5 Ncpu=57.5 seam=package/package preparedStatements=1/1 observedStatements=1/1
+fixed-collection-rowref-20/full/cpu: Bcpu=442 Ncpu=279 seam=package/package preparedStatements=1/1 observedStatements=1/1

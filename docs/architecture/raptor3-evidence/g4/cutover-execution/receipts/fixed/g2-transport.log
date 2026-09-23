@@ -1,0 +1,137 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g2-transport.test.ts (16 tests | 16 failed) 72ms
+   × G2 key-transition transport: scripted-returning-weak > publishes the final key and reference to the consumer 17ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected and completes a healthy later call 2ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected-after-commit and completes a healthy later call 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-weak > preserves consumer-malformed and completes a healthy later call 2ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-weak > queues both selected records and explores both first actors 2ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-weak > preserves two failed calls and a healthy third call 2ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-publication 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-attribution 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > publishes the final key and reference to the consumer 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected and completes a healthy later call 2ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected-after-commit and completes a healthy later call 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-malformed and completes a healthy later call 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > queues both selected records and explores both first actors 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > preserves two failed calls and a healthy third call 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-publication 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+   × G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-attribution 1ms
+     → The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 16 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > publishes the final key and reference to the consumer
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected-after-commit and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves consumer-malformed and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > queues both selected records and explores both first actors
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves two failed calls and a healthy third call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-publication
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-attribution
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > publishes the final key and reference to the consumer
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected-after-commit and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-malformed and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > queues both selected records and explores both first actors
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves two failed calls and a healthy third call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-publication
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-attribution
+AssertionError: The input did not match the regular expression /^INSERT\b/i. Input:
+
+'UPDATE "public"."g1_transport_accounts" SET "id" = $1, "code" = $2 WHERE "id" = $3'
+
+
+[32m- Expected:[39m 
+/^INSERT\b/i
+
+[31m+ Received:[39m 
+"UPDATE \"public\".\"g1_transport_accounts\" SET \"id\" = $1, \"code\" = $2 WHERE \"id\" = $3"
+
+ ❯ ScriptedTransport.answer tests/raptor3/transport/driver.ts:192:16
+    190|       for (const [index, query] of queries.entries()) {
+    191|         const statement = reply.statements[index]!;
+    192|         assert.match(query.sql, new RegExp(`^${statement.action}\\b`, …
+       |                ^
+    193|         if (query.context && !reply.allowsChildContexts)
+    194|           assert.equal(
+ ❯ ScriptedTransport.executeBatch tests/raptor3/transport/driver.ts:117:17
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:841:40
+ ❯ ScriptedTransport.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:20
+ ❯ executeNativeBatch src/drivers/driver-transaction-base.ts:890:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/16]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  16 failed (16)
+   Start at  21:11:00
+   Duration  1.79s (transform 963ms, setup 9ms, collect 1.50s, tests 72ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5rbSZN/vitest.json
+Vitest resources: 3.80s wall, 475.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5rbSZN

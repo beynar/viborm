@@ -1,0 +1,17 @@
+# git diff --numstat bc18b4e23 (after the repair round)
+21	0	AGENTS.md
+59	0	docs/architecture/raptor3-evidence/g4.md
+27	0	docs/architecture/raptor3-evidence/g4/release/closure-final/README.md
+52	0	docs/architecture/raptor3-evidence/g4/release/closure-final/release-verdict.md
+240	13	scripts/closure-final-index.mjs
+1	0	scripts/query-engine-test-manifest.mjs
+
+# untracked files this unit adds
+?? docs/architecture/raptor3-evidence/g4/release/closure-repair/
+?? scripts/closure-final-inventory.mjs
+?? tests/contracts/architecture/gate-inventory-census.core.test.ts
+
+# new files, line counts
+     639 scripts/closure-final-inventory.mjs
+      66 tests/contracts/architecture/gate-inventory-census.core.test.ts
+     705 total

@@ -1,0 +1,17 @@
+2026-09-20T17:36:43Z
+19:36  up 20 days, 19:16, 3 users, load averages: 9.76 8.83 7.91
+--- live vitest/tsc/tsdown/tinypool ---
+1199 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node /Users/arnaud/code/edytor/node_modules/.bin/../vitest/vitest.mjs --config ./vitest.crdt.config.ts --run
+1206 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node --experimental-import-meta-resolve --require /Users/arnaud/code/edytor/node_modules/.pnpm/vitest@4.1.2_@vitest+ui@4.1.2_jsdom@29.0.1_vite@8.0.3_@emnapi+core@1.9.2_@emnapi+runtime@1.9.2_jiti@2.6.1_yaml@2.8.0_/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development --conditions svelte /Users/arnaud/code/edytor/node_modules/.pnpm/vitest@4.1.2_@vitest+ui@4.1.2_jsdom@29.0.1_vite@8.0.3_@emnapi+core@1.9.2_@emnapi+runtime@1.9.2_jiti@2.6.1_yaml@2.8.0_/node_modules/vitest/dist/workers/forks.js
+1207 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node --experimental-import-meta-resolve --require /Users/arnaud/code/edytor/node_modules/.pnpm/vitest@4.1.2_@vitest+ui@4.1.2_jsdom@29.0.1_vite@8.0.3_@emnapi+core@1.9.2_@emnapi+runtime@1.9.2_jiti@2.6.1_yaml@2.8.0_/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development --conditions svelte /Users/arnaud/code/edytor/node_modules/.pnpm/vitest@4.1.2_@vitest+ui@4.1.2_jsdom@29.0.1_vite@8.0.3_@emnapi+core@1.9.2_@emnapi+runtime@1.9.2_jiti@2.6.1_yaml@2.8.0_/node_modules/vitest/dist/workers/forks.js
+51903 /Applications/Devin.app/Contents/Frameworks/Devin Helper (Plugin).app/Contents/MacOS/Devin Helper (Plugin) --max-old-space-size=3072 /Applications/Devin.app/Contents/Resources/app/extensions/node_modules/typescript/lib/tsserver.js --serverMode partialSemantic --useInferredProjectPerProjectRoot --disableAutomaticTypingAcquisition --cancellationPipeName /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/vscode-typescript501/fa671db2591c1573932e/tscancellation-6337aae396fd03c685f2.tmp* --locale en --noGetErrOnBackgroundUpdate --canUseWatchEvents --validateDefaultNpmLocation --useNodeIpc
+51904 /Applications/Devin.app/Contents/Frameworks/Devin Helper (Plugin).app/Contents/MacOS/Devin Helper (Plugin) --max-old-space-size=3072 /Applications/Devin.app/Contents/Resources/app/extensions/node_modules/typescript/lib/tsserver.js --useInferredProjectPerProjectRoot --enableTelemetry --cancellationPipeName /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/vscode-typescript501/fa671db2591c1573932e/tscancellation-af0fe892c11d4775b279.tmp* --locale en --noGetErrOnBackgroundUpdate --canUseWatchEvents --validateDefaultNpmLocation --useNodeIpc
+--- lock files under /private/tmp/viborm-*-tmp* ---
+/private/tmp/viborm-perf-tmp/viborm-test-c33ebb4c906dfea8.lock
+--- top cpu ---
+ %CPU    RSS COMM
+205.8 477264 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node
+114.6 495184 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node
+ 97.0 901760 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node
+ 73.2  47856 /usr/libexec/sysmond
+ 69.7 150944 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer

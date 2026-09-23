@@ -1,0 +1,187 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine at a JUNCTION and a to-ONE edge, both arms
+AGREE  junction upsert, target PRESENT, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine at a JUNCTION and a to-ONE edge, both arms
+AGREE  junction upsert, target ABSENT, int key set+increment
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"},{"id":99,"name":"fresh"}],"links":[{"ownerId":1,"tagId":20},{"ownerId":1,"tagId":99}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"},{"id":99,"name":"fresh"}],"links":[{"ownerId":1,"tagId":20},{"ownerId":1,"tagId":99}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine at a JUNCTION and a to-ONE edge, both arms
+AGREE  to-one upsert, target PRESENT, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine at a JUNCTION and a to-ONE edge, both arms
+AGREE  to-one upsert, target ABSENT (owner 2 has no profile)
+    shipped   {"answer":"ok:{\"id\":2,\"label\":\"o2\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1},{"id":31,"nick":"fresh","ownerId":2}]}
+    candidate {"answer":"ok:{\"id\":2,\"label\":\"o2\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1},{"id":31,"nick":"fresh","ownerId":2}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine when one request carries BOTH arms
+AGREE  two members, ABSENT first then PRESENT (refusal must unwind)
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine when one request carries BOTH arms
+AGREE  two members, PRESENT first then ABSENT
+    shipped   {"answer":"NestedWriteError: Nested operation 'upsert' on relation 'items' depends on an earlier 'upsert' target write in the same nested write. Split these operations into separate queries.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"NestedWriteError: Nested operation 'upsert' on relation 'items' depends on an earlier 'upsert' target write in the same nested write. Split these operations into separate queries.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine when one request carries BOTH arms
+AGREE  two ABSENT members, both refusable payloads (both create)
+    shipped   {"answer":"NestedWriteError: Nested operation 'upsert' on relation 'items' depends on an earlier 'upsert' target write in the same nested write. Split these operations into separate queries.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"NestedWriteError: Nested operation 'upsert' on relation 'items' depends on an earlier 'upsert' target write in the same nested write. Split these operations into separate queries.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine's sentence when TWO refusals compete on one arm
+AGREE  PRESENT target, relation key non-literal AND key arity violated
+    shipped   {"answer":"ValidationError: Validation failed for update: Value did not match any union member: Expected object, Unknown key: ownerId","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"ValidationError: Validation failed for update: Value did not match any union member: Expected object, Unknown key: ownerId","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine's sentence when TWO refusals compete on one arm
+AGREE  PRESENT target, relation key non-literal ALONE
+    shipped   {"answer":"ValidationError: Validation failed for update: Value did not match any union member: Expected object, Unknown key: ownerId","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"ValidationError: Validation failed for update: Value did not match any union member: Expected object, Unknown key: ownerId","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine's sentence when TWO refusals compete on one arm
+AGREE  ABSENT target, relation key non-literal AND key arity violated
+    shipped   {"answer":"ValidationError: Validation failed for update: Value did not match any union member: Expected object, Unknown key: ownerId","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"ValidationError: Validation failed for update: Value did not match any union member: Expected object, Unknown key: ownerId","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine's sentence when TWO refusals compete on one arm
+AGREE  PRESENT target, arity NONE (`{}`) on the key
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine's sentence when TWO refusals compete on one arm
+AGREE  ABSENT target, arity NONE (`{}`) on the key
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":11,"name":"j","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"tags":[{"id":20,"name":"t"}],"links":[{"ownerId":1,"tagId":20}],"profiles":[{"id":30,"nick":"p","ownerId":1}]}
+
+ ✓ |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts (3 tests) 162ms
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AGREE  nested upsert, target ABSENT, int key set+increment
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AGREE  nested upsert, target ABSENT, number key increment
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AGREE  nested upsert, target PRESENT, int key set+increment (control)
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+AGREE  nested updateMany, where matches NOTHING, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+AGREE  nested update, target ABSENT, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+AGREE  nested updateMany, where matches NOTHING, number key increment
+    shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, relation-free update, int key set+increment
+    shipped   {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, relation-free update, number key increment
+    shipped   {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, update NAMES a relation, int key set+increment
+    shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+ ✓ |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts (3 tests) 87ms
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers what the deleted inline predicate answered on every admitted scalar domain
+AGREE   null: before=null now=null
+AGREE   undefined: before=undefined now=undefined
+AGREE   number: before=7 now=7
+AGREE   bigint: before=7 now=7
+AGREE   string: before=seven now=seven
+AGREE   boolean: before=true now=true
+AGREE   Uint8Array: before=Uint8Array {"0":1,"1":2,"2":3} now=Uint8Array {"0":1,"1":2,"2":3}
+AGREE   Date: before=Date "1970-01-01T00:00:00.000Z" now=Date "1970-01-01T00:00:00.000Z"
+AGREE   Decimal: before=Decimal "1.25" now=Decimal "1.25"
+AGREE   array: before=Array [1,2] now=Array [1,2]
+AGREE   array of Uint8Array: before=Array [{"0":1}] now=Array [{"0":1}]
+AGREE   Map: before=Map {} now=Map {}
+AGREE   Set: before=Set {} now=Set {}
+AGREE   Sql: before=Sql {"rawStrings":["1"],"rawValues":[]} now=Sql {"rawStrings":["1"],"rawValues":[]}
+AGREE   plain {set}: before=5 now=5
+AGREE   plain {set:null}: before=null now=null
+AGREE   plain {set:undefined}: before=undefined now=undefined
+AGREE   plain {increment}: before=Object {"increment":5} now=Object {"increment":5}
+AGREE   plain {set,increment}: before=5 now=5
+AGREE   plain {}: before=Object {} now=Object {}
+AGREE   null-prototype {set}: before=3 now=3
+AGREE   null-prototype {increment}: before=[null-proto] {"increment":3} now=[null-proto] {"increment":3}
+DIFFER  class instance with OWN set: before=7 now=OwnSet {"set":7}
+AGREE   class instance with INHERITED set: before=Inherited {} now=Inherited {}
+AGREE   function: before=() => 1 now=() => 1
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   blob update with a bare Uint8Array
+    shipped   ok:{"id":1,"name":"a","payload":{"0":9,"1":9}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[9,9]}}]
+    candidate ok:{"id":1,"name":"a","payload":{"0":9,"1":9}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[9,9]}}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   blob update with {set: Uint8Array}
+    shipped   ok:{"id":1,"name":"a","payload":{"0":8}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[8]}}]
+    candidate ok:{"id":1,"name":"a","payload":{"0":8}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[8]}}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   key update with {set}
+    shipped   ok:{"id":42,"name":"a","payload":null} | rows=[{"id":42,"name":"a","payload":null}]
+    candidate ok:{"id":42,"name":"a","payload":null} | rows=[{"id":42,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   key update with {increment}
+    shipped   ok:{"id":6,"name":"a","payload":null} | rows=[{"id":6,"name":"a","payload":null}]
+    candidate ok:{"id":6,"name":"a","payload":null} | rows=[{"id":6,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root update, non-key field names nothing
+    shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+    candidate ValidationError: Validation failed for update: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root upsert (relation-free), non-key field names nothing
+    shipped   ValidationError: Validation failed for upsert: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+    candidate ValidationError: Validation failed for upsert: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root upsert (relation-free), key names nothing
+    shipped   QueryEngineError: Unknown update operation:  | rows=[{"id":1,"name":"a","payload":null}]
+    candidate QueryEngineError: Unknown update operation:  | rows=[{"id":1,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root update, blob field names nothing
+    shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected Uint8Array, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+    candidate ValidationError: Validation failed for update: Value did not match any union member: Expected Uint8Array, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+
+ ✓ |g4-review-freeze| tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts (3 tests) 27ms
+ ↓ |g4-review-freeze| tests/raptor3/g4/review/freeze/native-nested-refusal-pg.review.test.ts (3 tests | 3 skipped)
+
+ Test Files  3 passed | 1 skipped (4)
+      Tests  9 passed | 3 skipped (12)
+   Start at  19:55:51
+   Duration  3.60s (transform 1.82s, setup 14ms, collect 3.11s, tests 276ms, environment 0ms, prepare 41ms)
+
+Vitest resources: 4.25s wall, 622.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

@@ -1,0 +1,34 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests | 3 failed) 179ms
+   × G4-02 native MySQL key arithmetic > names an int key under multiply exactly as the shipped engine does 102ms
+     → Raptor 3 cannot name the updated value of 'row.id' under 'multiply': the provider owns that operator's rounding inside its own assignment.
+   × G4-02 native MySQL key arithmetic > names an int key under divide with a non-exact quotient exactly as the shipped engine does 19ms
+     → Raptor 3 cannot name the updated value of 'row.id' under 'divide': the provider owns that operator's rounding inside its own assignment.
+   × G4-02 native MySQL key arithmetic > names an int key under divide with an exact quotient exactly as the shipped engine does 22ms
+     → Raptor 3 cannot name the updated value of 'row.id' under 'divide': the provider owns that operator's rounding inside its own assignment.
+   ✓ G4-02 native MySQL key arithmetic > names an int key under increment exactly as the shipped engine does 20ms
+   ✓ G4-02 native MySQL key arithmetic > names an int key under decrement exactly as the shipped engine does 16ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts > G4-02 native MySQL key arithmetic > names an int key under multiply exactly as the shipped engine does
+QueryEngineError: Raptor 3 cannot name the updated value of 'row.id' under 'multiply': the provider owns that operator's rounding inside its own assignment.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts > G4-02 native MySQL key arithmetic > names an int key under divide with a non-exact quotient exactly as the shipped engine does
+QueryEngineError: Raptor 3 cannot name the updated value of 'row.id' under 'divide': the provider owns that operator's rounding inside its own assignment.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts > G4-02 native MySQL key arithmetic > names an int key under divide with an exact quotient exactly as the shipped engine does
+QueryEngineError: Raptor 3 cannot name the updated value of 'row.id' under 'divide': the provider owns that operator's rounding inside its own assignment.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 2 passed (5)
+   Start at  09:31:13
+   Duration  2.06s (transform 1.19s, setup 10ms, collect 1.74s, tests 179ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 2.63s wall, 482.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

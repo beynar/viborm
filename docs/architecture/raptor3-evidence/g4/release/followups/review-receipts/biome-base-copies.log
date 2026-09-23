@@ -1,0 +1,317 @@
+src/query-engine/raptor3/commands/__review_base_relation_body.ts:874:40 lint/correctness/noUnusedVariables ━━━━━━━━━━
+
+  i This variable conditionalTarget is unused.
+  
+    872 │     }
+    873 │     if (conditionalParentBinding && conditionalFound) {
+  > 874 │       const { edge: reference, target: conditionalTarget } =
+        │                                        ^^^^^^^^^^^^^^^^^
+    875 │         conditionalParentBinding;
+    876 │       const contribution = origin
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs:2:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+    1 │ /** Read-only source accounting; optional in-memory bundles, never candidate code. */
+  > 2 │ import { execFileSync } from "node:child_process";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3 │ import { createHash } from "node:crypto";
+    4 │ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      9   9 │   import { gzipSync } from "node:zlib";
+     10  10 │   import ts from "typescript";
+     11     │ - import·{·calibrationSourceIdentity·}·from·"../benchmarks/operation-pipeline-semantics.mjs";
+     12     │ - import·{
+     13     │ - ··RAPTOR3_WORKLOADS,
+     14     │ - ··RAPTOR3_WORKLOAD_VERSION,
+     15     │ - ··WORKLOADS,
+     16     │ - }·from·"../benchmarks/operation-pipeline-catalog.mjs";
+         11 │ + import·{
+         12 │ + ··RAPTOR3_WORKLOAD_VERSION,
+         13 │ + ··RAPTOR3_WORKLOADS,
+         14 │ + ··WORKLOADS,
+         15 │ + }·from·"../benchmarks/operation-pipeline-catalog.mjs";
+         16 │ + import·{·calibrationSourceIdentity·}·from·"../benchmarks/operation-pipeline-semantics.mjs";
+     17  17 │   
+     18  18 │   const root = resolve(import.meta.dirname, "..");
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs:164:7 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    162 │       return [];
+    163 │     if (
+  > 164 │       !statement.moduleSpecifier ||
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 165 │       !ts.isStringLiteral(statement.moduleSpecifier)
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    166 │     )
+    167 │       return [];
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    162 162 │         return [];
+    163 163 │       if (
+    164     │ - ······!statement.moduleSpecifier·||
+    165     │ - ······!ts.isStringLiteral(statement.moduleSpecifier)
+        164 │ + ······!(statement.moduleSpecifier·&&ts.isStringLiteral(statement.moduleSpecifier))
+    166 165 │       )
+    167 166 │         return [];
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs:407:29 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    405 │   },
+    406 │   preAuditForecast: {
+  > 407 │     wholeEngineTokenLines: [20200, 31000],
+        │                             ^^^^^
+    408 │     s1ThroughS4TokenLines: [4100, 6650],
+    409 │     provisionalNavigationDenominator: 47625,
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+    405 405 │     },
+    406 406 │     preAuditForecast: {
+    407     │ - ····wholeEngineTokenLines:·[20200,·31000],
+        407 │ + ····wholeEngineTokenLines:·[20_200,·31000],
+    408 408 │       s1ThroughS4TokenLines: [4100, 6650],
+    409 409 │       provisionalNavigationDenominator: 47625,
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs:407:36 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    405 │   },
+    406 │   preAuditForecast: {
+  > 407 │     wholeEngineTokenLines: [20200, 31000],
+        │                                    ^^^^^
+    408 │     s1ThroughS4TokenLines: [4100, 6650],
+    409 │     provisionalNavigationDenominator: 47625,
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+    405 405 │     },
+    406 406 │     preAuditForecast: {
+    407     │ - ····wholeEngineTokenLines:·[20200,·31000],
+        407 │ + ····wholeEngineTokenLines:·[20200,·31_000],
+    408 408 │       s1ThroughS4TokenLines: [4100, 6650],
+    409 409 │       provisionalNavigationDenominator: 47625,
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs:409:39 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    407 │     wholeEngineTokenLines: [20200, 31000],
+    408 │     s1ThroughS4TokenLines: [4100, 6650],
+  > 409 │     provisionalNavigationDenominator: 47625,
+        │                                       ^^^^^
+    410 │     qualification:
+    411 │       "Preimplementation prediction retained unchanged, not a candidate measurement",
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+    407 407 │       wholeEngineTokenLines: [20200, 31000],
+    408 408 │       s1ThroughS4TokenLines: [4100, 6650],
+    409     │ - ····provisionalNavigationDenominator:·47625,
+        409 │ + ····provisionalNavigationDenominator:·47_625,
+    410 410 │       qualification:
+    411 411 │         "Preimplementation prediction retained unchanged, not a candidate measurement",
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs:447:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    445 │     ),
+    446 │     ...list(resolve(root, "scripts"), ".mjs").filter((file) =>
+  > 447 │       /raptor3/.test(file)
+        │       ^^^^^^^^^
+    448 │     ),
+    449 │   ].map((absolute) => {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs:554:51 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    552 │       if (module && ts.isStringLiteral(module) && module.text.startsWith(".")) {
+    553 │         visitDeclaration(
+  > 554 │           resolve(file, "..", module.text.replace(/\.mjs$/, ".d.mts"))
+        │                                                   ^^^^^^^^
+    555 │         );
+    556 │       }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/__review_base_measure_raptor3_baseline.mjs lint/style/useFilenamingConvention ━━━━━━━━━━━━━━
+
+  × The filename trimmed as `review_base_measure_raptor3_baseline` should be in kebab-case.
+  
+  i The filename could be renamed to one of the following names:
+    __review-base-measure-raptor3-baseline.mjs
+  
+
+src/query-engine/raptor3/commands/__review_base_relation_body.ts:83:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    81 │   private readonly hasSupply: boolean;
+    82 │   constructor(
+  > 83 │     private readonly commands: Commands,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    84 │     private readonly parent: RecordCommand,
+    85 │     private readonly slot: ResolvedSlot,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/__review_base_relation_body.ts:84:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    82 │   constructor(
+    83 │     private readonly commands: Commands,
+  > 84 │     private readonly parent: RecordCommand,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    85 │     private readonly slot: ResolvedSlot,
+    86 │     private readonly admitted: Input,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/__review_base_relation_body.ts:85:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    83 │     private readonly commands: Commands,
+    84 │     private readonly parent: RecordCommand,
+  > 85 │     private readonly slot: ResolvedSlot,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    86 │     private readonly admitted: Input,
+    87 │     private readonly raw: Input
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/__review_base_relation_body.ts:86:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    84 │     private readonly parent: RecordCommand,
+    85 │     private readonly slot: ResolvedSlot,
+  > 86 │     private readonly admitted: Input,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    87 │     private readonly raw: Input
+    88 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/__review_base_relation_body.ts:87:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    85 │     private readonly slot: ResolvedSlot,
+    86 │     private readonly admitted: Input,
+  > 87 │     private readonly raw: Input
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    88 │   ) {
+    89 │     this.direct =
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/__review_base_relation_body.ts lint/style/useFilenamingConvention ━━━━━━━━━━
+
+  × The filename trimmed as `review_base_relation_body` should be in kebab-case.
+  
+  i The filename could be renamed to one of the following names:
+    __review-base-relation-body.ts
+  
+
+src/query-engine/raptor3/shared/__review_base_schema.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { DatabaseAdapter } from "@adapters/database-adapter";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { AnyDriver } from "@drivers";
+    3 │ import { QueryEngineError } from "@errors";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      8   8 │     type ClearableMembership,
+      9   9 │   } from "@schema/relation/clearability";
+     10     │ - import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     11     │ - import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+         10 │ + import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+         11 │ + import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     12  12 │   import { createResolvedSchemaRegistry } from "@validation/builder";
+     13  13 │   import { isRecord } from "@validation/value-guards";
+  
+
+src/query-engine/raptor3/shared/__review_base_schema.ts:183:15 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    181 │     ClearableMembership
+    182 │   >();
+  > 183 │   constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^
+    184 │     if (resolved) {
+    185 │       this.index = resolved.index;
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/__review_base_schema.ts lint/style/useFilenamingConvention ━━━━━━━━━━
+
+  × The filename trimmed as `review_base_schema` should be in kebab-case.
+  
+  i The filename could be renamed to one of the following names:
+    __review-base-schema.ts
+  
+
+src/query-engine/raptor3/shared/__review_base_schema.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    181 181 │       ClearableMembership
+    182 182 │     >();
+    183     │ - ··constructor(readonly·schema:·Schema,·resolved?:·ResolvedSchemaViews)·{
+        183 │ + ··constructor(
+        184 │ + ····readonly·schema:·Schema,
+        185 │ + ····resolved?:·ResolvedSchemaViews
+        186 │ + ··)·{
+    184 187 │       if (resolved) {
+    185 188 │         this.index = resolved.index;
+  
+
+Checked 3 files in 13ms. No fixes applied.
+Found 18 errors.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

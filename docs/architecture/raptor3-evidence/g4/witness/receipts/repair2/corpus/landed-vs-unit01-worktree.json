@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-09-15T06:34:08.188Z",
+  "source": "/private/tmp/viborm-g4-unit01/tests/raptor3/g4",
+  "files": 43,
+  "identical": 42,
+  "differing": [
+    {
+      "path": "tests/raptor3/g4/review/unit01-followup2/cursor-refusal.test.ts",
+      "worktree": {
+        "bytes": 1574,
+        "sha256": "a1d4d3f021df344b9f85772921ac6bbfe367896a7c56f9443d82d1b04f10f14b"
+      },
+      "landed": {
+        "bytes": 1670,
+        "sha256": "06f7d9ce39aa9065a6a2214bc3033cd38bafe7456d5d26b3f6993e1cb42cf9ad"
+      },
+      "identical": false
+    }
+  ]
+}

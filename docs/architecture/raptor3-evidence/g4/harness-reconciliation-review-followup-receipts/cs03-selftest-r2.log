@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 268ms
+
+ Test Files  1 passed (1)
+      Tests  42 passed (42)
+   Start at  14:55:57
+   Duration  2.09s (transform 1.14s, setup 8ms, collect 1.68s, tests 268ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 4.12s wall, 671.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

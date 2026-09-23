@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (9 tests) 14ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  21:22:42
+   Duration  1.19s (transform 693ms, setup 9ms, collect 1.05s, tests 14ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.21s wall, 450.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

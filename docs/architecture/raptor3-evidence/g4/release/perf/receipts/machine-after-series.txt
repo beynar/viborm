@@ -1,0 +1,9 @@
+2026-09-20T16:40:54Z
+18:40  up 20 days, 18:21, 3 users, load averages: 10.52 9.65 8.93
+--- top cpu ---
+ %CPU    RSS COMM
+ 85.3  47888 /usr/libexec/sysmond
+ 62.1 189200 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 34.0 2355008 /Applications/Devin.app/Contents/Frameworks/Devin Helper (Renderer).app/Contents/MacOS/Devin Helper (Renderer)
+ 26.2  10576 /usr/bin/top
+ 26.1  78464 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper

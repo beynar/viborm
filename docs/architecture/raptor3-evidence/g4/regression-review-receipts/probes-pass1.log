@@ -1,0 +1,434 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (6 tests | 3 failed) 86ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P1 root update rejected before dispatch 44ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P2 nested write inside a root create rejected before dispatch 11ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P3 an array member rejected before dispatch 6ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P4 a relation-free createMany series rejected before dispatch 12ms
+     → P4 {
+  "shipped": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany"
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  },
+  "candidate": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany",
+        "statementIndex": 0
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'createMany',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+   × G4 regression review — neighbouring uncertain-outcome shapes > P5 a relation-free updateMany rejected before dispatch 7ms
+     → P5 {
+  "shipped": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany"
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  },
+  "candidate": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany",
+        "statementIndex": 0
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'updateMany',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+   × G4 regression review — neighbouring uncertain-outcome shapes > P6 a relation-free deleteMany rejected before dispatch 5ms
+     → P6 {
+  "shipped": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany"
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  },
+  "candidate": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany",
+        "statementIndex": 0
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'deleteMany',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P4 a relation-free createMany series rejected before dispatch
+AssertionError: P4 {
+  "shipped": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany"
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  },
+  "candidate": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "createMany",
+        "statementIndex": 0
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'createMany',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,10 +3,11 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "createMany",[22m
+[31m+       "statementIndex": 0,[39m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "notes": [],[22m
+[2m    "owners": [[22m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:205:12
+    203|       })
+    204|     );
+    205|     assert.deepEqual(
+       |            ^
+    206|       candidate,
+    207|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P5 a relation-free updateMany rejected before dispatch
+AssertionError: P5 {
+  "shipped": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany"
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  },
+  "candidate": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "updateMany",
+        "statementIndex": 0
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'updateMany',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,10 +3,11 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "updateMany",[22m
+[31m+       "statementIndex": 0,[39m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "notes": [],[22m
+[2m    "owners": [[22m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:219:12
+    217|       })
+    218|     );
+    219|     assert.deepEqual(
+       |            ^
+    220|       candidate,
+    221|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P6 a relation-free deleteMany rejected before dispatch
+AssertionError: P6 {
+  "shipped": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany"
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  },
+  "candidate": {
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "deleteMany",
+        "statementIndex": 0
+      }
+    },
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ],
+    "notes": []
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'deleteMany',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+    owners: [
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,10 +3,11 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "deleteMany",[22m
+[31m+       "statementIndex": 0,[39m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "notes": [],[22m
+[2m    "owners": [[22m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:230:12
+    228|       world.client.owner.deleteMany({ where: { id: 7 } })
+    229|     );
+    230|     assert.deepEqual(
+       |            ^
+    231|       candidate,
+    232|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+   Start at  21:42:03
+   Duration  3.16s (transform 1.98s, setup 0ms, collect 2.82s, tests 86ms, environment 0ms, prepare 65ms)
+
+Vitest resources: 3.83s wall, 463.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

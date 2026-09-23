@@ -1,0 +1,9 @@
+{
+ "rootCount": 2,
+ "totalDirs": 140,
+ "totalFiles": 0,
+ "roots": [
+  "scripts/raptor3-manifest.mjs\nsrc",
+  "src/adapters/database-adapter.ts\nsrc"
+ ]
+}

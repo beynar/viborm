@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-admission.core.test.ts (75 tests) 53ms
+
+ Test Files  1 passed (1)
+      Tests  75 passed (75)
+   Start at  13:12:02
+   Duration  2.08s (transform 946ms, setup 14ms, collect 1.43s, tests 53ms, environment 0ms, prepare 73ms)
+
+Vitest resources: 4.77s wall, 452.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

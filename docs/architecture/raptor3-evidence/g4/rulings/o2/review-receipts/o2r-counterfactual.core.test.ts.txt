@@ -1,0 +1,208 @@
+/**
+ * D-40 REVIEW COUNTERFACTUAL — removed once its receipt is taken.
+ *
+ * The author's F2 claims the two keys the deleted MySQL leg dealt in fail
+ * closed "exactly as they did before the deletion", and calls that mechanism
+ * rather than measurement. This measures it: the deleted leg reconstructed
+ * verbatim from `383f830c`, installed above the shipped pass-through on a
+ * scripted transport carrying the real `MySQLAdapter`, against the same rows.
+ */
+
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { createClient } from "@client/client";
+import { type Dialect, Driver } from "@drivers";
+import { hydrateSchemaNames, s } from "@schema";
+import { beforeAll, describe, test } from "vitest";
+
+// ---- verbatim from 383f830c src/adapters/shared/result-parsing.ts ----------
+const COUNT_RESULT_KEY = "0viborm_count_result" as const;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+function extractCountValue(row: Record<string, unknown>): unknown | undefined {
+  const entries = Object.entries(row);
+  if (entries.length !== 1) return undefined;
+  for (const [key, value] of entries) {
+    if (key === COUNT_RESULT_KEY || key.toLowerCase().startsWith("count(")) {
+      return value;
+    }
+  }
+  return undefined;
+}
+function normalizeCountResult(
+  raw: unknown
+): [{ [COUNT_RESULT_KEY]: unknown }] | undefined {
+  if (Array.isArray(raw) && raw.length === 1) {
+    const firstRow = raw[0];
+    if (isRecord(firstRow)) {
+      const countValue = extractCountValue(firstRow);
+      if (countValue !== undefined) return [{ [COUNT_RESULT_KEY]: countValue }];
+    }
+  }
+  if (isRecord(raw)) {
+    const countValue = extractCountValue(raw);
+    if (countValue !== undefined) return [{ [COUNT_RESULT_KEY]: countValue }];
+  }
+  return undefined;
+}
+function convertBigIntToNumber(value: unknown): number | undefined {
+  if (typeof value === "bigint") return Number(value);
+  return undefined;
+}
+// ---------------------------------------------------------------------------
+
+class ScriptedDriver extends Driver<null, null> {
+  readonly adapter: DatabaseAdapter;
+  private readonly rows: Record<string, unknown>[];
+  constructor(
+    rows: Record<string, unknown>[],
+    dialect: Dialect,
+    adapter: DatabaseAdapter
+  ) {
+    super(dialect, "scripted");
+    this.rows = rows;
+    this.adapter = adapter;
+  }
+  protected async initClient() {
+    return null;
+  }
+  protected async closeClient() {
+    // nothing
+  }
+  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: this.rows as T[], rowCount: this.rows.length };
+  }
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    return { rows: [], rowCount: 0 };
+  }
+  protected async transaction<T>(
+    _client: null,
+    fn: (client: null) => Promise<T>
+  ): Promise<T> {
+    return fn(null);
+  }
+}
+
+const counted = s
+  .model({ id: s.int().id(), rank: s.int() })
+  .map("o2r_counterfactual");
+const countedSchema = { counted };
+beforeAll(() => hydrateSchemaNames(countedSchema));
+
+type Arm = "WITH-LEG" | "NO-LEG";
+
+async function ask(
+  provider: "mysql" | "postgres",
+  arm: Arm,
+  rows: Record<string, unknown>[],
+  operation: "count" | "exist"
+): Promise<string> {
+  const adapter: DatabaseAdapter =
+    provider === "mysql" ? new MySQLAdapter() : new PostgresAdapter();
+  if (arm === "WITH-LEG") {
+    // The pre-deletion member itself, byte-for-byte from `383f830c` — the
+    // shipped pass-through is REPLACED, not wrapped, so `next(normalized)`
+    // carries the rewritten rows exactly as it did before D-40.
+    adapter.result.parseResult =
+      provider === "mysql"
+        ? (raw, op, next) => {
+            if (op === "count" || op === "exist") {
+              const normalized = normalizeCountResult(raw);
+              if (normalized) return next(normalized);
+            }
+            return next();
+          }
+        : (raw, _op, next) => {
+            const converted = convertBigIntToNumber(raw);
+            if (converted !== undefined) return converted;
+            return next();
+          };
+  }
+  const client = createClient({
+    schema: countedSchema,
+    driver: new ScriptedDriver(
+      rows,
+      provider === "mysql" ? "mysql" : "postgresql",
+      adapter
+    ),
+  });
+  try {
+    const answer =
+      operation === "count"
+        ? await client.counted.count({})
+        : await client.counted.exist({ where: { id: 1 } });
+    return `RESOLVED ${JSON.stringify(answer)}`;
+  } catch (error) {
+    const err = error as { constructor: { name: string }; message: string };
+    return `REJECTED ${err.constructor.name} ${err.message.split("\n")[0]}`;
+  } finally {
+    await client.$disconnect();
+  }
+}
+
+describe("D-40 review counterfactual", () => {
+  test("the deleted legs change no answer, on any row", async () => {
+    const cases: {
+      provider: "mysql" | "postgres";
+      rows: Record<string, unknown>[];
+      operation: "count" | "exist";
+      label: string;
+    }[] = [
+      {
+        provider: "mysql",
+        rows: [{ "COUNT(*)": 2 }],
+        operation: "count",
+        label: "mysql recognised-key",
+      },
+      {
+        provider: "mysql",
+        rows: [{ "COUNT(*)": 1 }],
+        operation: "exist",
+        label: "mysql recognised-key exist",
+      },
+      {
+        provider: "mysql",
+        rows: [{ "0viborm_count_result": 2 }],
+        operation: "count",
+        label: "mysql produced-key",
+      },
+      {
+        provider: "mysql",
+        rows: [{ _count: 2 }],
+        operation: "count",
+        label: "mysql live alias",
+      },
+      {
+        provider: "postgres",
+        rows: [{ _count: "2" }],
+        operation: "count",
+        label: "pg live alias (integer text)",
+      },
+      {
+        provider: "postgres",
+        rows: [{ _count: 2n }],
+        operation: "count",
+        label: "pg bigint carrier",
+      },
+      {
+        provider: "postgres",
+        rows: [{ _count: 2n ** 70n }],
+        operation: "count",
+        label: "pg unsafe bigint",
+      },
+    ];
+    for (const one of cases) {
+      const withLeg = await ask(
+        one.provider,
+        "WITH-LEG",
+        one.rows,
+        one.operation
+      );
+      const noLeg = await ask(one.provider, "NO-LEG", one.rows, one.operation);
+      process.stdout.write(
+        `O2RCF ${one.label} | WITH-LEG ${withLeg} | NO-LEG ${noLeg} | same=${String(withLeg === noLeg)}\n`
+      );
+    }
+  }, 60_000);
+});

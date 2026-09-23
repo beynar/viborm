@@ -1,0 +1,8 @@
+sql_mode = IGNORE_SPACE,ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+base COLUMN_TYPE = "enum('plain','a\b')" codes=65 6e 75 6d 28 27 70 6c 61 69 6e 27 2c 27 61 08 27 29
+base stored member codes = 61 08
+MODIFY refused: errno=1265 WARN_DATA_TRUNCATED — Data truncated for column 'kind' at row 1
+after COLUMN_TYPE = "enum('plain','a\b')"
+after stored member codes = 61 08
+MODIFY on an empty table accepted
+empty-table COLUMN_TYPE = "enum('plain','a\\\\b')"

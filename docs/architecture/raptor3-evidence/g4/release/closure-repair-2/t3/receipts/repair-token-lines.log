@@ -1,0 +1,4 @@
+src/migrations/drivers/mysql/introspect.ts: 385 -> 422 (+37)
+src/migrations/drivers/type-mapping.ts: 220 -> 219 (-1)
+src/migrations/identity.ts: 48 -> 50 (+2)
+total: 653 -> 691 (+38)

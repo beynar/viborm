@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 99ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  01:14:05
+   Duration  1.65s (transform 907ms, setup 11ms, collect 1.37s, tests 99ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-YPTeIC/vitest.json
+Vitest resources: 3.69s wall, 473.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g25-contracts contract gate verified. Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-YPTeIC

@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-client| tests/contracts/public-client/schema-introspection.core.test.ts (13 tests) 92ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  15:20:36
+   Duration  10.70s (transform 5.50s, setup 167ms, collect 7.87s, tests 92ms, environment 0ms, prepare 1.42s)
+
+Vitest resources: 25.66s wall, 287.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

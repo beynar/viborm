@@ -1,0 +1,107 @@
+// SCRATCH (untracked, deleted after the run): the plan §6 "parse/cache allocation" cells, measured by
+// external profiling — V8's sampling heap profiler through node:inspector (samplingInterval 256 B) over
+// N executes, reported as sampled allocated bytes per execute (statement build + provider round trip +
+// decode) and per cache hit (lookup + materialization from the stored snapshot); retained bytes per held
+// result after a forced GC (NODE_OPTIONS=--expose-gc); CPU per execute and per hit.
+import { writeFileSync } from "node:fs";
+import { Session } from "node:inspector/promises";
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
+import { createClient } from "@client/client";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import { s } from "@schema";
+import Database from "better-sqlite3";
+import { it } from "vitest";
+import { GRAPH_WORLD } from "./provider-sql-fixture";
+
+const tree = s
+  .model({
+    id: s.string().id(),
+    parentId: s.string().nullable().map("parent_id"),
+    rank: s.int(),
+    parent: s.toOne(() => tree).fields("parentId").references("id").name("rq07m"),
+    children: s.toMany(() => tree).name("rq07m"),
+  })
+  .map("rq07_measure_nodes");
+
+function openTree(rows: [string, string | null, number][]) {
+  const database = new Database(":memory:");
+  database.exec(`CREATE TABLE rq07_measure_nodes(id TEXT PRIMARY KEY, parent_id TEXT, rank INTEGER NOT NULL)`);
+  const insert = database.prepare("INSERT INTO rq07_measure_nodes(id, parent_id, rank) VALUES (?, ?, ?)");
+  database.transaction(() => { for (const row of rows) insert.run(...row); })();
+  return { database, driver: new SQLite3Driver({ client: database }), schema: { tree } };
+}
+function openGraph() {
+  const database = new Database(":memory:");
+  const types = { text: "TEXT", integer: "INTEGER", boolean: "INTEGER", json: "TEXT" } as const;
+  for (const table of GRAPH_WORLD.tables) {
+    const quoted = table.columns.map((c) => `"${c.name}"`);
+    database.exec(`CREATE TABLE "${table.name}"(${[...table.columns.map((c, i) => `${quoted[i]} ${types[c.type]}${c.nullable ? "" : " NOT NULL"}${c.unique ? " UNIQUE" : ""}`), `PRIMARY KEY (${table.primaryKey.map((n) => `"${n}"`).join(",")})`].join(", ")})`);
+    const insert = database.prepare(`INSERT INTO "${table.name}"(${quoted.join(", ")}) VALUES (${quoted.map(() => "?").join(", ")})`);
+    database.transaction(() => { for (const row of table.rows) insert.run(...table.columns.map((c) => { const v = row[c.name]; return typeof v === "boolean" ? (v ? 1 : 0) : v === undefined ? null : v; })); })();
+  }
+  return { database, driver: new SQLite3Driver({ client: database }), schema: GRAPH_WORLD.schema };
+}
+const chainRows = (length: number): [string, string | null, number][] => { const rows: [string, string | null, number][] = [["c0", null, 0]]; for (let i = 1; i <= length; i += 1) rows.push([`c${i}`, `c${i - 1}`, i]); return rows; };
+const widthRows = (width: number): [string, string | null, number][] => { const rows: [string, string | null, number][] = [["w0", null, 0]]; for (let i = 0; i < width; i += 1) { rows.push([`w0.${i}`, "w0", i]); for (let j = 0; j < width; j += 1) rows.push([`w0.${i}.${j}`, `w0.${i}`, j]); } return rows; };
+function count(value: unknown, relation: string): number { let n = 0; const pending: unknown[] = [(value as Record<string, unknown>)[relation]]; while (pending.length > 0) { const next = pending.pop(); if (next === null || next === undefined) continue; for (const m of Array.isArray(next) ? next : [next]) { n += 1; pending.push((m as Record<string, unknown>)[relation]); } } return n; }
+const total = (node: { selfSize: number; children: unknown[] }): number => node.selfSize + (node.children as { selfSize: number; children: unknown[] }[]).reduce((sum, child) => sum + total(child), 0);
+const gc = () => (globalThis as { gc?: () => void }).gc?.();
+
+async function sampled(session: Session, runs: number, body: () => Promise<void>): Promise<{ bytesPerRun: number; samples: number }> {
+  // Count EVERY sampled allocation, not only the ones still alive when sampling stops.
+  await session.post("HeapProfiler.startSampling", { samplingInterval: 256, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+  for (let run = 0; run < runs; run += 1) await body();
+  const { profile } = await session.post("HeapProfiler.stopSampling");
+  return { bytesPerRun: Math.round(total(profile.head) / runs), samples: profile.samples.length };
+}
+async function timed(runs: number, body: () => Promise<void>): Promise<number> {
+  const cpu: number[] = [];
+  for (let run = 0; run < runs; run += 1) { const c0 = process.cpuUsage(); await body(); const c = process.cpuUsage(c0); cpu.push(c.user + c.system); }
+  const sorted = cpu.sort((l, r) => l - r); return sorted[Math.floor(sorted.length / 2)]!;
+}
+
+it("measures parse and cache allocation by sampling heap profile", async () => {
+  const session = new Session(); session.connect(); await session.post("HeapProfiler.enable");
+  const cells: Record<string, unknown>[] = [];
+  const RUNS = 20;
+  const measure = async (label: string, world: { database: Database.Database; driver: SQLite3Driver; schema: Record<string, unknown> }, model: string, id: unknown, relation: string, recurse: unknown, extra: Record<string, unknown>) => {
+    const background: Promise<unknown>[] = [];
+    const memory = new MemoryCache();
+    const client = createClient({ schema: world.schema as never, driver: world.driver });
+    const cached = client.$extends(cache({ driver: memory, waitUntil(p) { background.push(p); } })).$withCache();
+    const args = { where: { id }, select: { id: true, [relation]: { recurse, ...extra, select: { id: true } } } };
+    const modelClient = (client as unknown as Record<string, { findUnique: (a: unknown) => Promise<unknown> }>)[model]!;
+    const cachedModel = (cached as unknown as Record<string, { findUnique: (a: unknown) => Promise<unknown> }>)[model]!;
+    const warm = await modelClient.findUnique(args);
+    const occurrences = count(warm, relation);
+    // parse: statement build + provider round trip + decode, per execute — bytes under the sampling profiler, CPU without it
+    const executeCpu = await timed(RUNS, async () => { await modelClient.findUnique(args); });
+    const execute = await sampled(session, RUNS, async () => { await modelClient.findUnique(args); });
+    // retained bytes per held result: hold HOLD results, GC on both sides, amortize
+    const HOLD = 10; gc(); gc(); const h0 = process.memoryUsage().heapUsed; const held: unknown[] = [];
+    for (let i = 0; i < HOLD; i += 1) held.push(await modelClient.findUnique(args));
+    gc(); gc(); const h1 = process.memoryUsage().heapUsed; const retained = Math.round((h1 - h0) / HOLD);
+    // cache: one miss stores the snapshot; then hits (lookup + materialization from the snapshot), per hit
+    await cachedModel.findUnique(args); await Promise.all(background);
+    const hitCpu = await timed(RUNS, async () => { await cachedModel.findUnique(args); });
+    const hit = await sampled(session, RUNS, async () => { await cachedModel.findUnique(args); });
+    await Promise.all(background);
+    cells.push({ label, occurrences, executeSampledBytes: execute.bytesPerRun, executeSamples: execute.samples, executeCpuMicrosMedian: executeCpu, retainedBytesPerHeldResult: retained, retainedBytesPerOccurrence: Math.round(retained / Math.max(1, occurrences)), cacheHitSampledBytes: hit.bytesPerRun, cacheHitSamples: hit.samples, cacheHitCpuMicrosMedian: hitCpu, heldOccurrences: count(held[0], relation) });
+    await client.$disconnect();
+  };
+  const chain = openTree(chainRows(1100));
+  await measure("FK chain depth 32", chain, "tree", "c0", "children", { depth: 32 }, { orderBy: { rank: "asc" } });
+  await measure("FK chain depth 1000", chain, "tree", "c0", "children", { depth: 1000 }, { orderBy: { rank: "asc" } });
+  await measure("FK chain exhaustive (1,100)", chain, "tree", "c0", "children", { depth: false }, { orderBy: { rank: "asc" } });
+  chain.database.close();
+  const width = openTree(widthRows(32));
+  await measure("width 32 at depth 2", width, "tree", "w0", "children", { depth: 2 }, { orderBy: { rank: "asc" } });
+  width.database.close();
+  const graph = openGraph();
+  await measure("ladder 8 rungs exhaustive (diamonds)", graph, "vertex", "m0", "out", { depth: false }, { orderBy: { rank: "asc" } });
+  await measure("complete 3-graph unfolding depth 8", graph, "vertex", "k0", "out", { depth: 8, preventCycles: false }, { orderBy: { rank: "asc" } });
+  graph.database.close();
+  await session.post("HeapProfiler.disable"); session.disconnect();
+  writeFileSync(process.env.RQ07_ALLOC_OUT!, JSON.stringify({ runtime: { node: process.version, platform: `${process.platform}-${process.arch}`, gcExposed: typeof (globalThis as { gc?: unknown }).gc === "function", samplingIntervalBytes: 256, runsPerCell: RUNS }, cells }, null, 2));
+}, 600_000);

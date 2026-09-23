@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (10 tests) 90ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/member-boundary-packaging.test.ts (5 tests) 49ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/blind-premise-attribution.test.ts (1 test) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g4/parity/member-boundary-packaging.test.ts (5 tests) 52ms
+ ✓ |raptor3| tests/raptor3/g4/parity/blind-premise-attribution.test.ts (1 test) 6ms
+ ✓ |raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 22ms
+
+ Test Files  7 passed (7)
+      Tests  30 passed (30)
+   Start at  22:10:08
+   Duration  5.48s (transform 2.89s, setup 27ms, collect 4.75s, tests 246ms, environment 0ms, prepare 90ms)
+
+Vitest resources: 7.42s wall, 635.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

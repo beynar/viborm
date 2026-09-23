@@ -1,0 +1,30 @@
+ ✓ |extended-local| tests/contracts/public-client/all-field-types.test.ts (8 tests) 708ms
+ ❯ |extended-local| tests/contracts/engine/write/inverse-to-one-update-depth.test.ts (33 tests | 2 failed) 778ms
+ ✓ |extended-local| tests/contracts/public-client/official-cache-invalidation.test.ts (11 tests) 629ms
+ ✓ |extended-local| tests/contracts/engine/write/upsert-arm-referenced-edge.test.ts (18 tests) 638ms
+ ✓ |extended-local| tests/contracts/engine/query/bulk-insert-row-shapes.test.ts (8 tests) 524ms
+ ✓ |extended-local| tests/contracts/engine/query/nested-not-filter.test.ts (12 tests) 483ms
+ ✓ |extended-local| tests/contracts/engine/query/relation-key-update-legality-local-fk.test.ts (6 tests) 723ms
+ ✓ |extended-local| tests/unit/migrations/decimal-list-storage-agreement.test.ts (4 tests) 571ms
+ ✓ |extended-local| tests/contracts/engine/write/adopt-family-depth.test.ts (4 tests) 533ms
+ ✓ |extended-local| tests/unit/cache/batch-transaction-invalidation.test.ts (10 tests) 609ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-pk-transition-cascade-ordering.test.ts (6 tests) 486ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-depth-stress.test.ts (7 tests) 492ms
+ ✓ |extended-local| tests/contracts/engine/write/reads.test.ts (54 tests) 836ms
+ ❯ |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts (26 tests | 12 failed) 824ms
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (transaction) > M7: two upsert items are refused even with DISJOINT selectors
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > FOUND: the target is updated AND the join row is written
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > FOUND with an EMPTY update payload still adopts
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > FOUND with a RELATION-ONLY update payload adopts and writes 
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > ABSENT: the created target's PRODUCED id reaches the join ro
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > upsert + connect naming ONE row joins it exactly once
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > upsert + create naming DIFFERENT rows writes both membership
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > the WHOLE-TARGET update arm runs, and only on the located ro
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > a relation-carrying update arm named by a NON-primary-key un
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > the ABSENT arm still creates, with the update arm's deeper e
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > a LITERAL parent key takes the same two branches
+ FAIL  |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > M7: two upsert items are refused even with DISJOINT selector
+ FAIL  |extended-local| tests/contracts/engine/write/inverse-to-one-update-depth.test.ts > E2-U1 provenance: the deeper key comes from the row the probe locked > a probe row without the located key fa
+ FAIL  |extended-local| tests/contracts/engine/write/inverse-to-one-update-depth.test.ts > E2-U1 provenance: the deeper key comes from the row the probe locked > a probe row without the located key fa
+ Test Files  2 failed | 12 passed (14)
+      Tests  14 failed | 193 passed (207)

@@ -1,0 +1,181 @@
+{
+  "rows": [
+    {
+      "id": 40,
+      "code": "c",
+      "label": "first"
+    },
+    {
+      "id": 10,
+      "code": "a",
+      "label": "second"
+    },
+    {
+      "id": 30,
+      "code": "d",
+      "label": "third"
+    },
+    {
+      "id": 20,
+      "code": "b",
+      "label": "fourth"
+    }
+  ],
+  "selectStatements": [
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_rows` (`id`, `code`, `label`) VALUES (?, ?, ?)",
+      "params": [
+        40,
+        "c",
+        "first"
+      ]
+    },
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_rows` (`id`, `code`, `label`) VALUES (?, ?, ?)",
+      "params": [
+        10,
+        "a",
+        "second"
+      ]
+    },
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_rows` (`id`, `code`, `label`) VALUES (?, ?, ?)",
+      "params": [
+        30,
+        "d",
+        "third"
+      ]
+    },
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_rows` (`id`, `code`, `label`) VALUES (?, ?, ?)",
+      "params": [
+        20,
+        "b",
+        "fourth"
+      ]
+    },
+    {
+      "sql": "SELECT `q0`.`id` AS `id`, `q0`.`code` AS `code`, `q0`.`label` AS `label` FROM `raptor3_g2`.`p72_fold_rows` AS `q0` WHERE (`q0`.`id` = ? OR `q0`.`id` = ? OR `q0`.`id` = ? OR `q0`.`id` = ?) ORDER BY CASE WHEN `q0`.`id` = ? THEN ? WHEN `q0`.`id` = ? THEN ? WHEN `q0`.`id` = ? THEN ? WHEN `q0`.`id` = ? THEN ? ELSE ? END",
+      "params": [
+        40,
+        10,
+        30,
+        20,
+        40,
+        0,
+        10,
+        1,
+        30,
+        2,
+        20,
+        3,
+        4
+      ]
+    }
+  ],
+  "counted": {
+    "count": 2
+  },
+  "countStatements": [
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_rows` (`id`, `code`, `label`) VALUES (?, ?, ?), (?, ?, ?)",
+      "params": [
+        41,
+        "cc",
+        "first",
+        11,
+        "aa",
+        "second"
+      ]
+    }
+  ],
+  "auto": [
+    {
+      "id": 300,
+      "label": "explicit-high"
+    },
+    {
+      "id": 200,
+      "label": "explicit-low"
+    },
+    {
+      "id": 301,
+      "label": "generated-first"
+    },
+    {
+      "id": 302,
+      "label": "generated-second"
+    }
+  ],
+  "autoStatements": [
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_auto_rows` (`id`, `label`) VALUES (?, ?)",
+      "params": [
+        300,
+        "explicit-high"
+      ]
+    },
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_auto_rows` (`id`, `label`) VALUES (?, ?)",
+      "params": [
+        200,
+        "explicit-low"
+      ]
+    },
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_auto_rows` (`label`) VALUES (?)",
+      "params": [
+        "generated-first"
+      ]
+    },
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_auto_rows` (`label`) VALUES (?)",
+      "params": [
+        "generated-second"
+      ]
+    },
+    {
+      "sql": "SELECT `q0`.`id` AS `id`, `q0`.`label` AS `label` FROM `raptor3_g2`.`p72_fold_auto_rows` AS `q0` WHERE (`q0`.`id` = ? OR `q0`.`id` = ? OR `q0`.`id` = ? OR `q0`.`id` = ?) ORDER BY CASE WHEN `q0`.`id` = ? THEN ? WHEN `q0`.`id` = ? THEN ? WHEN `q0`.`id` = ? THEN ? WHEN `q0`.`id` = ? THEN ? ELSE ? END",
+      "params": [
+        300,
+        200,
+        301,
+        302,
+        300,
+        0,
+        200,
+        1,
+        301,
+        2,
+        302,
+        3,
+        4
+      ]
+    }
+  ],
+  "single": [
+    {
+      "id": 99,
+      "label": "only"
+    }
+  ],
+  "singleStatements": [
+    {
+      "sql": "INSERT INTO `raptor3_g2`.`p72_fold_rows` (`id`, `code`, `label`) VALUES (?, ?, ?)",
+      "params": [
+        99,
+        "z",
+        "only"
+      ]
+    },
+    {
+      "sql": "SELECT `q0`.`id` AS `id`, `q0`.`label` AS `label` FROM `raptor3_g2`.`p72_fold_rows` AS `q0` WHERE `q0`.`id` = ? ORDER BY CASE WHEN `q0`.`id` = ? THEN ? ELSE ? END",
+      "params": [
+        99,
+        99,
+        0,
+        1
+      ]
+    }
+  ]
+}

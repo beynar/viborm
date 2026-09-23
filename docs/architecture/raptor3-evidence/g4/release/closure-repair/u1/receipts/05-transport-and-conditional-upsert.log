@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |coverage-raptor3| tests/raptor3/transport.test.ts (44 tests) 659ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 146ms
+ ✓ |raptor3| tests/raptor3/transport.test.ts (44 tests) 566ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 73ms
+
+ Test Files  4 passed (4)
+      Tests  110 passed (110)
+   Start at  16:48:11
+   Duration  5.14s (transform 1.85s, setup 21ms, collect 3.05s, tests 1.44s, environment 0ms, prepare 86ms)
+
+Vitest resources: 7.83s wall, 743.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+EXIT=0

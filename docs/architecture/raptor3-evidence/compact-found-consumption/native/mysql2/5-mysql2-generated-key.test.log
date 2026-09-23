@@ -1,0 +1,13 @@
+BEGIN provider=provider-mysql2 ordinal=5/15 file=tests/providers/docker/mysql2-generated-key.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-generated-key.test.ts (5 tests) 100ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  11:04:44
+   Duration  1.60s (transform 902ms, setup 9ms, collect 1.36s, tests 100ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 3.38s wall, 478.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+END provider=provider-mysql2 ordinal=5/15 file=tests/providers/docker/mysql2-generated-key.test.ts exit=0

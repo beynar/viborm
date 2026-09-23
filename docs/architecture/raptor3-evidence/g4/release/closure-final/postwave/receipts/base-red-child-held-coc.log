@@ -1,0 +1,47 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rint
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (10 tests | 1 failed) 896ms
+   ✓ MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create 172ms
+   ✓ MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate 89ms
+   ✓ MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race 75ms
+   ✓ MySQL2 concurrency policy > an eligible unique-key race > the CONDITION probe of a conditioned upsert locks no absence either 70ms
+   ✓ MySQL2 concurrency policy > a native deadlock > the victim fails visibly, replays nothing, and leaves the survivor's state 83ms
+   ✓ MySQL2 concurrency policy > a native deadlock > the same two row locks in the SAME order both succeed 85ms
+   ✓ MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle 85ms
+   ✓ MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed 80ms
+   ✓ MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a row deleted before the update arm fails visibly and commits nothing 79ms
+   × MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a CHILD-HELD connectOrCreate whose found target moves out from under it connects nothing, visibly 79ms
+     → expected { id: 'new-author', name: 'Connector' } to be undefined
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a CHILD-HELD connectOrCreate whose found target moves out from under it connects nothing, visibly
+AssertionError: expected { id: 'new-author', name: 'Connector' } to be undefined
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+{
+  "id": "new-author",
+  "name": "Connector",
+}
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:833:29
+    831|       // Nothing is reported as connected, and the failure names the w…
+    832|       // whose row was not there.
+    833|       expect(outcome.value).toBeUndefined();
+       |                             ^
+    834|       expect((outcome.failure as Error).message).toBe(
+    835|         "UPDATE did not produce the required record"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  12:33:12
+   Duration  2.21s (transform 825ms, setup 8ms, collect 1.19s, tests 896ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 3.90s wall, 625.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

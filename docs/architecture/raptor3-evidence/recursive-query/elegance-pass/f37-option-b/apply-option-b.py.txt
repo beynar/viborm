@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""F37 Option B: the 16 carrier-boundary throws become InvalidScalarResult.
+
+Each site is found by line number AND its exact old text; the phrase is the
+old message's tail after "Invalid provider ", so the message is unchanged.
+"""
+import sys
+
+PATH = "/Users/arnaud/code/viborm/src/query-engine/raptor3/shared/query.ts"
+# (line, phrase, reason)
+SITES = [
+    (4570, "recursive carrier", "the carrier is not an object"),
+    (4576, "recursive carrier", "the carrier's root, nodes or edges member is not an array"),
+    (4580, "recursive identity", "an identity is not a tuple of the key's width"),
+    (4589, "recursive node", "a node entry is not an object"),
+    (4593, "duplicate recursive node", "two nodes carry the same identity"),
+    (4602, "recursive edge", "an edge entry is not an object"),
+    (4607, "recursive edge endpoint", "an edge's child is not a carried node"),
+    (4612, "exhaustive recursive depth", "an exhaustive carrier states an edge depth"),
+    (4620, "recursive depth", "an edge depth is not an integer from 1 to the cutoff"),
+    (4625, "duplicate recursive edge", "an edge fact is carried twice"),
+    (4644, "recursive edge endpoint", "an edge's parent is neither the root nor a carried node"),
+    (4647, "recursive singular relation", "a singular parent has several successors"),
+    (4699, "recursive depth", "a hop below the cutoff omits some of its parent's children"),
+    (4702, "recursive depth", "an edge is not reachable at its recorded depth"),
+    (4704, "unreachable recursive node", "a carried node is not reachable from the root"),
+    (4757, "recursive row", "a node's row is null"),
+]
+
+lines = open(PATH, encoding="utf-8").read().split("\n")
+out = {}
+for number, phrase, reason in SITES:
+    line = lines[number - 1]
+    indent = line[: len(line) - len(line.lstrip(" "))]
+    expected = f'{indent}throw new TypeError("Invalid provider {phrase}");'
+    if line != expected:
+        sys.exit(f"line {number}: expected {expected!r}, found {line!r}")
+    one = f'{indent}throw new InvalidScalarResult("{phrase}", "{reason}");'
+    if len(one) <= 80:
+        out[number] = [one]
+    else:
+        out[number] = [
+            f"{indent}throw new InvalidScalarResult(",
+            f'{indent}  "{phrase}",',
+            f'{indent}  "{reason}",',
+            f"{indent});",
+        ]
+        for text in out[number]:
+            if len(text) > 80:
+                sys.exit(f"line {number}: {text!r} exceeds 80 columns")
+result = []
+for index, line in enumerate(lines, start=1):
+    result.extend(out.get(index, [line]))
+open(PATH, "w", encoding="utf-8").write("\n".join(result))
+print(f"rewrote {len(out)} sites")

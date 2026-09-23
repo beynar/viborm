@@ -1,0 +1,45 @@
+########## tests/raptor3/candidate.test.ts
+Checked 1 file in 4ms. No fixes applied.
+########## tests/raptor3/candidate-ordering.test.ts
+  i The following lint rules have violations:
+  
+  Rule Name                                          Diagnostics
+  
+  lint/suspicious/noMisplacedAssertion               1 (1 error)
+
+Checked 1 file in 4ms. No fixes applied.
+Checked 1 file in 3ms. No fixes applied.
+Found 1 error.
+########## tests/raptor3/candidate-pagination.test.ts
+  i The following lint rules have violations:
+  
+  Rule Name                                          Diagnostics
+  
+  lint/suspicious/noMisplacedAssertion               6 (6 errors)
+
+Checked 1 file in 4ms. No fixes applied.
+Checked 1 file in 3ms. No fixes applied.
+Found 6 errors.
+########## tests/raptor3/scenarios/contracts/instances.ts
+  i The following lint rules have violations:
+  
+  Rule Name                                          Diagnostics
+  
+  lint/suspicious/noMisplacedAssertion               13 (13 errors)
+
+Checked 1 file in 6ms. No fixes applied.
+Checked 1 file in 5ms. No fixes applied.
+Found 13 errors.
+########## scripts/raptor3-manifest.mjs
+  i The following lint rules have violations:
+  
+  Rule Name                                          Diagnostics
+  
+  lint/suspicious/noMisplacedAssertion               69 (69 errors)
+  lint/performance/useTopLevelRegex                  1 (1 error)
+
+Checked 1 file in 17ms. No fixes applied.
+Checked 1 file in 15ms. No fixes applied.
+Found 70 errors.
+########## src/query-engine/raptor3/AGENTS.md
+Checked 0 files in 1253µs. No fixes applied.

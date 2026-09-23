@@ -1,0 +1,17 @@
+# baseline worktree /private/tmp/viborm-g4-perf-baseline @ 0cc61e61
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-perf-baseline
+
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 435ms
+
+ Test Files  1 passed (1)
+      Tests  42 passed (42)
+   Start at  13:48:06
+   Duration  3.63s (transform 1.92s, setup 11ms, collect 2.99s, tests 435ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 7.61s wall, 600.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+# restored
+f48081527a978cc220a409d52e1d009dab333c8b4a567c5a7c43f74dd16b55a0  /private/tmp/viborm-g4-perf-baseline/tests/raptor3/core-structure/measurement/extension-a-scenario.ts
+abe0bc6084e5c4ebd1776155915b7d783912a92b88a981938ffb8eb35650a931  /private/tmp/viborm-g4-perf-baseline/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts
+BASELINE WORKTREE CLEAN

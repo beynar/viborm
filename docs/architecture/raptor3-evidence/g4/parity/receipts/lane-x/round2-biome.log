@@ -1,0 +1,96 @@
+src/query-engine/raptor3/commands/execution.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { getAdapterInternals } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import {
+    3 │   NestedWriteError,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      9   9 │   import type { Arguments, Input } from "../shared/schema";
+     10  10 │   import { type Membership, storedFields } from "../shared/storage";
+     11     │ - import·type·{·Assignments·}·from·"./assignments";
+     12     │ - import·type·{·TransportAttempt·}·from·"../shared/transport-attempt";
+         11 │ + import·type·{·TransportAttempt·}·from·"../shared/transport-attempt";
+         12 │ + import·type·{·Assignments·}·from·"./assignments";
+     13  13 │   import { CommandAttempt } from "./command-attempt";
+     14     │ - import·{·isRecordOccurrence,·isSeriesOccurrence·}·from·"./commands";
+     15     │ - import·type·{
+     16     │ - ··Choose,
+     17     │ - ··CommandOccurrence,
+     18     │ - ··Commands,
+     19     │ - ··RecordCommand,
+     20     │ - ··SelectedSeriesMember,
+     21     │ - ··SeriesOccurrence,
+     22     │ - }·from·"./commands";
+         14 │ + import·type·{
+         15 │ + ··Choose,
+         16 │ + ··CommandOccurrence,
+         17 │ + ··Commands,
+         18 │ + ··RecordCommand,
+         19 │ + ··SelectedSeriesMember,
+         20 │ + ··SeriesOccurrence,
+         21 │ + }·from·"./commands";
+         22 │ + import·{·isRecordOccurrence,·isSeriesOccurrence·}·from·"./commands";
+     23  23 │   import { membershipFields, type Selection } from "./selection";
+     24  24 │   
+  
+
+src/query-engine/raptor3/commands/execution.ts:30:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    28 │   private currentAttempt: CommandAttempt;
+    29 │   private recovered = false;
+  > 30 │   constructor(readonly commands: Commands) {
+       │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    31 │     this.context = commands.context;
+    32 │     this.currentAttempt = new CommandAttempt(this.context.transportAttempt);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/execution.ts:275:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    273 │     const attempt = this.attempt;
+    274 │     const command = occurrence.command;
+  > 275 │     switch (command.kind) {
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+  > 276 │       case "record": {
+         ...
+  > 577 │         return;
+  > 578 │     }
+        │     ^
+    579 │   }
+    580 │   async records(
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/commands/execution.ts:618:68 lint/complexity/noCommaOperator ━━━━━━━━━━━━━━
+
+  × The comma operator is disallowed.
+  
+    616 │             command
+    617 │           )
+  > 618 │         : (await ctx.executeMember(() => this.run(record), command), true);
+        │                                                                    ^
+    619 │       if (!completed) {
+    620 │         await ctx.executeMember(() => this.adoptSuppressed(record), command);
+  
+  i Its use is often confusing and obscures side effects.
+  
+
+Checked 2 files in 31ms. No fixes applied.
+Found 4 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

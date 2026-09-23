@@ -1,0 +1,3 @@
+Isolated PGlite stage: 5 files, 11 tests passed, 0 failed.
+Per-file counts: 3 + 2 + 3 + 2 + 1.
+Resource ceiling: 2560 MiB sampled process-group RSS.

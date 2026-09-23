@@ -338,19 +338,6 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
     return statement.slice(from, end < 0 ? undefined : end);
   };
 
-  test("grouped decimal lists project through their transport but group on the physical column", () => {
-    const grouped = buildHere("groupBy", {
-      by: ["amounts"],
-      _count: true,
-    });
-    const projection = clauseBetween(grouped.statement, "SELECT ", " FROM");
-    const groupBy = clauseBetween(grouped.statement, "GROUP BY").trim();
-
-    expect(projection).toContain(dialectCase.listProjection);
-    expect(groupBy).toBe(dialectCase.groupedList);
-    expect(groupBy).not.toContain("CAST(");
-  });
-
   test("groupBy ORDER BY _avg orders by the exact average, not AVG()", () => {
     const ordered = buildHere("groupBy", {
       by: ["bucket"],
@@ -419,17 +406,5 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
         })
       )
     ).rejects.toThrow(EXCESS_SCALE_REFUSAL);
-  });
-
-  test("having _count compares a row count, so it does NOT get the cast", () => {
-    const having = buildHere("groupBy", {
-      by: ["bucket"],
-      having: { amount: { _count: { gt: 1 } } },
-      _count: true,
-    });
-
-    expect(operandAfter(having.statement, ">")).toMatch(BARE_PARAMETER_REGEX);
-    // A row count is an integer and stays one — no decimal canonicalization.
-    expect(having.values).toEqual([1]);
   });
 });

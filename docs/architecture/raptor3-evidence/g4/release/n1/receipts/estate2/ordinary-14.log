@@ -1,0 +1,5 @@
+[test:all] extended-local shard 14/14 (1 files; 180 ordinary of 192)
+ ✓ |extended-local| tests/unit/migrations/sqlite-unique-constraint.test.ts (4 tests) 147ms
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+[test:all] extended-local shard 14/14 (1 files; 180 ordinary of 192): 4.64s wall, 56.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

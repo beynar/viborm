@@ -1,0 +1,6 @@
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/scalar-find-unique/prepare/cpu replicate 1/1: baseline
+sqlite3/scalar-find-unique/prepare/cpu replicate 1/1: candidate
+sqlite3/scalar-find-unique/full/cpu replicate 1/1: baseline
+sqlite3/scalar-find-unique/full/cpu replicate 1/1: candidate

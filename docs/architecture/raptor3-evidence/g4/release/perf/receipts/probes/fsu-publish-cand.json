@@ -1,0 +1,15 @@
+{
+ "root": "/private/tmp/viborm-perf-cand",
+ "statementSeam": {
+  "answered": false
+ },
+ "packageSeam": {
+  "answered": true,
+  "statementCount": 2,
+  "sql": [
+   "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+   "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\""
+  ]
+ },
+ "buildStatement": null
+}

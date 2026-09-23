@@ -1,5 +1,5 @@
 import { QueryError } from "@errors";
-import { isReadOperation } from "@query-engine/write-engine/routing";
+import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import type { ResolvedExtensionHandler } from "./chain";
@@ -853,21 +853,6 @@ export function decomposeWriteOutcomePublicationFailure(
 ): readonly unknown[] {
   if (!(failure instanceof AggregateError)) return [failure];
   return publicationFailures.get(failure) ?? [failure];
-}
-
-/** Keep the execution failure primary while retaining every listener failure. */
-export function retainWriteOutcomeFailure(
-  primary: unknown,
-  outcomeFailure: unknown,
-  message = "Query execution and write-outcome publication both failed."
-): AggregateError {
-  const suppressed =
-    outcomeFailure instanceof AggregateError
-      ? [...outcomeFailure.errors]
-      : [outcomeFailure];
-  return new AggregateError([primary, ...suppressed], message, {
-    cause: primary,
-  });
 }
 
 import type { VibORMConfig } from "@client/client";

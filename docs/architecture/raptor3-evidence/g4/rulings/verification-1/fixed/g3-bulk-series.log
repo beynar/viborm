@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/g3/bulk-series-contract.test.ts (6 tests) 33ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  21:01:28
+   Duration  2.03s (transform 1.19s, setup 14ms, collect 1.74s, tests 33ms, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-d6OLMF/vitest.json
+Vitest resources: 4.35s wall, 490.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-bulk-series contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-d6OLMF

@@ -1,0 +1,7 @@
+command: node scripts/run-typecheck.mjs
+cwd: /private/tmp/viborm-perf  HEAD: 36c87710aa2526652867430f6e24f30005556394
+started: 2026-09-20T17:26:54Z
+TMPDIR=/private/tmp/viborm-perf-tmp/run
+TypeScript (whole estate, native): 5.54s wall, 5113.8 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+EXIT=0
+finished: 2026-09-20T17:26:59Z

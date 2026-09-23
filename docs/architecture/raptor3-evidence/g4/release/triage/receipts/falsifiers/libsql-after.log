@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-triage
+
+ ↓ |provider-libsql| tests/providers/local/libsql-returning-text.test.ts (158 tests | 158 skipped)
+ ↓ |provider-libsql| tests/providers/local/libsql-parity-json.test.ts (233 tests | 233 skipped)
+
+ Test Files  2 skipped (2)
+      Tests  391 skipped (391)
+   Start at  01:13:53
+   Duration  2.07s (transform 1.20s, setup 10ms, collect 1.92s, tests 0ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 4.40s wall, 544.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

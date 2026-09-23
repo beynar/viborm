@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/write/junction-upsert-arm-probe.test.ts (10 tests) 834ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  20:58:17
+   Duration  2.35s (transform 865ms, setup 9ms, collect 1.35s, tests 834ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.32s wall, 1467.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

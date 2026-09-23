@@ -1,0 +1,27 @@
+# /private/tmp/viborm-p1-tmp/prof/cand-parse-nomin.cpuprofile — "decodeValue" : 17665 of 19326 ticks (91.41%)
+   9454  53.52%fn  48.92%prof  gen:4080  src/query-engine/raptor3/shared/query.ts:4504
+          | return Object.fromEntries(Object.entries(shape.fields).map(([field, nested]) => [field, this.decodeValue(neste
+   6404  36.25%fn  33.14%prof  gen:4046  src/query-engine/raptor3/shared/query.ts:4446
+          | const decoded = typeof value === "string" ? JSON.parse(value) : value;
+    692   3.92%fn   3.58%prof  gen:4043  src/query-engine/raptor3/shared/query.ts:4435
+          | decodeValue(shape, value, internal, carried = false) {
+    478   2.71%fn   2.47%prof  gen:4044  src/query-engine/raptor3/shared/query.ts:4443
+          | if (shape.kind === "scalar") return this.decodeScalar(shape, value, internal, carried);
+    324   1.83%fn   1.68%prof  gen:4071  src/query-engine/raptor3/shared/query.ts:4481
+          | const rows = decoded.map((row) => this.decodeValue(shape.row, row, internal, true));
+     99   0.56%fn   0.51%prof  gen:1831  src/query-engine/raptor3/shared/query.ts:409
+          | return Object.hasOwn(source, key) ? source[key] : void 0;
+     69   0.39%fn   0.36%prof  gen:4072  src/query-engine/raptor3/shared/query.ts:4485
+          | return shape.reversed ? rows.reverse() : rows;
+     61   0.35%fn   0.32%prof  gen:4047  src/query-engine/raptor3/shared/query.ts:4449
+          | if (shape.kind === "variants") {
+     30   0.17%fn   0.16%prof  gen:4079  src/query-engine/raptor3/shared/query.ts:4499
+          | const source = record(decoded);
+     30   0.17%fn   0.16%prof  gen:4078  src/query-engine/raptor3/shared/query.ts:4495
+          | if (typeof decoded !== "object" || Array.isArray(decoded)) throw new InvalidScalarResult("row", "a requested d
+     13   0.07%fn   0.07%prof  gen:4045  src/query-engine/raptor3/shared/query.ts:4445
+          | if (shape.kind === "recursive") throw new TypeError("A recursive shape requires occurrence rows");
+      9   0.05%fn   0.05%prof  gen:4074  src/query-engine/raptor3/shared/query.ts:4487
+          | if (decoded === null) {
+      2   0.01%fn   0.01%prof  gen:4075  src/query-engine/raptor3/shared/query.ts:4488
+          | if (shape.nullable === false) throw new InvalidScalarResult("row", "a document the statement always builds is 

@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1061ms
+   ✓ completes the exact admitted transport seed batch  1060ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:54:15
+   Duration  2.86s (transform 1.13s, setup 8ms, collect 1.67s, tests 1.06s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-WwLIj5/vitest.json
+Vitest resources: 4.79s wall, 709.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p06-transport-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-WwLIj5
+Raptor 3 g3p06-transport-seeds campaign verified (not the full milestone). Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g3p06-transport-seeds-DbNa67

@@ -1,0 +1,20 @@
+ ❯ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests | 1 failed) 916ms
+   ✓ G2 generated seed 2000: sqlite-interactive 15ms
+   ✓ G2 generated seed 2001: sqlite-interactive 15ms
+   ✓ G2 generated seed 2002: sqlite-interactive 12ms
+   ✓ G2 generated seed 2003: sqlite-interactive 10ms
+   ✓ G2 generated seed 2004: sqlite-interactive 10ms
+   ✓ G2 generated seed 2005: sqlite-interactive 10ms
+   ✓ G2 generated seed 2006: sqlite-interactive 6ms
+   ✓ G2 generated seed 2007: sqlite-interactive 5ms
+     → G2 seed 2122, sqlite-atomic-batch, commands failed
+   ✓ G2 generated seed 2000: sqlite-atomic-batch 20ms
+   ✓ G2 generated seed 2001: sqlite-atomic-batch 14ms
+   ✓ G2 generated seed 2002: sqlite-atomic-batch 25ms
+   ✓ G2 generated seed 2003: sqlite-atomic-batch 12ms
+   ✓ G2 generated seed 2004: sqlite-atomic-batch 11ms
+   ✓ G2 generated seed 2005: sqlite-atomic-batch 12ms
+   ✓ G2 generated seed 2006: sqlite-atomic-batch 7ms
+   ✓ G2 generated seed 2007: sqlite-atomic-batch 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+Error: G2 seed 2122, sqlite-atomic-batch, commands failed

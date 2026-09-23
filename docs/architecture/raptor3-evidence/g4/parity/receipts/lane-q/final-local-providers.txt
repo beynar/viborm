@@ -1,0 +1,8 @@
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 nested write behavior > update and updateMany keep child mutations parent-correlated
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 nested write behavior > delete and deleteMany keep child mutations parent-correlated
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 many-to-many write behavior > self-referential many-to-many round trip
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 polymorphic collection writes > duplicate singular createMany targets transfer once
+ Test Files  2 failed | 5 passed | 5 skipped (12)
+      Tests  6 failed | 758 passed | 664 skipped (1428)

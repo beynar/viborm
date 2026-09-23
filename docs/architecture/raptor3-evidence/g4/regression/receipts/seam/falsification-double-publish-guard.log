@@ -1,0 +1,44 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (4 tests | 1 failed) 82ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 48ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 9ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 10ms
+   × G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 14ms
+     → one durable fact, one invalidation: {"candidate":{"invalidations":2,"outcome":"published"},"shipped":{"invalidations":1,"outcome":"published"}}
+
+2 !== 1
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once
+AssertionError: one durable fact, one invalidation: {"candidate":{"invalidations":2,"outcome":"published"},"shipped":{"invalidations":1,"outcome":"published"}}
+
+2 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:328:12
+    326|     assert.equal(candidate.outcome, "published");
+    327|     assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped })…
+    328|     assert.equal(
+       |            ^
+    329|       candidate.invalidations,
+    330|       1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  22:18:55
+   Duration  5.32s (transform 3.12s, setup 23ms, collect 4.64s, tests 82ms, environment 0ms, prepare 83ms)
+
+Vitest resources: 10.64s wall, 542.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

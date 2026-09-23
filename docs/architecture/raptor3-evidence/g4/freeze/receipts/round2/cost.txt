@@ -1,0 +1,19 @@
+# Round 2 cost census — countTokenLines from scripts/query-engine-structure.mjs, verbatim
+# (candidate core = the raptor3 tree minus program/ and route/client-route.ts)
+
+ROUND 1 (recorded in note §4, reproduced by the reviewer's cost-recheck.txt):
+  raptor3 tree: files=15 bytes=397471 physical=11324 tokenLines=10279
+  candidate core: files=12 bytes=361859 physical=10310 tokenLines=9406
+    commands/assignments.ts: bytes=5074 physical=160 tokenLines=148
+    shared/query.ts: bytes=139660 physical=3940 tokenLines=3568
+    commands/relation-body.ts: bytes=30353 physical=887 tokenLines=866
+
+ROUND 2 (now):
+  raptor3 tree: files=15 bytes=399356 physical=11349 tokenLines=10280
+  candidate core: files=12 bytes=363744 physical=10335 tokenLines=9407
+    commands/assignments.ts: files=1 bytes=5074 physical=160 tokenLines=148
+    shared/query.ts: files=1 bytes=139660 physical=3940 tokenLines=3568
+    commands/relation-body.ts: files=1 bytes=32238 physical=912 tokenLines=867
+
+DELTA round 1 -> round 2: relation-body.ts +1885 bytes / +25 physical / +1 token-line;
+candidate core and the raptor3 tree carry the same delta; assignments.ts and query.ts unchanged.

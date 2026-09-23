@@ -1,0 +1,70 @@
+Ground truth used to derive the re-expression: for each of the 5 failing
+seeds x 2 profiles, `runSQLiteWorld` was driven directly (bypassing
+`fixture.assert`, which throws on the FIRST missing required cut and so hides
+everything after it) to dump the recipe, the full `observation.reachedCuts`
+and the outcome. Produced by temporarily appending a diagnostic `it()` to the
+registered `extension-campaign.selftest.test.ts` (backed up first, restored
+byte-identical immediately after — `git status` showed no diff on that file
+afterward) and running it once under the same cleared credential-free
+environment. The diagnostic block was never committed and is not part of the
+shipped diff.
+
+seed=7109 profile=sqlite-interactive rootCount=2 keyShape=single-kept nestedShape=deleteMany missingTerminalRow=true
+  reachedCuts=[admit:root-template,admit:nested-template,capture:roots/2,admit:root-member/0,admit:nested-template/root-member/0,admit:root-member/1,admit:nested-template/root-member/1,effect:root/0,effect:root/1,effect:deleteMany/root-member/1,result:terminal-roots]
+  outcome=failure TransactionError "updateMany with 'select' could not read back one of the updated rows..." meta={model:node,operation:updateMany} (no recordSeriesProgress on sqlite-interactive)
+
+seed=7109 profile=sqlite-atomic-batch (same recipe)
+  reachedCuts= identical list to above
+  outcome=failure, meta.recordSeriesProgress={atomicity:segment,phase:result,committedSegments:2,completedMembers:2,committedWriteMembers:2}
+
+seed=7117 profile=sqlite-interactive rootCount=2 keyShape=single-kept nestedShape=updateMany missingTerminalRow=false
+  reachedCuts=[admit:root-template,admit:nested-template,capture:roots/2,admit:root-member/0,admit:nested-template/root-member/0,admit:root-member/1,admit:nested-template/root-member/1,effect:root/0,effect:updateMany/root-member/0,effect:root/1,effect:updateMany/root-member/1,result:terminal-roots]
+  outcome=success value=[{id:1,label:nested-written},{id:2,label:root-written}]
+  NOTE: no capture:nested/root-member/* and no admit:nested-member/* anywhere in reachedCuts.
+
+seed=7117 profile=sqlite-atomic-batch — identical reachedCuts and outcome.
+
+seed=7119 profile=sqlite-interactive rootCount=4 keyShape=single-omitted nestedShape=deleteMany missingTerminalRow=true
+  reachedCuts=[admit:root-template,admit:nested-template,capture:roots/4,admit:root-member/0,admit:nested-template/root-member/0,admit:root-member/1,admit:nested-template/root-member/1,admit:root-member/2,admit:nested-template/root-member/2,admit:root-member/3,admit:nested-template/root-member/3,effect:root/0,effect:root/1,effect:deleteMany/root-member/1,effect:root/2,effect:deleteMany/root-member/2,effect:root/3,effect:deleteMany/root-member/3,result:terminal-roots]
+  outcome=failure TransactionError, meta={model:node,operation:updateMany} (sqlite-interactive: no recordSeriesProgress)
+
+seed=7119 profile=sqlite-atomic-batch
+  outcome=failure, meta.recordSeriesProgress={committedSegments:4,completedMembers:4,committedWriteMembers:4}
+
+seed=7128 profile=sqlite-interactive rootCount=1 keyShape=compound-omitted nestedShape=updateMany missingTerminalRow=false
+  reachedCuts=[admit:root-template,admit:nested-template,capture:roots/1,admit:root-member/0,admit:nested-template/root-member/0,effect:root/0,effect:updateMany/root-member/0,result:terminal-roots]
+  outcome=success value=[{label:root-written}]
+
+seed=7128 profile=sqlite-atomic-batch — identical.
+
+seed=7149 profile=sqlite-interactive rootCount=2 keyShape=single-kept nestedShape=deleteMany missingTerminalRow=true
+  reachedCuts= same shape as 7109 (rootCount=2, deleteMany)
+  outcome=failure TransactionError, meta={model:node,operation:updateMany}
+
+seed=7149 profile=sqlite-atomic-batch
+  outcome=failure, meta.recordSeriesProgress={committedSegments:2,completedMembers:2,committedWriteMembers:2}
+
+Reading:
+- Every one of the 10 cells is missing exactly the eliminated
+  `capture:nested/root-member/N` cuts (and, for updateMany, the eliminated
+  `admit:nested-member/N` cuts) — nothing else. `admit:nested-template` and
+  `admit:nested-template/root-member/N` still fire, once per root member, for
+  both shapes.
+- No cell's outcome KIND differs from `recipe.outcome`: the three
+  "TransactionError ... could not read back" observations are the
+  recipe's OWN `missingTerminalRow: true` design (the seed data chains each
+  root's `parentId` into another root, so one root's nested deleteMany
+  deletes a row the outer updateMany's own RETURNING still expects back) —
+  not a new failure kind introduced by U6.2. No cell needed the "outcome
+  differs in kind" branch of the brief (U1 empty-filter admission / D-29
+  premise ordering); every cell's `observation.outcome.kind` already matched
+  `recipe.outcome === "success" ? "success" : "failure"`.
+- `nestedAdmission` (the `admitNestedMember` call count) is exactly
+  `rootCount + 1` for both shapes now (1 template admission + 1 per root
+  member); it is no longer `rootCount*2+1` for updateMany, because the second,
+  per-captured-member re-admission pass no longer runs.
+- `recordSeriesProgress.{committedSegments,committedWriteMembers,completedMembers}`
+  on the atomic-batch `missing-terminal-row` deleteMany cells is exactly
+  `rootCount` (2 for the two rootCount=2 seeds, 4 for the rootCount=4 seed),
+  not the old `rootCount*2-1` — a written root member (its own write plus its
+  now-one-statement nested set) is one progress unit, not two.

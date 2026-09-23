@@ -1,0 +1,120 @@
+class histogram: {"error":1,"Error":22,"FeatureNotSupportedError":1,"InvalidScalarResult":2,"missing":1,"NestedWriteError":1,"QueryEngineError":6,"this.failure":1,"this.incompletePreparation":2,"this.requiresEnvelope":1,"TransactionError":4,"transition":1,"TypeError":13,"UnsupportedOperationError":3}
+
+error                    inherited src/query-engine/raptor3/shared/operation-context.ts:1079
+    INSERT did not produce the required record identity
+Error                    inherited src/query-engine/raptor3/commands/commands.ts:374
+    Series capture target lost its occurrence kind
+Error                    inherited src/query-engine/raptor3/commands/commands.ts:499
+    Command occurrence is not a series capture
+Error                    inherited src/query-engine/raptor3/commands/commands.ts:501
+    Series capture has no occurrence target
+Error                    inherited src/query-engine/raptor3/commands/commands.ts:800
+    Command occurrence is missing from its parent
+Error                    inherited src/query-engine/raptor3/commands/commands.ts:944
+    Selected series has no enclosing analysis
+Error                    inherited src/query-engine/raptor3/commands/commands.ts:946
+    Selected series occurrence was already expanded
+Error                    inherited src/query-engine/raptor3/commands/execution.ts:598
+    Selected series was not captured
+Error                    inherited src/query-engine/raptor3/commands/execution.ts:692
+    Selected delete series has no mutation origin
+Error                    inherited src/query-engine/raptor3/commands/execution.ts:739
+    Selected update series has no location
+Error                    inherited src/query-engine/raptor3/commands/index.ts:131
+    Raptor 3 G1 operation is not implemented: ${operation}
+Error                    inherited src/query-engine/raptor3/commands/relation-body.ts:600
+    Raptor 3 G1 relation operation is not implemented: ${verb}
+Error                    inherited src/query-engine/raptor3/program/program.ts:238
+    Raptor 3 G1 source-held update supply is not implemented
+Error                    inherited src/query-engine/raptor3/program/program.ts:355
+    Raptor 3 program has a cyclic produced-field dependency
+Error                    inherited src/query-engine/raptor3/shared/operation-context.ts:1426
+    Raptor 3 interactive output requires RETURNING or one generated increment field
+Error                    inherited src/query-engine/raptor3/shared/operation-context.ts:1471
+    Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+Error                    inherited src/query-engine/raptor3/shared/operation-context.ts:1803
+    Raptor 3 G1 set requires junction storage
+Error                    inherited src/query-engine/raptor3/shared/query.ts:1886
+    Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}
+Error                    inherited src/query-engine/raptor3/shared/query.ts:2739
+    A recursive traversal requires at least one seed
+Error                    inherited src/query-engine/raptor3/shared/query.ts:2746
+    Raptor 3 recursive traversal requires one ordinary relation: ${traversal.relation}
+Error                    inherited src/query-engine/raptor3/shared/query.ts:2751
+    Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential
+Error                    inherited src/query-engine/raptor3/shared/storage.ts:210
+    Raptor 3 G1 physical field is not implemented: ${field}
+Error                    NEW-in-G4 src/query-engine/raptor3/shared/storage.ts:64
+    Raptor 3 G1 variant carrier membership is not implemented: ${name}
+FeatureNotSupportedError NEW-in-G4 src/query-engine/raptor3/shared/query.ts:1840
+    distance ${usage}
+InvalidScalarResult      NEW-in-G4 src/query-engine/raptor3/shared/query.ts:3744
+    the value is not an array of finite numbers
+InvalidScalarResult      NEW-in-G4 src/query-engine/raptor3/shared/query.ts:3897
+    the value is not a binary value
+missing                  NEW-in-G4 src/query-engine/raptor3/shared/operation-context.ts:518
+    Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.
+NestedWriteError         inherited src/query-engine/raptor3/program/program.ts:397
+    Nested operation '${node.intent.operation}' on relation '${node.intent.relation}' depends on an earlier '${wri
+QueryEngineError         NEW-in-G4 src/query-engine/raptor3/shared/operation-context.ts:1561
+    Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an 
+QueryEngineError         NEW-in-G4 src/query-engine/raptor3/shared/query.ts:1674
+    Raptor 3 filter operator is not implemented: ${operator}
+QueryEngineError         NEW-in-G4 src/query-engine/raptor3/shared/query.ts:1797
+    Raptor 3 JSON filter operator is not implemented: ${predicate.operator}
+QueryEngineError         NEW-in-G4 src/query-engine/raptor3/shared/query.ts:2688
+    Raptor 3 aggregate is not implemented: ${aggregate}
+QueryEngineError         inherited src/query-engine/raptor3/shared/query.ts:3462
+    Raptor 3 createMany final read returned inconsistent row counts.
+QueryEngineError         NEW-in-G4 src/query-engine/raptor3/shared/query.ts:869
+    Raptor 3 cannot name the updated value of '${model["~"].names.ts ?? "unknown"}.${field}' under '${update.opera
+this.failure             NEW-in-G4 src/query-engine/raptor3/shared/operation-context.ts:256
+    s grant names the caller
+this.incompletePreparation inherited src/query-engine/raptor3/shared/operation-context.ts:1045
+    Driver '${this.driver.driverName}' cannot locate one selected createMany row after insertion.
+this.incompletePreparation NEW-in-G4 src/query-engine/raptor3/shared/operation-context.ts:498
+    s published result, live or packaged. A prepared read is one * statement plus the operation
+this.requiresEnvelope    NEW-in-G4 src/query-engine/raptor3/shared/operation-context.ts:473
+    s own — a nested locate names the nested record, exactly as the * shipped executor
+TransactionError         inherited src/query-engine/raptor3/shared/operation-context.ts:1209
+    updateMany selected-row cardinality changed during its locked mutation.
+TransactionError         inherited src/query-engine/raptor3/shared/operation-context.ts:1290
+    deleteMany selected-row cardinality changed during its locked mutation.
+TransactionError         inherited src/query-engine/raptor3/shared/operation-context.ts:1327
+    Driver '${this.driver.driverName}' cannot atomically capture selected ${this.operation} rows.
+TransactionError         inherited src/query-engine/raptor3/shared/operation-context.ts:140
+    Raptor 3 atomic-array execution is not implemented.
+transition               NEW-in-G4 src/query-engine/raptor3/commands/commands.ts:1206
+    updateHasRelations ? … : undefined
+TypeError                inherited src/query-engine/raptor3/commands/commands.ts:1071
+    INSERT did not produce the required record
+TypeError                inherited src/query-engine/raptor3/shared/operation-context.ts:1500
+    INSERT RETURNING did not produce the required record
+TypeError                inherited src/query-engine/raptor3/shared/operation-context.ts:1619
+    UPDATE did not produce the required record
+TypeError                inherited src/query-engine/raptor3/shared/operation-context.ts:1632
+    UPDATE RETURNING did not produce the required record
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3496
+    Invalid provider recursive occurrence
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3500
+    Invalid provider recursive path
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3504
+    Invalid provider recursive seed
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3515
+    Invalid provider recursive row
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3528
+    Invalid provider recursive parent occurrence
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3532
+    Invalid provider recursive collection
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3545
+    A recursive shape requires occurrence rows
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3561
+    Invalid provider collection
+TypeError                inherited src/query-engine/raptor3/shared/query.ts:3569
+    Invalid provider row
+UnsupportedOperationError NEW-in-G4 src/query-engine/raptor3/route/client-route.ts:164
+    The Raptor 3 route cannot encode a cached result for '${requestedOperation}' on model '${modelName}': the verb
+UnsupportedOperationError NEW-in-G4 src/query-engine/raptor3/route/client-route.ts:276
+    The Raptor 3 route cannot encode a cached result for '${requestedOperation}': a recursive read's published dep
+UnsupportedOperationError NEW-in-G4 src/query-engine/raptor3/route/client-route.ts:311
+    The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishe

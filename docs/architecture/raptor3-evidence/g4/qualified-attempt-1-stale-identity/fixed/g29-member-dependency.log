@@ -1,0 +1,2 @@
+Test command refused: workspace verification PID 10721 is still active without owning the current command chain.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xhCujt

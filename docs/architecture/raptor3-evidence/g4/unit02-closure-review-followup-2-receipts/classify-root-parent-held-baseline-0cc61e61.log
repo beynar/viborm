@@ -1,0 +1,159 @@
+=== INDEPENDENT baseline classification of the reviewer's ROUND-7 probe (sha 2f318b0d...), run in the CLEAN 0cc61e61 worktree ===
+=== 2026-09-15T14:55:21Z container viborm-raptor3-g3-mysql-20260914 d6da412eec3c 127.0.0.1:65515 ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership
+874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8  src/query-engine/raptor3/commands/selection.ts
+79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2  src/query-engine/raptor3/commands/relation-body.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-perf-baseline
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[root update by a collation-equal NON-PK unique]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[root update by a NON-PK unique, exact bytes (control)]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[root delete by a collation-equal NON-PK unique]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"winner"}
+            owners [] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate Error: Raptor 3 G1 operation is not implemented: delete
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[root upsert by a collation-equal NON-PK unique (update arm)]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[root findUnique by a collation-equal NON-PK unique]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"winner"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"winner"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[root update by a collation-equal PK (control)]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[root updateMany by a collation-equal filter (must stay a filter)]
+  shipped   ok:{"count":0}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate ok:{"count":1}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[parent-held connect on a collation-equal key]
+  shipped   ok:{"id":"n1","title":"T","ownerId":"WANTED"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"WANTED"}]
+  candidate ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[parent-held connect, exact bytes (control)]
+  shipped   ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+  candidate ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[parent-held connect by a collation-equal NON-PK unique]
+  shipped   ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+  candidate ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[parent-held connectOrCreate on a collation-equal key]
+  shipped   ok:{"id":"n1","title":"T","ownerId":"WANTED"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"WANTED"}]
+  candidate ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[parent-held disconnect of a linked row (no selector — control)]
+  shipped   ok:{"id":"n1","title":"T","ownerId":null}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":null}]
+  candidate ok:{"id":"n1","title":"T","ownerId":null}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","title":"T","ownerId":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+[parent-held update of a linked row (no selector — control)]
+  shipped   ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"through-child"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+  candidate ok:{"id":"n1","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"through-child"}] notes [{"id":"n1","title":"T","ownerId":"wanted"}]
+
+ ❯ |g4-review-unit02-closure3-reviewcheck| tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts (1 test | 1 failed) 403ms
+   × G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does 402ms
+     → diverging call sites
++ actual - expected
+
++ [
++   'root delete by a collation-equal NON-PK unique',
++   'root updateMany by a collation-equal filter (must stay a filter)',
++   'parent-held connect on a collation-equal key',
++   'parent-held connectOrCreate on a collation-equal key'
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-closure3-reviewcheck| tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts > G4-02 closure round 3 review — the root non-PK unique and the parent-held target > answers a root verb addressed by a NON-primary-key unique the way the shipped engine does
+AssertionError: diverging call sites
++ actual - expected
+
++ [
++   'root delete by a collation-equal NON-PK unique',
++   'root updateMany by a collation-equal filter (must stay a filter)',
++   'parent-held connect on a collation-equal key',
++   'parent-held connectOrCreate on a collation-equal key'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "root delete by a collation-equal NON-PK unique",[39m
+[31m+   "root updateMany by a collation-equal filter (must stay a filter)",[39m
+[31m+   "parent-held connect on a collation-equal key",[39m
+[31m+   "parent-held connectOrCreate on a collation-equal key",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/unit02-closure3-reviewcheck/root-and-parent-held-scope.review.test.ts:302:14
+    300|         await setup.disconnect();
+    301|       }
+    302|       assert.deepEqual(divergences, [], "diverging call sites");
+       |              ^
+    303|     }, 180_000);
+    304|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  16:55:22
+   Duration  2.23s (transform 1.13s, setup 10ms, collect 1.65s, tests 403ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.84s wall, 456.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+=== the probe copy was removed after the run; baseline worktree status below (empty = clean) ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership

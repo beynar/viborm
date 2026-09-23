@@ -1,0 +1,22 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g4/unit01/repairs.test.ts (13 tests) 58ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/repair2.test.ts (22 tests) 24ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/repair3.test.ts (14 tests) 17ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/read-verbs.test.ts (9 tests) 9ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/filters.test.ts (8 tests) 10ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/order-projection.test.ts (6 tests) 8ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/codec-roundtrip.test.ts (5 tests) 6ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/variants.test.ts (3 tests) 5ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/recursive-vocabulary.test.ts (1 test) 2ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/geo-capability.test.ts (2 tests) 3ms
+
+ Test Files  10 passed (10)
+      Tests  83 passed (83)
+   Start at  16:13:31
+   Duration  2.13s (transform 815ms, setup 16ms, collect 1.75s, tests 142ms, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Dzsd9R/vitest.json
+Vitest resources: 4.13s wall, 617.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit01-author contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Dzsd9R

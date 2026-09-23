@@ -1,0 +1,4 @@
+Command: pnpm test:types
+Runtime: Node v24.21.0.
+Result: no new diagnostic. The command exits 1 only for the two historical Pattern TS2345 diagnostics at src/query-engine/pattern/pack.ts:1443:36 and :2633:58.
+Resources: 7.25 seconds wall; 5779.8 MiB peak sampled process-group RSS under the 8192 MiB whole-estate ceiling; teardown verified.

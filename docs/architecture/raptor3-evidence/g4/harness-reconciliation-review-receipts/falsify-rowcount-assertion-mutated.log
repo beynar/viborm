@@ -1,0 +1,196 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests | 6 failed) 413ms
+   ✓ records and exactly replays CS-03 A seed 7103 under 'sqlite-interactive' 49ms
+   ✓ records and exactly replays CS-03 A seed 7103 under 'sqlite-atomic-batch' 23ms
+   ✓ records and exactly replays CS-03 A seed 7112 under 'sqlite-interactive' 19ms
+   ✓ records and exactly replays CS-03 A seed 7112 under 'sqlite-atomic-batch' 13ms
+   ✓ records and exactly replays CS-03 A seed 7117 under 'sqlite-interactive' 14ms
+   ✓ records and exactly replays CS-03 A seed 7117 under 'sqlite-atomic-batch' 15ms
+   ✓ records and exactly replays CS-03 A seed 7128 under 'sqlite-interactive' 13ms
+   ✓ records and exactly replays CS-03 A seed 7128 under 'sqlite-atomic-batch' 27ms
+   × records and exactly replays CS-03 A seed 7133 under 'sqlite-interactive' 12ms
+     → Expected values to be strictly equal:
+
+1 !== 0
+
+   × records and exactly replays CS-03 A seed 7133 under 'sqlite-atomic-batch' 3ms
+     → Expected values to be strictly equal:
+
+1 !== 0
+
+   × records and exactly replays CS-03 A seed 7144 under 'sqlite-interactive' 2ms
+     → Expected values to be strictly equal:
+
+1 !== 0
+
+   × records and exactly replays CS-03 A seed 7144 under 'sqlite-atomic-batch' 2ms
+     → Expected values to be strictly equal:
+
+1 !== 0
+
+   ✓ records and exactly replays CS-03 A seed 7149 under 'sqlite-interactive' 11ms
+   ✓ records and exactly replays CS-03 A seed 7149 under 'sqlite-atomic-batch' 11ms
+   × records and exactly replays CS-03 A seed 7160 under 'sqlite-interactive' 2ms
+     → Expected values to be strictly equal:
+
+0 !== 1
+
+   × records and exactly replays CS-03 A seed 7160 under 'sqlite-atomic-batch' 2ms
+     → Expected values to be strictly equal:
+
+0 !== 1
+
+   ✓ records and exactly replays CS-03 A seed 7109 under 'sqlite-interactive' 10ms
+   ✓ records and exactly replays CS-03 A seed 7109 under 'sqlite-atomic-batch' 10ms
+   ✓ records and exactly replays CS-03 A seed 7119 under 'sqlite-interactive' 18ms
+   ✓ records and exactly replays CS-03 A seed 7119 under 'sqlite-atomic-batch' 16ms
+   ✓ records and exactly replays CS-03 B seed 7200 under 'sqlite-interactive' 3ms
+   ✓ records and exactly replays CS-03 B seed 7200 under 'sqlite-atomic-batch' 2ms
+   ✓ records and exactly replays CS-03 B seed 7201 under 'sqlite-interactive' 1ms
+   ✓ records and exactly replays CS-03 B seed 7201 under 'sqlite-atomic-batch' 1ms
+   ✓ records and exactly replays CS-03 B seed 7202 under 'sqlite-interactive' 2ms
+   ✓ records and exactly replays CS-03 B seed 7202 under 'sqlite-atomic-batch' 2ms
+   ✓ records and exactly replays CS-03 B seed 7203 under 'sqlite-interactive' 3ms
+   ✓ records and exactly replays CS-03 B seed 7203 under 'sqlite-atomic-batch' 2ms
+   ✓ records and exactly replays CS-03 B seed 7204 under 'sqlite-interactive' 6ms
+   ✓ records and exactly replays CS-03 B seed 7204 under 'sqlite-atomic-batch' 2ms
+   ✓ records and exactly replays CS-03 B seed 7205 under 'sqlite-interactive' 5ms
+   ✓ records and exactly replays CS-03 B seed 7205 under 'sqlite-atomic-batch' 4ms
+   ✓ records and exactly replays CS-03 B seed 7214 under 'sqlite-interactive' 7ms
+   ✓ records and exactly replays CS-03 B seed 7214 under 'sqlite-atomic-batch' 8ms
+   ✓ records and exactly replays CS-03 composition seed 7300 under 'sqlite-interactive' 5ms
+   ✓ records and exactly replays CS-03 composition seed 7300 under 'sqlite-atomic-batch' 5ms
+   ✓ records and exactly replays CS-03 composition seed 7305 under 'sqlite-interactive' 12ms
+   ✓ records and exactly replays CS-03 composition seed 7305 under 'sqlite-atomic-batch' 15ms
+   ✓ records and exactly replays CS-03 composition seed 7310 under 'sqlite-interactive' 5ms
+   ✓ records and exactly replays CS-03 composition seed 7310 under 'sqlite-atomic-batch' 3ms
+   ✓ records and exactly replays CS-03 composition seed 7313 under 'sqlite-interactive' 25ms
+   ✓ records and exactly replays CS-03 composition seed 7313 under 'sqlite-atomic-batch' 21ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7133 under 'sqlite-interactive'
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7144 under 'sqlite-interactive'
+AssertionError: Expected values to be strictly equal:
+
+1 !== 0
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ Object.afterStatement tests/raptor3/core-structure/measurement/extension-a-scenario.ts:547:20
+    545|             // The locate is the observation point because it is what …
+    546|             // found from missing: the composition slice pins the same…
+    547|             assert.equal(
+       |                    ^
+    548|               completion.rows.length,
+    549|               recipe.nestedShape === "upsert-found" ? 0 : 1
+ ❯ ObservedSQLiteDriver.completed tests/raptor3/harness/sqlite-world.ts:281:32
+ ❯ ObservedSQLiteDriver.execute tests/raptor3/harness/sqlite-world.ts:109:5
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:199:32
+ ❯ TransactionBoundDriver.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:14
+ ❯ src/drivers/driver.ts:613:16
+ ❯ src/drivers/savepoint-queue.ts:63:19
+ ❯ SavepointQueue.flush src/drivers/savepoint-queue.ts:92:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7133 under 'sqlite-atomic-batch'
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7144 under 'sqlite-atomic-batch'
+AssertionError: Expected values to be strictly equal:
+
+1 !== 0
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ Object.afterStatement tests/raptor3/core-structure/measurement/extension-a-scenario.ts:547:20
+    545|             // The locate is the observation point because it is what …
+    546|             // found from missing: the composition slice pins the same…
+    547|             assert.equal(
+       |                    ^
+    548|               completion.rows.length,
+    549|               recipe.nestedShape === "upsert-found" ? 0 : 1
+ ❯ ObservedAtomicBatchDriver.completed tests/raptor3/harness/sqlite-world.ts:281:32
+ ❯ ObservedAtomicBatchDriver.execute tests/raptor3/harness/sqlite-world.ts:109:5
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:199:32
+ ❯ ObservedAtomicBatchDriver.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:14
+ ❯ src/drivers/savepoint-queue.ts:63:19
+ ❯ SavepointQueue.flush src/drivers/savepoint-queue.ts:92:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7160 under 'sqlite-interactive'
+AssertionError: Expected values to be strictly equal:
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ Object.afterStatement tests/raptor3/core-structure/measurement/extension-a-scenario.ts:547:20
+    545|             // The locate is the observation point because it is what …
+    546|             // found from missing: the composition slice pins the same…
+    547|             assert.equal(
+       |                    ^
+    548|               completion.rows.length,
+    549|               recipe.nestedShape === "upsert-found" ? 0 : 1
+ ❯ ObservedSQLiteDriver.completed tests/raptor3/harness/sqlite-world.ts:281:32
+ ❯ ObservedSQLiteDriver.execute tests/raptor3/harness/sqlite-world.ts:109:5
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:199:32
+ ❯ TransactionBoundDriver.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:14
+ ❯ src/drivers/driver.ts:613:16
+ ❯ src/drivers/savepoint-queue.ts:63:19
+ ❯ SavepointQueue.flush src/drivers/savepoint-queue.ts:92:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7160 under 'sqlite-atomic-batch'
+AssertionError: Expected values to be strictly equal:
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ Object.afterStatement tests/raptor3/core-structure/measurement/extension-a-scenario.ts:547:20
+    545|             // The locate is the observation point because it is what …
+    546|             // found from missing: the composition slice pins the same…
+    547|             assert.equal(
+       |                    ^
+    548|               completion.rows.length,
+    549|               recipe.nestedShape === "upsert-found" ? 0 : 1
+ ❯ ObservedAtomicBatchDriver.completed tests/raptor3/harness/sqlite-world.ts:281:32
+ ❯ ObservedAtomicBatchDriver.execute tests/raptor3/harness/sqlite-world.ts:109:5
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:199:32
+ ❯ ObservedAtomicBatchDriver.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:14
+ ❯ src/drivers/savepoint-queue.ts:63:19
+ ❯ SavepointQueue.flush src/drivers/savepoint-queue.ts:92:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 36 passed (42)
+   Start at  13:47:39
+   Duration  2.96s (transform 1.58s, setup 11ms, collect 2.37s, tests 413ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 5.24s wall, 635.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,5 @@
+PostgreSQL image: sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b; server 16.14.
+PostgreSQL container: 476c36c3d6692083e2027031e2c16f862f10dd5b24eedf5b7f5591d38a1399be; random loopback port 50534; 2 CPUs; 1 GiB; tmpfs provider data; no host mount; OOMKilled false; restart count 0; removed by exact ID.
+MySQL image: sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb; server 8.4.11.
+MySQL container: 1819dee61ca162f364f0cb1fc8e1484406891494a06f197a2db65c14fbd51223; random loopback port 51355; 2 CPUs; 1 GiB; tmpfs provider data; no host mount; OOMKilled false; restart count 0; removed by exact ID.
+Both used label viborm.test=raptor3-post-fact-ownership-final. Final label census: empty.

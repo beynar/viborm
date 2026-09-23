@@ -1,0 +1,3221 @@
+diff --git a/src/query-engine/raptor3/commands/index.ts b/src/query-engine/raptor3/commands/index.ts
+index a43d06a3..f81f8c88 100644
+--- a/src/query-engine/raptor3/commands/index.ts
++++ b/src/query-engine/raptor3/commands/index.ts
+@@ -1,4 +1,5 @@
+ import type { Operations } from "@client/types";
++import { NotFoundError } from "@errors";
+ import type { PreparedBatchOperation } from "../../types";
+ import {
+   type ExecutionBinding,
+@@ -8,49 +9,69 @@ import {
+   type Arguments,
+   type EngineConfig,
+   EngineSchema,
++  isReadOperation,
+   type Operation,
+ } from "../shared/schema";
+ import { Commands } from "./commands";
+ 
+-function supportsOperation(operation: Operations): operation is Operation {
+-  return (
+-    operation === "create" ||
+-    operation === "createMany" ||
+-    operation === "update" ||
+-    operation === "upsert" ||
+-    operation === "updateMany" ||
+-    operation === "deleteMany" ||
+-    operation === "findMany" ||
+-    operation === "findUnique" ||
+-    operation === "groupBy"
+-  );
++/** The admitted operation an `…OrThrow` verb shares its whole envelope with. */
++function admittedOperation(operation: Operations): Operation | undefined {
++  switch (operation) {
++    case "findUniqueOrThrow":
++      return "findUnique";
++    case "findFirstOrThrow":
++      return "findFirst";
++    case "create":
++    case "createMany":
++    case "update":
++    case "upsert":
++    case "updateMany":
++    case "deleteMany":
++    case "findMany":
++    case "findUnique":
++    case "findFirst":
++    case "count":
++    case "exist":
++    case "aggregate":
++    case "groupBy":
++      return operation;
++    default:
++      return undefined;
++  }
+ }
+ 
+ export function createCommandEngine(config: EngineConfig) {
+   const schema = new EngineSchema(config.schema);
+   const run = async (
+     context: OperationContext,
+-    operation: Parameters<EngineSchema["admit"]>[1],
++    requested: Operations,
++    operation: Operation,
+     rawArgs: unknown
+   ): Promise<unknown> => {
+     const model = config.schema[context.modelName]!;
+     const args = schema.admit(model, operation, rawArgs);
+     return context.run(async () => {
+-      if (operation === "findUnique") {
+-        const rows = await context.read(
+-          context.queries.select(model, { ...args, take: 1 })
+-        );
+-        return rows[0] ?? null;
++      if (isReadOperation(operation)) {
++        const read = context.queries.read(model, operation, args);
++        const value = read.result(await context.read(read.query));
++        if (value === null && requested !== operation)
++          throw new NotFoundError(
++            model["~"].names.ts ?? "unknown",
++            requested
++          );
++        return value;
+       }
+-      if (operation === "findMany" || operation === "groupBy")
+-        return context.read(
+-          operation === "groupBy"
+-            ? context.queries.grouped(model, args)
+-            : context.queries.select(model, args)
+-        );
+       return new Commands(context).execute(model, args, rawArgs as Arguments);
+     });
+   };
++  const resolve = (operation: Operations): Operation => {
++    const admitted = admittedOperation(operation);
++    if (!admitted)
++      throw new Error(
++        `Raptor 3 G1 operation is not implemented: ${operation}`
++      );
++    return admitted;
++  };
+   return {
+     async execute(
+       modelName: string,
+@@ -58,40 +79,32 @@ export function createCommandEngine(config: EngineConfig) {
+       rawArgs: unknown,
+       binding?: ExecutionBinding
+     ): Promise<unknown> {
+-      if (!supportsOperation(operation)) {
+-        throw new Error(
+-          `Raptor 3 G1 operation is not implemented: ${operation}`
+-        );
+-      }
++      const admitted = resolve(operation);
+       const context = new OperationContext(
+         schema,
+         config.driver,
+         modelName,
+-        operation,
++        admitted,
+         binding
+       );
+-      return run(context, operation, rawArgs);
++      return run(context, operation, admitted, rawArgs);
+     },
+     async prepareBatch(
+       modelName: string,
+       operation: Operations,
+       rawArgs: unknown
+     ): Promise<PreparedBatchOperation<unknown> | undefined> {
+-      if (!supportsOperation(operation)) {
+-        throw new Error(
+-          `Raptor 3 G1 operation is not implemented: ${operation}`
+-        );
+-      }
++      const admitted = resolve(operation);
+       const context = new OperationContext(
+         schema,
+         config.driver,
+         modelName,
+-        operation,
++        admitted,
+         undefined,
+         true
+       );
+       try {
+-        await run(context, operation, rawArgs);
++        await run(context, operation, admitted, rawArgs);
+       } catch (error) {
+         if (context.isIncompletePreparation(error)) return undefined;
+         throw error;
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index d7a5b93e..78c638ba 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -36,6 +36,7 @@ import {
+ import {
+   type EngineSchema,
+   type Input,
++  isReadOperation,
+   type Operation,
+   record
+ } from "./schema";
+@@ -278,12 +279,7 @@ export class OperationContext {
+   async run<T>(body: () => Promise<T>): Promise<T> {
+     try {
+       if (this.ownership === "batch-preparation") return await body();
+-      if (
+-        this.operation === "findMany" ||
+-        this.operation === "findUnique" ||
+-        this.operation === "groupBy"
+-      )
+-        return await body();
++      if (isReadOperation(this.operation)) return await body();
+       if (this.ownership === "borrowed-transaction") return await body();
+       if (this.usesBatch) return await body();
+       return await this.driver.withTransaction(
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index e3955029..023f591a 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -1,26 +1,54 @@
+-import type { DatabaseAdapter } from "@adapters/database-adapter";
++import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
+ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+-import { QueryEngineError, TransactionError } from "@errors";
++import {
++  FeatureNotSupportedError,
++  QueryEngineError,
++  TransactionError,
++} from "@errors";
+ import {
+   fieldRefPayload,
+   formatFieldRef,
+   isFieldRef,
+ } from "@schema/field-ref";
++import { jsonNullKindOf } from "@schema/json-null";
+ import {
+   findAddressableKey,
++  getModelKeyCatalog,
+   type AnyModel,
+   type OrderedModelKey,
+ } from "@schema/model";
++import type { Scalar } from "@schema/scalars/base";
++import type { ScalarState } from "@schema/scalars/common";
++import type { NativeType } from "@schema/scalars/native-types";
+ import { Sql, sql } from "@sql";
+ import {
++  decodePhysicalDateTime,
++  type DateTimePhysicalForm,
++} from "@validation/primitives/datetime-physical-codec";
++import {
++  isDateTimeClock,
++  isDateTimeInstant,
++  isGregorianCalendarDate,
++} from "@validation/primitives/datetime-values";
++import {
++  canonicalizeDecimal,
+   decodePhysicalDecimal,
++  decodePhysicalDecimalList,
++  decodePhysicalWidenedSum,
++  encodePhysicalDecimalListMembers,
+   materializePhysicalDecimal,
++  materializePhysicalWidenedSum,
++  sameDecimalDescriptor,
++  toDecimal,
+   type DecimalDescriptor,
+ } from "@validation/primitives/decimal-codec";
++import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
++import type { GeoArea, GeoPoint } from "@validation/primitives/geo-values";
+ import {
+   type Arguments,
+   type EngineSchema,
+   type Input,
++  type ReadOperation,
+   record,
+   entries,
+ } from "./schema";
+@@ -36,14 +64,27 @@ type Leaf = {
+   kind: "scalar";
+   type: string;
+   nullable: boolean;
++  /** A list column: the container decodes once, then each member as `type`. */
++  list?: boolean;
+   decimal?: DecimalDescriptor;
++  /** A decimal `_sum`, which keeps the field scale and drops its precision. */
++  widened?: boolean;
++  /** The declared physical timestamp spelling of this column. */
++  dateTime?: DateTimePhysicalForm;
++  enumValues?: ReadonlySet<string>;
++  dimension?: number;
+ };
+ export type ProjectionShape =
+   | {
+       kind: "object";
+       fields: Record<string, ProjectionShape | Leaf>;
+     }
+-  | { kind: "collection"; row: ProjectionShape }
++  | {
++      kind: "collection";
++      /** A negative `take` runs a reversed window; the decoder restores it. */
++      reversed?: boolean;
++      row: ProjectionShape;
++    }
+   | {
+       kind: "variants";
+       many: boolean;
+@@ -65,7 +106,7 @@ export type ProjectionShape =
+ type Shape = ProjectionShape;
+ type RelationProjectionArguments = Pick<
+   Partial<Arguments>,
+-  "orderBy" | "take" | "skip"
++  "orderBy" | "take" | "skip" | "cursor" | "distinct"
+ > & { readonly selector?: PreparedSelector };
+ interface PreparedRelationProjection {
+   readonly edge: Membership;
+@@ -74,6 +115,21 @@ interface PreparedRelationProjection {
+ }
+ export type PreparedProjectionField =
+   | { readonly kind: "scalar"; readonly name: string }
++  | {
++      readonly kind: "counts";
++      readonly name: string;
++      readonly counts: readonly {
++        readonly relation: string;
++        readonly edge: Membership;
++        readonly selector?: PreparedSelector;
++      }[];
++    }
++  | {
++      readonly kind: "distance";
++      readonly name: string;
++      readonly field: string;
++      readonly specification: Input;
++    }
+   | ({
+       readonly kind: "relation";
+       readonly name: string;
+@@ -99,6 +155,11 @@ export interface Query {
+     readonly missing: Error;
+   };
+ }
++/** One statement plus the operation's own cardinality and public shape. */
++export interface Read {
++  readonly query: Query;
++  result(rows: Input[]): unknown;
++}
+ export interface SelectorFacts {
+   fields: Set<string>;
+   equals: Map<string, unknown>;
+@@ -120,30 +181,91 @@ type PreparedScalar = {
+ type PreparedOperand =
+   | { readonly kind: "value"; readonly value: unknown }
+   | { readonly kind: "field"; readonly scalar: PreparedScalar };
++/**
++ * What a prepared operator compares. A physical column, a JSON value addressed
++ * inside one, and an aggregate over a column are three targets of the SAME
++ * operator vocabulary — `where` and `having` never interpret operators twice.
++ */
++type PreparedTarget =
++  | {
++      readonly kind: "column";
++      readonly scalar: PreparedScalar;
++      readonly path?: readonly string[];
++    }
++  | {
++      readonly kind: "aggregate";
++      readonly aggregate: string;
++      readonly scalar?: PreparedScalar;
++    };
+ type PreparedPredicate =
+   | {
+       readonly kind: "and" | "or";
+       readonly predicates: readonly PreparedPredicate[];
+     }
+   | { readonly kind: "not"; readonly predicate: PreparedPredicate }
++  | { readonly kind: "always"; readonly value: boolean }
+   | {
+-      readonly kind: "comparison";
+-      readonly operator: "equals" | "gte" | "gt" | "lte" | "lt";
+-      readonly scalar: PreparedScalar;
+-      readonly operand: PreparedOperand;
+-    }
+-  | {
+-      readonly kind: "in";
+-      readonly scalar: PreparedScalar;
+-      readonly operands: readonly PreparedOperand[];
++      readonly kind: "operation";
++      readonly operator: string;
++      readonly target: PreparedTarget;
++      readonly operand?: PreparedOperand;
++      readonly operands?: readonly PreparedOperand[];
++      readonly value?: unknown;
++      readonly insensitive?: boolean;
+     }
+-  | { readonly kind: "isNull"; readonly scalar: PreparedScalar }
+   | {
+       readonly kind: "relation";
+       readonly edge: Membership;
+       readonly quantifier: string;
+       readonly predicate?: PreparedPredicate;
+     };
++/**
++ * A conjunction of nothing states nothing; every other prepared predicate is a
++ * condition. This is the one reading of "this arm built no condition" that the
++ * shipped builders express by answering `undefined`
++ * (`builders/where-builder.ts:217-308`, `operations/groupby-having.ts:77-173`).
++ */
++function states(predicate: PreparedPredicate): boolean {
++  return predicate.kind !== "and" || predicate.predicates.some(states);
++}
++/** A disjunction of nothing is FALSE; it is the one predicate that says so. */
++const VACUOUS_FALSE: PreparedPredicate = Object.freeze({
++  kind: "always",
++  value: false,
++});
++/**
++ * The declared domain of an exact decimal COLUMN, or `undefined` when the state
++ * is not one. A list answers `undefined`: its members live in a container and
++ * the scalar comparison this domain governs is not one a list has.
++ */
++function exactDecimalDomain(
++  state: ScalarState,
++): DecimalDescriptor | undefined {
++  return state.type === "decimal" && state.array !== true
++    ? state.decimal
++    : undefined;
++}
++/** One normalized sort key; `field` marks a direct scalar a cursor can use. */
++interface OrderTerm {
++  readonly expression: Sql;
++  readonly descending: boolean;
++  /**
++   * The placement the caller spelled. Unspelled is not a placement: the bare
++   * direction names the provider's own default, and only a windowed read —
++   * whose cursor predicate must read the same total order — states one.
++   */
++  readonly nulls?: "first" | "last";
++  /**
++   * Set when `nulls` belongs to the expression instead of to the caller: a
++   * reversed window flips the caller's placement and leaves this one alone,
++   * because the shipped engine reverses the input `sort` only
++   * (`operations/find-pagination.ts:131-151`) and `buildDistanceOrder` then
++   * re-emits `nullsLast(distance, …)` (`builders/sort-order-builder.ts:36-45`).
++   */
++  readonly expressionNulls?: true;
++  readonly nullable: boolean;
++  readonly field?: string;
++}
+ export interface PreparedSelector {
+   readonly model: AnyModel;
+   readonly facts: SelectorFacts;
+@@ -171,6 +293,69 @@ export class InvalidScalarResult extends TypeError {
+   }
+ }
+ 
++/** The public output name of a `_distance` projection, stated once. */
++const DISTANCE_FIELD = "_distance";
++const AGGREGATES = ["_count", "_avg", "_sum", "_min", "_max"] as const;
++const AGGREGATE_NAMES: ReadonlySet<string> = new Set(AGGREGATES);
++const COUNT_LEAF: Leaf = Object.freeze({
++  kind: "scalar",
++  type: "int",
++  nullable: false,
++});
++const QUANTIFIERS: ReadonlySet<string> = new Set([
++  "is",
++  "isNot",
++  "some",
++  "every",
++  "none",
++]);
++const FILTER_OPERATORS: ReadonlySet<string> = new Set([
++  "equals",
++  "not",
++  "in",
++  "notIn",
++  "lt",
++  "lte",
++  "gt",
++  "gte",
++  "contains",
++  "startsWith",
++  "endsWith",
++  "mode",
++  "has",
++  "hasEvery",
++  "hasSome",
++  "isEmpty",
++  "path",
++  "string_contains",
++  "string_starts_with",
++  "string_ends_with",
++  "array_contains",
++  "array_starts_with",
++  "array_ends_with",
++  "within",
++  "distance",
++]);
++
++/**
++ * Whether an admitted object addresses operators rather than being one whole
++ * value. Only the two scalars whose own values ARE objects can be ambiguous.
++ */
++function addressesOperators(
++  state: ScalarState | undefined,
++  value: Input,
++): boolean {
++  if (!isOperatorRecord(value)) return false;
++  if (state?.type !== "json" && state?.type !== "point") return true;
++  return Object.keys(value).some((key) => FILTER_OPERATORS.has(key));
++}
++
++/** A plain admitted record, as opposed to one whole value of an object domain. */
++function isOperatorRecord(value: object): boolean {
++  const prototype = Object.getPrototypeOf(value);
++  return prototype === Object.prototype || prototype === null;
++}
++
+ /** Query scopes and output shapes share no record-identity requirement. */
+ export class Queries {
+   private nextAlias = 0;
+@@ -191,45 +376,188 @@ export class Queries {
+       : this.adapter.identifiers.escape(name);
+   }
+   columnName(model: AnyModel, field: string): string {
+-    const physical = physicalField(this.schema, model, field);
+-    const state = physical.scalar["~"].state;
+-    if (
+-      state.array ||
+-      (state.type !== "int" &&
+-        state.type !== "string" &&
+-        state.type !== "decimal")
+-    ) {
+-      throw new Error(
+-        `Raptor 3 G1 scalar codec is not implemented: ${state.type}${state.array ? "[]" : ""}`,
+-      );
+-    }
+-    return physical.name;
++    return physicalField(this.schema, model, field).name;
+   }
+   value(value: unknown): Sql {
+     return value instanceof Sql ? value : this.adapter.literals.value(value);
+   }
++  /**
++   * The one destination-aware operand owner: filters, cursors, order operands,
++   * assignments and reference values all bind a value through this function,
++   * so a column is never written in one vocabulary and read in another.
++   */
+   fieldValue(model: AnyModel, field: string, value: unknown): Sql {
+-    const state = physicalField(this.schema, model, field).scalar["~"].state;
+-    if (state.type !== "decimal" || value === null) return this.value(value);
+-    return value instanceof Sql
+-      ? this.adapter.expressions.decimalCast(value, state.decimal)
+-      : this.adapter.literals.decimal(value as string, state.decimal);
++    return this.scalarValue(
++      physicalField(this.schema, model, field).scalar,
++      value,
++      field,
++    );
++  }
++  private scalarValue(scalar: Scalar, value: unknown, field: string): Sql {
++    const a = this.adapter;
++    const state = scalar["~"].state;
++    if (value instanceof Sql)
++      return state.type === "decimal" && state.array !== true
++        ? a.expressions.decimalCast(value, state.decimal)
++        : value;
++    const sentinel = jsonNullKindOf(value);
++    if (sentinel) return sentinel === "DbNull" ? a.literals.null() : a.json.value(null);
++    if (value === null || value === undefined) return a.literals.null();
++    if (state.array === true && Array.isArray(value))
++      return this.listValue(state, value, field);
++    switch (state.type) {
++      case "decimal":
++        return state.array === true
++          ? a.literals.value(
++              this.decimalMembers(state, [value], field)[0]!,
++            )
++          : a.literals.decimal(
++              this.canonicalDecimal(value, field),
++              this.requireDecimal(state, field),
++            );
++      case "json":
++        return a.literals.json(value);
++      case "point":
++        return this.geoPoint("value").value(
++          this.value((value as GeoPoint).longitude),
++          this.value((value as GeoPoint).latitude),
++        );
++      case "vector":
++        return a.vector.literal(value as number[]);
++      case "datetime":
++        return typeof value === "string"
++          ? a.literals.dateTime(value, this.nativeType(scalar))
++          : a.literals.value(value);
++      default:
++        return a.literals.value(value);
++    }
++  }
++  /** A whole list, bound as the container the destination column stores. */
++  private listValue(
++    state: ScalarState,
++    values: readonly unknown[],
++    field: string,
++  ): Sql {
++    if (state.type === "decimal")
++      return this.adapter.arrays.value(
++        this.decimalMembers(state, values, field),
++      );
++    return state.type === "enum"
++      ? this.adapter.arrays.enumValue([...values])
++      : this.adapter.arrays.value([...values]);
++  }
++  private decimalMembers(
++    state: ScalarState,
++    values: readonly unknown[],
++    field: string,
++  ): string[] {
++    const members = encodePhysicalDecimalListMembers(
++      values,
++      this.requireDecimal(state, field),
++      this.adapter.result.decimalListRepresentation ?? "text",
++    );
++    if (members === undefined)
++      throw new QueryEngineError(
++        `Decimal list '${field}' received a member that is not an exact decimal.`,
++      );
++    return members;
++  }
++  private canonicalDecimal(value: unknown, field: string): string {
++    const canonical = canonicalizeDecimal(value);
++    if (canonical === undefined)
++      throw new QueryEngineError(
++        `Decimal field '${field}' received a value that is not an exact decimal.`,
++      );
++    return canonical;
++  }
++  private requireDecimal(state: ScalarState, field: string): DecimalDescriptor {
++    if (!state.decimal)
++      throw new QueryEngineError(
++        `Decimal field '${field}' has no declared precision and scale, so it has no exact value to bind.`,
++      );
++    return state.decimal;
++  }
++  /** The declared native form of a column; a list's members live in its container. */
++  private nativeType(scalar: Scalar): NativeType | undefined {
++    return scalar["~"].state.array === true
++      ? undefined
++      : scalar["~"].nativeType;
++  }
++  /** The provider's settled point protocol, or its named capability refusal. */
++  private geoPoint(usage: string): GeoPointSql {
++    const geoPoint = this.adapter.geoPoint;
++    if (!geoPoint)
++      throw new FeatureNotSupportedError(
++        "point",
++        usage,
++        "GeoPoint requires a provider with its physical point tier enabled.",
++      );
++    return geoPoint;
+   }
+   projectedColumn(model: AnyModel, field: string, alias?: string): Sql {
+     const column = this.column(model, field, alias);
+-    return physicalField(this.schema, model, field).scalar["~"].state.type ===
+-      "decimal"
+-      ? this.adapter.expressions.cast(column, "text")
+-      : column;
++    const state = physicalField(this.schema, model, field).scalar["~"].state;
++    if (state.type === "decimal")
++      return state.array === true
++        ? this.adapter.arrays.decimalProjection(column)
++        : this.adapter.expressions.cast(column, "text");
++    if (state.type === "point" && state.array !== true) {
++      const geoPoint = this.geoPoint("projection");
++      const projected = this.adapter.json.objectFromColumns([
++        ["longitude", geoPoint.longitude(column)],
++        ["latitude", geoPoint.latitude(column)],
++      ]);
++      return state.nullable
++        ? this.adapter.expressions.caseWhen(
++            [
++              {
++                when: this.adapter.operators.isNull(column),
++                then: this.adapter.literals.null(),
++              },
++            ],
++            projected,
++          )
++        : projected;
++    }
++    return column;
++  }
++  /**
++   * A projected value carried INSIDE a JSON document. A value that is already
++   * JSON stays a document; a value the container would round stays exact text.
++   */
++  private carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
++    if (leaf.kind !== "scalar") return this.adapter.json.document(expression);
++    if (leaf.list || leaf.type === "json" || leaf.type === "point" || leaf.type === "vector")
++      return this.adapter.json.document(expression);
++    if (leaf.type === "bigint")
++      return this.adapter.expressions.cast(expression, "text");
++    if (leaf.type === "blob")
++      return this.adapter.expressions.blobToHex(expression);
++    return expression;
+   }
+   private scalarShape(model: AnyModel, field: string): Leaf {
+     const physical = physicalField(this.schema, model, field);
+-    const state = physical.scalar["~"].state;
++    return this.leaf(physical.scalar, physical.nullable);
++  }
++  private leaf(scalar: Scalar, nullable: boolean): Leaf {
++    const state = scalar["~"].state;
+     return Object.freeze({
+       kind: "scalar",
+       type: state.type,
+-      nullable: physical.nullable,
++      nullable,
++      list: state.array === true ? true : undefined,
+       decimal: state.type === "decimal" ? state.decimal : undefined,
++      dateTime:
++        state.type === "datetime"
++          ? (this.adapter.result.dateTimeRepresentation?.(
++              this.nativeType(scalar),
++            ) ?? "text")
++          : undefined,
++      enumValues:
++        state.type === "enum" && "enumValues" in scalar
++          ? new Set(scalar.enumValues as readonly string[])
++          : undefined,
++      dimension: state.dimension,
+     });
+   }
+   junctionWhere(
+@@ -297,7 +625,9 @@ export class Queries {
+       typeof value === "object"
+     ) {
+       const operation = record(value);
+-      if ("increment" in operation)
++      // An admitted operator record owns its keys; a Uint8Array, Decimal or
++      // Date inherits methods with the same names and is one whole value.
++      if (Object.hasOwn(operation, "increment"))
+         return this.adapter.expressions.add(
+           physicalField(this.schema, model, field).scalar["~"].state.type ===
+             "int"
+@@ -305,8 +635,9 @@ export class Queries {
+             : before,
+           this.fieldValue(model, field, operation.increment),
+         );
+-      if ("set" in operation)
++      if (Object.hasOwn(operation, "set"))
+         return this.fieldValue(model, field, operation.set);
++      if (!isOperatorRecord(value)) return this.fieldValue(model, field, value);
+       throw new Error(
+         `Raptor 3 G1 update operator is not implemented: ${Object.keys(operation).join(", ")}`,
+       );
+@@ -451,6 +782,29 @@ export class Queries {
+       ),
+     );
+   }
++  /**
++   * The one logical-combinator owner, shared by `where` and `having`. An arm
++   * that builds no condition is absent: it contributes nothing to `AND`,
++   * nothing to `NOT` and nothing to `OR`, and only `OR` turns "no surviving
++   * arm" into a condition — the vacuous FALSE.
++   */
++  private combine(
++    key: "AND" | "OR" | "NOT",
++    arms: readonly PreparedPredicate[],
++  ): PreparedPredicate {
++    const stated = arms.filter(states);
++    if (key === "OR")
++      return stated.length === 0
++        ? VACUOUS_FALSE
++        : Object.freeze({ kind: "or", predicates: Object.freeze(stated) });
++    const predicates: readonly PreparedPredicate[] =
++      key === "AND"
++        ? stated
++        : stated.map((predicate) =>
++            Object.freeze({ kind: "not" as const, predicate }),
++          );
++    return Object.freeze({ kind: "and", predicates: Object.freeze(predicates) });
++  }
+   private prepareWhere(
+     model: AnyModel,
+     where: Input,
+@@ -461,36 +815,17 @@ export class Queries {
+       kind: "and",
+       predicates: Object.freeze(
+         Object.entries(where).map(([field, operand]) => {
+-          if (field === "AND" || field === "OR") {
+-            if (field === "OR") facts.exact = false;
+-            return Object.freeze({
+-              kind: field === "AND" ? "and" : "or",
+-              predicates: Object.freeze(
+-                entries(operand).map((clause) =>
+-                  this.prepareWhere(model, clause, facts, path),
+-                ),
+-              ),
+-            });
+-          }
+-          if (field === "NOT") {
+-            facts.exact = false;
+-            return Object.freeze({
+-              kind: "not",
+-              predicate: this.prepareWhere(
+-                model,
+-                record(operand),
+-                facts,
+-                path,
++          if (field === "AND" || field === "OR" || field === "NOT") {
++            if (field !== "AND") facts.exact = false;
++            return this.combine(
++              field,
++              entries(operand).map((clause) =>
++                this.prepareWhere(model, clause, facts, path),
+               ),
+-            });
+-          }
+-          if (model["~"].state.relations[field]) {
+-            const edge = bindMembership(this.schema, model, field);
+-            return this.prepareRelationPredicate(edge, operand, facts, [
+-              ...path,
+-              edge,
+-            ]);
++            );
+           }
++          if (model["~"].state.relations[field])
++            return this.prepareSlotPredicate(model, field, operand, facts, path);
+           const key = findAddressableKey(model, field);
+           if (key?.name)
+             return Object.freeze({
+@@ -544,78 +879,137 @@ export class Queries {
+     )
+       facts.equals.set(field, equality);
+     else facts.exact = false;
+-    return this.prepareScalarOperations(scalar, value);
++    return this.prepareOperations(
++      Object.freeze({ kind: "column", scalar }),
++      value,
++    );
+   }
+-  private prepareScalarOperations(
+-    scalar: PreparedScalar,
++  /**
++   * One operator vocabulary over one target. A column, a JSON value inside it
++   * and an aggregate over it are the same grammar, so `where` and `having`
++   * cannot admit different operators or bind an operand two ways.
++   */
++  private prepareOperations(
++    target: PreparedTarget,
+     value: unknown,
++    insensitive = false,
+   ): PreparedPredicate {
+-    if (value === null) return Object.freeze({ kind: "isNull", scalar });
+-    if (
++    const state = target.scalar?.physical.scalar["~"].state;
++    const shorthand =
++      value === null ||
+       value instanceof Sql ||
+       isFieldRef(value) ||
+-      typeof value !== "object"
+-    )
+-      return Object.freeze({
+-        kind: "comparison",
+-        operator: "equals",
+-        scalar,
+-        operand: this.prepareOperand(scalar.model, value),
+-      });
++      typeof value !== "object" ||
++      jsonNullKindOf(value) !== undefined ||
++      (state?.array === true && Array.isArray(value)) ||
++      !addressesOperators(state, record(value));
++    if (shorthand)
++      return this.prepareOperation(target, "equals", value, insensitive);
++    const filter = record(value);
++    const folded = insensitive || filter.mode === "insensitive";
++    const scoped: PreparedTarget =
++      state?.type === "json" && Array.isArray(filter.path)
++        ? Object.freeze({
++            ...(target as Extract<PreparedTarget, { kind: "column" }>),
++            path: Object.freeze([...(filter.path as string[])]),
++          })
++        : target;
+     return Object.freeze({
+       kind: "and",
+       predicates: Object.freeze(
+-        Object.entries(record(value)).map(([name, operand]) => {
+-          switch (name) {
+-            case "equals":
+-              return this.prepareScalarOperations(scalar, operand);
+-            case "in":
+-              return Object.freeze({
+-                kind: "in",
+-                scalar,
+-                operands: Object.freeze(
+-                  (operand as unknown[]).map((member) =>
+-                    this.prepareOperand(scalar.model, member),
+-                  ),
+-                ),
+-              });
+-            case "gte":
+-            case "gt":
+-            case "lte":
+-            case "lt":
+-              return Object.freeze({
+-                kind: "comparison",
+-                operator: name,
+-                scalar,
+-                operand: this.prepareOperand(scalar.model, operand),
+-              });
+-            case "not":
+-              return Object.freeze({
+-                kind: "not",
+-                predicate: this.prepareScalarOperations(scalar, operand),
+-              });
+-            default:
+-              throw new Error(
+-                `Raptor 3 G1 filter is not implemented: ${name}`,
+-              );
+-          }
+-        }),
++        Object.entries(filter)
++          .filter(([name]) => name !== "mode" && name !== "path")
++          .map(([name, operand]) =>
++            name === "equals"
++              ? this.prepareOperations(scoped, operand, folded)
++              : name === "not"
++                ? Object.freeze({
++                    kind: "not",
++                    predicate: this.prepareOperations(scoped, operand, folded),
++                  })
++                : this.prepareOperation(scoped, name, operand, folded),
++          ),
+       ),
+     });
+   }
+-  private prepareOperand(model: AnyModel, value: unknown): PreparedOperand {
++  /** One admitted operator, with its operand resolved once. */
++  private prepareOperation(
++    target: PreparedTarget,
++    operator: string,
++    value: unknown,
++    insensitive: boolean,
++  ): PreparedPredicate {
++    const owner = target.scalar;
++    const operand = () =>
++      owner
++        ? this.prepareOperand(owner, value)
++        : Object.freeze<PreparedOperand>({ kind: "value", value });
++    switch (operator) {
++      case "in":
++      case "notIn":
++        return Object.freeze({
++          kind: "operation",
++          operator,
++          target,
++          operands: Object.freeze(
++            (value as unknown[]).map((member) =>
++              owner
++                ? this.prepareOperand(owner, member)
++                : Object.freeze<PreparedOperand>({ kind: "value", value: member }),
++            ),
++          ),
++          insensitive,
++        });
++      case "equals":
++      case "lt":
++      case "lte":
++      case "gt":
++      case "gte":
++      case "contains":
++      case "startsWith":
++      case "endsWith":
++        return Object.freeze({
++          kind: "operation",
++          operator,
++          target,
++          operand: operand(),
++          value,
++          insensitive,
++        });
++      default:
++        return Object.freeze({
++          kind: "operation",
++          operator,
++          target,
++          value,
++          insensitive,
++        });
++    }
++  }
++  private prepareOperand(
++    owner: PreparedScalar,
++    value: unknown,
++  ): PreparedOperand {
+     if (!isFieldRef(value))
+       return Object.freeze({ kind: "value", value });
++    const { model } = owner;
+     const payload = fieldRefPayload(value);
+     const scope = model["~"].names.ts ?? "unknown";
+     if (payload.model !== scope)
+       throw new QueryEngineError(
+         `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`,
+       );
+-    if (!model["~"].state.scalars[payload.field])
++    const referenced = model["~"].state.scalars[payload.field];
++    if (!referenced)
+       throw new QueryEngineError(
+         `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`,
+       );
++    const own = exactDecimalDomain(owner.physical.scalar["~"].state);
++    const other = exactDecimalDomain(referenced["~"].state);
++    if (own && other && !sameDecimalDescriptor(own, other))
++      throw new QueryEngineError(
++        `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`,
++      );
+     return Object.freeze({
+       kind: "field",
+       scalar: Object.freeze({
+@@ -625,52 +1019,151 @@ export class Queries {
+       }),
+     });
+   }
+-  private prepareRelationPredicate(
+-    edge: Membership,
++  /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
++  private prepareSlotPredicate(
++    model: AnyModel,
++    name: string,
+     operand: unknown,
+     facts: SelectorFacts,
+     path: readonly Membership[],
+   ): PreparedPredicate {
++    const resolved = this.schema.index.get(model)!.get(name)!;
++    const entries = record(operand);
++    if (
++      resolved.member ||
++      (resolved.edge.kind !== "variantRowCarrier" &&
++        resolved.edge.kind !== "variantJunctionCarrier")
++    ) {
++      const edge = bindMembership(this.schema, model, name);
++      const quantified = Object.keys(entries).every((key) =>
++        QUANTIFIERS.has(key),
++      );
++      const arms: [string, unknown][] = quantified
++        ? Object.entries(entries)
++        : [["is", entries]];
++      return Object.freeze({
++        kind: "and",
++        predicates: Object.freeze(
++          arms.map(([quantifier, value]) =>
++            this.relationPredicate(edge, quantifier, value, facts, path),
++          ),
++        ),
++      });
++    }
++    const members = resolved.edge.members;
++    const many = resolved.edge.kind === "variantJunctionCarrier";
++    const variantEdge = (variant: unknown) =>
++      bindMembership(this.schema, model, name, variant as string);
++    if (!many && entries.type === undefined) {
++      // Presence is a property of the SLOT: `{ is: null }` asks that no
++      // configured variant holds a member, `{ isNot: null }` that one does.
++      const absent = "is" in entries;
++      return Object.freeze({
++        kind: absent ? "and" : "or",
++        predicates: Object.freeze(
++          members.map((member) =>
++            this.relationPredicate(
++              variantEdge(member.variant),
++              absent ? "none" : "some",
++              undefined,
++              facts,
++              path,
++            ),
++          ),
++        ),
++      });
++    }
++    const arms: [string | undefined, Input][] = many
++      ? Object.entries(entries).map(([quantifier, tagged]) => [
++          quantifier,
++          record(tagged),
++        ])
++      : [[undefined, entries]];
+     return Object.freeze({
+       kind: "and",
+       predicates: Object.freeze(
+-        Object.entries(record(operand)).map(([quantifier, value]) => {
+-          const nestedFacts: SelectorFacts = {
+-            fields: new Set(),
+-            equals: new Map(),
+-            exact:
+-              quantifier !== "none" &&
+-              quantifier !== "every" &&
+-              quantifier !== "isNot",
+-            reads: [],
+-          };
+-          const predicate =
+-            value === null
+-              ? undefined
+-              : this.prepareWhere(
+-                  edge.target,
+-                  record(value),
+-                  nestedFacts,
+-                  path,
+-                );
+-          facts.reads.push({
+-            model: edge.target,
++        arms.map(([quantifier, tagged]) => {
++          const edge = variantEdge(tagged.type);
++          const negated = tagged.isNot !== undefined;
++          const inner = this.relationScope(
++            edge,
++            negated ? record(tagged.isNot) : (tagged.is as Input | undefined),
++            facts,
+             path,
+-            fields: nestedFacts.fields,
+-            equals: nestedFacts.equals,
+-            exact: nestedFacts.exact,
+-          });
+-          facts.reads.push(...nestedFacts.reads);
++            negated || quantifier === "none" || quantifier === "every",
++          );
++          if (quantifier !== undefined)
++            return Object.freeze({
++              kind: "relation",
++              edge,
++              quantifier,
++              predicate:
++                negated && inner
++                  ? Object.freeze({ kind: "not", predicate: inner })
++                  : inner,
++            });
++          // A tagged to-one arm: `{ type }` asks only that the slot holds that
++          // variant; `is`/`isNot` keep the ordinary to-one quantifier meaning.
+           return Object.freeze({
+             kind: "relation",
+             edge,
+-            quantifier,
+-            predicate,
++            quantifier: negated ? "isNot" : inner ? "is" : "some",
++            predicate: inner,
+           });
+         }),
+       ),
+     });
+   }
++  private relationPredicate(
++    edge: Membership,
++    quantifier: string,
++    value: unknown,
++    facts: SelectorFacts,
++    path: readonly Membership[],
++  ): PreparedPredicate {
++    return Object.freeze({
++      kind: "relation",
++      edge,
++      quantifier,
++      predicate: this.relationScope(
++        edge,
++        value === null || value === undefined ? undefined : record(value),
++        facts,
++        path,
++        quantifier === "none" ||
++          quantifier === "every" ||
++          quantifier === "isNot",
++      ),
++    });
++  }
++  /** One relation read: SQL meaning and dependency facts from one traversal. */
++  private relationScope(
++    edge: Membership,
++    where: Input | undefined,
++    facts: SelectorFacts,
++    path: readonly Membership[],
++    inexact: boolean,
++  ): PreparedPredicate | undefined {
++    const scope = [...path, edge];
++    const nestedFacts: SelectorFacts = {
++      fields: new Set(),
++      equals: new Map(),
++      exact: !inexact,
++      reads: [],
++    };
++    const predicate = where
++      ? this.prepareWhere(edge.target, where, nestedFacts, scope)
++      : undefined;
++    facts.reads.push({
++      model: edge.target,
++      path: scope,
++      fields: nestedFacts.fields,
++      equals: nestedFacts.equals,
++      exact: nestedFacts.exact,
++    });
++    facts.reads.push(...nestedFacts.reads);
++    return predicate;
++  }
+   private lowerPredicate(
+     predicate: PreparedPredicate,
+     alias?: string,
+@@ -691,29 +1184,10 @@ export class Queries {
+         );
+       case "not":
+         return a.operators.not(this.lowerPredicate(predicate.predicate, alias));
+-      case "isNull":
+-        return a.operators.isNull(this.preparedColumn(predicate.scalar, alias));
+-      case "in":
+-        return a.operators.in(
+-          this.preparedColumn(predicate.scalar, alias),
+-          a.literals.list(
+-            predicate.operands.map((operand) =>
+-              this.lowerOperand(predicate.scalar, operand, alias),
+-            ),
+-          ),
+-        );
+-      case "comparison": {
+-        const left = this.preparedColumn(predicate.scalar, alias);
+-        const right = this.lowerOperand(
+-          predicate.scalar,
+-          predicate.operand,
+-          alias,
+-        );
+-        return a.operators[predicate.operator === "equals" ? "eq" : predicate.operator](
+-          left,
+-          right,
+-        );
+-      }
++      case "always":
++        return predicate.value ? a.literals.true() : a.literals.false();
++      case "operation":
++        return this.lowerOperation(predicate, alias);
+       case "relation":
+         return this.lowerRelationPredicate(predicate, alias);
+     }
+@@ -723,50 +1197,313 @@ export class Queries {
+       ? this.adapter.identifiers.column(alias, scalar.physical.name)
+       : this.adapter.identifiers.escape(scalar.physical.name);
+   }
+-  private lowerOperand(
+-    scalar: PreparedScalar,
+-    operand: PreparedOperand,
++  private lowerTarget(target: PreparedTarget, alias?: string): Sql {
++    return target.kind === "column"
++      ? this.preparedColumn(target.scalar, alias)
++      : this.aggregateExpression(
++          target.aggregate,
++          target.scalar,
++          alias,
++        );
++  }
++  private lowerOperation(
++    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+     alias?: string,
+   ): Sql {
+-    if (operand.kind === "field")
+-      return this.preparedColumn(operand.scalar, alias);
+-    const state = scalar.physical.scalar["~"].state;
+-    if (state.type !== "decimal" || operand.value === null)
+-      return this.value(operand.value);
+-    return operand.value instanceof Sql
+-      ? this.adapter.expressions.decimalCast(operand.value, state.decimal)
+-      : this.adapter.literals.decimal(operand.value as string, state.decimal);
+-  }
+-  private lowerValuePredicate(expression: Sql, value: unknown): Sql {
+-    const op = this.adapter.operators;
+-    if (value === null) return op.isNull(expression);
+-    if (value instanceof Sql || typeof value !== "object")
+-      return op.eq(expression, this.value(value));
+-    return op.and(
+-      ...Object.entries(record(value)).map(([name, operand]) => {
+-        switch (name) {
+-          case "equals":
+-            return this.lowerValuePredicate(expression, operand);
+-          case "in":
+-            return op.in(
+-              expression,
+-              this.adapter.literals.list(
+-                (operand as unknown[]).map((member) => this.value(member)),
++    const a = this.adapter;
++    const { operator, target, operand } = predicate;
++    const scalar = target.scalar;
++    const state = scalar?.physical.scalar["~"].state;
++    const column = this.lowerTarget(target, alias);
++    if (state?.type === "json" && state.array !== true)
++      return this.lowerJsonOperation(predicate, column, alias);
++    const insensitive = predicate.insensitive === true;
++    const text =
++      state !== undefined &&
++      state.array !== true &&
++      (state.type === "string" || state.type === "enum");
++    const exact = (expression: Sql) =>
++      text ? a.expressions.caseSensitiveText(expression) : expression;
++    const folded = text
++      ? a.expressions.caseSensitiveText(a.expressions.asciiCaseFold(column))
++      : column;
++    const bind = (member: PreparedOperand, fold = false): Sql => {
++      if (member.kind === "field") {
++        const reference = this.preparedColumn(member.scalar, alias);
++        const comparable =
++          state?.type === "enum"
++            ? a.expressions.cast(reference, "text")
++            : reference;
++        return fold
++          ? a.expressions.caseSensitiveText(
++              a.expressions.asciiCaseFold(comparable),
++            )
++          : exact(comparable);
++      }
++      const literal = scalar
++        ? this.scalarValue(scalar.physical.scalar, member.value, scalar.field)
++        : this.value(member.value);
++      return fold ? a.expressions.asciiCaseFold(literal) : literal;
++    };
++    const members = () => predicate.operands ?? [];
++    switch (operator) {
++      case "equals": {
++        const single = operand!;
++        const literal = single.kind === "value" ? single.value : undefined;
++        if (single.kind === "value" && literal === null)
++          return a.operators.isNull(column);
++        if (state?.type === "point" && state.array !== true)
++          return this.geoPoint("equals").equals(column, literal as GeoPoint);
++        if (state?.array === true && Array.isArray(literal))
++          return a.operators.eq(column, bind(single));
++        if (
++          insensitive &&
++          (single.kind === "field" ||
++            typeof literal === "string" ||
++            literal instanceof Sql)
++        )
++          return a.operators.eq(folded, bind(single, true));
++        if (text && single.kind === "value" && !(literal instanceof Sql))
++          return a.operators.exactTextEq(column, bind(single));
++        return a.operators.eq(exact(column), bind(single));
++      }
++      case "in":
++      case "notIn": {
++        const negated = operator === "notIn";
++        const operands = members();
++        if (operands.length === 0) return negated ? a.literals.true() : a.literals.false();
++        if (insensitive) {
++          const comparisons = operands.map((member) =>
++            negated
++              ? a.operators.neq(folded, bind(member, true))
++              : a.operators.eq(folded, bind(member, true)),
++          );
++          return negated
++            ? a.operators.and(...comparisons)
++            : a.operators.or(...comparisons);
++        }
++        const list = a.literals.list(operands.map((member) => bind(member)));
++        if (negated) return a.operators.notIn(exact(column), list);
++        return text
++          ? a.operators.exactTextIn(column, list)
++          : a.operators.in(column, list);
++      }
++      case "lt":
++      case "lte":
++      case "gt":
++      case "gte":
++        return a.operators[operator](column, bind(operand!));
++      case "contains":
++        return insensitive
++          ? a.operators.containsText(folded, bind(operand!, true))
++          : a.operators.containsText(column, bind(operand!));
++      case "startsWith":
++        if (insensitive)
++          return a.operators.startsWithText(folded, bind(operand!, true));
++        return operand!.kind === "value" && typeof operand!.value === "string"
++          ? a.operators.startsWithPrefix(column, operand!.value)
++          : a.operators.startsWithText(column, bind(operand!));
++      case "endsWith":
++        return insensitive
++          ? a.operators.endsWithText(folded, bind(operand!, true))
++          : a.operators.endsWithText(column, bind(operand!));
++      case "has":
++        return predicate.value === null
++          ? a.literals.false()
++          : a.arrays.has(
++              column,
++              this.scalarValue(
++                scalar!.physical.scalar,
++                predicate.value,
++                scalar!.field,
+               ),
+             );
+-          case "gte":
+-          case "gt":
+-          case "lte":
+-          case "lt":
+-            return op[name](expression, this.value(operand));
+-          case "not":
+-            return op.not(this.lowerValuePredicate(expression, operand));
+-          default:
+-            throw new Error(
+-              `Raptor 3 G1 filter is not implemented: ${name}`,
++      case "hasEvery": {
++        const values = predicate.value as unknown[];
++        return values.length === 0
++          ? a.operators.isNotNull(column)
++          : a.arrays.hasEvery(
++              column,
++              this.scalarValue(scalar!.physical.scalar, values, scalar!.field),
++            );
++      }
++      case "hasSome": {
++        const values = predicate.value as unknown[];
++        return values.length === 0
++          ? a.literals.false()
++          : a.arrays.hasSome(
++              column,
++              this.scalarValue(scalar!.physical.scalar, values, scalar!.field),
++            );
++      }
++      case "isEmpty":
++        return predicate.value
++          ? a.arrays.isEmpty(column)
++          : a.operators.not(a.arrays.isEmpty(column));
++      case "within": {
++        const area = predicate.value as GeoArea;
++        const geoPoint = this.geoPoint("within");
++        if ("bounds" in area)
++          return geoPoint.withinBounds(column, area.bounds);
++        if (geoPoint.withinPolygon)
++          return geoPoint.withinPolygon(column, area.polygon);
++        throw new FeatureNotSupportedError(
++          "point",
++          "within polygon",
++          "GeoPoint polygon filtering is not supported by this provider.",
++        );
++      }
++      case "distance": {
++        const specification = record(predicate.value);
++        const expression = this.distanceExpression(
++          column,
++          state!,
++          scalar!.field,
++          specification,
++          "filter",
++        );
++        return a.operators.and(
++          ...(["lt", "lte", "gt", "gte"] as const)
++            .filter((bound) => specification[bound] !== undefined)
++            .map((bound) =>
++              a.operators[bound](expression, this.value(specification[bound])),
++            ),
++        );
++      }
++      default:
++        throw new QueryEngineError(
++          `Raptor 3 filter operator is not implemented: ${operator}`,
++        );
++    }
++  }
++  /**
++   * THE JSON NULL TRUTH TABLE and the document operator set. A JSON column's
++   * operands are documents rather than scalars, which is a storage difference,
++   * not a second semantic interpretation of the same operator.
++   *
++   * The target always names a scalar here: `lowerOperation` reaches this only
++   * when that scalar's own state is a JSON document, which is why the refusal
++   * below can name the field.
++   */
++  private lowerJsonOperation(
++    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
++    column: Sql,
++    alias?: string,
++  ): Sql {
++    const a = this.adapter;
++    const path = [
++      ...(predicate.target.kind === "column"
++        ? (predicate.target.path ?? [])
++        : []),
++    ];
++    const value = predicate.value;
++    const target = path.length ? a.json.extract(column, path) : column;
++    const fold = (expression: Sql) =>
++      predicate.insensitive ? a.expressions.asciiCaseFold(expression) : expression;
++    const textTarget = () => fold(a.json.extractText(column, path));
++    const textValue = (member: unknown) => fold(a.literals.value(member));
++    switch (predicate.operator) {
++      case "equals": {
++        const sentinel = jsonNullKindOf(value);
++        if (sentinel) {
++          if (path.length)
++            throw new QueryEngineError(
++              `JSON filter for field '${predicate.target.scalar!.field}' cannot combine 'path' with the ${sentinel} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`,
+             );
++          const isDatabaseNull = a.operators.isNull(column);
++          const isJsonNull = a.operators.eq(column, a.json.value(null));
++          if (sentinel === "DbNull") return isDatabaseNull;
++          if (sentinel === "JsonNull") return isJsonNull;
++          return a.operators.or(isDatabaseNull, isJsonNull);
+         }
+-      }),
++        if (value === null && path.length === 0)
++          return a.operators.isNull(column);
++        return a.operators.eq(target, a.json.value(value));
++      }
++      case "lt":
++      case "lte":
++      case "gt":
++      case "gte": {
++        const compare = a.operators[predicate.operator];
++        if (typeof value === "number")
++          return compare(a.json.numberAtPath(column, path), this.value(value));
++        if (typeof value === "string")
++          return compare(a.json.stringAtPath(column, path), this.value(value));
++        throw new QueryEngineError(
++          `JSON filter '${predicate.operator}' requires a number or string operand.`,
++        );
++      }
++      case "string_contains":
++        return a.operators.containsText(textTarget(), textValue(value));
++      case "string_starts_with":
++        return a.operators.startsWithText(textTarget(), textValue(value));
++      case "string_ends_with":
++        return a.operators.endsWithText(textTarget(), textValue(value));
++      case "array_contains":
++        return a.json.contains(
++          target,
++          a.json.value(Array.isArray(value) ? value : [value]),
++        );
++      case "array_starts_with":
++        return a.operators.eq(
++          a.json.extract(column, [...path, "0"]),
++          a.json.value(value),
++        );
++      case "array_ends_with":
++        return a.operators.eq(a.json.lastElement(target), a.json.value(value));
++      default:
++        throw new QueryEngineError(
++          `Raptor 3 JSON filter operator is not implemented: ${predicate.operator}`,
++        );
++    }
++  }
++  /** One distance expression, for filters, ordering and projection alike. */
++  private distanceExpression(
++    column: Sql,
++    state: ScalarState,
++    field: string,
++    specification: Input,
++    usage: "filter" | "orderBy" | "select",
++  ): Sql {
++    if (state.type === "vector") {
++      // The three registered vector refusals, in the shipped order and the
++      // shipped words (`builders/distance-builder.ts:142-188`): a nullable
++      // vector has no distance to project and is refused before any
++      // capability is consulted; the capability sentence names pgvector; and
++      // a `to` of the wrong length is admitted input, because the declared
++      // dimension does not constrain the operand's length.
++      if (usage === "select" && state.nullable === true)
++        throw new QueryEngineError(
++          `Vector distance select does not support nullable vector field '${field}'.`,
++        );
++      if (!this.adapter.capabilities.supportsVector)
++        throw new FeatureNotSupportedError(
++          "vector",
++          usage,
++          usage === "orderBy"
++            ? "vector ordering requires a pgvector-enabled PostgreSQL driver"
++            : "vector distance select requires a pgvector-enabled PostgreSQL driver",
++        );
++      const to = specification.to as number[];
++      const { dimension } = state;
++      if (dimension !== undefined && to.length !== dimension)
++        throw new QueryEngineError(
++          `Vector distance ${usage} dimension mismatch for '${field}': expected ${dimension} values, received ${to.length}.`,
++        );
++      const metric = specification.metric === "cosine" ? "cosine" : "l2";
++      return this.adapter.vector[metric](column, this.adapter.vector.literal(to));
++    }
++    const geoPoint = this.geoPoint(`distance ${usage}`);
++    if (!geoPoint.distance)
++      throw new FeatureNotSupportedError(
++        "point",
++        `distance ${usage}`,
++        "GeoPoint distance is not supported by this provider.",
++      );
++    const target = specification.to as GeoPoint;
++    return geoPoint.distance(
++      column,
++      geoPoint.value(this.value(target.longitude), this.value(target.latitude)),
+     );
+   }
+   private lowerRelationPredicate(
+@@ -881,73 +1618,685 @@ export class Queries {
+     alias: string,
+   ): Sql | undefined {
+     if (!input) return undefined;
++    return this.lowerOrder(this.orderTerms(model, input, alias));
++  }
++  private lowerOrder(terms: readonly OrderTerm[]): Sql | undefined {
++    if (terms.length === 0) return undefined;
++    const a = this.adapter;
+     return sql.join(
+-      this.orderTerms(model, input, alias).map(({ expression, descending }) =>
+-        descending
+-          ? this.adapter.orderBy.desc(expression)
+-          : this.adapter.orderBy.asc(expression),
+-      ),
++      terms.map((term) => {
++        const direction = term.descending ? "desc" : "asc";
++        if (!term.nullable || term.nulls === undefined)
++          return a.orderBy[direction](term.expression);
++        return term.nulls === "first"
++          ? a.orderBy.nullsFirst(term.expression, direction)
++          : a.orderBy.nullsLast(term.expression, direction);
++      }),
+       ", ",
+     );
+   }
++  /**
++   * One order owner. A scalar key, a to-one relation path, a collection
++   * `_count`, a distance and a grouped aggregate are all sort keys; only a
++   * direct scalar key can also serve as a cursor's total order.
++   */
+   private orderTerms(
+     model: AnyModel,
+     input: Arguments["orderBy"],
+     alias: string,
+-  ): { readonly expression: Sql; readonly descending: boolean }[] {
++  ): OrderTerm[] {
+     if (!input) return [];
+     return entries(input).flatMap((order) =>
+-      Object.entries(order).map(([field, direction]) => ({
+-        expression: this.column(model, field, alias),
+-        descending: direction === "desc",
+-      })),
++      Object.entries(order).flatMap(([field, direction]) =>
++        direction === undefined
++          ? []
++          : [this.orderTerm(model, field, direction, alias)],
++      ),
+     );
+   }
+-  select(
++  private orderTerm(
+     model: AnyModel,
+-    args: Partial<Arguments>,
+-    membership?: { edge: Membership; parent: Input },
+-    controls: {
+-      condition?: Sql;
+-      forUpdate?: boolean;
+-      identity?: Input;
+-      projection?: PreparedProjection;
+-      selector?: PreparedSelector;
+-    } = {},
+-  ): Query {
+-    const alias = this.alias();
+-    const prepared = controls.projection ?? this.prepareProjection(model, args);
+-    const projection = this.lowerProjection(prepared, alias);
+-    const selector =
+-      controls.selector ??
+-      (args.where === undefined
+-        ? undefined
+-        : this.prepareSelector(model, args.where));
+-    const filter = selector
+-      ? this.lowerSelector(selector, alias)
+-      : undefined;
+-    return {
+-      sql: assembleAdapterSelect(this.adapter, {
+-        columns: sql.join(projection.columns, ", "),
+-        from: this.table(model, alias),
+-        where: this.adapter.operators.and(
+-          ...(membership
+-            ? [this.memberWhere(membership.edge, membership.parent, alias)]
+-            : []),
+-          ...(filter ? [filter] : []),
++    field: string,
++    direction: unknown,
++    alias: string,
++  ): OrderTerm {
++    const a = this.adapter;
++    if (model["~"].state.relations[field])
++      return this.relationOrderTerm(model, field, record(direction), alias);
++    const physical = physicalField(this.schema, model, field);
++    const state = physical.scalar["~"].state;
++    const column = this.column(model, field, alias);
++    if (direction !== "asc" && direction !== "desc") {
++      const specification = record(direction);
++      if (specification._distance !== undefined) {
++        const distance = record(specification._distance);
++        const point = state.type === "point";
++        return this.sortKey(
++          this.distanceExpression(column, state, field, distance, "orderBy"),
++          distance.sort === "desc",
++          point ? "last" : undefined,
++          point,
++          undefined,
++          point ? true : undefined,
++        );
++      }
++      return this.sortKey(
++        column,
++        specification.sort === "desc",
++        specification.nulls as "first" | "last" | undefined,
++        physical.nullable,
++        field,
++      );
++    }
++    return this.sortKey(
++      column,
++      direction === "desc",
++      undefined,
++      physical.nullable,
++      field,
++    );
++  }
++  /** A to-one path is one correlated value; a collection orders by `_count`. */
++  private relationOrderTerm(
++    model: AnyModel,
++    field: string,
++    specification: Input,
++    alias: string,
++  ): OrderTerm {
++    const a = this.adapter;
++    const edge = bindMembership(this.schema, model, field);
++    const childAlias = this.alias();
++    const correlation = this.correlation(edge, alias, childAlias);
++    if (edge.many || specification._count !== undefined) {
++      const count = assembleAdapterSelect(a, {
++        columns: a.aggregates.count(),
++        from: this.table(edge.target, childAlias),
++        where: correlation,
++      });
++      return this.sortKey(
++        a.expressions.coalesce(a.subqueries.scalar(count), this.value(0)),
++        specification._count === "desc",
++        undefined,
++        false,
++      );
++    }
++    const [nested] = Object.entries(specification);
++    const inner = this.orderTerm(
++      edge.target,
++      nested![0],
++      nested![1],
++      childAlias,
++    );
++    const value = assembleAdapterSelect(a, {
++      columns: inner.expression,
++      from: this.table(edge.target, childAlias),
++      where: correlation,
++      limit: this.value(1),
++    });
++    return this.sortKey(
++      a.subqueries.scalar(value),
++      inner.descending,
++      inner.nulls,
++      true,
++    );
++  }
++  private sortKey(
++    expression: Sql,
++    descending: boolean,
++    nulls: "first" | "last" | undefined,
++    nullable: boolean,
++    field?: string,
++    expressionNulls?: true,
++  ): OrderTerm {
++    return Object.freeze({
++      expression,
++      descending,
++      nulls,
++      expressionNulls,
++      nullable,
++      field,
++    });
++  }
++  private reverseOrder(terms: readonly OrderTerm[]): OrderTerm[] {
++    return terms.map((term) =>
++      Object.freeze({
++        ...term,
++        descending: !term.descending,
++        nulls:
++          term.nulls === undefined || term.expressionNulls
++            ? term.nulls
++            : term.nulls === "first"
++              ? ("last" as const)
++              : ("first" as const),
++      }),
++    );
++  }
++  /**
++   * One page owner: the root read and every nested node use it, so a nested
++   * window is the ordinary page operator inside its parent's correlation.
++   */
++  private page(
++    model: AnyModel,
++    args: Pick<
++      Partial<Arguments>,
++      "orderBy" | "take" | "skip" | "cursor" | "distinct"
++    >,
++    alias: string,
++  ): {
++    readonly orderBy?: Sql;
++    readonly limit?: Sql;
++    readonly offset?: Sql;
++    readonly cursor?: Sql;
++    readonly distinct?: Sql;
++  } {
++    const backward = args.take !== undefined && args.take < 0;
++    const requested = this.orderTerms(model, args.orderBy, alias);
++    const windowed = args.cursor !== undefined || args.take !== undefined;
++    const total =
++      windowed && requested.every((term) => term.field !== undefined)
++        ? this.totalOrder(model, requested, args.cursor, alias)
++        : undefined;
++    if (args.cursor !== undefined && !total)
++      throw new QueryEngineError(
++        "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.",
++      );
++    const terms = total ?? requested;
++    return {
++      orderBy: this.lowerOrder(backward ? this.reverseOrder(terms) : terms),
++      limit:
++        args.take === undefined ? undefined : this.value(Math.abs(args.take)),
++      offset: args.skip === undefined ? undefined : this.value(args.skip),
++      cursor:
++        args.cursor === undefined
++          ? undefined
++          : this.cursorCondition(
++              model,
++              backward ? this.reverseOrder(total!) : total!,
++              args.cursor,
++              alias,
++            ),
++      distinct: args.distinct?.length
++        ? sql.join(
++            args.distinct.map((field) => this.column(model, field, alias)),
++            ", ",
++          )
++        : undefined,
++    };
++  }
++  /** A windowed read needs a deterministic total order, not just the caller's. */
++  private totalOrder(
++    model: AnyModel,
++    requested: readonly OrderTerm[],
++    cursor: Input | undefined,
++    alias: string,
++  ): OrderTerm[] {
++    // A windowed read is the one read whose null placement must be stated: the
++    // cursor predicate and the emitted order have to name the same total order,
++    // so an unspelled key takes the established default here and nowhere else.
++    const terms = requested.map((term) =>
++      term.nulls === undefined
++        ? Object.freeze({
++            ...term,
++            nulls: term.descending ? ("first" as const) : ("last" as const),
++          })
++        : term,
++    );
++    const ordered = new Set(terms.map((term) => term.field!));
++    const append = (fields: readonly string[]) => {
++      for (const field of fields) {
++        if (ordered.has(field)) continue;
++        ordered.add(field);
++        const physical = physicalField(this.schema, model, field);
++        terms.push(
++          this.sortKey(
++            this.column(model, field, alias),
++            false,
++            "last",
++            physical.nullable,
++            field,
++          ),
++        );
++      }
++    };
++    append(this.identityOrder(model));
++    if (cursor) append(Object.keys(this.identityEntries(model, cursor)));
++    return terms;
++  }
++  /** The cursor's tie-break identity: a bare scalar id, else the row key. */
++  private identityOrder(model: AnyModel): readonly string[] {
++    const catalog = getModelKeyCatalog(model);
++    const bare = catalog.addressableKeys.find(
++      (key) => key.kind === "primary" && key.name === undefined,
++    );
++    if (bare) return bare.fields;
++    const rowKey = catalog.rowKey;
++    if (!rowKey)
++      throw new QueryEngineError(
++        "Paginated scalar ordering requires a primary model identifier.",
++      );
++    const fields = new Set<string>(rowKey.fields);
++    return Object.keys(model["~"].state.scalars).filter((field) =>
++      fields.has(field),
++    );
++  }
++  /** A strict unique selector's exact field values, compound keys expanded. */
++  private identityEntries(model: AnyModel, input: Input): Input {
++    const identity: Input = {};
++    for (const [name, value] of Object.entries(input)) {
++      const key = findAddressableKey(model, name);
++      if (key?.name)
++        for (const field of key.fields) identity[field] = record(value)[field];
++      else identity[name] = value;
++    }
++    return identity;
++  }
++  /**
++   * One null-aware lexicographic window against the cursor row. Where every
++   * key is NOT NULL and shares a direction the same meaning is spelled as a
++   * row-value comparison, which a planner can turn into a range seek.
++   */
++  private cursorCondition(
++    model: AnyModel,
++    order: readonly OrderTerm[],
++    cursor: Input,
++    alias: string,
++  ): Sql {
++    const a = this.adapter;
++    const identity = this.identityEntries(model, cursor);
++    const sourceAlias = this.alias();
++    const where = a.operators.and(
++      ...Object.entries(identity).map(([field, value]) => {
++        if (value === null)
++          throw new QueryEngineError(
++            `Cursor field '${field}' cannot be null. Cursor must point to a specific record.`,
++          );
++        return a.operators.eq(
++          this.column(model, field, sourceAlias),
++          this.fieldValue(model, field, value),
++        );
++      }),
++    );
++    const descending = order[0]!.descending;
++    const sargable = order.every(
++      (term) => !term.nullable && term.descending === descending,
++    );
++    const cursorRow = (columns: Sql[]) =>
++      assembleAdapterSelect(a, {
++        columns: sql.join(columns, ", "),
++        from: this.table(model, sourceAlias),
++        where,
++        limit: this.value(1),
++      });
++    const keyColumns = order.map((term) =>
++      this.column(model, term.field!, sourceAlias),
++    );
++    if (sargable) {
++      const row = (expressions: Sql[]) =>
++        expressions.length === 1
++          ? expressions[0]!
++          : sql`(${sql.join(expressions, ", ")})`;
++      return (descending ? a.operators.lte : a.operators.gte)(
++        row(order.map((term) => term.expression)),
++        a.subqueries.scalar(cursorRow(keyColumns)),
++      );
++    }
++    const cursorAlias = this.alias();
++    const carrier = (index: number) => `0viborm_cursor_${index}`;
++    const derived = cursorRow(
++      keyColumns.map((column, index) =>
++        a.identifiers.aliased(column, carrier(index)),
++      ),
++    );
++    const comparisons = order.map((term, index) => ({
++      row: term.expression,
++      cursor: a.identifiers.column(cursorAlias, carrier(index)),
++      term,
++    }));
++    const equalities: Sql[] = [];
++    const afterTerms: Sql[] = [];
++    for (const { row, cursor: key, term } of comparisons) {
++      const compare = term.descending ? a.operators.lt : a.operators.gt;
++      const strict = a.operators.and(
++        a.operators.isNotNull(row),
++        compare(row, key),
++      );
++      afterTerms.push(
++        a.operators.and(
++          ...equalities,
++          term.nulls === "first"
++            ? a.operators.or(
++                a.operators.and(
++                  a.operators.isNull(key),
++                  a.operators.isNotNull(row),
++                ),
++                a.operators.and(a.operators.isNotNull(key), strict),
++              )
++            : a.operators.and(
++                a.operators.isNotNull(key),
++                a.operators.or(a.operators.isNull(row), strict),
++              ),
++        ),
++      );
++      equalities.push(
++        a.operators.or(
++          a.operators.and(a.operators.isNull(row), a.operators.isNull(key)),
++          a.operators.and(
++            a.operators.isNotNull(row),
++            a.operators.isNotNull(key),
++            a.operators.eq(row, key),
++          ),
++        ),
++      );
++    }
++    afterTerms.push(a.operators.and(...equalities));
++    return a.operators.exists(
++      assembleAdapterSelect(a, {
++        columns: a.literals.true(),
++        from: a.subqueries.correlate(derived, cursorAlias),
++        where: a.operators.or(...afterTerms),
++      }),
++    );
++  }
++  select(
++    model: AnyModel,
++    args: Partial<Arguments>,
++    membership?: { edge: Membership; parent: Input },
++    controls: {
++      condition?: Sql;
++      forUpdate?: boolean;
++      identity?: Input;
++      projection?: PreparedProjection;
++      selector?: PreparedSelector;
++    } = {},
++  ): Query {
++    const alias = this.alias();
++    const prepared = controls.projection ?? this.prepareProjection(model, args);
++    const projection = this.lowerProjection(prepared, alias);
++    const selector =
++      controls.selector ??
++      (args.where === undefined
++        ? undefined
++        : this.prepareSelector(model, args.where));
++    const filter = selector
++      ? this.lowerSelector(selector, alias)
++      : undefined;
++    const page = this.page(model, args, alias);
++    return {
++      sql: assembleAdapterSelect(this.adapter, {
++        columns: sql.join(projection.columns, ", "),
++        from: this.table(model, alias),
++        where: this.adapter.operators.and(
++          ...(membership
++            ? [this.memberWhere(membership.edge, membership.parent, alias)]
++            : []),
++          ...(filter ? [filter] : []),
++          ...(page.cursor ? [page.cursor] : []),
+           ...(controls.identity
+             ? [this.lowerIdentity(model, controls.identity, alias)]
+             : []),
+           ...(controls.condition ? [controls.condition] : []),
+         ),
+-        orderBy: this.order(model, args.orderBy, alias),
+-        limit: args.take === undefined ? undefined : this.value(args.take),
+-        offset: args.skip === undefined ? undefined : this.value(args.skip),
++        orderBy: page.orderBy,
++        limit: page.limit,
++        offset: page.offset,
+         forUpdate: controls.forUpdate,
++        ...(page.distinct
++          ? {
++              distinct: page.distinct,
++              distinctColumnAliases: projection.names,
++            }
++          : {}),
+       }),
+       shape: prepared.shape,
+     };
+   }
++  /**
++   * Every read verb is one cardinality and shape decision over the same
++   * select, projection and decoder owners.
++   */
++  read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
++    switch (operation) {
++      case "findUnique":
++        return { query: this.select(model, args), result: (rows) => rows[0] ?? null };
++      case "findFirst": {
++        // A negative take selects from the end of the window: the signed unit
++        // limit flips the total order and still returns one row.
++        const take = args.take === undefined ? 1 : Math.sign(args.take);
++        return {
++          query: this.select(model, { ...args, take }),
++          result: (rows) => rows[0] ?? null,
++        };
++      }
++      case "findMany": {
++        const backward = args.take !== undefined && args.take < 0;
++        return {
++          query: this.select(model, args),
++          result: (rows) => (backward ? rows.reverse() : rows),
++        };
++      }
++      case "count":
++      case "exist": {
++        const selected = args.select ? record(args.select) : undefined;
++        const fields = selected
++          ? Object.keys(selected).filter(
++              (field) => field !== "_all" && selected[field],
++            )
++          : [];
++        const query = this.aggregated(
++          model,
++          args,
++          fields,
++          (alias) =>
++            selected
++              ? [
++                  ...(selected._all
++                    ? ([["_all", this.adapter.aggregates.count()]] as [
++                        string,
++                        Sql,
++                      ][])
++                    : []),
++                  ...fields.map(
++                    (field) =>
++                      [
++                        field,
++                        this.adapter.aggregates.count(
++                          this.column(model, field, alias),
++                        ),
++                      ] as [string, Sql],
++                  ),
++                ]
++              : [["_count", this.adapter.aggregates.count()]],
++          (alias) =>
++            selected
++              ? {
++                  kind: "object",
++                  fields: Object.fromEntries([
++                    ...(selected._all
++                      ? [["_all", COUNT_LEAF] as [string, Leaf]]
++                      : []),
++                    ...fields.map(
++                      (field) => [field, COUNT_LEAF] as [string, Leaf],
++                    ),
++                  ]),
++                }
++              : { kind: "object", fields: { _count: COUNT_LEAF } },
++        );
++        return {
++          query,
++          result: (rows) =>
++            operation === "exist"
++              ? (rows[0]?._count as number) > 0
++              : selected
++                ? (rows[0] ?? {})
++                : ((rows[0]?._count as number) ?? 0),
++        };
++      }
++      case "aggregate": {
++        const prepared = this.prepareAggregates(model, args);
++        const query = this.aggregated(
++          model,
++          args,
++          prepared.fields,
++          (alias) => prepared.columns(alias),
++          () => ({ kind: "object", fields: prepared.fields_ }),
++        );
++        return { query, result: (rows) => rows[0] ?? {} };
++      }
++      case "groupBy":
++        return { query: this.grouped(model, args), result: (rows) => rows };
++    }
++  }
++  /** One aggregate window: the same filter/order/cursor/page, then aggregates. */
++  private aggregated(
++    model: AnyModel,
++    args: Arguments,
++    fields: readonly string[],
++    columns: (alias: string) => [string, Sql][],
++    shape: (alias: string) => Extract<Shape, { kind: "object" }>,
++  ): Query {
++    const a = this.adapter;
++    const inner = this.alias();
++    const page = this.page(model, args, inner);
++    const filter = this.lowerWhere(model, args.where, inner);
++    const window = assembleAdapterSelect(a, {
++      columns: fields.length
++        ? sql.join(
++            [...new Set(fields)].map((field) =>
++              a.identifiers.aliased(
++                this.column(model, field, inner),
++                this.columnName(model, field),
++              ),
++            ),
++            ", ",
++          )
++        : a.identifiers.aliased(this.value(1), "0viborm_row"),
++      from: this.table(model, inner),
++      where: a.operators.and(
++        ...(filter ? [filter] : []),
++        ...(page.cursor ? [page.cursor] : []),
++      ),
++      orderBy: page.orderBy,
++      limit: page.limit,
++      offset: page.offset,
++    });
++    const outer = this.alias();
++    return {
++      sql: assembleAdapterSelect(a, {
++        columns: sql.join(
++          columns(outer).map(([name, expression]) =>
++            a.identifiers.aliased(expression, name),
++          ),
++          ", ",
++        ),
++        from: a.subqueries.correlate(window, outer),
++      }),
++      shape: shape(outer),
++    };
++  }
++  /** The admitted aggregate selections, as columns and as decoder leaves. */
++  private prepareAggregates(
++    model: AnyModel,
++    args: Arguments,
++  ): {
++    readonly fields: string[];
++    readonly fields_: Record<string, Shape | Leaf>;
++    columns(alias: string): [string, Sql][];
++  } {
++    const a = this.adapter;
++    const fields: string[] = [];
++    const shape: Record<string, Shape | Leaf> = {};
++    const builders: ((alias: string) => [string, Sql])[] = [];
++    for (const name of AGGREGATES) {
++      const selection = args[name];
++      if (!selection) continue;
++      if (name === "_count" && selection === true) {
++        shape._count = COUNT_LEAF;
++        builders.push(() => ["_count", a.aggregates.count()]);
++        continue;
++      }
++      const selected = Object.entries(record(selection)).filter(
++        ([, include]) => include,
++      );
++      if (selected.length === 0) continue;
++      const leaves: Record<string, Leaf> = {};
++      for (const [field] of selected) {
++        if (field !== "_all") fields.push(field);
++        leaves[field] = this.aggregateLeaf(model, name, field);
++      }
++      shape[name] = { kind: "object", fields: leaves };
++      builders.push((alias) => [
++        name,
++        a.json.objectFromColumns(
++          selected.map(([field]) => [
++            field,
++            this.carriedValue(
++              leaves[field]!,
++              this.aggregateExpression(
++                name,
++                field === "_all"
++                  ? undefined
++                  : Object.freeze({
++                      model,
++                      field,
++                      physical: physicalField(this.schema, model, field),
++                    }),
++                alias,
++              ),
++            ),
++          ]),
++        ),
++      ]);
++    }
++    return {
++      fields,
++      fields_: shape,
++      columns: (alias) => builders.map((build) => build(alias)),
++    };
++  }
++  /** One aggregate leaf classification, shared by projection and `having`. */
++  private aggregateLeaf(
++    model: AnyModel,
++    aggregate: string,
++    field: string,
++  ): Leaf {
++    if (aggregate === "_count") return COUNT_LEAF;
++    const leaf = this.scalarShape(model, field);
++    const decimal = leaf.type === "decimal";
++    if (aggregate === "_avg" && !decimal)
++      return Object.freeze({ kind: "scalar", type: "number", nullable: true });
++    return Object.freeze({
++      ...leaf,
++      nullable: true,
++      widened: aggregate === "_sum" && decimal ? true : undefined,
++    });
++  }
++  private aggregateExpression(
++    aggregate: string,
++    scalar: PreparedScalar | undefined,
++    alias?: string,
++  ): Sql {
++    const a = this.adapter;
++    const column = scalar ? this.preparedColumn(scalar, alias) : undefined;
++    const state = scalar?.physical.scalar["~"].state;
++    switch (aggregate) {
++      case "_count":
++        return a.aggregates.count(column);
++      case "_sum":
++        return a.aggregates.sum(column!);
++      case "_min":
++        return a.aggregates.min(column!);
++      case "_max":
++        return a.aggregates.max(column!);
++      case "_avg":
++        return state?.type === "decimal" && state.decimal
++          ? a.aggregates.decimalAvg(column!, state.decimal)
++          : a.aggregates.avg(column!);
++      default:
++        throw new QueryEngineError(
++          `Raptor 3 aggregate is not implemented: ${aggregate}`,
++        );
++    }
++  }
+   selectSeries(
+     prepared: PreparedProjection,
+     identities: Input[],
+@@ -1218,19 +2567,53 @@ export class Queries {
+     model: AnyModel,
+     args: Partial<Arguments>,
+   ): PreparedProjection {
+-    const selected = args.select ?? {
+-      ...Object.fromEntries(
+-        model["~"].scalarFieldNames
+-          .filter((field) => !model["~"].state.omit?.[field])
+-          .map((field) => [field, true]),
+-      ),
++    // `omit` is desugared into `select` at admission; an explicit selection and
++    // an include can therefore both be present and both belong to the result.
++    const selected = {
++      ...(args.select ??
++        Object.fromEntries(
++          model["~"].scalarFieldNames
++            .filter((field) => !model["~"].state.omit?.[field])
++            .map((field) => [field, true]),
++        )),
+       ...args.include,
+     };
+     const prepared: PreparedProjectionField[] = [];
+     const fields: Record<string, Shape | Leaf> = {};
+     for (const [name, selection] of Object.entries(selected)) {
+       if (!selection) continue;
++      if (name === "_count" && !model["~"].state.scalars[name]) {
++        const counts = this.prepareCounts(model, selection);
++        fields[name] = Object.freeze({
++          kind: "object",
++          fields: Object.freeze(
++            Object.fromEntries(
++              counts.map((count) => [count.relation, COUNT_LEAF]),
++            ),
++          ),
++        });
++        prepared.push(Object.freeze({ kind: "counts", name, counts }));
++        continue;
++      }
+       if (!model["~"].state.relations[name]) {
++        const distance =
++          selection === true ? undefined : record(selection)._distance;
++        if (distance !== undefined) {
++          if (fields[DISTANCE_FIELD])
++            throw new QueryEngineError(
++              "Distance select supports only one _distance field per select.",
++            );
++          prepared.push(
++            Object.freeze({
++              kind: "distance",
++              name: DISTANCE_FIELD,
++              field: name,
++              specification: record(distance),
++            }),
++          );
++          fields[DISTANCE_FIELD] = this.distanceLeaf(model, name);
++          continue;
++        }
+         prepared.push(Object.freeze({ kind: "scalar", name }));
+         fields[name] = this.scalarShape(model, name);
+         continue;
+@@ -1263,12 +2646,7 @@ export class Queries {
+             bindMembership(this.schema, model, name, member.variant),
+             arm === undefined ? true : arm,
+           );
+-          arms[member.variant] = nested.edge.many
+-            ? Object.freeze({
+-                kind: "collection",
+-                row: nested.projection.shape,
+-              })
+-            : nested.projection.shape;
++          arms[member.variant] = this.relationShape(nested);
+           preparedArms.push(
+             Object.freeze({ variant: member.variant, ...nested }),
+           );
+@@ -1292,9 +2670,7 @@ export class Queries {
+         bindMembership(this.schema, model, name),
+         selection,
+       );
+-      fields[name] = nested.edge.many
+-        ? Object.freeze({ kind: "collection", row: nested.projection.shape })
+-        : nested.projection.shape;
++      fields[name] = this.relationShape(nested);
+       prepared.push(Object.freeze({ kind: "relation", name, ...nested }));
+     }
+     return Object.freeze({
+@@ -1303,6 +2679,30 @@ export class Queries {
+       shape: Object.freeze({ kind: "object", fields: Object.freeze(fields) }),
+     });
+   }
++  /**
++   * A to-many node's decoded shape. A negative `take` runs the reversed window
++   * exactly as at the root, so the carried array is restored to the caller's
++   * logical order by the one decoder that reads this shape.
++   */
++  private relationShape(nested: PreparedRelationProjection): Shape {
++    if (!nested.edge.many) return nested.projection.shape;
++    const take = nested.arguments.take;
++    return Object.freeze({
++      kind: "collection",
++      reversed: take !== undefined && take < 0 ? true : undefined,
++      row: nested.projection.shape,
++    });
++  }
++  /** The distance leaf: one number, null only where a nullable point has none. */
++  private distanceLeaf(model: AnyModel, field: string): Leaf {
++    const physical = physicalField(this.schema, model, field);
++    return Object.freeze({
++      kind: "scalar",
++      type: "number",
++      nullable:
++        physical.scalar["~"].state.type === "point" && physical.nullable,
++    });
++  }
+   private prepareRelationProjection(
+     edge: Membership,
+     selection: unknown,
+@@ -1318,14 +2718,55 @@ export class Queries {
+         orderBy: nested.orderBy,
+         take: nested.take,
+         skip: nested.skip,
++        cursor: nested.cursor,
++        distinct: nested.distinct,
+       }),
+       projection: this.prepareProjection(edge.target, nested),
+     });
+   }
++  /**
++   * Admission desugars `_count: true` into `{ select: { relation: … } }`, so
++   * the projection owner reads one shape; an entry may filter its target.
++   */
++  private prepareCounts(
++    model: AnyModel,
++    selection: unknown,
++  ): readonly {
++    readonly relation: string;
++    readonly edge: Membership;
++    readonly selector?: PreparedSelector;
++  }[] {
++    const requested = record(record(selection).select);
++    const counts: {
++      readonly relation: string;
++      readonly edge: Membership;
++      readonly selector?: PreparedSelector;
++    }[] = [];
++    for (const [relation, configuration] of Object.entries(requested)) {
++      if (!configuration) continue;
++      const edge = bindMembership(this.schema, model, relation);
++      const where =
++        configuration === true ? undefined : record(configuration).where;
++      counts.push(
++        Object.freeze({
++          relation,
++          edge,
++          selector: where
++            ? this.prepareSelector(edge.target, record(where))
++            : undefined,
++        }),
++      );
++    }
++    return Object.freeze(counts);
++  }
+   lowerProjection(
+     projection: PreparedProjection,
+     alias?: string,
+-  ): { readonly columns: Sql[]; readonly entries: [string, Sql][] } {
++  ): {
++    readonly columns: Sql[];
++    readonly entries: [string, Sql][];
++    readonly names: string[];
++  } {
+     const a = this.adapter;
+     const columns: Sql[] = [];
+     const entries: [string, Sql][] = [];
+@@ -1335,6 +2776,22 @@ export class Queries {
+         expression = this.projectedColumn(projection.model, field.name, alias);
+       } else if (field.kind === "relation") {
+         expression = this.lowerRelationProjection(field, alias ?? "");
++      } else if (field.kind === "counts") {
++        expression = a.json.objectFromColumns(
++          field.counts.map((count) => [
++            count.relation,
++            this.correlatedCount(count.edge, count.selector, alias ?? ""),
++          ]),
++        );
++      } else if (field.kind === "distance") {
++        expression = this.distanceExpression(
++          this.column(projection.model, field.field, alias),
++          physicalField(this.schema, projection.model, field.field).scalar["~"]
++            .state,
++          field.field,
++          field.specification,
++          "select",
++        );
+       } else {
+         expression = a.json.object(
+           field.arms.map((arm) => [
+@@ -1346,7 +2803,31 @@ export class Queries {
+       columns.push(a.identifiers.aliased(expression, field.name));
+       entries.push([field.name, expression]);
+     }
+-    return { columns, entries };
++    return { columns, entries, names: projection.fields.map((f) => f.name) };
++  }
++  /** One correlated count, shared by `_count` projection and `_count` ordering. */
++  private correlatedCount(
++    edge: Membership,
++    selector: PreparedSelector | undefined,
++    parentAlias: string,
++  ): Sql {
++    const a = this.adapter;
++    const childAlias = this.alias();
++    return a.expressions.coalesce(
++      a.subqueries.scalar(
++        assembleAdapterSelect(a, {
++          columns: a.aggregates.count(),
++          from: this.table(edge.target, childAlias),
++          where: a.operators.and(
++            this.correlation(edge, parentAlias, childAlias),
++            ...(selector
++              ? [this.lowerSelector(selector, childAlias)!]
++              : []),
++          ),
++        }),
++      ),
++      this.value(0),
++    );
+   }
+   lowerProjectionValues(
+     projection: PreparedProjection,
+@@ -1372,6 +2853,9 @@ export class Queries {
+     const childAlias = this.alias();
+     const child = this.lowerProjection(projection, childAlias);
+     const childFields = Object.keys(projection.shape.fields);
++    // A nested node is the ordinary page operator inside the parent's
++    // correlation scope; `take: -n` reverses the window exactly as at the root.
++    const window = this.page(edge.target, nested, childAlias);
+     const page = assembleAdapterSelect(a, {
+       columns: sql.join(child.columns, ", "),
+       from: this.table(edge.target, childAlias),
+@@ -1380,22 +2864,23 @@ export class Queries {
+         ...(nested.selector
+           ? [this.lowerSelector(nested.selector, childAlias)!]
+           : []),
++        ...(window.cursor ? [window.cursor] : []),
+       ),
+-      orderBy: this.order(edge.target, nested.orderBy, childAlias),
+-      limit: !edge.many
+-        ? this.value(1)
+-        : nested.take === undefined
+-          ? undefined
+-          : this.value(nested.take),
+-      offset: nested.skip === undefined ? undefined : this.value(nested.skip),
++      orderBy: window.orderBy,
++      limit: edge.many ? window.limit : this.value(1),
++      offset: window.offset,
++      ...(window.distinct
++        ? { distinct: window.distinct, distinctColumnAliases: child.names }
++        : {}),
+     });
+     const pageAlias = this.alias();
+     const object = a.json.object(
+       childFields.map((field) => [
+         field,
+-        projection.shape.fields[field]!.kind !== "scalar"
+-          ? a.json.document(a.identifiers.column(pageAlias, field))
+-          : a.identifiers.column(pageAlias, field),
++        this.carriedValue(
++          projection.shape.fields[field]!,
++          a.identifiers.column(pageAlias, field),
++        ),
+       ]),
+     );
+     const expression = a.subqueries.scalar(
+@@ -1411,85 +2896,119 @@ export class Queries {
+   grouped(model: AnyModel, args: Arguments): Query {
+     const a = this.adapter;
+     const alias = this.alias();
+-    const columns: Sql[] = [];
++    const by = args.by!;
++    const aggregates = this.prepareAggregates(model, args);
+     const fields: Record<string, Shape | Leaf> = {};
+-    for (const field of args.by!) {
+-      columns.push(
+-        a.identifiers.aliased(this.column(model, field, alias), field),
+-      );
+-      fields[field] = {
+-        kind: "scalar",
+-        type: model["~"].state.scalars[field]!["~"].state.type,
+-        nullable: false,
+-      };
+-    }
+-    if (args._count) {
+-      columns.push(a.identifiers.aliased(a.aggregates.count(), "_count"));
+-      fields._count = { kind: "scalar", type: "int", nullable: false };
+-    }
+-    for (const aggregate of ["_sum", "_min", "_max", "_avg"] as const) {
+-      if (!args[aggregate]) continue;
+-      const nested: Record<string, Leaf> = {};
+-      const pairs: [string, Sql][] = Object.keys(record(args[aggregate])).map(
+-        (field) => {
+-          nested[field] = {
+-            kind: "scalar",
+-            type: aggregate === "_avg" ? "float" : "int",
+-            nullable: true,
+-          };
+-          return [
+-            field,
+-            this.aggregate(aggregate, this.column(model, field, alias)),
+-          ];
+-        },
++    const columns: Sql[] = by.map((field) => {
++      fields[field] = this.scalarShape(model, field);
++      return a.identifiers.aliased(
++        this.projectedColumn(model, field, alias),
++        field,
+       );
+-      fields[aggregate] = { kind: "object", fields: nested };
+-      columns.push(a.identifiers.aliased(a.json.object(pairs), aggregate));
++    });
++    for (const [name, expression] of aggregates.columns(alias)) {
++      fields[name] = aggregates.fields_[name]!;
++      columns.push(a.identifiers.aliased(expression, name));
+     }
+-    const having = args.having
+-      ? a.operators.and(
+-          ...Object.entries(args.having).flatMap(([field, aggregates]) =>
+-            Object.entries(record(aggregates)).map(([aggregate, condition]) =>
+-              this.lowerValuePredicate(
+-                this.aggregate(aggregate, this.column(model, field, alias)),
+-                condition,
+-              ),
+-            ),
+-          ),
+-        )
+-      : undefined;
+     return {
+       sql: assembleAdapterSelect(a, {
+         columns: sql.join(columns, ", "),
+         from: this.table(model, alias),
+         where: this.lowerWhere(model, args.where, alias),
+         groupBy: sql.join(
+-          args.by!.map((field) => this.column(model, field, alias)),
++          by.map((field) => this.column(model, field, alias)),
+           ", ",
+         ),
+-        having,
+-        orderBy: this.order(model, args.orderBy, alias),
++        having: args.having
++          ? this.lowerPredicate(
++              this.prepareHaving(model, record(args.having)),
++              alias,
++            )
++          : undefined,
++        orderBy: this.lowerOrder(
++          this.groupOrderTerms(model, args.orderBy, alias),
++        ),
+         limit: args.take === undefined ? undefined : this.value(args.take),
+         offset: args.skip === undefined ? undefined : this.value(args.skip),
+       }),
+       shape: { kind: "object", fields },
+     };
+   }
+-  private aggregate(name: string, column: Sql): Sql {
+-    switch (name) {
+-      case "_sum":
+-        return this.adapter.aggregates.sum(column);
+-      case "_min":
+-        return this.adapter.aggregates.min(column);
+-      case "_max":
+-        return this.adapter.aggregates.max(column);
+-      case "_avg":
+-        return this.adapter.aggregates.avg(column);
+-      case "_count":
+-        return this.adapter.aggregates.count(column);
+-      default:
+-        throw new Error(`Raptor 3 G1 aggregate is not implemented: ${name}`);
+-    }
++  /** `having` is the same predicate vocabulary over aggregate targets. */
++  private prepareHaving(model: AnyModel, having: Input): PreparedPredicate {
++    return Object.freeze({
++      kind: "and",
++      predicates: Object.freeze(
++        Object.entries(having).flatMap(([key, value]) => {
++          if (value === undefined) return [];
++          // Prisma negates each NOT arm and conjoins the negations.
++          if (key === "AND" || key === "OR" || key === "NOT")
++            return [
++              this.combine(
++                key,
++                entries(value).map((clause) =>
++                  this.prepareHaving(model, record(clause)),
++                ),
++              ),
++            ];
++          const scalar = Object.freeze({
++            model,
++            field: key,
++            physical: physicalField(this.schema, model, key),
++          });
++          const filter = record(value);
++          const aggregated = AGGREGATES.filter(
++            (name) => filter[name] !== undefined,
++          );
++          if (aggregated.length === 0)
++            return [
++              this.prepareOperations(
++                Object.freeze({ kind: "column", scalar }),
++                value,
++              ),
++            ];
++          return aggregated.map((aggregate) =>
++            this.prepareOperations(
++              Object.freeze({ kind: "aggregate", aggregate, scalar }),
++              filter[aggregate],
++            ),
++          );
++        }),
++      ),
++    });
++  }
++  /** A grouped read orders by a grouped field or by an aggregate. */
++  private groupOrderTerms(
++    model: AnyModel,
++    input: Arguments["orderBy"],
++    alias: string,
++  ): OrderTerm[] {
++    if (!input) return [];
++    return entries(input).flatMap((order) =>
++      Object.entries(order).flatMap(([name, direction]) => {
++        if (direction === undefined) return [];
++        if (!AGGREGATE_NAMES.has(name))
++          return [this.orderTerm(model, name, direction, alias)];
++        return Object.entries(record(direction)).map(([field, sort]) =>
++          this.sortKey(
++            this.aggregateExpression(
++              name,
++              field === "_all"
++                ? undefined
++                : Object.freeze({
++                    model,
++                    field,
++                    physical: physicalField(this.schema, model, field),
++                  }),
++              alias,
++            ),
++            sort === "desc",
++            undefined,
++            false,
++          ),
++        );
++      }),
++    );
+   }
+   decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
+     if (query.expectedRows && rows.length < query.expectedRows.count)
+@@ -1574,39 +3093,7 @@ export class Queries {
+     value: unknown,
+     internal: boolean,
+   ): unknown {
+-    if (shape.kind === "scalar") {
+-      if (value === null && shape.nullable) return null;
+-      if (shape.type === "decimal") {
+-        const representation =
+-          this.adapter.result.decimalRepresentation ?? "text";
+-        const decoded = internal
+-          ? decodePhysicalDecimal(value, shape.decimal!, representation)
+-          : materializePhysicalDecimal(value, shape.decimal!, representation);
+-        if (decoded === undefined)
+-          throw new InvalidScalarResult(
+-            "decimal",
+-            "the value is not an exact decimal in this column's declared domain",
+-          );
+-        return decoded;
+-      }
+-      if (shape.type === "int") {
+-        const number = typeof value === "bigint" ? Number(value) : value;
+-        if (typeof number !== "number" || !Number.isSafeInteger(number))
+-          throw new InvalidScalarResult(
+-            "int",
+-            "the value is not a canonical integer",
+-          );
+-        return number;
+-      }
+-      if (shape.type === "string" && typeof value === "string") return value;
+-      if (
+-        shape.type === "float" &&
+-        typeof value === "number" &&
+-        Number.isFinite(value)
+-      )
+-        return value;
+-      throw new TypeError(`Raptor 3 G1 cannot decode provider ${shape.type}`);
+-    }
++    if (shape.kind === "scalar") return this.decodeScalar(shape, value, internal);
+     if (shape.kind === "recursive")
+       throw new TypeError("A recursive shape requires occurrence rows");
+     const decoded: unknown =
+@@ -1625,7 +3112,10 @@ export class Queries {
+     if (shape.kind === "collection") {
+       if (!Array.isArray(decoded))
+         throw new TypeError("Invalid provider collection");
+-      return decoded.map((row) => this.decodeValue(shape.row, row, internal));
++      const rows = decoded.map((row) =>
++        this.decodeValue(shape.row, row, internal),
++      );
++      return shape.reversed ? rows.reverse() : rows;
+     }
+     if (decoded === null) return null;
+     if (typeof decoded !== "object" || Array.isArray(decoded))
+@@ -1637,4 +3127,367 @@ export class Queries {
+       ]),
+     );
+   }
++  /**
++   * One strict scalar decode per physical leaf, through the existing codec
++   * owners. A value outside the column's declared domain is a malformed
++   * provider row, never a value to coerce.
++   */
++  private decodeScalar(leaf: Leaf, value: unknown, internal: boolean): unknown {
++    if (value === null) {
++      if (leaf.nullable) return null;
++      throw new InvalidScalarResult(
++        leaf.type,
++        leaf.list ? "a required list is null" : "a required scalar is null",
++      );
++    }
++    if (value === undefined)
++      throw new InvalidScalarResult(leaf.type, "the value is absent");
++    if (leaf.list) return this.decodeList(leaf, value, internal);
++    switch (leaf.type) {
++      case "string":
++        if (typeof value === "string") return value;
++        throw new InvalidScalarResult(leaf.type, "the value is not a string");
++      case "boolean":
++        if (typeof value === "boolean") return value;
++        if (value === 0 || value === 0n) return false;
++        if (value === 1 || value === 1n) return true;
++        throw new InvalidScalarResult(
++          leaf.type,
++          "the value is not true, false, zero, or one",
++        );
++      case "int": {
++        const parsed =
++          typeof value === "bigint"
++            ? Number(value)
++            : typeof value === "string" && INTEGER_TEXT.test(value)
++              ? Number(value)
++              : value;
++        if (typeof parsed !== "number")
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the value is not a canonical integer",
++          );
++        if (!Number.isSafeInteger(parsed))
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the integer is outside the safe range",
++          );
++        return parsed;
++      }
++      case "bigint":
++        if (typeof value === "bigint") return value;
++        if (typeof value === "number" && Number.isSafeInteger(value))
++          return BigInt(value);
++        if (typeof value === "string" && INTEGER_TEXT.test(value))
++          return BigInt(value);
++        throw new InvalidScalarResult(
++          leaf.type,
++          "the value is not a canonical integer",
++        );
++      case "number": {
++        const parsed =
++          typeof value === "string" && value.trim() !== ""
++            ? Number(value)
++            : value;
++        if (typeof parsed !== "number" || !Number.isFinite(parsed))
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the value is not a canonical finite number",
++          );
++        return parsed;
++      }
++      case "decimal": {
++        const descriptor = leaf.decimal!;
++        const representation = this.adapter.result.decimalRepresentation ?? "text";
++        const decoded = leaf.widened
++          ? internal
++            ? decodePhysicalWidenedSum(value, descriptor, representation)
++            : materializePhysicalWidenedSum(value, descriptor, representation)
++          : internal
++            ? decodePhysicalDecimal(value, descriptor, representation)
++            : materializePhysicalDecimal(value, descriptor, representation);
++        if (decoded === undefined)
++          throw new InvalidScalarResult(
++            leaf.type,
++            leaf.widened
++              ? "the sum is not an exact decimal at this column's scale"
++              : "the value is not an exact decimal in this column's declared domain",
++          );
++        return decoded;
++      }
++      case "datetime": {
++        if (leaf.dateTime !== undefined && leaf.dateTime !== "text") {
++          const decoded = decodePhysicalDateTime(value, leaf.dateTime);
++          if (decoded === undefined)
++            throw new InvalidScalarResult(
++              leaf.type,
++              "the value is not this column's declared physical timestamp",
++            );
++          return decoded;
++        }
++        if (value instanceof Date) {
++          if (isDateTimeInstant(value.getTime())) return new Date(value.getTime());
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the Date is outside the public DateTime domain",
++          );
++        }
++        const parsed =
++          typeof value === "string" ? providerTimestamp(value) : undefined;
++        if (!parsed)
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the value is not a valid provider timestamp in the public DateTime domain",
++          );
++        return parsed;
++      }
++      case "date": {
++        if (value instanceof Date) {
++          const epoch = value.getTime();
++          if (
++            isDateTimeInstant(epoch) &&
++            value.getUTCHours() === 0 &&
++            value.getUTCMinutes() === 0 &&
++            value.getUTCSeconds() === 0 &&
++            value.getUTCMilliseconds() === 0
++          )
++            return new Date(epoch);
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the Date is invalid or not UTC midnight",
++          );
++        }
++        const match =
++          typeof value === "string" ? DATE_TEXT.exec(value) : null;
++        if (
++          !match ||
++          !isGregorianCalendarDate(
++            Number(match[1]),
++            Number(match[2]),
++            Number(match[3]),
++          )
++        )
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the value is not a valid ISO calendar date",
++          );
++        return new Date(`${value as string}T00:00:00.000Z`);
++      }
++      case "time":
++        return decodeTime(value);
++      case "enum":
++        if (typeof value === "string" && leaf.enumValues?.has(value) === true)
++          return value;
++        throw new InvalidScalarResult(
++          leaf.type,
++          "the value is not a declared enum member",
++        );
++      case "json":
++        return typeof value === "string" ? JSON.parse(value) : value;
++      case "blob":
++        return decodeBlob(value);
++      case "vector": {
++        const decoded = typeof value === "string" ? JSON.parse(value) : value;
++        if (
++          !Array.isArray(decoded) ||
++          decoded.some(
++            (member) => typeof member !== "number" || !Number.isFinite(member),
++          )
++        )
++          throw new InvalidScalarResult(
++            leaf.type,
++            "the value is not an array of finite numbers",
++          );
++        if (leaf.dimension !== undefined && decoded.length !== leaf.dimension)
++          throw new InvalidScalarResult(
++            leaf.type,
++            `the value does not have the configured dimension ${leaf.dimension}`,
++          );
++        return [...decoded];
++      }
++      case "point": {
++        const decoded = typeof value === "string" ? JSON.parse(value) : value;
++        const point = validateGeoPoint(decoded);
++        if (point.issues)
++          throw new InvalidScalarResult(
++            leaf.type,
++            point.issues[0]?.message ?? "the value is not a canonical GeoPoint",
++          );
++        return point.value;
++      }
++      default:
++        throw new InvalidScalarResult(
++          leaf.type,
++          "the scalar type is unsupported",
++        );
++    }
++  }
++  /** One list container, then each member through the element's own codec. */
++  private decodeList(leaf: Leaf, value: unknown, internal: boolean): unknown[] {
++    if (leaf.type === "decimal") {
++      const members = decodePhysicalDecimalList(
++        value,
++        leaf.decimal!,
++        this.adapter.result.decimalListRepresentation ?? "text",
++      );
++      if (members === undefined)
++        throw new InvalidScalarResult(
++          leaf.type,
++          "the value is not an exact decimal list in this column's declared domain",
++        );
++      return internal ? members : members.map((member) => toDecimal(member));
++    }
++    let items: unknown = value;
++    if (typeof items === "string")
++      items =
++        leaf.type === "enum" &&
++        this.adapter.result.enumListRepresentation === "arrayText"
++          ? providerArrayMembers(items)
++          : JSON.parse(items);
++    if (!Array.isArray(items))
++      throw new InvalidScalarResult(
++        leaf.type,
++        "a list scalar did not return an array",
++      );
++    const member: Leaf = Object.freeze({
++      ...leaf,
++      list: undefined,
++      nullable: false,
++    });
++    return items.map((item, index) => {
++      if (!Object.hasOwn(items as unknown[], index))
++        throw new InvalidScalarResult(
++          leaf.type,
++          "a list scalar returned a sparse array",
++        );
++      return this.decodeScalar(member, item, internal);
++    });
++  }
++}
++
++const INTEGER_TEXT = /^(?:0|-?[1-9]\d*)$/;
++const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})$/;
++const TIMESTAMP_TEXT =
++  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:(Z)|([+-])(\d{2}):(\d{2}))?$/;
++const ZONELESS_TIMESTAMP_TEXT =
++  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
++const TIME_TEXT =
++  /^(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2})(?::?(\d{2}))?)?$/;
++const TIME_ZONE_SUFFIX = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
++const TRAILING_FRACTION_ZEROS = /\.?0+$/;
++const HEX_BYTES = /^(?:[0-9a-fA-F]{2})*$/;
++const BASE64_PROVIDER = /^base64:type\d+:(.*)$/;
++
++/** The provider timestamp grammar; the domain rules are the codec's. */
++function providerTimestamp(value: string): Date | undefined {
++  const match = TIMESTAMP_TEXT.exec(value);
++  if (!match) return undefined;
++  if (
++    !isGregorianCalendarDate(
++      Number(match[1]),
++      Number(match[2]),
++      Number(match[3]),
++    ) ||
++    !isDateTimeClock(Number(match[4]), Number(match[5]), Number(match[6]))
++  )
++    return undefined;
++  const zoned = match[8] !== undefined || match[9] !== undefined;
++  if (value[10] === " " && zoned) return undefined;
++  if (Number(match[10] ?? 0) > 23 || Number(match[11] ?? 0) > 59)
++    return undefined;
++  const parsed = ZONELESS_TIMESTAMP_TEXT.test(value)
++    ? new Date(`${value.replace(" ", "T")}Z`)
++    : new Date(value);
++  return isDateTimeInstant(parsed.getTime()) ? parsed : undefined;
++}
++
++function decodeTime(value: unknown): string {
++  if (typeof value !== "string")
++    throw new InvalidScalarResult("time", "the value is not a valid provider time");
++  const match = TIME_TEXT.exec(value);
++  if (
++    !match ||
++    !isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3]))
++  )
++    throw new InvalidScalarResult("time", "the value is not a valid provider time");
++  if (Number(match[4] ?? 0) > 23 || Number(match[5] ?? 0) > 59)
++    throw new InvalidScalarResult("time", "the timezone suffix is invalid");
++  let time = value.replace(TIME_ZONE_SUFFIX, "");
++  if (time.includes(".")) time = time.replace(TRAILING_FRACTION_ZEROS, "");
++  const fraction = time.split(".")[1];
++  if (fraction && fraction.length > 3)
++    throw new InvalidScalarResult(
++      "time",
++      "the normalized precision exceeds milliseconds",
++    );
++  return time;
++}
++
++/** Every driver's binary spelling, normalized to one fresh Uint8Array. */
++function decodeBlob(value: unknown): Uint8Array {
++  if (value instanceof Uint8Array) return new Uint8Array(value);
++  if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
++  if (ArrayBuffer.isView(value))
++    return new Uint8Array(
++      value.buffer.slice(
++        value.byteOffset,
++        value.byteOffset + value.byteLength,
++      ),
++    );
++  if (Array.isArray(value)) return Uint8Array.from(value as number[]);
++  if (typeof value === "string") {
++    const provider = BASE64_PROVIDER.exec(value);
++    if (provider) return base64Bytes(provider[1]!);
++    const hex = value.startsWith("\\x") ? value.slice(2) : value;
++    if (HEX_BYTES.test(hex)) {
++      const bytes = new Uint8Array(hex.length / 2);
++      for (let index = 0; index < bytes.length; index += 1)
++        bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
++      return bytes;
++    }
++    return base64Bytes(value);
++  }
++  throw new InvalidScalarResult("blob", "the value is not a binary value");
++}
++
++function base64Bytes(value: string): Uint8Array {
++  try {
++    const binary = atob(value);
++    const bytes = new Uint8Array(binary.length);
++    for (let index = 0; index < binary.length; index += 1)
++      bytes[index] = binary.charCodeAt(index);
++    return bytes;
++  } catch {
++    throw new InvalidScalarResult("blob", "the value is not a binary value");
++  }
++}
++
++/** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
++function providerArrayMembers(text: string): unknown[] {
++  if (!text.startsWith("{") || !text.endsWith("}"))
++    throw new InvalidScalarResult("enum", "a list scalar did not return an array");
++  const body = text.slice(1, -1);
++  if (body.length === 0) return [];
++  const members: unknown[] = [];
++  let index = 0;
++  while (index <= body.length) {
++    if (body[index] === '"') {
++      let member = "";
++      index += 1;
++      while (index < body.length && body[index] !== '"') {
++        member += body[index] === "\\" ? body[++index] : body[index];
++        index += 1;
++      }
++      members.push(member);
++      index += 2;
++      continue;
++    }
++    const next = body.indexOf(",", index);
++    const end = next === -1 ? body.length : next;
++    const member = body.slice(index, end);
++    members.push(member === "NULL" ? null : member);
++    index = end + 1;
++    if (next === -1) break;
++  }
++  return members;
+ }
+diff --git a/src/query-engine/raptor3/shared/schema.ts b/src/query-engine/raptor3/shared/schema.ts
+index 448a602c..abcf44dc 100644
+--- a/src/query-engine/raptor3/shared/schema.ts
++++ b/src/query-engine/raptor3/shared/schema.ts
+@@ -23,6 +23,14 @@ import {
+ } from "./storage";
+ 
+ export type Input = Record<string, unknown>;
++export type ReadOperation =
++  | "findMany"
++  | "findUnique"
++  | "findFirst"
++  | "count"
++  | "exist"
++  | "aggregate"
++  | "groupBy";
+ export type Operation =
+   | "create"
+   | "createMany"
+@@ -30,9 +38,24 @@ export type Operation =
+   | "upsert"
+   | "updateMany"
+   | "deleteMany"
+-  | "findMany"
+-  | "findUnique"
+-  | "groupBy";
++  | ReadOperation;
++
++const READ_OPERATIONS: ReadonlySet<string> = new Set<ReadOperation>([
++  "findMany",
++  "findUnique",
++  "findFirst",
++  "count",
++  "exist",
++  "aggregate",
++  "groupBy",
++]);
++
++/** One classification of an admitted operation; a read allocates no write work. */
++export function isReadOperation(
++  operation: Operation
++): operation is ReadOperation {
++  return READ_OPERATIONS.has(operation);
++}
+ export interface EngineConfig {
+   schema: Schema;
+   driver: AnyDriver;
+@@ -49,11 +72,18 @@ export interface Arguments extends Input {
+   orderBy?: Input | Input[];
+   take?: number;
+   skip?: number;
++  cursor?: Input;
++  distinct?: string[];
+   by?: string[];
+   having?: Input;
+   limit?: number;
+   omit?: Input;
+   skipDuplicates?: boolean;
++  _count?: true | Input;
++  _avg?: Input;
++  _sum?: Input;
++  _min?: Input;
++  _max?: Input;
+ }
+ 
+ /** These casts attach the existing admission schema's dynamic model correlation. */

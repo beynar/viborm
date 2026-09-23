@@ -1,0 +1,212 @@
+{
+  "accounting": {
+    "definition": "Distinct lines containing parser-owned TypeScript token starts; exact existing census function, comments/JSDoc/EOF excluded",
+    "censusOwner": "scripts/query-engine-structure.mjs",
+    "censusFunctionSha256": "15889231a22297fcf001ae22ca01e6e8c9cd7489dd635c60529dfdc0ac06461e"
+  },
+  "candidateCore": {
+    "files": 12,
+    "bytes": 319209,
+    "physicalLines": 9435,
+    "tokenLines": 8982,
+    "perFile": [
+      {
+        "file": "src/query-engine/raptor3/commands/assignments.ts",
+        "bytes": 5068,
+        "physicalLines": 161,
+        "tokenLines": 153,
+        "sha256": "1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/command-attempt.ts",
+        "bytes": 2948,
+        "physicalLines": 88,
+        "tokenLines": 85,
+        "sha256": "2ba67e941c58e0c4bc0cfd54693730495e418d7e10540799b2dc35048b2f6464"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/commands.ts",
+        "bytes": 44015,
+        "physicalLines": 1258,
+        "tokenLines": 1196,
+        "sha256": "12442b94ac00c25b6edd42a20c4c454998966a9a78035bf74dcad1536fecdf7d"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/execution.ts",
+        "bytes": 25846,
+        "physicalLines": 759,
+        "tokenLines": 754,
+        "sha256": "54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/index.ts",
+        "bytes": 7328,
+        "physicalLines": 225,
+        "tokenLines": 176,
+        "sha256": "546adce4cfdc25b30ced0921abb6e45decdcc2f35704130efbc0e7ccca0f033c"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/relation-body.ts",
+        "bytes": 28322,
+        "physicalLines": 852,
+        "tokenLines": 848,
+        "sha256": "79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/selection.ts",
+        "bytes": 4159,
+        "physicalLines": 147,
+        "tokenLines": 142,
+        "sha256": "874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/operation-context.ts",
+        "bytes": 66014,
+        "physicalLines": 1888,
+        "tokenLines": 1756,
+        "sha256": "65aa6f5b0b1248b9b62ef737dbcf60f5ec39da9821a7254c0c44054cbb1e0e08"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/query.ts",
+        "bytes": 117768,
+        "physicalLines": 3465,
+        "tokenLines": 3314,
+        "sha256": "1cd9bcd217bbb1de955cec389b0818c1af29788bc77172524a841f76c093910b"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/schema.ts",
+        "bytes": 10116,
+        "physicalLines": 341,
+        "tokenLines": 327,
+        "sha256": "c7a58c9c61d6781c6a885c81a3eb4126a9f2c99e91f8866ea56aeea0c0c10166"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/storage.ts",
+        "bytes": 6936,
+        "physicalLines": 233,
+        "tokenLines": 215,
+        "sha256": "752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+        "bytes": 689,
+        "physicalLines": 18,
+        "tokenLines": 16,
+        "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643"
+      }
+    ]
+  },
+  "candidateRaptor3All": {
+    "files": 15,
+    "bytes": 348475,
+    "physicalLines": 10293,
+    "tokenLines": 9751,
+    "perFile": [
+      {
+        "file": "src/query-engine/raptor3/commands/assignments.ts",
+        "bytes": 5068,
+        "physicalLines": 161,
+        "tokenLines": 153,
+        "sha256": "1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/command-attempt.ts",
+        "bytes": 2948,
+        "physicalLines": 88,
+        "tokenLines": 85,
+        "sha256": "2ba67e941c58e0c4bc0cfd54693730495e418d7e10540799b2dc35048b2f6464"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/commands.ts",
+        "bytes": 44015,
+        "physicalLines": 1258,
+        "tokenLines": 1196,
+        "sha256": "12442b94ac00c25b6edd42a20c4c454998966a9a78035bf74dcad1536fecdf7d"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/execution.ts",
+        "bytes": 25846,
+        "physicalLines": 759,
+        "tokenLines": 754,
+        "sha256": "54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/index.ts",
+        "bytes": 7328,
+        "physicalLines": 225,
+        "tokenLines": 176,
+        "sha256": "546adce4cfdc25b30ced0921abb6e45decdcc2f35704130efbc0e7ccca0f033c"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/relation-body.ts",
+        "bytes": 28322,
+        "physicalLines": 852,
+        "tokenLines": 848,
+        "sha256": "79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2"
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/selection.ts",
+        "bytes": 4159,
+        "physicalLines": 147,
+        "tokenLines": 142,
+        "sha256": "874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8"
+      },
+      {
+        "file": "src/query-engine/raptor3/program/index.ts",
+        "bytes": 1794,
+        "physicalLines": 61,
+        "tokenLines": 56,
+        "sha256": "4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd"
+      },
+      {
+        "file": "src/query-engine/raptor3/program/program.ts",
+        "bytes": 18938,
+        "physicalLines": 575,
+        "tokenLines": 570,
+        "sha256": "e1a0de462d4fba541c196063d8f97660937846b5b9d8bebf9cd01aaaa52f622e"
+      },
+      {
+        "file": "src/query-engine/raptor3/route/client-route.ts",
+        "bytes": 8534,
+        "physicalLines": 222,
+        "tokenLines": 143,
+        "sha256": "77df5c0944bf12f47cc8d14b7afc2ffdcad88ece048883ff77a5c6b3054bf881"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/operation-context.ts",
+        "bytes": 66014,
+        "physicalLines": 1888,
+        "tokenLines": 1756,
+        "sha256": "65aa6f5b0b1248b9b62ef737dbcf60f5ec39da9821a7254c0c44054cbb1e0e08"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/query.ts",
+        "bytes": 117768,
+        "physicalLines": 3465,
+        "tokenLines": 3314,
+        "sha256": "1cd9bcd217bbb1de955cec389b0818c1af29788bc77172524a841f76c093910b"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/schema.ts",
+        "bytes": 10116,
+        "physicalLines": 341,
+        "tokenLines": 327,
+        "sha256": "c7a58c9c61d6781c6a885c81a3eb4126a9f2c99e91f8866ea56aeea0c0c10166"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/storage.ts",
+        "bytes": 6936,
+        "physicalLines": 233,
+        "tokenLines": 215,
+        "sha256": "752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2"
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+        "bytes": 689,
+        "physicalLines": 18,
+        "tokenLines": 16,
+        "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643"
+      }
+    ]
+  }
+}

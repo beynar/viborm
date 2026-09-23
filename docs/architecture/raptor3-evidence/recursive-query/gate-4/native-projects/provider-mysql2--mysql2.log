@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2.test.ts (85 tests | 1 skipped) 9864ms
+   ✓ MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates  765ms
+
+ Test Files  1 passed (1)
+      Tests  84 passed | 1 skipped (85)
+   Start at  18:45:28
+   Duration  11.31s (transform 887ms, setup 8ms, collect 1.32s, tests 9.86s, environment 0ms, prepare 25ms)
+
+Vitest resources: 12.98s wall, 657.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

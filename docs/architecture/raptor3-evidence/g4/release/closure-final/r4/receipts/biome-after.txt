@@ -1,0 +1,20 @@
+# R4 — Biome, each changed file against its base copy
+cwd: /private/tmp/viborm-r4  HEAD: cdd787ac8bbdb735535552dd5851a4758eb8789c  date: 2026-09-21T08:20:36Z
+
+## the three NEW files (a new file may be formatted; they were)
+Checked 3 files in 38ms. No fixes applied.
+
+## scripts/raptor3-manifest.mjs — MODIFIED, never formatted.
+Its base copy carries pre-existing diagnostics. Counted by rule, base vs now:
+  base: 1 lint/performance/useTopLevelRegex, 71 lint/suspicious/noMisplacedAssertion
+  now:  1 lint/performance/useTopLevelRegex, 71 lint/suspicious/noMisplacedAssertion
+(measured by restoring the base copy over the path, checking, and restoring mine;
+ git diff --numstat for the file is 1/0 — one registration line.)
+
+## CHANGELOG.md and docs/content/docs/drivers/index.mdx
+Not files this Biome configuration checks (no diagnostics are emitted for them);
+neither was formatted. The docs site's own validator was run instead —
+receipts/docs-validate-after.log, 11 warnings, identical to the base receipt
+g4/release/closure/fc06/receipts/docs-validate-after.log apart from the
+four-line pnpm invocation header this capture carries (5,278 vs 5,214 bytes);
+diff is 0a1,4 and nothing after it, so the validator's own output is unchanged.

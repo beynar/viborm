@@ -1,0 +1,11 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/review/unit03/route-observer-failures.review.test.ts(80,9): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ email: string; id: number; name: string; }>' but required in type 'Promise<unknown>'.
+tests/types/raptor3/route-public-types.core.types.ts(94,5): error TS2578: Unused '@ts-expect-error' directive.
+TypeScript (whole estate, native): 12.09s wall, 5277.3 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

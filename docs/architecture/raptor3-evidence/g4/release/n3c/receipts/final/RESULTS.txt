@@ -1,0 +1,8 @@
+typecheck exit=0 errors=0
+fixed exit=0  Tests 758 passed (758)
+pin(pglite) exit=0  Tests 2 passed (2)
+pin(sqlite) exit=0  Tests 2 passed (2)
+relation-key-update-legality-occupied-to-one exit=0  Tests 7 passed (7)
+relation-key-update-legality-occupied-to-many exit=0  Tests 6 passed (6)
+coverage:query-engine-core exit=0 All files | 87.43 | 91 | 90.59 | 87.43 | 
+coverage:policy exit=0

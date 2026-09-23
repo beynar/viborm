@@ -1,0 +1,701 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 3174ms
+   ✓ completes the exact admitted SQLite transition seed batch  3173ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:55:09
+   Duration  5.62s (transform 1.52s, setup 8ms, collect 2.30s, tests 3.17s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ia2QUa/vitest.json
+Vitest resources: 7.57s wall, 724.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ia2QUa
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2480ms
+   ✓ completes the exact admitted SQLite transition seed batch  2480ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:55:17
+   Duration  4.53s (transform 1.26s, setup 8ms, collect 1.89s, tests 2.48s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-pogww5/vitest.json
+Vitest resources: 6.42s wall, 739.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-pogww5
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 3792ms
+   ✓ completes the exact admitted SQLite transition seed batch  3791ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:55:24
+   Duration  5.91s (transform 1.30s, setup 8ms, collect 1.97s, tests 3.79s, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-knWpL1/vitest.json
+Vitest resources: 7.81s wall, 733.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-knWpL1
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2373ms
+   ✓ completes the exact admitted SQLite transition seed batch  2371ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:55:32
+   Duration  5.15s (transform 1.74s, setup 8ms, collect 2.62s, tests 2.37s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4d5sKS/vitest.json
+Vitest resources: 7.08s wall, 740.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4d5sKS
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 3478ms
+   ✓ completes the exact admitted SQLite transition seed batch  3477ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:55:40
+   Duration  5.61s (transform 1.31s, setup 8ms, collect 1.97s, tests 3.48s, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HgZhzL/vitest.json
+Vitest resources: 8.28s wall, 728.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HgZhzL
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2416ms
+   ✓ completes the exact admitted SQLite transition seed batch  2415ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:55:47
+   Duration  4.56s (transform 1.32s, setup 24ms, collect 1.97s, tests 2.42s, environment 0ms, prepare 36ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-StTsMB/vitest.json
+Vitest resources: 6.48s wall, 750.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-StTsMB
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2622ms
+   ✓ completes the exact admitted SQLite transition seed batch  2621ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:55:54
+   Duration  4.32s (transform 1.07s, setup 8ms, collect 1.57s, tests 2.62s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5ldDMK/vitest.json
+Vitest resources: 6.37s wall, 719.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5ldDMK
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2379ms
+   ✓ completes the exact admitted SQLite transition seed batch  2379ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:01
+   Duration  4.32s (transform 1.22s, setup 8ms, collect 1.81s, tests 2.38s, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ulz1fE/vitest.json
+Vitest resources: 6.64s wall, 736.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ulz1fE
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2427ms
+   ✓ completes the exact admitted SQLite transition seed batch  2426ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:08
+   Duration  4.25s (transform 1.15s, setup 8ms, collect 1.69s, tests 2.43s, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6UrtnI/vitest.json
+Vitest resources: 6.27s wall, 730.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6UrtnI
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2464ms
+   ✓ completes the exact admitted SQLite transition seed batch  2463ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:14
+   Duration  4.15s (transform 1.06s, setup 8ms, collect 1.56s, tests 2.46s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-9NKR40/vitest.json
+Vitest resources: 6.16s wall, 726.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-9NKR40
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2227ms
+   ✓ completes the exact admitted SQLite transition seed batch  2226ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:21
+   Duration  4.32s (transform 1.28s, setup 12ms, collect 1.90s, tests 2.23s, environment 0ms, prepare 36ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ScJhuW/vitest.json
+Vitest resources: 7.23s wall, 729.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ScJhuW
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2636ms
+   ✓ completes the exact admitted SQLite transition seed batch  2635ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:28
+   Duration  4.36s (transform 1.08s, setup 8ms, collect 1.58s, tests 2.64s, environment 0ms, prepare 24ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ZmQmd6/vitest.json
+Vitest resources: 6.33s wall, 735.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ZmQmd6
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2594ms
+   ✓ completes the exact admitted SQLite transition seed batch  2593ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:34
+   Duration  4.37s (transform 1.09s, setup 8ms, collect 1.62s, tests 2.59s, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-TyAcHr/vitest.json
+Vitest resources: 6.41s wall, 765.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-TyAcHr
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 4338ms
+   ✓ completes the exact admitted SQLite transition seed batch  4337ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:42
+   Duration  7.53s (transform 1.93s, setup 12ms, collect 2.93s, tests 4.34s, environment 0ms, prepare 40ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-92NaNH/vitest.json
+Vitest resources: 10.38s wall, 715.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-92NaNH
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 3330ms
+   ✓ completes the exact admitted SQLite transition seed batch  3330ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:56:53
+   Duration  7.05s (transform 2.23s, setup 34ms, collect 3.37s, tests 3.33s, environment 0ms, prepare 63ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-oOXWe9/vitest.json
+Vitest resources: 10.16s wall, 807.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-oOXWe9
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2402ms
+   ✓ completes the exact admitted SQLite transition seed batch  2402ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:04
+   Duration  4.56s (transform 1.28s, setup 11ms, collect 1.90s, tests 2.40s, environment 0ms, prepare 37ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3stXbF/vitest.json
+Vitest resources: 8.70s wall, 719.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3stXbF
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 5028ms
+   ✓ completes the exact admitted SQLite transition seed batch  5027ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:11
+   Duration  7.70s (transform 1.62s, setup 10ms, collect 2.50s, tests 5.03s, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-yhIUGo/vitest.json
+Vitest resources: 9.97s wall, 729.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-yhIUGo
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 5857ms
+   ✓ completes the exact admitted SQLite transition seed batch  5857ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:23
+   Duration  9.09s (transform 1.91s, setup 21ms, collect 2.85s, tests 5.86s, environment 0ms, prepare 79ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tfuNKX/vitest.json
+Vitest resources: 12.54s wall, 730.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tfuNKX
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2906ms
+   ✓ completes the exact admitted SQLite transition seed batch  2905ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:36
+   Duration  5.03s (transform 1.29s, setup 15ms, collect 1.89s, tests 2.91s, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UNsQZj/vitest.json
+Vitest resources: 8.17s wall, 732.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UNsQZj
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2701ms
+   ✓ completes the exact admitted SQLite transition seed batch  2700ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:44
+   Duration  5.08s (transform 1.47s, setup 14ms, collect 2.20s, tests 2.70s, environment 0ms, prepare 35ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ija99D/vitest.json
+Vitest resources: 8.09s wall, 749.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ija99D
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 3000ms
+   ✓ completes the exact admitted SQLite transition seed batch  2999ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:51
+   Duration  5.25s (transform 1.39s, setup 10ms, collect 2.04s, tests 3.00s, environment 0ms, prepare 31ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JMejZr/vitest.json
+Vitest resources: 7.66s wall, 722.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JMejZr
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2878ms
+   ✓ completes the exact admitted SQLite transition seed batch  2878ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:57:59
+   Duration  5.07s (transform 1.37s, setup 10ms, collect 2.03s, tests 2.88s, environment 0ms, prepare 32ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-jqxXdh/vitest.json
+Vitest resources: 7.53s wall, 727.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-jqxXdh
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2692ms
+   ✓ completes the exact admitted SQLite transition seed batch  2691ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:58:07
+   Duration  4.57s (transform 1.18s, setup 8ms, collect 1.72s, tests 2.69s, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DTRfYo/vitest.json
+Vitest resources: 6.48s wall, 729.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DTRfYo
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 6424ms
+   ✓ completes the exact admitted SQLite transition seed batch  6422ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:58:15
+   Duration  12.52s (transform 3.70s, setup 48ms, collect 5.66s, tests 6.42s, environment 0ms, prepare 99ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d31kLm/vitest.json
+Vitest resources: 16.63s wall, 722.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d31kLm
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 3544ms
+   ✓ completes the exact admitted SQLite transition seed batch  3543ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:58:32
+   Duration  7.63s (transform 2.42s, setup 18ms, collect 3.73s, tests 3.54s, environment 0ms, prepare 71ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-9R0sHK/vitest.json
+Vitest resources: 11.45s wall, 724.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-9R0sHK
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 5315ms
+   ✓ completes the exact admitted SQLite transition seed batch  5314ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:58:45
+   Duration  8.90s (transform 2.14s, setup 20ms, collect 3.22s, tests 5.32s, environment 0ms, prepare 49ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-AFJo6o/vitest.json
+Vitest resources: 13.44s wall, 752.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-AFJo6o
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 4443ms
+   ✓ completes the exact admitted SQLite transition seed batch  4441ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:58:58
+   Duration  7.13s (transform 1.69s, setup 10ms, collect 2.49s, tests 4.44s, environment 0ms, prepare 53ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kDB2iP/vitest.json
+Vitest resources: 11.10s wall, 746.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kDB2iP
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 4254ms
+   ✓ completes the exact admitted SQLite transition seed batch  4253ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:59:09
+   Duration  7.66s (transform 2.10s, setup 10ms, collect 3.24s, tests 4.25s, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5hpiZx/vitest.json
+Vitest resources: 11.22s wall, 732.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5hpiZx
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 3560ms
+   ✓ completes the exact admitted SQLite transition seed batch  3559ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:59:20
+   Duration  7.43s (transform 2.45s, setup 9ms, collect 3.71s, tests 3.56s, environment 0ms, prepare 31ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Q7G4tZ/vitest.json
+Vitest resources: 10.80s wall, 761.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Q7G4tZ
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2526ms
+   ✓ completes the exact admitted SQLite transition seed batch  2525ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:59:31
+   Duration  6.33s (transform 2.43s, setup 12ms, collect 3.63s, tests 2.53s, environment 0ms, prepare 34ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-v5FXXu/vitest.json
+Vitest resources: 9.04s wall, 737.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-v5FXXu
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2354ms
+   ✓ completes the exact admitted SQLite transition seed batch  2354ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:59:39
+   Duration  4.07s (transform 1.06s, setup 8ms, collect 1.57s, tests 2.35s, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-y8KTe2/vitest.json
+Vitest resources: 6.03s wall, 740.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-y8KTe2
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2371ms
+   ✓ completes the exact admitted SQLite transition seed batch  2371ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:59:46
+   Duration  4.29s (transform 1.19s, setup 8ms, collect 1.78s, tests 2.37s, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8QY2XL/vitest.json
+Vitest resources: 6.39s wall, 731.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8QY2XL
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2125ms
+   ✓ completes the exact admitted SQLite transition seed batch  2124ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:59:52
+   Duration  3.91s (transform 1.02s, setup 8ms, collect 1.57s, tests 2.12s, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hEBFD4/vitest.json
+Vitest resources: 5.75s wall, 721.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hEBFD4
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2538ms
+   ✓ completes the exact admitted SQLite transition seed batch  2537ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:59:58
+   Duration  5.39s (transform 1.72s, setup 8ms, collect 2.67s, tests 2.54s, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-KcMnUY/vitest.json
+Vitest resources: 7.26s wall, 724.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-KcMnUY
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2995ms
+   ✓ completes the exact admitted SQLite transition seed batch  2994ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:06
+   Duration  6.53s (transform 2.18s, setup 9ms, collect 3.30s, tests 2.99s, environment 0ms, prepare 32ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Yk8PP7/vitest.json
+Vitest resources: 9.66s wall, 727.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Yk8PP7
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2214ms
+   ✓ completes the exact admitted SQLite transition seed batch  2213ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:15
+   Duration  3.90s (transform 1.05s, setup 9ms, collect 1.54s, tests 2.21s, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-QVzwqI/vitest.json
+Vitest resources: 5.96s wall, 742.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-QVzwqI
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2824ms
+   ✓ completes the exact admitted SQLite transition seed batch  2823ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:21
+   Duration  5.05s (transform 1.34s, setup 8ms, collect 2.02s, tests 2.82s, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8pmvrB/vitest.json
+Vitest resources: 6.91s wall, 759.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8pmvrB
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2240ms
+   ✓ completes the exact admitted SQLite transition seed batch  2239ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:28
+   Duration  3.81s (transform 984ms, setup 8ms, collect 1.42s, tests 2.24s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JYQy7s/vitest.json
+Vitest resources: 5.71s wall, 731.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JYQy7s
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2209ms
+   ✓ completes the exact admitted SQLite transition seed batch  2208ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:34
+   Duration  3.84s (transform 995ms, setup 8ms, collect 1.44s, tests 2.21s, environment 0ms, prepare 22ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-beyQeJ/vitest.json
+Vitest resources: 5.70s wall, 745.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-beyQeJ
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2162ms
+   ✓ completes the exact admitted SQLite transition seed batch  2161ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:40
+   Duration  3.77s (transform 1.01s, setup 8ms, collect 1.47s, tests 2.16s, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5rlK9P/vitest.json
+Vitest resources: 5.68s wall, 731.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5rlK9P
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2281ms
+   ✓ completes the exact admitted SQLite transition seed batch  2280ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:46
+   Duration  3.95s (transform 1.01s, setup 7ms, collect 1.47s, tests 2.28s, environment 0ms, prepare 24ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-t0zIHm/vitest.json
+Vitest resources: 5.79s wall, 728.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-t0zIHm
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2224ms
+   ✓ completes the exact admitted SQLite transition seed batch  2224ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:52
+   Duration  3.94s (transform 1.07s, setup 8ms, collect 1.58s, tests 2.22s, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vvPBdu/vitest.json
+Vitest resources: 5.88s wall, 717.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vvPBdu
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2325ms
+   ✓ completes the exact admitted SQLite transition seed batch  2324ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:00:58
+   Duration  4.11s (transform 1.08s, setup 8ms, collect 1.63s, tests 2.32s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d1FA69/vitest.json
+Vitest resources: 6.00s wall, 746.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d1FA69
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2138ms
+   ✓ completes the exact admitted SQLite transition seed batch  2137ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:01:04
+   Duration  3.67s (transform 970ms, setup 7ms, collect 1.40s, tests 2.14s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PKiias/vitest.json
+Vitest resources: 5.50s wall, 722.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PKiias
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2200ms
+   ✓ completes the exact admitted SQLite transition seed batch  2200ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:01:10
+   Duration  3.80s (transform 1.02s, setup 7ms, collect 1.48s, tests 2.20s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HqN1Ck/vitest.json
+Vitest resources: 5.63s wall, 720.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HqN1Ck
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2439ms
+   ✓ completes the exact admitted SQLite transition seed batch  2438ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:01:16
+   Duration  4.67s (transform 1.34s, setup 25ms, collect 1.97s, tests 2.44s, environment 0ms, prepare 51ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DjHHAi/vitest.json
+Vitest resources: 7.44s wall, 721.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DjHHAi
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2100ms
+   ✓ completes the exact admitted SQLite transition seed batch  2100ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:01:23
+   Duration  3.63s (transform 964ms, setup 8ms, collect 1.40s, tests 2.10s, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mX6jN6/vitest.json
+Vitest resources: 5.47s wall, 732.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mX6jN6
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2237ms
+   ✓ completes the exact admitted SQLite transition seed batch  2236ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:01:29
+   Duration  3.75s (transform 951ms, setup 8ms, collect 1.38s, tests 2.24s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3koGK5/vitest.json
+Vitest resources: 5.55s wall, 719.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3koGK5
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2150ms
+   ✓ completes the exact admitted SQLite transition seed batch  2149ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:01:34
+   Duration  3.69s (transform 970ms, setup 8ms, collect 1.41s, tests 2.15s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3jxvBm/vitest.json
+Vitest resources: 5.48s wall, 736.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3jxvBm
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2403ms
+   ✓ completes the exact admitted SQLite transition seed batch  2403ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:01:40
+   Duration  3.94s (transform 980ms, setup 8ms, collect 1.41s, tests 2.40s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-yy8pTH/vitest.json
+Vitest resources: 5.75s wall, 708.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-yy8pTH
+Raptor 3 g2-seeds campaign verified (not the full milestone). Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g2-seeds-ReZ0FF

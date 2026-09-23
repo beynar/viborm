@@ -1,0 +1,22 @@
+
+
+Expected: [32m"SELECT "q[7m0[27m"."id" AS "id", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, "q[7m2[27m"."id", ?, "q[7m2[27m"."title"))), json_array()), json_array()) FROM (SELECT "q[7m1[27m"."id" AS "id", "q[7m1[27m"."title" AS "title" FROM "g4u2_posts" AS "q[7m1[27m" WHERE "q[7m0[27m"."id" = "q[7m1[27m"."authorId") AS "q[7m2[27m") AS "posts" FROM "g4u2_authors" AS "q[7m0[27m" WHERE 1"[39m
+Received: [31m"SELECT "q[7m3[27m"."id" AS "id", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, "q[7m5[27m"."id", ?, "q[7m5[27m"."title"))), json_array()), json_array()) FROM (SELECT "q[7m4[27m"."id" AS "id", "q[7m4[27m"."title" AS "title" FROM "g4u2_posts" AS "q[7m4[27m" WHERE "q[7m3[27m"."id" = "q[7m4[27m"."authorId") AS "q[7m5[27m") AS "posts" FROM "g4u2_authors" AS "q[7m3[27m" WHERE 1"[39m
+
+ ❯ tests/raptor3/g4/unit02/prepared-statement-stability.test.ts:133:12
+    131|       select: { id: true, posts: { select: { id: true, title: true } }…
+    132|     });
+    133|     assert.equal(again, nested);
+       |            ^
+    134|   });
+    135| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  10:51:46
+   Duration  2.07s (transform 1.23s, setup 9ms, collect 1.82s, tests 29ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 4.46s wall, 571.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

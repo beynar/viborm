@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-x
+
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (8 tests) 53ms
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-route-seam.test.ts (3 tests) 3ms
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  11:25:42
+   Duration  2.07s (transform 1.14s, setup 18ms, collect 1.80s, tests 55ms, environment 0ms, prepare 47ms)
+
+Vitest resources: 5.02s wall, 507.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

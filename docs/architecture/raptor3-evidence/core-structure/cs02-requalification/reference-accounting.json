@@ -1,0 +1,184 @@
+{
+  "core": {
+    "files": 12,
+    "codeBearingLines": 6031,
+    "parserTokenCount": 38161,
+    "sourceBytes": 200477
+  },
+  "broader": {
+    "files": 28,
+    "codeBearingLines": 10105,
+    "parserTokenCount": 62785,
+    "sourceBytes": 433524
+  },
+  "owners": [
+    {
+      "file": "src/query-engine/raptor3/commands/assignments.ts",
+      "expectedSha256": "67a9c2208b52c06f5774abaacf493d7cff6bff3840d17bf801559ba481a1ab6e",
+      "actualSha256": "67a9c2208b52c06f5774abaacf493d7cff6bff3840d17bf801559ba481a1ab6e",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/command-attempt.ts",
+      "expectedSha256": "2b06af73a8d632e2591fc344a2b8a10e7829f61515c06f77dc6c2b9fbc8af632",
+      "actualSha256": "2b06af73a8d632e2591fc344a2b8a10e7829f61515c06f77dc6c2b9fbc8af632",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "expectedSha256": "98b8eb7ddc0a9e5a357f5bfc672bc8da44e0b4c89323a3a36349718d8ada316b",
+      "actualSha256": "98b8eb7ddc0a9e5a357f5bfc672bc8da44e0b4c89323a3a36349718d8ada316b",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "expectedSha256": "f78a290de7273a4fa87227fc2e9a46b2c2590c337ba28c1a4f48ce778c851a63",
+      "actualSha256": "f78a290de7273a4fa87227fc2e9a46b2c2590c337ba28c1a4f48ce778c851a63",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/index.ts",
+      "expectedSha256": "2037ffc4a19baad8c28911a3b5226bd508b6b8f3719d81af0b6a5f3b39433d02",
+      "actualSha256": "2037ffc4a19baad8c28911a3b5226bd508b6b8f3719d81af0b6a5f3b39433d02",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/relation-body.ts",
+      "expectedSha256": "6035839838eeabc928f5e25c5020115425642ee3cccfa701ae067ac73e72b3cc",
+      "actualSha256": "6035839838eeabc928f5e25c5020115425642ee3cccfa701ae067ac73e72b3cc",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/selection.ts",
+      "expectedSha256": "874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8",
+      "actualSha256": "874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "expectedSha256": "418e47474d0d40a6871a87b5929148b52f9aa832305795f1a2a7d3f8dcd938d5",
+      "actualSha256": "418e47474d0d40a6871a87b5929148b52f9aa832305795f1a2a7d3f8dcd938d5",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "expectedSha256": "b3fb03bfb0f2577506f3d5b7093dad095822bf171ec6880d5d4f11b6e0535817",
+      "actualSha256": "b3fb03bfb0f2577506f3d5b7093dad095822bf171ec6880d5d4f11b6e0535817",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/schema.ts",
+      "expectedSha256": "90341676ea70c610ee56204ceaaac27aad84bf24ad46458bd2b03d439b6aa771",
+      "actualSha256": "90341676ea70c610ee56204ceaaac27aad84bf24ad46458bd2b03d439b6aa771",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/storage.ts",
+      "expectedSha256": "4802bc61e01a3835096ec41c9c27afd2107518a6ba18813fc5bad284c21b42d2",
+      "actualSha256": "4802bc61e01a3835096ec41c9c27afd2107518a6ba18813fc5bad284c21b42d2",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+      "expectedSha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643",
+      "actualSha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643",
+      "matches": true
+    },
+    {
+      "file": "src/adapters/adapter-core-types.ts",
+      "expectedSha256": "958aff3a62e867473064ff98eaaa82d43d653005c5bbc42e598e6600ba0a8c55",
+      "actualSha256": "958aff3a62e867473064ff98eaaa82d43d653005c5bbc42e598e6600ba0a8c55",
+      "matches": true
+    },
+    {
+      "file": "src/adapters/adapter-internals.ts",
+      "expectedSha256": "f17f7af75dd779469e360ba87b72a1f8c31d583cbf4661bd03f0609fbb0c7e4e",
+      "actualSha256": "f17f7af75dd779469e360ba87b72a1f8c31d583cbf4661bd03f0609fbb0c7e4e",
+      "matches": true
+    },
+    {
+      "file": "src/adapters/constraint-identity.ts",
+      "expectedSha256": "30fdcf3887a352d72d999a78a06e0c0924de6655b63f5111dbb68ae0ba06d1b7",
+      "actualSha256": "30fdcf3887a352d72d999a78a06e0c0924de6655b63f5111dbb68ae0ba06d1b7",
+      "matches": true
+    },
+    {
+      "file": "src/adapters/databases/mysql/mysql-adapter.ts",
+      "expectedSha256": "62e605676cd3537ba63d2abbdd65f1fa9d6d66214fa48c7627934223d61669be",
+      "actualSha256": "62e605676cd3537ba63d2abbdd65f1fa9d6d66214fa48c7627934223d61669be",
+      "matches": true
+    },
+    {
+      "file": "src/adapters/databases/postgres/postgres-adapter.ts",
+      "expectedSha256": "050657a060687d64a673e24c3f226b492a6a412037811ade7be31e745a5142e9",
+      "actualSha256": "050657a060687d64a673e24c3f226b492a6a412037811ade7be31e745a5142e9",
+      "matches": true
+    },
+    {
+      "file": "src/adapters/databases/sqlite/sqlite-adapter.ts",
+      "expectedSha256": "cc772ecdb771fe02d2bdf8464e6b542ffa9d8e507a91fdb7ca53ffafe55de8e3",
+      "actualSha256": "cc772ecdb771fe02d2bdf8464e6b542ffa9d8e507a91fdb7ca53ffafe55de8e3",
+      "matches": true
+    },
+    {
+      "file": "src/adapters/shared/batch-refs.ts",
+      "expectedSha256": "5654fba299e4020529de1adf31865d11711dc91f543536549a4f9fc45f7af7d2",
+      "actualSha256": "5654fba299e4020529de1adf31865d11711dc91f543536549a4f9fc45f7af7d2",
+      "matches": true
+    },
+    {
+      "file": "src/drivers/error-mapping.ts",
+      "expectedSha256": "860a2b156cee471ce086490160bc454006ebd30eccf4d7026062e7db303c6408",
+      "actualSha256": "860a2b156cee471ce086490160bc454006ebd30eccf4d7026062e7db303c6408",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/JunctionStatements.ts",
+      "expectedSha256": "b3b8a08fe8d1e2e18ff69e45013023094015a238d6113e7b6e669301fb8df3bc",
+      "actualSha256": "b3b8a08fe8d1e2e18ff69e45013023094015a238d6113e7b6e669301fb8df3bc",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/types.ts",
+      "expectedSha256": "8dec9a323f923ccbc2a3b8dc6e514277d1fbc599024f0c250ac9853a91f71281",
+      "actualSha256": "8dec9a323f923ccbc2a3b8dc6e514277d1fbc599024f0c250ac9853a91f71281",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/unique-conflict-target.ts",
+      "expectedSha256": "338c89071876f938ebf3f45c09aa3720995b8a824c84747aa1850198e71e85d4",
+      "actualSha256": "338c89071876f938ebf3f45c09aa3720995b8a824c84747aa1850198e71e85d4",
+      "matches": true
+    },
+    {
+      "file": "src/query-engine/write-engine/parse-boundary.ts",
+      "expectedSha256": "b42a5f85f4b41d6a5deccfb5242335904daabe9f3dbd3b5ae28b9e5d64bc9696",
+      "actualSha256": "b42a5f85f4b41d6a5deccfb5242335904daabe9f3dbd3b5ae28b9e5d64bc9696",
+      "matches": true
+    },
+    {
+      "file": "src/schema/model/keys.ts",
+      "expectedSha256": "95e6185f8ded9c41fc536166df415ddca65b233d33e5583f97c57ca06529d0f5",
+      "actualSha256": "95e6185f8ded9c41fc536166df415ddca65b233d33e5583f97c57ca06529d0f5",
+      "matches": true
+    },
+    {
+      "file": "src/schema/model/model.ts",
+      "expectedSha256": "3864cbd2ae327a4b249ee257f6d10d8ce39ec06779dbfc52e8fe26e537b1f4ce",
+      "actualSha256": "3864cbd2ae327a4b249ee257f6d10d8ce39ec06779dbfc52e8fe26e537b1f4ce",
+      "matches": true
+    },
+    {
+      "file": "src/schema/validation/rules/model.ts",
+      "expectedSha256": "b3d8f1f0ecd3b3acd757ee6ea55de3f00c98dba801918b53741f1e871dbcb0eb",
+      "actualSha256": "b3d8f1f0ecd3b3acd757ee6ea55de3f00c98dba801918b53741f1e871dbcb0eb",
+      "matches": true
+    },
+    {
+      "file": "src/schema/validation/validator.ts",
+      "expectedSha256": "de94dbb0122af09561556685db302ea9e702574f061d23486799816e58f60a0a",
+      "actualSha256": "de94dbb0122af09561556685db302ea9e702574f061d23486799816e58f60a0a",
+      "matches": true
+    }
+  ]
+}

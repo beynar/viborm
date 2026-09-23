@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-read-surface.test.ts (122 tests) 13655ms
+   ✓ MySQL2 Driver > MySQL2 omit > create composes select with omit  1218ms
+
+ Test Files  1 passed (1)
+      Tests  122 passed (122)
+   Start at  21:01:00
+   Duration  15.01s (transform 792ms, setup 8ms, collect 1.15s, tests 13.65s, environment 0ms, prepare 25ms)
+
+Vitest resources: 16.59s wall, 655.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

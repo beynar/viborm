@@ -1,0 +1,329 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2ab
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts (293 tests | 1 failed) 21956ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list round-trip > create returns real arrays with typed elements 143ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list round-trip > empty and null lists round-trip 85ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals matches the exact list 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals is order-sensitive 59ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals matches empty lists 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals matches int lists 59ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals null matches null lists only 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > not excludes the matching list and null lists 58ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has matches string elements 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has matches int elements 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has with no match returns empty 74ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has null is rejected consistently 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > hasEvery requires all elements 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > hasSome requires any element 63ms
+   × MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list 63ms
+     → expected [] to deeply equal [ 'both' ]
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > set replaces the whole list 63ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push appends a single value 68ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push expands an array value element-wise 72ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push appends int elements 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push onto an empty list 58ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push onto a null list creates the list 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > unshift prepends a single value 64ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > unshift expands an array value element-wise 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > equals matches the exact document 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > equals does not match a partial document 53ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > equals null matches null json only 63ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > not equals excludes the matching document and nulls 58ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a path matches the scoped value 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a nested path 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a path matches numbers 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a missing path matches nothing 53ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > integer path segments address array elements 51ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > path segments with dots stay literal 62ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution 71ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > string_contains at a path 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND 60ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode 61ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > string_contains without a path matches string roots 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_contains requires every candidate element 52ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate 58ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_contains without a path matches array roots only 58ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_starts_with matches the first element 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_ends_with matches the last element 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > not at a path inherits the path 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators 53ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode 59ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode 62ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored 59ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form 52ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root 58ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form 53ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation 57ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross 60ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error 55ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices 54ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root 56ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows 63ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution 54ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only 57ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only 55ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > equals AnyNull matches both 53ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > not DbNull matches every row that holds a document 53ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs 55ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > not AnyNull matches only real documents 57ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > the three equals predicates partition the table 60ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > DbNull and JsonNull are different stored values 58ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > update moves a row between the two nulls 63ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > upsert stores a sentinel on either arm 65ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column 58ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > a bare null in write position is refused, not guessed 57ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > AnyNull is filter-only 56ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column 54ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > a sentinel nested inside a document is refused 54ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > a sentinel under a path is refused before execution 56ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused 56ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root 53ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL 52ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there 55ms
+   ✓ MySQL2 Driver > MySQL2 field references > gt compares two columns of the same row 79ms
+   ✓ MySQL2 Driver > MySQL2 field references > lt compares two columns of the same row 78ms
+   ✓ MySQL2 Driver > MySQL2 field references > gte and lte include the equal row 90ms
+   ✓ MySQL2 Driver > MySQL2 field references > equals and not compare two columns of the same row 81ms
+   ✓ MySQL2 Driver > MySQL2 field references > a bare reference is the equals shorthand 80ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference resolves through .map()ed column names 89ms
+   ✓ MySQL2 Driver > MySQL2 field references > string prefix/suffix/substring predicates accept a reference 85ms
+   ✓ MySQL2 Driver > MySQL2 field references > a callback is refused where only the token is accepted 79ms
+   ✓ MySQL2 Driver > MySQL2 field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation 91ms
+   ✓ MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column 113ms
+   ✓ MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive contains folds the referenced column 85ms
+   ✓ MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive startsWith folds the referenced column 101ms
+   ✓ MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive endsWith folds the referenced column 83ms
+   ✓ MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive `not` complements the folded comparison 88ms
+   ✓ MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds ASCII only 95ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > equals compares two enum columns of the same row 82ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > not complements it 86ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > a bare enum reference is the equals shorthand 92ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > the reference resolves through the .map()ed column name 82ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > lt on an enum is refused with the portability reason 88ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > lte on an enum is refused with the portability reason 99ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > gt on an enum is refused with the portability reason 116ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > gte on an enum is refused with the portability reason 92ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > literal enum filters are untouched 94ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference mixes with literal operands in one filter object 80ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference works inside a nested relation where 79ms
+   ✓ MySQL2 Driver > MySQL2 field references > the nested scope's own model is the one a reference must name 86ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference drives updateMany and deleteMany 88ms
+   ✓ MySQL2 Driver > MySQL2 field references > two decimals of the SAME domain compare exactly 101ms
+   ✓ MySQL2 Driver > MySQL2 field references > two decimals of DIFFERENT domains are refused before any I/O 134ms
+   ✓ MySQL2 Driver > MySQL2 field references > a cross-model reference is refused before any I/O 139ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference of the wrong scalar type is refused 83ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference is refused in in/notIn 79ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference is refused in `having`, however deeply nested 120ms
+   ✓ MySQL2 Driver > MySQL2 field references > a reference is refused in JSON filters and JSON write data 122ms
+   ✓ MySQL2 Driver > MySQL2 field references > SQL fragment operands > an arithmetic expression compares against the row 99ms
+   ✓ MySQL2 Driver > MySQL2 field references > SQL fragment operands > a scalar subquery compares against the whole table 100ms
+   ✓ MySQL2 Driver > MySQL2 field references > SQL fragment operands > an interpolated value rides as a bound parameter 94ms
+   ✓ MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter 89ms
+   ✓ MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment drives updateMany and deleteMany 100ms
+   ✓ MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment survives both execution substrates 112ms
+   ✓ MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment is refused where a reference is 82ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > datetime round-trips exactly through create and findMany 105ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > datetime filters match the stored instant 77ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > datetime update round-trips exactly 80ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > decimal reads back as its exact canonical value 77ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST round-trips member by member 93ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST filters by containment on its logical members 75ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary 92ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST survives a grouped projection 77ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly 78ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly 82ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > round-trips every value in the domain exactly 94ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > callback transactions materialize fresh Decimal scalar and list results 63ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > array transactions materialize fresh Decimal scalar and list results 68ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > a nullable decimal stores and reads NULL, not zero 82ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > equals matches on value, not on spelling 84ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > equals distinguishes the two values a double cannot 80ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > in / notIn compare numerically 83ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > gt/lt compare numerically, not lexicographically 85ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > orderBy sorts numerically, windowed and not 78ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision 77ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > _avg of an all-null column is NULL, not zero and not an error 76ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > _avg rounds exact ties to the even neighbour in both signs 64ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > groupBy orders groups and filters them on exact aggregates 76ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > groupBy compares a widened _sum beyond the field precision 74ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > increment and decrement are exact and never round 59ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact 67ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour 68ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd 60ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour 67ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > a rounded tie CARRIES across the whole value 60ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > divide rounds by the same rule, in both signs 98ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign 57ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > arithmetic on a NULL column stays NULL 58ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > division by zero fails BEFORE any statement is issued 62ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > a result past the field's precision fails and leaves the row alone 61ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float 60ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > an operand finer than the field's scale is refused, never rounded 57ms
+   ✓ MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly top-level 72ms
+   ✓ MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include 113ms
+   ✓ MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > json primitives round-trip with exact types 93ms
+   ✓ MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > aggregates are scalar-aware 88ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals matches case-insensitively 119ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equality and set filters fold ASCII only 94ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals stays case-sensitive without mode 95ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not stays case-sensitive without mode 88ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in stays case-sensitive without mode 88ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn stays case-sensitive without mode 86ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equals does not treat % as a wildcard 86ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not excludes case-insensitively 84ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in matches case-insensitively 105ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in does not treat % as a wildcard 88ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in with empty list matches nothing 90ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn excludes case-insensitively 91ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > contains stays case-sensitive without mode 90ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith stays case-sensitive without mode 93ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith stays case-sensitive without mode 94ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters treat wildcard characters literally 95ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters handle empty and non-ASCII values exactly 96ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith matches case-insensitively 89ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith matches case-insensitively 89ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith matches every case variant 98ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive substring filters fold ASCII only 83ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive startsWith does not treat % as a wildcard 91ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith does not treat % as a wildcard 82ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > top-level NOT excludes matching rows 85ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT {contains} does not match NULL rows (Prisma parity) 91ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT with equality also skips NULL rows 81ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with AND 108ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with OR 121ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > nested NOT double-negates but still skips NULL rows 90ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT array negates each condition and ANDs them (Prisma parity) 110ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR of two scalar predicates 75ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR with a null check matches NULL rows via IS NULL 81ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum equals matches a single value 84ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in matches listed values and skips NULL rows 79ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in with empty list matches nothing 77ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn excludes listed values and NULL rows 80ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn with empty list matches every row 79ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > empty select object throws 75ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > all-false select throws 75ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected 85ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a grouped column still works 84ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count on a field 82ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count _all 98ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _sum 83ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in filter 87ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in with empty list matches nothing 79ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate notIn with empty list matches everything 77ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate equals null uses IS NULL 84ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate not null uses IS NOT NULL 87ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > where filters rows before grouping 82ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take with orderBy limits groups 84ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with orderBy window the groups 86ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with aggregate orderBy window the groups 82ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by groups on the field combination 87ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by supports having on aggregates 107ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR of two single-group conditions matches both groups 80ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR with a single unmatchable arm keeps only the other 85ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND of the same two conditions matches nothing 113ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND accepts a bare object as well as an array 110ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR evaluates the inner conjunction 80ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR fails the arm when one conjunct misses 79ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of an aggregate condition selects the complement 82ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array negates each arm and ANDs the negations (Prisma parity) 77ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array with one unmatchable arm keeps the other complement 78ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array on a `by` field agrees with the same NOT array in where 87ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array of a single item matches the object form 110ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of a multi-key object negates that object's conjunction 77ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT inside OR restores the excluded group 86ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a combinator conjoins with sibling field-keyed conditions 84ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by` 78ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR matches no group, exactly like empty OR in where 90ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR is false, not absent, when conjoined with a sibling 86ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in AND poisons the conjunction 83ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in OR contributes nothing but is not vacuous 87ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR under NOT is true and keeps every group 83ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND and empty NOT stay true and keep every group 81ms
+   ✓ MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND still conjoins its sibling rather than erasing it 101ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > create succeeds with all optional relations omitted 87ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > nested create does not demand other optional relations 85ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > where: { relation: null } matches rows with a null FK 92ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > include: { rel: false } omits the relation 77ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > select > include chains down the relation tree 80ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > nested select+include on the same node is rejected 77ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > create with nested writes returns scalars only without include 77ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > contains with literal % matches only literal occurrences 68ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > contains with literal _ matches only literal occurrences 69ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > contains with literal backslash matches only literal occurrences 68ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > startsWith with literal % does not act as a wildcard 68ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > endsWith with literal _ does not act as a wildcard 70ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > insensitive contains with literal % matches only literal occurrences 98ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > insensitive contains still matches case-insensitively 66ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > plain contains without wildcards still matches 68ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > not-contains with literal % excludes only literal occurrences 71ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > a percent in the value stays literal 71ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > an underscore in the value stays literal 73ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > a trailing escape character in the value stays literal 70ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > a value that is only the escape character stays literal 81ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > the empty value matches every row 71ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > every wildcard family at once stays literal 77ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > SQLite's GLOB metacharacters stay literal on every dialect 77ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > the prefix path stays case-sensitive 74ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > insensitive mode is unchanged and still ignores case 74ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > endsWith keeps its spelling and its literal wildcards 71ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in matches exactly the listed byte arrays 73ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out 50ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in with no matching member returns nothing 51ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > empty in matches nothing (Prisma semantics) 48ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > notIn excludes exactly the listed byte arrays 50ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > empty notIn matches everything (Prisma semantics) 49ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > notIn on a nullable column excludes NULL rows 48ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in on a nullable column excludes NULL rows 48ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > empty notIn on a nullable column keeps the NULL row 47ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > Buffer members are accepted alongside Uint8Array 51ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in composes with not 53ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in composes with arbitrarily nested not 45ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in composes with the boolean wrappers 47ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in drives deleteMany, not just reads 48ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list
+AssertionError: expected [] to deeply equal [ 'both' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "both",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:250:11
+    248|             })
+    249|           )
+    250|         ).toEqual(["both"]);
+       |           ^
+    251|         expect(
+    252|           names(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 292 passed (293)
+   Start at  10:32:05
+   Duration  23.65s (transform 1.03s, setup 9ms, collect 1.54s, tests 21.96s, environment 0ms, prepare 36ms)
+
+Vitest resources: 25.45s wall, 655.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

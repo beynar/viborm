@@ -1,0 +1,55 @@
+# Repair round (2026-09-21) — the ADDITION direction, falsified
+
+A tenth name added to the module-private CACHEABLE_OPERATIONS
+(src/query-engine/cache-flow.ts:29-39, "createMany" appended) in a backup
+copy, restored by cp; md5 verified 62f591809844b2113fd3547c75956611 before
+and after. This is the direction that would crash a user's cached read, and
+before the repair the pin could not see it.
+
+$ node scripts/run-vitest-safe.mjs run tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts
+
+AssertionError: the cache layer's vocabulary is no longer exactly these nine names
++ actual - expected
+
+  [
+    'aggregate',
+    'count',
++   'createMany',
+    'exist',
+    'findFirst',
+    'findFirstOrThrow',
+    'findMany',
+    'findUnique',
+
+
+- Expected
++ Received
+
+@@ -1,8 +1,9 @@
+  [
+    "aggregate",
+    "count",
++   "createMany",
+    "exist",
+    "findFirst",
+    "findFirstOrThrow",
+    "findMany",
+    "findUnique",
+
+ ❯ tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts:175:12
+    173|       "the cache gate does not refuse a verb that publishes no prepare…
+    174|     );
+    175|     assert.deepEqual(
+       |            ^
+    176|       [...published].sort(),
+    177|       CACHEABLE.map(([operation]) => operation).sort(),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  23:32:15
+   Duration  1.63s (transform 916ms, setup 10ms, collect 1.38s, tests 32ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 3.60s wall, 520.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

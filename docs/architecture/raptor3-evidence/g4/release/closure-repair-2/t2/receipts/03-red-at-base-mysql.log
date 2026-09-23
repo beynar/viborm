@@ -1,0 +1,80 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts (15 tests | 3 failed) 3109ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found reference is spent at its CURRENT value, never a key another row acquired 227ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found conditional upsert refuses when the condition it matched has changed 146ms
+   × the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost at the FIRST refuse as one premise 159ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   × the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost at the SECOND refuse with the same sentence 152ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   × the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost TOGETHER refuse with the same sentence 137ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found nested to-ONE upsert refuses a member reparented out of its membership 146ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the confirmation's lock > holds the FOUND row through the consuming effect  1142ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a CHILD-HELD found connectOrCreate refuses a target replaced under its selector 140ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a correlated to-MANY nested upsert refuses a member moved to another parent 115ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a COMPOUND, column-mapped reference is confirmed and spent at its current pair 133ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a found arm that writes no column of its own spends the CURRENT reference through its child 132ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > inside a borrowed transaction the confirmation is the caller's own lock 132ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > an uncontended found consumption commits its ordinary result 127ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > the missing arm still reads unlocked, and the confirmation is the only locked read 119ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > a PARENT-HELD found target deleted in the same window fails with its own sentence 103ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts > the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost at the FIRST refuse as one premise
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/docker/mysql2-found-consumption.test.ts:529:50
+    527|         VibORMErrorCode.TRANSACTION_FAILED
+    528|       );
+    529|       expect((outcome.failure as Error).message).toBe(CONJOINED_PREMIS…
+       |                                                  ^
+    530|       // A lost MATCH premise is not a race another arm may adopt.
+    531|       expect((outcome.failure as TransactionError).meta.raceable).not.…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts > the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost at the SECOND refuse with the same sentence
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/docker/mysql2-found-consumption.test.ts:565:50
+    563|       expect(outcome.value).toBeUndefined();
+    564|       expect(outcome.failure).toBeInstanceOf(TransactionError);
+    565|       expect((outcome.failure as Error).message).toBe(CONJOINED_PREMIS…
+       |                                                  ^
+    566|       expect(confirmationsOf(driver, TAG_TABLE)).toHaveLength(1);
+    567| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts > the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost TOGETHER refuse with the same sentence
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/docker/mysql2-found-consumption.test.ts:596:50
+    594|       expect(outcome.value).toBeUndefined();
+    595|       expect(outcome.failure).toBeInstanceOf(TransactionError);
+    596|       expect((outcome.failure as Error).message).toBe(CONJOINED_PREMIS…
+       |                                                  ^
+    597|       expect(confirmationsOf(driver, TAG_TABLE)).toHaveLength(1);
+    598| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 12 passed (15)
+   Start at  00:28:48
+   Duration  4.63s (transform 926ms, setup 10ms, collect 1.39s, tests 3.11s, environment 0ms, prepare 27ms)
+
+Vitest resources: 6.37s wall, 623.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

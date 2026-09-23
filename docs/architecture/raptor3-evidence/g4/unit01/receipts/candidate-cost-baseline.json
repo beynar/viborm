@@ -1,0 +1,216 @@
+{
+  "language": {
+    "lines": 3228,
+    "tokenLines": 3197,
+    "tokens": 19409,
+    "bytes": 106740,
+    "perFile": [
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/assignments.ts",
+        "lines": 158,
+        "tokenLines": 153,
+        "tokens": 1031,
+        "bytes": 4831
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/command-attempt.ts",
+        "lines": 88,
+        "tokenLines": 85,
+        "tokens": 654,
+        "bytes": 2948
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/commands.ts",
+        "lines": 1131,
+        "tokenLines": 1124,
+        "tokens": 6964,
+        "bytes": 37887
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/execution.ts",
+        "lines": 750,
+        "tokenLines": 745,
+        "tokens": 4780,
+        "bytes": 25692
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/index.ts",
+        "lines": 102,
+        "tokenLines": 100,
+        "tokens": 491,
+        "bytes": 2901
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/relation-body.ts",
+        "lines": 852,
+        "tokenLines": 848,
+        "tokens": 4730,
+        "bytes": 28322
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/selection.ts",
+        "lines": 147,
+        "tokenLines": 142,
+        "tokens": 759,
+        "bytes": 4159
+      }
+    ]
+  },
+  "shared": {
+    "lines": 3769,
+    "tokenLines": 3730,
+    "tokens": 23974,
+    "bytes": 123657,
+    "perFile": [
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/operation-context.ts",
+        "lines": 1606,
+        "tokenLines": 1591,
+        "tokens": 10034,
+        "bytes": 53772
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/query.ts",
+        "lines": 1640,
+        "tokenLines": 1635,
+        "tokens": 10839,
+        "bytes": 54013
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/schema.ts",
+        "lines": 295,
+        "tokenLines": 289,
+        "tokens": 1740,
+        "bytes": 8894
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/storage.ts",
+        "lines": 210,
+        "tokenLines": 199,
+        "tokens": 1243,
+        "bytes": 6289
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/transport-attempt.ts",
+        "lines": 18,
+        "tokenLines": 16,
+        "tokens": 118,
+        "bytes": 689
+      }
+    ]
+  },
+  "program": {
+    "lines": 628,
+    "tokenLines": 622,
+    "tokens": 4232,
+    "bytes": 20437,
+    "perFile": [
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/program/index.ts",
+        "lines": 53,
+        "tokenLines": 52,
+        "tokens": 243,
+        "bytes": 1499
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/program/program.ts",
+        "lines": 575,
+        "tokenLines": 570,
+        "tokens": 3989,
+        "bytes": 18938
+      }
+    ]
+  },
+  "core": {
+    "lines": 6997,
+    "tokenLines": 6927,
+    "tokens": 43383,
+    "bytes": 230397,
+    "perFile": [
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/assignments.ts",
+        "lines": 158,
+        "tokenLines": 153,
+        "tokens": 1031,
+        "bytes": 4831
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/command-attempt.ts",
+        "lines": 88,
+        "tokenLines": 85,
+        "tokens": 654,
+        "bytes": 2948
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/commands.ts",
+        "lines": 1131,
+        "tokenLines": 1124,
+        "tokens": 6964,
+        "bytes": 37887
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/execution.ts",
+        "lines": 750,
+        "tokenLines": 745,
+        "tokens": 4780,
+        "bytes": 25692
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/index.ts",
+        "lines": 102,
+        "tokenLines": 100,
+        "tokens": 491,
+        "bytes": 2901
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/relation-body.ts",
+        "lines": 852,
+        "tokenLines": 848,
+        "tokens": 4730,
+        "bytes": 28322
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/commands/selection.ts",
+        "lines": 147,
+        "tokenLines": 142,
+        "tokens": 759,
+        "bytes": 4159
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/operation-context.ts",
+        "lines": 1606,
+        "tokenLines": 1591,
+        "tokens": 10034,
+        "bytes": 53772
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/query.ts",
+        "lines": 1640,
+        "tokenLines": 1635,
+        "tokens": 10839,
+        "bytes": 54013
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/schema.ts",
+        "lines": 295,
+        "tokenLines": 289,
+        "tokens": 1740,
+        "bytes": 8894
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/storage.ts",
+        "lines": 210,
+        "tokenLines": 199,
+        "tokens": 1243,
+        "bytes": 6289
+      },
+      {
+        "file": "/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/baseline/src/query-engine/raptor3/shared/transport-attempt.ts",
+        "lines": 18,
+        "tokenLines": 16,
+        "tokens": 118,
+        "bytes": 689
+      }
+    ]
+  }
+}

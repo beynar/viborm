@@ -1,0 +1,38 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts (3 tests | 3 failed) 15ms
+   × freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine at a JUNCTION and a to-ONE edge, both arms 13ms
+     → Schema validation failed:
+[R011] 'owner.tags' and 'tag.owners' both configure this junction; exactly one endpoint owns every override
+   × freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine when one request carries BOTH arms 1ms
+     → Schema validation failed:
+[R011] 'owner.tags' and 'tag.owners' both configure this junction; exactly one endpoint owns every override
+   × freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine's sentence when TWO refusals compete on one arm 1ms
+     → Schema validation failed:
+[R011] 'owner.tags' and 'tag.owners' both configure this junction; exactly one endpoint owns every override
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine at a JUNCTION and a to-ONE edge, both arms
+SchemaValidationError: Schema validation failed:
+[R011] 'owner.tags' and 'tag.owners' both configure this junction; exactly one endpoint owns every override
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine when one request carries BOTH arms
+SchemaValidationError: Schema validation failed:
+[R011] 'owner.tags' and 'tag.owners' both configure this junction; exactly one endpoint owns every override
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-upsert-arm-handoff.review.test.ts > freeze review round 2 — the nested upsert's found-arm handoff > answers the shipped engine's sentence when TWO refusals compete on one arm
+SchemaValidationError: Schema validation failed:
+[R011] 'owner.tags' and 'tag.owners' both configure this junction; exactly one endpoint owns every override
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  19:44:05
+   Duration  2.73s (transform 1.73s, setup 12ms, collect 2.52s, tests 15ms, environment 0ms, prepare 45ms)
+
+Vitest resources: 3.40s wall, 465.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

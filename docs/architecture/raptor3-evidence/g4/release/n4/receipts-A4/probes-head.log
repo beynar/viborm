@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ ../viborm-n4-A4-tmp/structural.probe.test.ts (22 tests) 14ms
+ ✓ ../viborm-n4-A4-tmp/executed.probe.test.ts (1 test) 39ms
+ ✓ ../viborm-n4-A4-tmp/classification.probe.test.ts (3 tests) 0ms
+
+ Test Files  3 passed (3)
+      Tests  26 passed (26)
+   Start at  07:48:12
+   Duration  1.51s (transform 882ms, setup 0ms, collect 1.33s, tests 54ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 1.91s wall, 442.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

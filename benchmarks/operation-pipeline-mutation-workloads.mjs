@@ -1,8 +1,10 @@
 /** Scalar and relation-bearing mutation workload construction. */
 
+import assert from "node:assert/strict";
 import {
   benchmarkOperation,
   consumeScalarRows,
+  observeBenchmarkContract,
   preparedWitness,
 } from "./operation-pipeline-harness.mjs";
 import { assertSemanticDigest } from "./operation-pipeline-semantics.mjs";
@@ -97,8 +99,27 @@ export async function buildMutationWorkload(
       fullFixture,
       stage,
       makeOperation,
-      (row) => row.age ?? 0,
-      operationCount
+      (row) => row.id.charCodeAt(0),
+      operationCount,
+      undefined,
+      ({ outcome, initial, final, defaults }) => {
+        assert.deepEqual(outcome, {
+          kind: "success",
+          value: {
+            id: "update_target",
+            name: "Update",
+            email: "update@example.com",
+            age: 2,
+          },
+        });
+        assert.deepEqual(final, {
+          ...initial,
+          bench_users: initial.bench_users.map((user) =>
+            user.id === "update_target" ? { ...user, age: 2 } : user
+          ),
+        });
+        assert.deepEqual(defaults, []);
+      }
     );
   }
   if (name === "fixed-rowref-create") {
@@ -502,7 +523,8 @@ async function createMutationHarness(
   makeOperation,
   parsedConsumer,
   operationCount,
-  workloadShape
+  workloadShape,
+  verifyContract
 ) {
   const prepareForRawExecution = (operation) => {
     const capability = benchmarkOperation(operation);
@@ -524,7 +546,16 @@ async function createMutationHarness(
   );
   const semanticValue = semanticEntry.capability.parseResult(semanticRaw);
   parsedConsumer(semanticValue);
-  const fullSemantic = await makeOperation(fullFixture.client);
+  const contract = verifyContract
+    ? await observeBenchmarkContract(
+        fullFixture,
+        () => makeOperation(fullFixture.client),
+        verifyContract
+      )
+    : undefined;
+  const fullSemantic = contract
+    ? contract.contractObservation.outcome.value
+    : await makeOperation(fullFixture.client);
   parsedConsumer(fullSemantic);
   const digest = assertSemanticDigest(
     "mutation prepared/raw versus public full",
@@ -547,6 +578,13 @@ async function createMutationHarness(
   return {
     witness: preparedWitness(semanticEntry.prepared, workloadShape),
     semanticDigest: digest,
+    ...contract,
+    "cold-prepare": () => {
+      const { prepared } = prepareForRawExecution(
+        makeOperation(fixture.createColdClient())
+      );
+      return prepared.sql.length + (prepared.params?.length ?? 0);
+    },
     prepare: () => {
       const { prepared } = prepareForRawExecution(makeOperation());
       return prepared.sql.length + (prepared.params?.length ?? 0);

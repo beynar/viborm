@@ -1,0 +1,47 @@
+Repair round falsifications — 2026-09-21 (FC-06, after the review round).
+
+F-R1 — the shallow-clone condition the finding names: the shipped corpus
+revision absent from local history. Backup copy of the census script in
+$TMPDIR; SHIPPED_CORPUS_REV replaced with an absent hex; restored by cp.
+  md5 before : 27fb52546acc18e3565cb1623a8949a9  scripts/raptor3-refusal-census.mjs
+  md5 after  : 27fb52546acc18e3565cb1623a8949a9  scripts/raptor3-refusal-census.mjs
+  round 1 (reviewer's measurement): pass 6 / fail 1 — cell 7 exited 1 on the corpus.
+  after the repair: exit 0, tests 7, pass 7, fail 0 — cell 7 no longer reads the
+  shipped revision, so a depth-1 checkout cannot redden `pnpm test:coverage:policy`.
+
+✔ reads the sentence a site built into a local const and handed to the failure owner (443.94225ms)
+✔ reads the sentence the site's own factory built and handed to the failure owner (553.006458ms)
+✔ does not attribute a caught value to the site that rethrows it through the failure owner (552.447292ms)
+✔ reads the failure owner's own substituted sentence once, at the owner (618.704584ms)
+✔ does not mistake a zero-argument `failure()` member for the failure owner (566.391209ms)
+✔ refuses loudly when the declared failure owner is not where the census reads it (547.7925ms)
+✔ the engine's own tree still declares the failure owner the census reads (747.871542ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4033.497834
+Node resources: 4.28s wall, 259.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+----------------------------------------------------------------------
+
+F-R2 — the repaired structural-patch cell still discriminates. Backup copy
+of scripts/raptor3-manifest.mjs in $TMPDIR; the status assertion of
+assertStructuralMeasurementPatch neutered (assert.equal(0, 0, …)); restored by cp.
+  md5 before : 58a554c1137fd34587927a8417a6ccf9  scripts/raptor3-manifest.mjs
+  md5 after  : 58a554c1137fd34587927a8417a6ccf9  scripts/raptor3-manifest.mjs
+  result: exit 1, tests 41, pass 39, fail 2 — the stale-patch cell and the
+  retired CS-02 cell both redden, so the cell asserts the refusal and not the
+  unreachable empty-file arm the ternary carried.
+
+✖ structural measurement refuses an instrumentation patch the measured tree does not carry (92.177375ms)
+✖ the retired CS-02 reference instrumentation cannot qualify a measurement (11.517666ms)
+ℹ tests 41
+ℹ pass 39
+ℹ fail 2
+✖ failing tests:
+✖ structural measurement refuses an instrumentation patch the measured tree does not carry (92.177375ms)
+✖ the retired CS-02 reference instrumentation cannot qualify a measurement (11.517666ms)

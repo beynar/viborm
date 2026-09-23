@@ -304,16 +304,13 @@ function refuseDuplicateModelKeyMembers(
   }
 }
 
-/** One public compound-selector name may identify exactly one tuple. */
-function refuseCompoundKeyNameCollision(
-  state: ModelState,
+/** Preserve the first tuple before Record storage could overwrite it. */
+function refuseCompoundKeyStateOverwrite(
+  existing: ModelState["compoundId"] | ModelState["compoundUniques"],
   name: string,
   label: string
 ): void {
-  if (
-    Object.hasOwn(state.compoundId ?? {}, name) ||
-    Object.hasOwn(state.compoundUniques ?? {}, name)
-  ) {
+  if (Object.hasOwn(existing ?? {}, name)) {
     throw new Error(
       `${label} name '${name}' is already used by another compound key; give this tuple a distinct name`
     );
@@ -441,7 +438,7 @@ export class Model<State extends ModelState> {
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const storedFields = snapshotModelKeyMembers(fields, "Compound ID");
     const name = getNameFromKeys(options?.name, storedFields);
-    refuseCompoundKeyNameCollision(this.state, name, "Compound ID");
+    refuseCompoundKeyStateOverwrite(this.state.compoundId, name, "Compound ID");
     const fieldsRecord = compoundMembers(
       this.state,
       storedFields,
@@ -475,7 +472,11 @@ export class Model<State extends ModelState> {
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const storedFields = snapshotModelKeyMembers(fields, "Compound unique");
     const name = getNameFromKeys(options?.name, storedFields);
-    refuseCompoundKeyNameCollision(this.state, name, "Compound unique");
+    refuseCompoundKeyStateOverwrite(
+      this.state.compoundUniques,
+      name,
+      "Compound unique"
+    );
     const fieldsRecord = compoundMembers(
       this.state,
       storedFields,

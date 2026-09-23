@@ -1,0 +1,571 @@
+tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts:120:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    118 │           },
+    119 │         }),
+  > 120 │       /Distance select supports only one _distance field per select\./
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    121 │     );
+    122 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts:199:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    197 │     assert.match(
+    198 │       routedMessage,
+  > 199 │       /Vector distance select does not support nullable vector field/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    200 │     );
+    201 │     assert.equal(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    104 104 │       });
+    105 105 │       assert.deepEqual(
+    106     │ - ······optional.queries.decodeQuery(optional.query,·[{·id:·1,·_distance:·null·}]),
+        106 │ + ······optional.queries.decodeQuery(optional.query,·[
+        107 │ + ········{·id:·1,·_distance:·null·},
+        108 │ + ······]),
+    107 109 │         [{ id: 1, _distance: null }]
+    108 110 │       );
+    ······· │ 
+    153 155 │         select: { id: true },
+    154 156 │         orderBy: {
+    155     │ - ········embedding:·{·_distance:·{·to:·[1,·2,·3],·metric:·"cosine",·sort:·"asc"·}·},
+        157 │ + ········embedding:·{
+        158 │ + ··········_distance:·{·to:·[1,·2,·3],·metric:·"cosine",·sort:·"asc"·},
+        159 │ + ········},
+    156 160 │         },
+    157 161 │       };
+  
+
+tests/raptor3/g4/unit01/repair2.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    153 153 │     pgvector = false
+    154 154 │   ): string {
+    155     │ - ··const·registry·=·createModelRegistry(spotSchema,·createSchemaRegistry(spotSchema));
+        155 │ + ··const·registry·=·createModelRegistry(
+        156 │ + ····spotSchema,
+        157 │ + ····createSchemaRegistry(spotSchema)
+        158 │ + ··);
+    156 159 │     const engine = new QueryEngine(
+    157 160 │       new LoweringDriver(postgres(postgis, pgvector), "postgresql"),
+    ······· │ 
+    288 291 │         select: { id: true },
+    289 292 │         orderBy: {
+    290     │ - ········embedding:·{·_distance:·{·to:·[1,·2,·3],·metric:·"cosine",·sort:·"asc"·}·},
+        293 │ + ········embedding:·{
+        294 │ + ··········_distance:·{·to:·[1,·2,·3],·metric:·"cosine",·sort:·"asc"·},
+        295 │ + ········},
+    291 296 │         },
+    292 297 │       });
+    ······· │ 
+    306 311 │             : {
+    307 312 │                 select: { id: true },
+    308     │ - ··············orderBy:·{·embedding:·{·_distance:·{·...distance,·sort:·"asc"·}·}·},
+        313 │ + ··············orderBy:·{
+        314 │ + ················embedding:·{·_distance:·{·...distance,·sort:·"asc"·}·},
+        315 │ + ··············},
+    309 316 │               };
+    310 317 │         const seen = refusals(args, true, true);
+  
+
+tests/raptor3/g4/unit01/repair2.test.ts:268:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    266 │       assert.match(
+    267 │         seen.shipped,
+  > 268 │         /Vector distance select does not support nullable vector field 'maybeEmbedding'\./
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    269 │       );
+    270 │       assert.equal(seen.candidate, seen.shipped, `pgvector ${pgvector}`);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repair2.test.ts:283:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    281 │     assert.match(
+    282 │       select.shipped,
+  > 283 │       /vector distance select requires a pgvector-enabled PostgreSQL driver/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    284 │     );
+    285 │     assert.equal(select.candidate, select.shipped);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repair2.test.ts:295:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    293 │     assert.match(
+    294 │       order.shipped,
+  > 295 │       /vector ordering requires a pgvector-enabled PostgreSQL driver/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    296 │     );
+    297 │     assert.equal(order.candidate, order.shipped);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repair2.test.ts:313:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    311 │       assert.match(
+    312 │         seen.shipped,
+  > 313 │         /dimension mismatch for 'embedding': expected 3 values, received 2\./
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    314 │       );
+    315 │       assert.equal(seen.candidate, seen.shipped, usage);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repair2.test.ts:329:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    327 │     assert.match(
+    328 │       order.shipped,
+  > 329 │       /GeoPoint requires a provider with its physical point tier enabled\./
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    330 │     );
+    331 │     assert.equal(order.candidate, order.shipped);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repair2.test.ts:339:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    337 │     assert.match(
+    338 │       equality.shipped,
+  > 339 │       /GeoPoint requires a provider with its physical point tier enabled\./
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    340 │     );
+    341 │     assert.equal(equality.candidate, equality.shipped);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repair3.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import assert from "node:assert/strict";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { createClient } from "@client/client";
+    3 │ import { SQLite3Driver } from "@drivers/sqlite3";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      3   3 │   import { SQLite3Driver } from "@drivers/sqlite3";
+      4   4 │   import { createCommandEngine } from "@query-engine/raptor3/commands";
+      5     │ - import·{·createModelFieldRefs·}·from·"@schema/field-ref";
+      6     │ - import·{·AnyNull,·DbNull,·JsonNull·}·from·"@schema/json-null";
+      7     │ - import·{·s·}·from·"@schema";
+          5 │ + import·{·s·}·from·"@schema";
+          6 │ + import·{·createModelFieldRefs·}·from·"@schema/field-ref";
+          7 │ + import·{·AnyNull,·DbNull,·JsonNull·}·from·"@schema/json-null";
+      8   8 │   import Database from "better-sqlite3";
+      9   9 │   import { describe, it } from "vitest";
+  
+
+tests/raptor3/g4/unit01/repair3.test.ts:290:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    288 │       assert.match(
+    289 │         message(seen.shipped),
+  > 290 │         /Two decimals compare exactly only when they declare the same precision and scale\.$/
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    291 │       );
+    292 │     }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repair3.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     41  41 │         schema,
+     42  42 │         driver: shippedWorld.driver,
+     43     │ - ····})·as·unknown·as·Record<string,·Record<string,·(input:·unknown)·=>·unknown>>;
+         43 │ + ····})·as·unknown·as·Record<
+         44 │ + ······string,
+         45 │ + ······Record<string,·(input:·unknown)·=>·unknown>
+         46 │ + ····>;
+     44  47 │       return {
+     45  48 │         shipped: await capture(() => client[model]![operation]!(args)),
+    ······· │ 
+    259 262 │   
+    260 263 │     it("refuses a reference between two decimals of DIFFERENT domains", async () => {
+    261     │ - ····const·seen·=·await·ledgerOutcomes(where({·cents:·{·equals:·refs.micros·}·}));
+        264 │ + ····const·seen·=·await·ledgerOutcomes(
+        265 │ + ······where({·cents:·{·equals:·refs.micros·}·})
+        266 │ + ····);
+    262 267 │       assert.equal(
+    263 268 │         message(seen.candidate),
+    ······· │ 
+    272 277 │   
+    273 278 │     it("names the two columns in the order the filter asked them", async () => {
+    274     │ - ····const·seen·=·await·ledgerOutcomes(where({·micros:·{·equals:·refs.cents·}·}));
+        279 │ + ····const·seen·=·await·ledgerOutcomes(
+        280 │ + ······where({·micros:·{·equals:·refs.cents·}·})
+        281 │ + ····);
+    275 282 │       assert.equal(message(seen.candidate), message(seen.shipped));
+    276 283 │       assert.equal(
+  
+
+tests/raptor3/g4/unit01/repairs.test.ts:398:29 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    396 │     } as never);
+    397 │     const statement = query.sql.toStatement("$n");
+  > 398 │     assert.match(statement, /ST_X/);
+        │                             ^^^^^^
+    399 │     assert.match(statement, /AS "_distance"/);
+    400 │     // The selected point column is referenced by the distance expression and
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repairs.test.ts:352:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    350 │       await assert.rejects(
+    351 │         () => world.client.place.findMany(args),
+  > 352 │         /point\.distance select is not supported\. GeoPoint distance is not supported by this provider\./
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    353 │       );
+    354 │       await assert.rejects(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repairs.test.ts:356:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    354 │       await assert.rejects(
+    355 │         () => world.engine.execute("place", "findMany", args),
+  > 356 │         /point\.distance select is not supported\. GeoPoint distance is not supported by this provider\./
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    357 │       );
+    358 │     } finally {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repairs.test.ts:375:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    373 │             },
+    374 │           }),
+  > 375 │         /Distance select supports only one _distance field per select\./
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    376 │       );
+    377 │     } finally {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repairs.test.ts:399:29 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    397 │     const statement = query.sql.toStatement("$n");
+    398 │     assert.match(statement, /ST_X/);
+  > 399 │     assert.match(statement, /AS "_distance"/);
+        │                             ^^^^^^^^^^^^^^^^
+    400 │     // The selected point column is referenced by the distance expression and
+    401 │     // projected under no name of its own.
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repairs.test.ts:404:36 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    402 │     const shape = query.shape as { fields: Record<string, unknown> };
+    403 │     assert.deepEqual(Object.keys(shape.fields), ["id", "_distance"]);
+  > 404 │     assert.doesNotMatch(statement, /AS "at"/);
+        │                                    ^^^^^^^^^
+    405 │     assert.deepEqual(
+    406 │       queries.decodeQuery(query, [{ id: 1, _distance: 4_852_312.5 }]),
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit01/repairs.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     10  10 │   import Decimal from "decimal.js";
+     11  11 │   import { describe, it } from "vitest";
+     12     │ - import·{
+     13     │ - ··differential,
+     14     │ - ··seedAuthor,
+     15     │ - ··seedPost,
+     16     │ - ··type·World,
+     17     │ - }·from·"./world";
+         12 │ + import·{·differential,·seedAuthor,·seedPost,·type·World·}·from·"./world";
+     18  13 │   
+     19  14 │   /**
+    ······· │ 
+    113 108 │           select: { id: true },
+    114 109 │         });
+    115     │ - ······assert.deepEqual(bare.candidate,·bare.shipped,·`bare·relation·path·${direction}`);
+        110 │ + ······assert.deepEqual(
+        111 │ + ········bare.candidate,
+        112 │ + ········bare.shipped,
+        113 │ + ········`bare·relation·path·${direction}`
+        114 │ + ······);
+    116 115 │         assert.deepEqual(
+    117 116 │           bare.candidate,
+    118     │ - ········direction·===·"asc"·?·[{·id:·3·},·{·id:·2·},·{·id:·1·}]·:·[{·id:·1·},·{·id:·2·},·{·id:·3·}],
+        117 │ + ········direction·===·"asc"
+        118 │ + ··········?·[{·id:·3·},·{·id:·2·},·{·id:·1·}]
+        119 │ + ··········:·[{·id:·1·},·{·id:·2·},·{·id:·3·}],
+    119 120 │           `bare relation path ${direction}`
+    120 121 │         );
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:147:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    145 │       assert(observation) {
+    146 │         assert.deepEqual(observation.initial, { bins, tickets: [decoy] });
+  > 147 │         assert.deepEqual(observation.outcome, {
+        │         ^^^^^^
+    148 │           kind: "success",
+    149 │           value: { count: 2 },
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:316:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    314 │       },
+    315 │       assert(observation) {
+  > 316 │         assert.deepEqual(observation.initial, initial);
+        │         ^^^^^^
+    317 │         assert.equal(observation.outcome.kind, "failure");
+    318 │         if (observation.outcome.kind !== "failure") return;
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:317:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    315 │       assert(observation) {
+    316 │         assert.deepEqual(observation.initial, initial);
+  > 317 │         assert.equal(observation.outcome.kind, "failure");
+        │         ^^^^^^
+    318 │         if (observation.outcome.kind !== "failure") return;
+    319 │         assert.equal(observation.outcome.failure.name, "NestedWriteError");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:319:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    317 │         assert.equal(observation.outcome.kind, "failure");
+    318 │         if (observation.outcome.kind !== "failure") return;
+  > 319 │         assert.equal(observation.outcome.failure.name, "NestedWriteError");
+        │         ^^^^^^
+    320 │         assert.equal(observation.outcome.failure.code, "V7001");
+    321 │         assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:320:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    318 │         if (observation.outcome.kind !== "failure") return;
+    319 │         assert.equal(observation.outcome.failure.name, "NestedWriteError");
+  > 320 │         assert.equal(observation.outcome.failure.code, "V7001");
+        │         ^^^^^^
+    321 │         assert.equal(
+    322 │           observation.outcome.failure.message,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:321:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    319 │         assert.equal(observation.outcome.failure.name, "NestedWriteError");
+    320 │         assert.equal(observation.outcome.failure.code, "V7001");
+  > 321 │         assert.equal(
+        │         ^^^^^^
+    322 │           observation.outcome.failure.message,
+    323 │           "Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries."
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:337:11 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    335 │           assert(isRecord(progress));
+    336 │           const { memberPath, totalMembers, ...segment } = progress;
+  > 337 │           assert.deepEqual(segment, {
+        │           ^^^^^^
+    338 │             atomicity: "segment",
+    339 │             phase: "planning",
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:348:13 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    346 │           // — so those two fields are pinned for the engines that publish them.
+    347 │           if (memberPath !== undefined)
+  > 348 │             assert.deepEqual(
+        │             ^^^^^^
+    349 │               { memberPath, totalMembers },
+    350 │               { memberPath: [1], totalMembers: 2 }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:353:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    351 │             );
+    352 │         }
+  > 353 │         assert.deepEqual(observation.defaults, [
+        │         ^^^^^^
+    354 │           { name: "target.id", value: 1 },
+    355 │           { name: "target.id", value: 1 },
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:358:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    356 │           { name: "target.id", value: 2 },
+    357 │         ]);
+  > 358 │         assert.deepEqual(observation.final, {
+        │         ^^^^^^
+    359 │           ...initial,
+    360 │           shelves:
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:153:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    151 │         // The envelope and each captured occurrence admit once (D-8), on every
+    152 │         // arm: since C-01 the public client IS this engine.
+  > 153 │         assert.deepEqual(observation.defaults, [
+        │         ^^^^^^
+    154 │           { name: "ticket.id", value: "ticket-1" },
+    155 │           { name: "ticket.id", value: "ticket-2" },
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:146:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    144 │       },
+    145 │       assert(observation) {
+  > 146 │         assert.deepEqual(observation.initial, { bins, tickets: [decoy] });
+        │         ^^^^^^
+    147 │         assert.deepEqual(observation.outcome, {
+    148 │           kind: "success",
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/scenarios/contracts/instances.ts:158:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    156 │           { name: "ticket.id", value: "ticket-3" },
+    157 │         ]);
+  > 158 │         assert.deepEqual(observation.final, {
+        │         ^^^^^^
+    159 │           bins,
+    160 │           tickets: [
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+Checked 23 files in 24ms. No fixes applied.
+Found 33 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -1,0 +1,5 @@
+$ TMPDIR=/private/tmp/viborm-cs03-tmp node scripts/run-typecheck.mjs
+exit code: 0 (zero diagnostics printed — the script prints diagnostics only
+when they exist)
+
+TypeScript (whole estate, native): 5.01s wall, 5012.4 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

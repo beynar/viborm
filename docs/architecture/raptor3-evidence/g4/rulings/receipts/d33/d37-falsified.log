@@ -1,0 +1,79 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ❯ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (7 tests | 1 failed) 42ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the live route, once per value 15ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output for a create's RETURNING row 2ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the prepared route, once per value 4ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence 3ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses one inside an array transaction the way that route refuses the decoder's other malformed values 3ms
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses an async user schema and handles the promise it discards (D-37) 10ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   Error: d37: late rejection
++       at Object.validate (/private/tmp/viborm-rulings-d33/tests/raptor3/g4/parity/json-read-schema.test.ts:334:40)
++       at parse (/private/tmp/viborm-rulings-d33/src/validation/index.ts:95:40)
++       at Queries.schemaValue (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4678:23)
++       at Queries.decodeScalar (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4524:33)
++       at Queries.decodeValue (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4280:19)
++       at /private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4343:14
++       at Array.map (<anonymous>)
++       at Queries.decodeValue (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4341:36)
++       at /private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4211:35
++       at Array.map (<anonymous>)
++ ]
+- []
+
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > materializes a cached read from its snapshot without a second run 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses an async user schema and handles the promise it discards (D-37)
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   Error: d37: late rejection
++       at Object.validate (/private/tmp/viborm-rulings-d33/tests/raptor3/g4/parity/json-read-schema.test.ts:334:40)
++       at parse (/private/tmp/viborm-rulings-d33/src/validation/index.ts:95:40)
++       at Queries.schemaValue (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4678:23)
++       at Queries.decodeScalar (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4524:33)
++       at Queries.decodeValue (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4280:19)
++       at /private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4343:14
++       at Array.map (<anonymous>)
++       at Queries.decodeValue (/private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4341:36)
++       at /private/tmp/viborm-rulings-d33/src/query-engine/raptor3/shared/query.ts:4211:35
++       at Array.map (<anonymous>)
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   Error {[39m
+[31m+     "message": "d37: late rejection",[39m
+[31m+   },[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:370:14
+    368|       await new Promise((resolve) => setTimeout(resolve, 0));
+    369|       await new Promise((resolve) => setTimeout(resolve, 0));
+    370|       assert.deepEqual(unhandled, []);
+       |              ^
+    371|     } finally {
+    372|       process.off("unhandledRejection", onUnhandled);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  21:53:19
+   Duration  1.56s (transform 880ms, setup 10ms, collect 1.30s, tests 42ms, environment 0ms, prepare 45ms)
+
+Vitest resources: 3.53s wall, 465.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

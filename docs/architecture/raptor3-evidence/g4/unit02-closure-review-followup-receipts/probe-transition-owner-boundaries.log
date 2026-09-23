@@ -1,0 +1,109 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > pins the key from an `{ equals }` selector the way shipped does (row present)
+[equals-syntax pin, row present]
+  shipped   ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > pins the key from an `{ equals }` selector the way shipped does (row ABSENT)
+[equals-syntax pin, row absent]
+  shipped   ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers an EMPTY relation array beside the divide the way shipped does (row present)
+[empty create array, row present]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers an EMPTY relation array beside the divide the way shipped does (row ABSENT)
+[empty create array, row absent]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a child-held DISCONNECT beside the divide the way shipped does
+[child-held disconnect beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a child-held SET beside the divide the way shipped does
+[child-held set beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a child-held UPDATE beside the divide the way shipped does
+[child-held update beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a JUNCTION relation beside the divide the way shipped does
+[junction connect beside the divide]
+  shipped   QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a relation named only in the CREATE arm the way shipped does (row present)
+[create-arm relation, row present]
+  shipped   QueryError: Query execution failed
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryError: Query execution failed
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a relation named only in the CREATE arm the way shipped does (row ABSENT)
+[create-arm relation, row absent]
+  shipped   ok:{"id":404,"code":"c404","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":404,"code":"c404","label":"fresh"}] items [{"id":2,"label":"c","holderId":404},{"id":70,"label":"i","holderId":6}] links []
+  candidate ok:{"id":404,"code":"c404","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":404,"code":"c404","label":"fresh"}] items [{"id":2,"label":"c","holderId":404},{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a NON-KEY unique locator beside the divide the way shipped does (row present)
+[non-key unique locator, row present]
+  shipped   QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a NON-KEY unique locator beside the divide the way shipped does (row ABSENT)
+[non-key unique locator, row absent]
+  shipped   ok:{"id":99,"code":"nope","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":99,"code":"nope","label":"fresh"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ok:{"id":99,"code":"nope","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":99,"code":"nope","label":"fresh"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > orders the transition refusal against a malformed nested create the way shipped does
+[malformed nested create beside the divide]
+  shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected object, Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ValidationError: Validation failed for update: Value did not match any union member: Expected object, Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a CONNECT of a missing child beside the divide the way shipped does
+[connect of a missing child beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+ ✓ |g4-review-unit02-closure2| tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts (14 tests) 107ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  16:14:08
+   Duration  2.26s (transform 1.35s, setup 9ms, collect 1.96s, tests 107ms, environment 0ms, prepare 43ms)
+
+Vitest resources: 2.91s wall, 531.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

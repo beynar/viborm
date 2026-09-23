@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-triage-scratch
+
+(node:92900) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts (227 tests | 226 skipped) 921ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column  920ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 226 skipped (227)
+   Start at  18:30:33
+   Duration  2.22s (transform 791ms, setup 8ms, collect 1.15s, tests 921ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 4.09s wall, 488.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

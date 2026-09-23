@@ -1,0 +1,54 @@
+MySQL decimal aggregates at the 65-digit expression edge > SUM widens to 66 digits and AVG decides the tie without losing one
+MySQL decimal arithmetic at ('30,20') > _avg is the exact average, quantized to the scale
+MySQL decimal arithmetic at ('35,30') > _avg is the exact average, quantized to the scale
+MySQL decimal arithmetic at ('40,2') > _avg is the exact average, quantized to the scale
+MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point values through callback and array transactions
+MySQL2 Driver > MySQL2 GeoPoint behavior > round-trips point writes and returning projections
+MySQL2 Driver > MySQL2 decimal exactness > _avg rounds exact ties to the even neighbour in both signs
+MySQL2 Driver > MySQL2 decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision
+MySQL2 Driver > MySQL2 decimal exactness > groupBy compares a widened _sum beyond the field precision
+MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > string_contains without a path matches string roots
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal
+MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution
+MySQL2 Driver > MySQL2 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association
+MySQL2 Driver > MySQL2 many-to-many write behavior > self-referential many-to-many round trip
+MySQL2 Driver > MySQL2 nested write behavior > delete and deleteMany keep child mutations parent-correlated
+MySQL2 Driver > MySQL2 nested write behavior > rejects nested default-only duplicate skipping before the parent write
+MySQL2 Driver > MySQL2 nested write behavior > update and updateMany keep child mutations parent-correlated
+MySQL2 Driver > MySQL2 polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT
+MySQL2 Driver > MySQL2 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+MySQL2 Driver > MySQL2 polymorphic collection reads > total and filtered counts, and count ordering
+MySQL2 Driver > MySQL2 polymorphic collection writes > duplicate singular createMany targets transfer once
+MySQL2 Driver > MySQL2 polymorphic relations > empty storage is optional but orphaned membership is invalid
+MySQL2 Driver > MySQL2 read-path regression behavior > empty default projections > preserves root and nested row cardinality
+MySQL2 Driver > MySQL2 read-path regression behavior > empty default projections > returns an empty public object from a live nested create
+MySQL2 Driver > MySQL2 read-path regression behavior > empty default projections > still rejects an explicit empty select
+MySQL2 Driver > MySQL2 read-path regression behavior > named inverse relations > groupBy returns mapped scalars under their public names
+MySQL2 Driver > MySQL2 relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key)
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object every and some filters
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and every filters
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and some filters
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > rolls back a combined-filter mutation when a later operation fails
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object every and none filters
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and every filters
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and none filters
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with every relation filter deletes only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with none relation filter deletes only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with some relation filter deletes only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > deleteMany with self-relation filter deletes only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-many self-relation filter affects only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-one self-relation filter affects only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with every relation filter affects only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with none relation filter affects only matching rows
+MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with some relation filter affects only matching rows
+MySQL2 Driver > rejects artificial batch-only non-returning writes before provider access
+MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates

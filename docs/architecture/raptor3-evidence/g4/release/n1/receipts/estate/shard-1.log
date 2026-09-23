@@ -1,0 +1,50 @@
+[test:all] extended-local shared-family shard 1/8 (15 suites)
+ ❯ |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts (88 tests | 11 failed) 2965ms
+ ❯ |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts (40 tests | 16 failed) 1420ms
+ ✓ |extended-local| tests/unit/migrations/decimal-descriptor-carriers.test.ts (19 tests) 908ms
+ ❯ |extended-local| tests/contracts/engine/write/compound-junction.test.ts (24 tests | 4 failed) 1277ms
+ ✓ |extended-local| tests/contracts/public-client/relation-types.test.ts (13 tests) 524ms
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-to-one.test.ts (19 tests) 978ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-owned-fk.test.ts (16 tests) 656ms
+ ✓ |extended-local| tests/contracts/engine/query/m8-race-retry.test.ts (4 tests) 587ms
+ ✓ |extended-local| tests/contracts/engine/write/fresh-create-subtree.test.ts (4 tests) 597ms
+ ✓ |extended-local| tests/contracts/drivers/error-mapping.provider.test.ts (10 tests) 571ms
+ ✓ |extended-local| tests/contracts/public-client/lateral-joins.pglite.test.ts (4 tests) 501ms
+ ✓ |extended-local| tests/contracts/engine/query/select-mode-capability-matrix.test.ts (3 tests) 613ms
+ ✓ |extended-local| tests/contracts/engine/write/vacate-then-supply-parent-held-refused.test.ts (2 tests) 635ms
+ ✓ |extended-local| tests/unit/migrations/superseded-index-ordering.test.ts (2 tests) 1074ms
+ ✓ |extended-local| tests/contracts/engine/write/sql-operand-boundary.test.ts (8 tests) 725ms
+ FAIL  |extended-local| tests/contracts/engine/write/compound-junction.test.ts > compound many-to-many (transaction) > skipDuplicates links only the exact complete target key
+ FAIL  |extended-local| tests/contracts/engine/write/compound-junction.test.ts > compound-key member uniqueness (transaction) > one independently unique key member cannot link a different tuple
+ FAIL  |extended-local| tests/contracts/engine/write/compound-junction.test.ts > compound many-to-many (atomicBatch) > skipDuplicates links only the exact complete target key
+ FAIL  |extended-local| tests/contracts/engine/write/compound-junction.test.ts > compound-key member uniqueness (atomicBatch) > one independently unique key member cannot link a different tuple
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold's statement traffic > update + include is ONE statement, and it is the CTE
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold's statement traffic > create + include is ONE statement, and it is the CTE
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold's statement traffic > batch mode folds behind its in-unit presence guard
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold answers what the read answers > a to-many include answers what the read answers, on b
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold answers what the read answers > a to-many include with its own select answers what th
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold answers what the read answers > a to-many include with a where and an orderBy answers
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold answers what the read answers > _count with an explicit relation answers what the rea
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold answers what the read answers > a select mixing scalars and a relation answers what t
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold answers what the read answers > a to-many include with a cursor on the child's own ke
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the fold answers what the read answers > a create's include folds to the read's answer
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — the two legality guards > on that same model, an ordinary column still folds
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.1 — what the fold must not change > a model nothing references folds a key rewrite that the cascad
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.2 — the nested-create tree > a root and its two children are ONE statement
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.2 — the nested-create tree > a nested createMany rides the same fold
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.2 — the nested-create tree > ONE arm taking a generated key still folds: its row order is the stat
+ FAIL  |extended-local| tests/contracts/engine/write/mutation-projection-cte-fold.test.ts > Phase 8.2 — the nested-create tree > a skip-carrying arm on another table still folds
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > SINGULAR member: exact reconnect is idempotent, a
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > createMany skipDuplicates joins a later same-key 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (transaction) > root updateMany refuses one singular member across two ow
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (atomicBatch) > root updateMany refuses one singular member across two ow
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (transaction) > nested updateMany refuses one singular member across two 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (atomicBatch) > nested updateMany refuses one singular member across two 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (transaction) > non-empty set and connectOrCreate reach the same root mem
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (atomicBatch) > non-empty set and connectOrCreate reach the same root mem
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > createMany skipDuplicates coalesces an existing s
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > createMany skipDuplicates joins a later same-key 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection `set` refuses before the clear on a splittable batch > a generated target afte
+ Test Files  3 failed | 12 passed (15)
+      Tests  31 failed | 225 passed (256)
+[test:all] extended-local shared-family shard 1/8 (15 suites): 18.80s wall, 1862.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

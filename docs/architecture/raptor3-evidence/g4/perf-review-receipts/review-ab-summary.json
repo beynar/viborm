@@ -1,0 +1,92 @@
+{
+  "scalar-find-unique/prepare": {
+    "shipped": {
+      "n": 3,
+      "cpuBefore": 12.44,
+      "cpuAfter": 12.1,
+      "wallBefore": 5.62,
+      "wallAfter": 5.4,
+      "capBefore": 0,
+      "capAfter": 0,
+      "checksumBefore": 3300000,
+      "checksumAfter": 3300000
+    },
+    "candidate": {
+      "n": 3,
+      "cpuBefore": 25.37,
+      "cpuAfter": 15.82,
+      "wallBefore": 16.04,
+      "wallAfter": 7.95,
+      "capBefore": 0,
+      "capAfter": 0,
+      "checksumBefore": 3585364,
+      "checksumAfter": 3124000
+    },
+    "ratio": {
+      "cpuBefore": 2.04,
+      "cpuAfter": 1.31,
+      "wallBefore": 2.85,
+      "wallAfter": 1.47
+    }
+  },
+  "fixed-collection-rowref-20/prepare": {
+    "shipped": {
+      "n": 3,
+      "cpuBefore": 19.74,
+      "cpuAfter": 19.57,
+      "wallBefore": 10.57,
+      "wallAfter": 10.57,
+      "capBefore": 0,
+      "capAfter": 0,
+      "checksumBefore": 6842000,
+      "checksumAfter": 6842000
+    },
+    "candidate": {
+      "n": 3,
+      "cpuBefore": 35.42,
+      "cpuAfter": 25.05,
+      "wallBefore": 20.87,
+      "wallAfter": 12.77,
+      "capBefore": 0,
+      "capAfter": 0,
+      "checksumBefore": 8279000,
+      "checksumAfter": 7436000
+    },
+    "ratio": {
+      "cpuBefore": 1.79,
+      "cpuAfter": 1.28,
+      "wallBefore": 1.97,
+      "wallAfter": 1.21
+    }
+  },
+  "nested-conditional-found/full": {
+    "shipped": {
+      "n": 3,
+      "cpuBefore": 196.91,
+      "cpuAfter": 193.45,
+      "wallBefore": 127.72,
+      "wallAfter": 125.16,
+      "capBefore": 0,
+      "capAfter": 0,
+      "checksumBefore": 3600,
+      "checksumAfter": 3600
+    },
+    "candidate": {
+      "n": 3,
+      "cpuBefore": 155.41,
+      "cpuAfter": 139.25,
+      "wallBefore": 125.01,
+      "wallAfter": 98.61,
+      "capBefore": 1,
+      "capAfter": 0,
+      "checksumBefore": 3600,
+      "checksumAfter": 3600
+    },
+    "ratio": {
+      "cpuBefore": 0.79,
+      "cpuAfter": 0.72,
+      "wallBefore": 0.98,
+      "wallAfter": 0.79
+    }
+  }
+}

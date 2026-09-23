@@ -1,0 +1,22 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-x
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 84ms
+ ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 20ms
+ ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 37ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/lone-statement-transport.test.ts (7 tests) 26ms
+ ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 18ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 17ms
+ ✓ |raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 10ms
+ ✓ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests) 17ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g3/bulk-series-contract.test.ts (6 tests) 9ms
+ ✓ |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests) 12ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/packaged-array.test.ts (3 tests) 6ms
+
+ Test Files  12 passed (12)
+      Tests  69 passed (69)
+   Start at  11:30:47
+   Duration  2.90s (transform 1.12s, setup 21ms, collect 2.40s, tests 277ms, environment 0ms, prepare 41ms)
+
+Vitest resources: 5.60s wall, 651.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

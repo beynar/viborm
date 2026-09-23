@@ -1,0 +1,71 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests | 4 failed | 4 skipped) 32ms
+   ✓ G4-02 unique discriminator > spells the discriminator with the constraint's equality and the filter half with the text contract 28ms
+   ↓ G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does
+   × G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by exact bytes 3ms
+     → SQLite3Driver is not defined
+   × G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by a collation-equal key 0ms
+     → SQLite3Driver is not defined
+   × G4-02 — the junction delete removes the link row, then the target > still removes ONLY the link row for a junction disconnect 0ms
+     → SQLite3Driver is not defined
+   × G4-02 — the junction delete removes the link row, then the target > still deletes a REFERENCE-held target with one statement 0ms
+     → SQLite3Driver is not defined
+   ↓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique
+   ↓ G4-02 native MySQL discriminator scope > pins the PRE-EXISTING junction delete divergence, and that the selector's spelling is no longer what separates the two engines
+   ↓ G4-02 native MySQL discriminator scope > pins R-D4: a collation-equal connect stores the located row's key, the shipped engine the request's literal
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by exact bytes
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by a collation-equal key
+ReferenceError: SQLite3Driver is not defined
+ ❯ scopeSqliteWorld tests/raptor3/g4/unit02/unique-discriminator.test.ts:502:18
+    500| async function scopeSqliteWorld() {
+    501|   const database = new Database(":memory:");
+    502|   const driver = new SQLite3Driver({ client: database });
+       |                  ^
+    503|   const client = createClient({ schema: scopeSchema, driver });
+    504|   const migration = await syncLiveSchema(client);
+ ❯ scopeSqliteRun tests/raptor3/g4/unit02/unique-discriminator.test.ts:519:23
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:564:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 — the junction delete removes the link row, then the target > still removes ONLY the link row for a junction disconnect
+ReferenceError: SQLite3Driver is not defined
+ ❯ scopeSqliteWorld tests/raptor3/g4/unit02/unique-discriminator.test.ts:502:18
+    500| async function scopeSqliteWorld() {
+    501|   const database = new Database(":memory:");
+    502|   const driver = new SQLite3Driver({ client: database });
+       |                  ^
+    503|   const client = createClient({ schema: scopeSchema, driver });
+    504|   const migration = await syncLiveSchema(client);
+ ❯ scopeSqliteRun tests/raptor3/g4/unit02/unique-discriminator.test.ts:519:23
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:590:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 — the junction delete removes the link row, then the target > still deletes a REFERENCE-held target with one statement
+ReferenceError: SQLite3Driver is not defined
+ ❯ scopeSqliteWorld tests/raptor3/g4/unit02/unique-discriminator.test.ts:502:18
+    500| async function scopeSqliteWorld() {
+    501|   const database = new Database(":memory:");
+    502|   const driver = new SQLite3Driver({ client: database });
+       |                  ^
+    503|   const client = createClient({ schema: scopeSchema, driver });
+    504|   const migration = await syncLiveSchema(client);
+ ❯ scopeSqliteRun tests/raptor3/g4/unit02/unique-discriminator.test.ts:519:23
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:605:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed | 4 skipped (9)
+   Start at  17:22:33
+   Duration  2.39s (transform 1.48s, setup 10ms, collect 2.17s, tests 32ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 2.91s wall, 474.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

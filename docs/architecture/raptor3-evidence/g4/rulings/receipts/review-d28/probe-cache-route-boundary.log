@@ -1,0 +1,92 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-scratch-ra
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > returns a detached stale value and replays only the inner core executor
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > returns a detached stale value and replays only the inner core executor
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > keeps true and numeric stale windows and the exact chain scheduler
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > keeps true and numeric stale windows and the exact chain scheduler
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > keeps true and numeric stale windows and the exact chain scheduler
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > keeps true and numeric stale windows and the exact chain scheduler
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > hands claim acquisition to waitUntil before the stale response settles
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > hands claim acquisition to waitUntil before the stale response settles
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > suppresses a later stale replay after the shared marker is acquired
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > suppresses a later stale replay after the shared marker is acquired
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+RA-BOUNDARY op=findMany hostile=true getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > retains combined worker and cleanup failure for protected observation
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > keeps array and statement-transform executions outside official SWR
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > keeps array and statement-transform executions outside official SWR
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+stdout | tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > keeps array and statement-transform executions outside official SWR
+RA-BOUNDARY op=findMany hostile=false getterReads=0
+
+ ❯ |layer-client| tests/contracts/public-client/ra-swr-probe.core.test.ts (7 tests | 1 failed) 26ms
+   ✓ official cache stale-while-revalidate > returns a detached stale value and replays only the inner core executor 10ms
+   ✓ official cache stale-while-revalidate > keeps true and numeric stale windows and the exact chain scheduler 1ms
+   ✓ official cache stale-while-revalidate > hands claim acquisition to waitUntil before the stale response settles 1ms
+   ✓ official cache stale-while-revalidate > suppresses a later stale replay after the shared marker is acquired 1ms
+   × official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures 7ms
+     → expected +0 to be 1 // Object.is equality
+   ✓ official cache stale-while-revalidate > retains combined worker and cleanup failure for protected observation 2ms
+   ✓ official cache stale-while-revalidate > keeps array and statement-transform executions outside official SWR 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/ra-swr-probe.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+AssertionError: expected +0 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/public-client/ra-swr-probe.core.test.ts:554:48
+    552|       expect(state.scheduled).toEqual([]);
+    553|       if (scenario === "snapshot") {
+    554|         expect(hostileJsonReadsAtCoreBoundary).toBe(1);
+       |                                                ^
+    555|         expect(hostileJsonGetterReads).toBe(hostileJsonReadsAtCoreBoun…
+    556|         publishHostileJson = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  21:15:28
+   Duration  1.50s (transform 856ms, setup 12ms, collect 1.32s, tests 26ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 3.68s wall, 461.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

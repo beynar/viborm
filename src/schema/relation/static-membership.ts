@@ -158,6 +158,11 @@ export type RelationsOf<M> =
 type ScalarsOf<M> =
   ModelStateOf<M> extends { readonly scalars: infer Scalars } ? Scalars : never;
 
+type CompoundIdsOf<M> =
+  ModelStateOf<M> extends { readonly compoundId: infer CompoundIds }
+    ? CompoundIds
+    : never;
+
 export type TargetModelOf<R> =
   TargetGetter<R> extends () => infer M ? M : never;
 
@@ -314,6 +319,82 @@ type ProvenPartner<SourceModel, FieldKey, R> =
       ? RelationsOf<TargetModelOf<R>>[Key]
       : never
     : never;
+
+// =============================================================================
+// STATIC RECURSION ELIGIBILITY
+// =============================================================================
+
+type ScalarPrimaryKeyKeys<M> = {
+  [Key in keyof ScalarsOf<M>]: ScalarsOf<M>[Key] extends Scalar
+    ? [ScalarsOf<M>[Key]["~"]["state"]["isId"]] extends [true]
+      ? Key
+      : never
+    : never;
+}[keyof ScalarsOf<M>];
+
+type HasCompleteScalarPrimaryKey<M> = IsSingleKey<ScalarPrimaryKeyKeys<M>>;
+
+type HasCompleteCompoundPrimaryKey<M> =
+  CompoundIdsOf<M> extends infer Ids
+    ? [Ids] extends [Record<PropertyKey, unknown>]
+      ? string extends keyof Ids
+        ? false
+        : IsSingleKey<keyof Ids> extends true
+          ? Ids[keyof Ids] extends {
+              readonly entries: infer Entries;
+            }
+            ? [keyof Entries] extends [never]
+              ? false
+              : string extends keyof Entries
+                ? false
+                : true
+            : false
+          : false
+      : false
+    : false;
+
+/** A complete literal primary row key, never a widened model-state promise. */
+type HasCompleteStaticPrimaryKey<M> =
+  HasCompleteCompoundPrimaryKey<M> extends true
+    ? true
+    : HasCompleteScalarPrimaryKey<M>;
+
+/**
+ * The existing membership after every additional fact recursive projection
+ * needs is statically proven. `unknown` is the fail-closed answer.
+ */
+export type StaticRecursiveMembership<SourceModel, FieldKey, R> =
+  HasCompleteStaticPrimaryKey<SourceModel> extends true
+    ? IsSameModel<TargetModelOf<R>, SourceModel> extends true
+      ? StaticResolvedMembership<
+          SourceModel,
+          FieldKey,
+          R
+        > extends infer Membership
+        ? Membership extends StaticForeignKeyMembership
+          ? Cardinality<R> extends "one"
+            ? Membership["owner"] extends "asking"
+              ? Membership
+              : Cardinality<
+                    ProvenPartner<SourceModel, FieldKey, R>
+                  > extends "one"
+                ? Membership
+                : StaticUnknownMembership
+            : Cardinality<R> extends "many"
+              ? Membership["owner"] extends "inverse"
+                ? Cardinality<
+                    ProvenPartner<SourceModel, FieldKey, R>
+                  > extends "one"
+                  ? Membership
+                  : StaticUnknownMembership
+                : StaticUnknownMembership
+              : StaticUnknownMembership
+          : Membership extends StaticJunctionMembership
+            ? Membership
+            : StaticUnknownMembership
+        : never
+      : StaticUnknownMembership
+    : StaticUnknownMembership;
 
 // =============================================================================
 // LOCAL SCALAR NULLABILITY (§8.1 `AnyNullableMember`, §8.4 nullable subset)

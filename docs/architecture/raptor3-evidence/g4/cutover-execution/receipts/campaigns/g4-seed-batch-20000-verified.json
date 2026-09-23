@@ -1,0 +1,21 @@
+{
+  "mode": "g4-seed-batch",
+  "identity": {
+    "production": "f42d6facdc5b36b420ca47b929acb629383dc47d3aa55be9c0d68fe2ae3c19d3",
+    "harness": "5ba4982a6e49ed988d30a9422e72d873821cc7f3df37e23cfb0d556f3e7550ca",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "subject": "candidate",
+  "qualifying": true,
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

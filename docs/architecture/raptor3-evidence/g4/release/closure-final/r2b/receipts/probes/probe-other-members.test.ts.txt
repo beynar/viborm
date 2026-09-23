@@ -1,0 +1,72 @@
+/** R2b diagnostic probe (TEMPORARY) — the OTHER list members on the default arm. */
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createClient } from "@client/client";
+import { instrumentation } from "@instrumentation/extension";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, it } from "vitest";
+import {
+  createMySQL2Driver,
+  dropEveryLiveTable,
+  TEST_CONNECTION_STRING,
+} from "./mysql2-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+const OUT = process.env.R2B_PROBE_OUT ?? "/private/tmp/viborm-r2ab-tmp/r2b";
+
+const row = s
+  .model({
+    id: s.string().id(),
+    bigs: s.bigInt().array().nullable(),
+    days: s.date().array().nullable(),
+    tags: s.string().array().nullable(),
+  })
+  .map("r2b_member_rows");
+
+const schema = { row };
+const DAY = new Date("2024-01-02T00:00:00.000Z");
+
+describeIf("R2b member probe", () => {
+  it("measures the container against the member for the default arm", async () => {
+    mkdirSync(OUT, { recursive: true });
+    await dropEveryLiveTable();
+    const statements: { sql: string; params: unknown[] }[] = [];
+    const client = createClient({ schema, driver: createMySQL2Driver() }).$extends(
+      instrumentation({
+        logging: {
+          query: (event) => {
+            statements.push({ sql: event.sql ?? "", params: event.params ?? [] });
+          },
+          includeSql: true,
+          includeParams: true,
+        },
+      }),
+    ) as never;
+    const c = client as unknown as Record<string, any>;
+    await syncLiveSchema(client as never);
+    await c.row.create({
+      data: { id: "r1", bigs: [10n, 20n], days: [DAY], tags: ["a"] },
+    });
+    const stored = await (client as any).$queryRawUnsafe(
+      "SELECT CAST(`bigs` AS CHAR) AS bigs, CAST(`days` AS CHAR) AS days FROM `r2b_member_rows`",
+    );
+    const out: Record<string, unknown> = { stored };
+    const probe = async (name: string, where: unknown) => {
+      statements.length = 0;
+      try {
+        const rows = await c.row.findMany({ where });
+        out[name] = { ids: rows.map((r: any) => r.id), sql: statements.map((e) => e) };
+      } catch (error) {
+        out[name] = { error: String(error), sql: statements.map((e) => e) };
+      }
+    };
+    await probe("bigHas", { bigs: { has: 20n } });
+    await probe("bigHasEvery", { bigs: { hasEvery: [10n, 20n] } });
+    await probe("dayHas", { days: { has: DAY } });
+    await probe("dayHasEvery", { days: { hasEvery: [DAY] } });
+    await probe("tagHas", { tags: { has: "a" } });
+    writeFileSync(`${OUT}/other-members.json`, `${JSON.stringify(out, null, 2)}\n`);
+    await (client as any).$disconnect();
+  });
+});

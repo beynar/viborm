@@ -1,0 +1,15 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts(48,60): error TS2554: Expected 3 arguments, but got 4.
+tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts(75,60): error TS2554: Expected 3 arguments, but got 4.
+tests/raptor3/g4/review/unit02-decisions/junction-link-bytes.review.test.ts(220,32): error TS18048: 'link.ownerId' is possibly 'undefined'.
+tests/raptor3/g4/review/unit02-decisions/junction-link-bytes.review.test.ts(222,30): error TS18048: 'link.tagId' is possibly 'undefined'.
+tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts(74,42): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+TypeScript (whole estate, native): 17.04s wall, 6133.7 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+exit=1

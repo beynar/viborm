@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 78ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 32ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 16ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 93ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 36ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 16ms
+ ✓ |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts (39 tests) 394ms
+
+ Test Files  7 passed (7)
+      Tests  95 passed (95)
+   Start at  22:08:48
+   Duration  6.17s (transform 2.93s, setup 28ms, collect 4.88s, tests 665ms, environment 0ms, prepare 80ms)
+
+Vitest resources: 8.02s wall, 646.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

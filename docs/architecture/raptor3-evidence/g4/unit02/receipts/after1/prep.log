@@ -1,0 +1,286 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 74ms
+ ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 10ms
+ ❯ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests | 1 failed) 40ms
+   × G3P-04 exact suppression and replay scopes > suppresses one root and its prerequisite while preserving suffix, count, order and reentry state 14ms
+     → Expected values to be strictly equal:
+
+2 !== 1
+
+   ✓ G3P-04 exact suppression and replay scopes > does not suppress or continue after member rollback cleanup fails 5ms
+   ✓ G3P-04 exact suppression and replay scopes > suppresses a nested junction root but keeps descendant unique and root foreign-key failures fatal 15ms
+   ✓ G3P-04 exact suppression and replay scopes > refuses borrowed and batch-only suppression before member effects 3ms
+   ✓ G3P-04 exact suppression and replay scopes > replans one exact conditional skip without repeating admission 3ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 34ms
+ ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 67ms
+ ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 19ms
+ ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 9ms
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 38ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 15ms
+ ❯ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests | 1 failed) 5ms
+   ✓ post-G3 projection preparation > prepares shape without SQL and binds aliases only while lowering 2ms
+   ✓ post-G3 projection preparation > decodes one prepared mapped decimal, nested, and variant shape freshly 1ms
+   ✓ post-G3 projection preparation > reuses one projection for segmented generated output and its continuation read 1ms
+   × post-G3 projection preparation > reuses one projection for a non-returning update and its stored-row read 1ms
+     → Expected values to be strictly equal:
+
+2 !== 1
+
+ ❯ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests | 1 failed) 5ms
+   ✓ post-G3 selector preparation > prepares mixed compound and relation facts without SQL or alias allocation 1ms
+   ✓ post-G3 selector preparation > executes admitted mapped-int FieldRef equality and comparison predicates 1ms
+   ✓ post-G3 selector preparation > refuses a cross-model FieldRef before provider execution 1ms
+   × post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes 2ms
+     → Expected values to be strictly equal:
+
+6 !== 3
+
+ ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms
+ ❯ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests | 2 failed) 6ms
+   × G2.9 result progress [commands] (sqlite-interactive) > preserves malformed-result translation with truthful progress 4ms
+     → {
+  "profile": "sqlite-interactive",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "corrupted": false,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "value": {
+    "id": 1,
+    "label": "written"
+  },
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ {
++   id: 1,
++   label: 'written'
++ }
+- undefined
+
+   × G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress 2ms
+     → {
+  "profile": "sqlite-atomic-batch",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "acknowledgedInsertBatches": 1,
+  "corrupted": false,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "value": {
+    "id": 1,
+    "label": "written"
+  },
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ {
++   id: 1,
++   label: 'written'
++ }
+- undefined
+
+ ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 16ms
+ ✓ |raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 42ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/post-prep/native-g29-member-dependency.test.ts [ tests/raptor3/post-prep/native-g29-member-dependency.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:32:1
+     30| 
+     31| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     32| assert(
+       | ^
+     33|   provider === "pg" || provider === "mysql",
+     34|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/post-prep/native-g29-member-dependency.test.ts:7:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts > G2.9 result progress [commands] (sqlite-interactive) > preserves malformed-result translation with truthful progress
+AssertionError: {
+  "profile": "sqlite-interactive",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "corrupted": false,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "value": {
+    "id": 1,
+    "label": "written"
+  },
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ {
++   id: 1,
++   label: 'written'
++ }
+- undefined
+
+
+simple
+
+ ❯ runMalformedResult tests/raptor3/post-prep/g29-result-progress.test.ts:216:12
+    214|     );
+    215| 
+    216|     assert.equal(value, undefined, diagnostic);
+       |            ^
+    217|     assert.equal(driver.corrupted, true, diagnostic);
+    218|     assert.equal(driver.insertDispatches, 1, diagnostic);
+ ❯ tests/raptor3/post-prep/g29-result-progress.test.ts:242:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts > G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress
+AssertionError: {
+  "profile": "sqlite-atomic-batch",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "acknowledgedInsertBatches": 1,
+  "corrupted": false,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "value": {
+    "id": 1,
+    "label": "written"
+  },
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ {
++   id: 1,
++   label: 'written'
++ }
+- undefined
+
+
+simple
+
+ ❯ runMalformedResult tests/raptor3/post-prep/g29-result-progress.test.ts:216:12
+    214|     );
+    215| 
+    216|     assert.equal(value, undefined, diagnostic);
+       |            ^
+    217|     assert.equal(driver.corrupted, true, diagnostic);
+    218|     assert.equal(driver.insertDispatches, 1, diagnostic);
+ ❯ tests/raptor3/post-prep/g29-result-progress.test.ts:242:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts > post-G3 projection preparation > reuses one projection for a non-returning update and its stored-row read
+AssertionError: Expected values to be strictly equal:
+
+2 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/raptor3/post-prep/projection-preparation.test.ts:353:14
+    351| 
+    352|       assert.deepEqual(updated, { score: 11 });
+    353|       assert.equal(preparation.mock.calls.length, 1);
+       |              ^
+    354|       assert.equal(selection.mock.calls.length, 1);
+    355|       const preparedResult = preparation.mock.results[0];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts > post-G3 selector preparation > reuses one upsert base selector across both prepared condition probes
+AssertionError: Expected values to be strictly equal:
+
+6 !== 3
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 3[39m
+[31m+ 6[39m
+
+ ❯ tests/raptor3/post-prep/selector-preparation.test.ts:269:14
+    267|       );
+    268| 
+    269|       assert.equal(preparation.mock.calls.length, 3);
+       |              ^
+    270|       assert.deepEqual(preparation.mock.calls[0]?.[1], { email: "wante…
+    271|       assert.deepEqual(preparation.mock.calls[1]?.[1], {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |raptor3| tests/raptor3/prep/suppression-replay.test.ts > G3P-04 exact suppression and replay scopes > suppresses one root and its prerequisite while preserving suffix, count, order and reentry state
+AssertionError: Expected values to be strictly equal:
+
+2 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/raptor3/prep/suppression-replay.test.ts:235:14
+    233| 
+    234|       assert.equal(admissions, 3, "each input row must be admitted onc…
+    235|       assert.equal(world.driver.transactionCalls, 1);
+       |              ^
+    236|       assert.equal(
+    237|         world.driver.controlStatements.filter((statement) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  5 failed | 12 passed (17)
+      Tests  5 failed | 104 passed (109)
+   Start at  02:36:14
+   Duration  4.86s (transform 2.12s, setup 24ms, collect 2.67s, tests 383ms, environment 0ms, prepare 56ms)
+
+Vitest resources: 7.08s wall, 784.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

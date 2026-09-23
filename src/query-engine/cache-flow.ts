@@ -24,7 +24,7 @@ import { readValidationFailureCause } from "@validation/parse-failure";
 import { isError } from "../errors/diagnostic-safety";
 import type { CacheResultCodec } from "./result/cache-result-codec";
 import type { PrepareOptions } from "./types";
-import { isWriteOperation } from "./write-engine/routing";
+import { isWriteOperation } from "./routed-operations";
 
 const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "findFirst",

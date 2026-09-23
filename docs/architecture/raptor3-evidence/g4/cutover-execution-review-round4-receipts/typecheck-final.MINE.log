@@ -1,0 +1,16 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts(88,9): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ name: string; }[]>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts(110,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ name: string; }[]>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts(124,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ name: string; }[]>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts(133,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<BatchPayload>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts(140,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<BatchPayload>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts(151,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ name: string; }[]>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts(157,7): error TS2741: Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ name: string; }[]>' but required in type 'Promise<unknown>'.
+TypeScript (whole estate, native): 5.37s wall, 5048.6 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

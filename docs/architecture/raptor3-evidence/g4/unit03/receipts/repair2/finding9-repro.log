@@ -1,0 +1,92 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-region-followup.review.test.ts (3 tests | 2 failed) 38ms
+   ✓ G4-03 follow-up — what else the named region does > a READ inside $transaction(callback) opens no region on either route 24ms
+   × G4-03 follow-up — what else the named region does > a FAILING statement-atomic write inside $transaction(callback) keeps the same error identity and the same caller-transaction outcome 10ms
+     → candidate={"afterWrite":"ok","inner":"UniqueConstraintError:Unique constraint violation","stored":[{"email":"taken@example.test"},{"email":"kept@example.test"},{"email":"after@example.test"}]} shipped={"afterWrite":"UniqueConstraintError:Unique constraint violation","inner":"UniqueConstraintError:Unique constraint violation","outer":"UniqueConstraintError:Unique constraint violation","stored":[{"email":"taken@example.test"}]}
++ actual - expected
+
++ 'UniqueConstraintError:Unique constraint violation|ok|undefined'
+- 'UniqueConstraintError:Unique constraint violation|UniqueConstraintError:Unique constraint violation|UniqueConstraintError:Unique constraint violation'
+
+   × G4-03 follow-up — what else the named region does > a statement-atomic write inside a NESTED transaction commits identically on both routes 4ms
+     → candidate=["transaction:$transaction(callback)","savepoint:$transaction(callback)","operation:create","savepoint:create","statement:create","statement:create"] shipped=["transaction:$transaction(callback)","savepoint:$transaction(callback)","operation:create","statement:create"]
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'savepoint:$transaction(callback)',
+    'operation:create',
++   'savepoint:create',
+    'statement:create',
++   'statement:create'
+  ]
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit03| tests/raptor3/g4/review/unit03/route-region-followup.review.test.ts > G4-03 follow-up — what else the named region does > a FAILING statement-atomic write inside $transaction(callback) keeps the same error identity and the same caller-transaction outcome
+AssertionError: candidate={"afterWrite":"ok","inner":"UniqueConstraintError:Unique constraint violation","stored":[{"email":"taken@example.test"},{"email":"kept@example.test"},{"email":"after@example.test"}]} shipped={"afterWrite":"UniqueConstraintError:Unique constraint violation","inner":"UniqueConstraintError:Unique constraint violation","outer":"UniqueConstraintError:Unique constraint violation","stored":[{"email":"taken@example.test"}]}
++ actual - expected
+
++ 'UniqueConstraintError:Unique constraint violation|ok|undefined'
+- 'UniqueConstraintError:Unique constraint violation|UniqueConstraintError:Unique constraint violation|UniqueConstraintError:Unique constraint violation'
+
+
+Expected: [32m"UniqueConstraintError:Unique constraint violation|[7mUniqueConstraintError:Unique constraint violation|UniqueConstraintError:Unique constraint violation[27m"[39m
+Received: [31m"UniqueConstraintError:Unique constraint violation|[7mok|undefined[27m"[39m
+
+ ❯ tests/raptor3/g4/review/unit03/route-region-followup.review.test.ts:151:12
+    149|     });
+    150| 
+    151|     assert.equal(
+       |            ^
+    152|       `${observations.candidate.inner}|${observations.candidate.afterW…
+    153|       `${observations.shipped.inner}|${observations.shipped.afterWrite…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-unit03| tests/raptor3/g4/review/unit03/route-region-followup.review.test.ts > G4-03 follow-up — what else the named region does > a statement-atomic write inside a NESTED transaction commits identically on both routes
+AssertionError: candidate=["transaction:$transaction(callback)","savepoint:$transaction(callback)","operation:create","savepoint:create","statement:create","statement:create"] shipped=["transaction:$transaction(callback)","savepoint:$transaction(callback)","operation:create","statement:create"]
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'savepoint:$transaction(callback)',
+    'operation:create',
++   'savepoint:create',
+    'statement:create',
++   'statement:create'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "transaction:$transaction(callback)",[22m
+[2m    "savepoint:$transaction(callback)",[22m
+[2m    "operation:create",[22m
+[31m+   "savepoint:create",[39m
+[31m+   "statement:create",[39m
+[2m    "statement:create",[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/review/unit03/route-region-followup.review.test.ts:189:12
+    187|     ]);
+    188|     assert.deepEqual(observations.candidate.stored, observations.shipp…
+    189|     assert.deepEqual(
+       |            ^
+    190|       observations.candidate.units,
+    191|       observations.shipped.units,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  01:21:51
+   Duration  2.02s (transform 1.25s, setup 10ms, collect 1.85s, tests 38ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.56s wall, 446.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

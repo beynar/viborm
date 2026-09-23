@@ -1,0 +1,26 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 70ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 69ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 13ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 45ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 29ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 24ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 22ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 26ms
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 72ms
+ ✓ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 82ms
+ ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 13ms
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 49ms
+ ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 36ms
+ ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 23ms
+ ✓ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 25ms
+ ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 28ms
+
+ Test Files  16 passed (16)
+      Tests  124 passed (124)
+   Start at  07:55:25
+   Duration  4.20s (transform 1.67s, setup 22ms, collect 3.16s, tests 626ms, environment 0ms, prepare 49ms)
+
+Vitest resources: 5.96s wall, 763.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

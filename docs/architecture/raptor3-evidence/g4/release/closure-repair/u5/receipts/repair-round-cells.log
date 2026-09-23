@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sv
+
+ ✓ |layer-query-engine| tests/contracts/architecture/core-taxonomy-census.core.test.ts (4 tests) 113ms
+ ✓ |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts (5 tests) 67ms
+ ✓ |layer-query-engine| tests/contracts/architecture/gate-inventory-census.core.test.ts (2 tests) 126ms
+
+ Test Files  3 passed (3)
+      Tests  11 passed (11)
+   Start at  17:03:51
+   Duration  512ms (transform 48ms, setup 13ms, collect 49ms, tests 306ms, environment 0ms, prepare 39ms)
+
+Vitest resources: 2.27s wall, 355.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

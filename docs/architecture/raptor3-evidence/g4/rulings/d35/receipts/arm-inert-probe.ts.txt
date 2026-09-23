@@ -1,0 +1,108 @@
+/**
+ * D-35 PROBE — not a pin. Measures, on a live better-sqlite3 transport, what
+ * the SQLite drivers' driver-level `parseResult` arm is actually asked and what
+ * `normalizeCountResult` decides about it. Its receipt is
+ * `g4/rulings/d35/receipts/arm-inert-before.log`; the file is removed once the
+ * receipt is taken.
+ */
+
+import assert from "node:assert/strict";
+import { normalizeCountResult } from "@adapters/shared/result-parsing";
+import { createClient } from "@client/client";
+import type { DriverResultParser } from "@drivers";
+import { sqliteResultParser } from "@drivers/shared";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import Database from "better-sqlite3";
+import { describe, it } from "vitest";
+import { RecordingSQLiteDriver } from "../unit02/world";
+
+const widget = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    rank: s.int(),
+    active: s.boolean(),
+  })
+  .map("d35_widgets");
+
+const schema = { widget };
+
+interface Seen {
+  readonly operation: string;
+  readonly raw: string;
+  readonly normalized: string;
+}
+
+/**
+ * The SHIPPED parser, with a recorder above it: the arm still decides, and the
+ * probe records the raw it decided about and what it decided.
+ */
+class ProbeDriver extends RecordingSQLiteDriver {
+  readonly seen: Seen[] = [];
+
+  override readonly result: DriverResultParser = {
+    parseResult: (raw, operation, next) => {
+      this.seen.push({
+        operation,
+        raw: JSON.stringify(raw, (_key, value) =>
+          typeof value === "bigint" ? `${value}n` : value
+        ),
+        normalized: String(normalizeCountResult(raw)),
+      });
+      const shipped = sqliteResultParser.parseResult;
+      return shipped
+        ? shipped(raw, operation, next)
+        : next(raw as never, operation);
+    },
+    parseField: sqliteResultParser.parseField,
+  };
+}
+
+describe("D-35 probe — the driver-level count/exists arm on a live transport", () => {
+  it("records every raw the arm decides about", async () => {
+    const database = new Database(":memory:");
+    const driver = new ProbeDriver({ client: database });
+    const client = createClient({ schema, driver });
+    const migration = await syncLiveSchema(client);
+    assert.equal(migration.applied, true);
+    await client.widget.create({
+      data: { id: 1, name: "first", rank: 3, active: true },
+    });
+    await client.widget.create({
+      data: { id: 2, name: "second", rank: 5, active: false },
+    });
+    driver.seen.length = 0;
+
+    const answers = {
+      count: await client.widget.count({}),
+      filteredCount: await client.widget.count({ where: { rank: 5 } }),
+      countAll: await client.widget.count({ select: { _all: true } }),
+      existTrue: await client.widget.exist({ where: { rank: 5 } }),
+      existFalse: await client.widget.exist({ where: { rank: 99 } }),
+      findMany: (await client.widget.findMany({ select: { id: true } })).length,
+    };
+
+    for (const record of driver.seen) {
+      process.stdout.write(
+        `D35PROBE ${record.operation} raw=${record.raw} normalizeCountResult=${record.normalized}\n`
+      );
+    }
+    process.stdout.write(`D35PROBE answers=${JSON.stringify(answers)}\n`);
+
+    const decided = driver.seen.filter(
+      (record) => record.operation === "count" || record.operation === "exist"
+    );
+    assert.ok(decided.length > 0, "the arm was asked about a count/exist");
+    for (const record of decided) {
+      assert.equal(
+        record.normalized,
+        "undefined",
+        `the arm normalised ${record.raw}`
+      );
+    }
+
+    await client.$disconnect();
+    database.close();
+  });
+});

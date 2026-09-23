@@ -1,0 +1,11 @@
+72c72,75
+< import type { ClientOperationRouteFactory } from "@query-engine/raptor3/route/client-route";
+---
+> import {
+>   type ClientOperationRouteFactory,
+>   createCandidateRoute,
+> } from "@query-engine/raptor3/route/client-route";
+1209c1212
+<     route?: ClientOperationRouteFactory
+---
+>     route: ClientOperationRouteFactory | undefined = createCandidateRoute

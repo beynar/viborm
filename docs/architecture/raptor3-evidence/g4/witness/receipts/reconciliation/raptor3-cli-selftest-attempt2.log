@@ -1,0 +1,55 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-RYN1p3
+✔ the same replay command accepts saved fixed, cut/fault and clock corpora (19272.422708ms)
+✔ the command refuses filtering, missing required cases and profiles (12506.611708ms)
+✔ saved evidence with a stale identity, empty corpus or malformed wire fails (21221.697125ms)
+✔ the outer watchdog terminates an operation that actually reached its wait (121520.437167ms)
+✔ the outer watchdog terminates a public call awaiting a queued provider reply (13023.821ms)
+✔ completed G2 progress survives watchdog termination without becoming qualifying evidence (30845.447042ms)
+✔ the command refuses a filtered G4 mode and an off-boundary G4 child (306.836375ms)
+✔ the G4 write lanes own their own range and take no subject (483.06425ms)
+✔ a G4 campaign subject comes from the command, never from the shell (14168.268875ms)
+✔ test:all cannot replace the required lane through inherited specimen variables (16700.87775ms)
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (37.576791ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 256721.96225
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:78:1
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (37.576791ms)
+  AssertionError [ERR_ASSERTION]: Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+      harness: 'e69ecc30a2d48d505010df359cd00b62b091cd5e6c53cafcfa06410124066961',
+  +   production: '9bca8f018ce6caeed77296c491278821b42b54b833e2a81ffca05380da52c22b',
+  -   production: '6a7844b2ae3add84978f9737e24f8917c371002471cd7ea23c9590f91601c28e',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+        sqliteDriver: '12.6.0',
+  
+      at assertRaptor3Identity (file:///Users/arnaud/code/viborm/scripts/raptor3-manifest.mjs:933:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:92:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.runHook (node:internal/test_runner/test:1289:20)
+      at after (node:internal/test_runner/test:1342:20)
+      at Test.run (node:internal/test_runner/test:1428:13) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+Node resources: 257.16s wall, 203.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "source": "g4-write-seeds-75000.json",
+  "file": "g4-write-seeds-75000.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 61371797,
+  "originalSha256": "8b8634d0423a77663141cc45a84ffce32ae88e8a15ea4d21c4cd46564355480a",
+  "archiveBytes": 1177151,
+  "archiveSha256": "cbc1268503740abbf814758420e4e1754f4cd87d25cdc5a1b8d6f90bb88c0474",
+  "identity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
+  },
+  "role": "replay input",
+  "restoreWorkingDirectory": "the directory containing this descriptor",
+  "restoreCommand": "g4_replay_restore_dir=$(mktemp -d); gzip -dc \"g4-write-seeds-75000.json.gz\" > \"$g4_replay_restore_dir/g4-write-seeds-75000.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm\"; node scripts/run-raptor3.mjs replay \"$g4_replay_restore_dir/g4-write-seeds-75000.json\""
+}

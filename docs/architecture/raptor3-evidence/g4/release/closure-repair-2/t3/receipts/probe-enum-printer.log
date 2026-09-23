@@ -1,0 +1,14 @@
+COLUMN_TYPE = "enum('p1a\\\\b','p2a\\nb','p3a\\rb','p4a\\0b','p5a\u001ab','p6a\tb','p7a\bb','say \"hi\"','it''s','100%','café ☕','e?nd')"
+codes = 65 6e 75 6d 28 27 70 31 61 5c 5c 62 27 2c 27 70 32 61 5c 6e 62 27 2c 27 70 33 61 5c 72 62 27 2c 27 70 34 61 5c 30 62 27 2c 27 70 35 61 1a 62 27 2c 27 70 36 61 09 62 27 2c 27 70 37 61 08 62 27 2c 27 73 61 79 20 22 68 69 22 27 2c 27 69 74 27 27 73 27 2c 27 31 30 30 25 27 2c 27 63 61 66 e9 20 2615 27 2c 27 65 3f 6e 64 27 29
+  backslash: declared "p1a\\b" stored "p1a\\b" OK
+  newline: declared "p2a\nb" stored "p2a\nb" OK
+  carriage: declared "p3a\rb" stored "p3a\rb" OK
+  nul: declared "p4a\u0000b" stored "p4a\u0000b" OK
+  ctrlz: declared "p5a\u001ab" stored "p5a\u001ab" OK
+  tab: declared "p6a\tb" stored "p6a\tb" OK
+  backspace: declared "p7a\bb" stored "p7a\bb" OK
+  quote: declared "say \"hi\"" stored "say \"hi\"" OK
+  apostrophe: declared "it's" stored "it's" OK
+  percent: declared "100%" stored "100%" OK
+  unicode: declared "café ☕" stored "café ☕" OK
+  astral: declared "e😀nd" stored "e😀nd" OK

@@ -1,0 +1,22 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc04
+
+ ❯ |extended-local| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests | 1 failed) 27ms
+   × FC-04 — the route's cached-result vocabulary boundary > every cacheable verb publishes a codec that round-trips its own result 22ms
+     → The Raptor 3 route cannot encode a cached result for 'exist' on model 'author': the verb publishes no prepared read.
+   ✓ FC-04 — the route's cached-result vocabulary boundary > both …OrThrow names are served by the read their base verb admits to 3ms
+   ✓ FC-04 — the route's cached-result vocabulary boundary > a verb the cache layer never offers reaches the retained boundary, before anything runs 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts > FC-04 — the route's cached-result vocabulary boundary > every cacheable verb publishes a codec that round-trips its own result
+UnsupportedOperationError: The Raptor 3 route cannot encode a cached result for 'exist' on model 'author': the verb publishes no prepared read.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  23:07:20
+   Duration  1.63s (transform 840ms, setup 9ms, collect 1.25s, tests 27ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.62s wall, 531.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,15 @@
+four phase-2 files: files=4 bytes=263306 physical=7418 tokenLines=6745
+schema.ts: files=1 bytes=19305 physical=526 tokenLines=410
+selection+relation-body: files=2 bytes=35911 physical=1072 tokenLines=1020
+client-route.ts: files=1 bytes=14880 physical=378 tokenLines=247
+four adapters: files=4 bytes=140389 physical=3423 tokenLines=1635
+candidate core (12): files=12 bytes=360009 physical=10275 tokenLines=9398
+raptor3 tree (15): files=15 bytes=395621 physical=11289 tokenLines=10271
+src/query-engine/raptor3/shared/schema.ts: bytes=19305 physical=526 tokenLines=410
+src/query-engine/raptor3/shared/operation-context.ts: bytes=70094 physical=1954 tokenLines=1781
+src/query-engine/raptor3/commands/selection.ts: bytes=6505 physical=201 tokenLines=162
+src/query-engine/raptor3/commands/relation-body.ts: bytes=29406 physical=871 tokenLines=858
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/decisions-base/src/query-engine/raptor3/shared/schema.ts: bytes=17464 physical=485 tokenLines=387
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/decisions-base/src/query-engine/raptor3/shared/operation-context.ts: bytes=69074 physical=1938 tokenLines=1774
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/decisions-base/src/query-engine/raptor3/commands/selection.ts: bytes=6035 physical=186 tokenLines=154
+/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/decisions-base/src/query-engine/raptor3/commands/relation-body.ts: bytes=28574 physical=859 tokenLines=855

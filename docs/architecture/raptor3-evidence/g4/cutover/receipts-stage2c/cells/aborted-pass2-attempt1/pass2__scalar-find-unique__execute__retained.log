@@ -1,0 +1,15 @@
+Building baseline checkout...
+file:///private/tmp/viborm-g4-perf-baseline/benchmarks/operation-pipeline-compare.mjs:290
+    throw new Error(`${checkout.label} package build failed:\n${stderr}`);
+          ^
+
+Error: baseline package build failed:
+Node command exceeded its 300 second wall limit.
+
+    at buildCheckout (file:///private/tmp/viborm-g4-perf-baseline/benchmarks/operation-pipeline-compare.mjs:290:11)
+    at file:///private/tmp/viborm-g4-perf-baseline/benchmarks/operation-pipeline-compare.mjs:1231:3
+    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    at async node:internal/modules/esm/loader:647:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.21.0

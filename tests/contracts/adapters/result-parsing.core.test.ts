@@ -1,11 +1,26 @@
 /**
  * Unit tests for shared result parsing utilities
+ *
+ * `convertBigIntToNumber` and `normalizeCountResult` were deleted with the two
+ * adapter legs that called them (Arnaud's D-40), so the facts their cells
+ * pinned are pinned where those facts actually live, and the cells moved with
+ * them rather than being dropped:
+ *
+ * - "which column carries a count", and the refusal of every other column, is
+ *   the decoder's — it asks for the alias `_count` and reads `_count` back:
+ *   `tests/contracts/engine/query/parity-decoding.core.test.ts`, "the adapter
+ *   result seam decides nothing (D-40)", which answers over the raw measured
+ *   live on both providers and fails closed on the two keys the helper used to
+ *   recognise and produce;
+ * - "a bigint becomes a number", with the safe-range refusal the helper did not
+ *   have, is the `int` codec's, pinned by the same two cells;
+ * - the adapters' own `parseResult` surface, now the contract's pass-through on
+ *   all three dialects, is pinned once at the adapter seam:
+ *   `tests/contracts/adapters/internals-and-geo.core.test.ts`.
  */
 
 import {
   COUNT_RESULT_KEY,
-  convertBigIntToNumber,
-  normalizeCountResult,
   parseIntegerBoolean,
   tryParseJsonString,
 } from "@src/adapters/shared/result-parsing";
@@ -82,78 +97,6 @@ describe("parseIntegerBoolean", () => {
     expect(parseIntegerBoolean(2)).toBeUndefined();
     expect(parseIntegerBoolean(-1)).toBeUndefined();
     expect(parseIntegerBoolean(2n)).toBeUndefined();
-  });
-});
-
-describe("convertBigIntToNumber", () => {
-  test("converts bigint to number", () => {
-    expect(convertBigIntToNumber(5n)).toBe(5);
-    expect(convertBigIntToNumber(0n)).toBe(0);
-    expect(convertBigIntToNumber(BigInt(100))).toBe(100);
-  });
-
-  test("returns undefined for non-bigint values", () => {
-    expect(convertBigIntToNumber(5)).toBeUndefined();
-    expect(convertBigIntToNumber("5")).toBeUndefined();
-    expect(convertBigIntToNumber(null)).toBeUndefined();
-  });
-});
-
-describe("normalizeCountResult", () => {
-  test("normalizes COUNT(*) column name (uppercase)", () => {
-    const result = normalizeCountResult([{ "COUNT(*)": 5 }]);
-    expect(result).toEqual([{ [COUNT_RESULT_KEY]: 5 }]);
-  });
-
-  test("preserves the private count carrier", () => {
-    const result = normalizeCountResult([{ [COUNT_RESULT_KEY]: 10 }]);
-    expect(result).toEqual([{ [COUNT_RESULT_KEY]: 10 }]);
-  });
-
-  test("normalizes count(*) column name (lowercase with parens)", () => {
-    const result = normalizeCountResult([{ "count(*)": 3 }]);
-    expect(result).toEqual([{ [COUNT_RESULT_KEY]: 3 }]);
-  });
-
-  test("handles COUNT(DISTINCT x) variants", () => {
-    const result = normalizeCountResult([{ "COUNT(DISTINCT id)": 7 }]);
-    expect(result).toEqual([{ [COUNT_RESULT_KEY]: 7 }]);
-  });
-
-  test("handles single object (non-array)", () => {
-    const result = normalizeCountResult({ "COUNT(*)": 2 });
-    expect(result).toEqual([{ [COUNT_RESULT_KEY]: 2 }]);
-  });
-
-  test("returns undefined for non-count results", () => {
-    expect(normalizeCountResult([{ name: "Alice" }])).toBeUndefined();
-    expect(normalizeCountResult([{ count: 10 }])).toBeUndefined();
-    expect(normalizeCountResult([{ id: 1, name: "Bob" }])).toBeUndefined();
-    expect(
-      normalizeCountResult([{ "COUNT(*)": 2, unexpected: true }])
-    ).toBeUndefined();
-  });
-
-  test("returns undefined for empty array", () => {
-    expect(normalizeCountResult([])).toBeUndefined();
-  });
-
-  test("rejects single-row arrays without a record carrier", () => {
-    expect(normalizeCountResult([null])).toBeUndefined();
-    expect(normalizeCountResult([5])).toBeUndefined();
-    expect(normalizeCountResult([{}])).toBeUndefined();
-  });
-
-  test("returns undefined for non-object values", () => {
-    expect(normalizeCountResult(null)).toBeUndefined();
-    expect(normalizeCountResult(undefined)).toBeUndefined();
-    expect(normalizeCountResult(5)).toBeUndefined();
-    expect(normalizeCountResult("count")).toBeUndefined();
-  });
-
-  test("preserves bigint values", () => {
-    const result = normalizeCountResult([{ "COUNT(*)": 5n }]);
-    expect(result).toEqual([{ [COUNT_RESULT_KEY]: 5n }]);
   });
 });
 

@@ -1,0 +1,32 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ❯ |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts (5 tests | 1 failed) 69ms
+   ✓ contract and provider matrix > keeps one stable ContractDefinition ID per behavior registration 20ms
+   ✓ contract and provider matrix > assigns every contract to every provider exactly once 10ms
+   ✓ contract and provider matrix > matches matrix run decisions to provider registrations 11ms
+   ✓ contract and provider matrix > gives every layer one runtime core owner and one type core 14ms
+   × contract and provider matrix > inventories every executable test by owner and boundary 13ms
+     → tests/raptor3/candidate-handoff.test.ts: expected undefined to be defined
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts > contract and provider matrix > inventories every executable test by owner and boundary
+AssertionError: tests/raptor3/candidate-handoff.test.ts: expected undefined to be defined
+ ❯ tests/contracts/architecture/contract-matrix.core.test.ts:205:31
+    203|     for (const file of testFiles) {
+    204|       const inventory = classifyTestFile(file);
+    205|       expect(inventory, file).toBeDefined();
+       |                               ^
+    206|       expect(inventory?.file).toBe(file);
+    207|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  23:58:18
+   Duration  245ms (transform 20ms, setup 9ms, collect 25ms, tests 69ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 2.28s wall, 301.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

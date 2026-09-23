@@ -1,0 +1,160 @@
+src/query-engine/raptor3/commands/commands.ts:229:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    227 │   private nextMutation = 0;
+    228 │   readonly execution: CommandExecution;
+  > 229 │   constructor(readonly context: OperationContext) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    230 │     this.execution = new CommandExecution(this);
+    231 │   }
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/commands.ts:935:7 lint/style/noParameterAssign ━━━━━━━━━━━━━━━━━━━
+
+  × Assigning a function parameter is confusing.
+  
+    933 │       }
+    934 │       current = parent;
+  > 935 │       branch = parentBranch;
+        │       ^^^^^^
+    936 │     }
+    937 │     return false;
+  
+  i The parameter is declared here:
+  
+    908 │     target: CommandOccurrence,
+    909 │     visit: (read: ReadVisit) => "stop" | void,
+  > 910 │     branch: BranchPath | undefined
+        │     ^^^^^^
+    911 │   ): boolean {
+    912 │     let current = target;
+  
+  i Developers usually expect function parameters to be readonly. To align with this expectation, use a local variable instead.
+  
+
+src/query-engine/raptor3/commands/commands.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       7    7 │   import type { AnyModel } from "@schema/model";
+       8    8 │   import type { OperationContext } from "../shared/operation-context";
+       9      │ - import·{
+      10      │ - ··returningSafeProjection,
+      11      │ - ··type·SelectorFacts,
+      12      │ - }·from·"../shared/query";
+            9 │ + import·{·returningSafeProjection,·type·SelectorFacts·}·from·"../shared/query";
+      13   10 │   import { type Arguments, entries, type Input, record } from "../shared/schema";
+      14   11 │   import { type Membership, physicalField } from "../shared/storage";
+    ········· │ 
+    1042 1039 │       const selector = ctx.queries.prepareSelector(model, args.where);
+    1043 1040 │       return () =>
+    1044      │ - ······ctx.updateMany(model,·selector,·values,·undefined,·projection,·()·=>
+    1045      │ - ········new·NotFoundError(model["~"].names.ts!,·"update")
+         1041 │ + ······ctx.updateMany(
+         1042 │ + ········model,
+         1043 │ + ········selector,
+         1044 │ + ········values,
+         1045 │ + ········undefined,
+         1046 │ + ········projection,
+         1047 │ + ········()·=>·new·NotFoundError(model["~"].names.ts!,·"update")
+    1046 1048 │         );
+    1047 1049 │     }
+    ········· │ 
+    1128 1130 │         // construction's own answer, enforced at `OperationContext.dispatch`.
+    1129 1131 │         return {
+    1130      │ - ········single:·values.length·===·0·||·(!recoverableSkip·&&·(!projection·||·returning)),
+         1132 │ + ········single:
+         1133 │ + ··········values.length·===·0·||
+         1134 │ + ··········(!recoverableSkip·&&·(!projection·||·returning)),
+    1131 1135 │           run: () =>
+    1132 1136 │             ctx.createMany(model, values, projection, args.skipDuplicates),
+    ········· │ 
+    1136 1140 │         const projection = bulkProjection(ctx, model, args);
+    1137 1141 │         if (args.limit === 0)
+    1138      │ - ········return·{·single:·true,·run:·async·()·=>·ctx.emptyBulkResult(projection)·};
+         1142 │ + ········return·{
+         1143 │ + ··········single:·true,
+         1144 │ + ··········run:·async·()·=>·ctx.emptyBulkResult(projection),
+         1145 │ + ········};
+    1139 1146 │         const selector = ctx.queries.prepareSelector(model, args.where);
+    1140 1147 │         return {
+    1141      │ - ········single:·!projection·||·(returning·&&·returningSafeProjection(projection)),
+         1148 │ + ········single:
+         1149 │ + ··········!projection·||·(returning·&&·returningSafeProjection(projection)),
+    1142 1150 │           run: () => ctx.deleteMany(model, selector, args.limit, projection),
+    1143 1151 │         };
+    ········· │ 
+    1153 1161 │           single: returning && returningSafeProjection(projection),
+    1154 1162 │           run: () =>
+    1155      │ - ··········ctx.deleteMany(model,·selector,·undefined,·projection,·()·=>
+    1156      │ - ············new·NotFoundError(model["~"].names.ts!,·"delete")
+         1163 │ + ··········ctx.deleteMany(
+         1164 │ + ············model,
+         1165 │ + ············selector,
+         1166 │ + ············undefined,
+         1167 │ + ············projection,
+         1168 │ + ············()·=>·new·NotFoundError(model["~"].names.ts!,·"delete")
+    1157 1169 │             ),
+    1158 1170 │         };
+  
+
+src/query-engine/raptor3/shared/schema.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { AnyDriver } from "@drivers";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { QueryEngineError } from "@errors";
+    3 │ import { hydrateSchemaNames, type Schema } from "@schema/hydration";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      7   7 │     type ClearableMembership,
+      8   8 │   } from "@schema/relation/clearability";
+      9     │ - import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     10     │ - import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+          9 │ + import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+         10 │ + import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     11  11 │   import { createResolvedSchemaRegistry } from "@validation/builder";
+     12  12 │   import { isRecord } from "@validation/value-guards";
+  
+
+src/query-engine/raptor3/shared/schema.ts:134:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    132 │     ClearableMembership
+    133 │   >();
+  > 134 │   constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^
+    135 │     if (resolved) {
+    136 │       this.index = resolved.index;
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/schema.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    132 132 │       ClearableMembership
+    133 133 │     >();
+    134     │ - ··constructor(readonly·schema:·Schema,·resolved?:·ResolvedSchemaViews)·{
+        134 │ + ··constructor(
+        135 │ + ····readonly·schema:·Schema,
+        136 │ + ····resolved?:·ResolvedSchemaViews
+        137 │ + ··)·{
+    135 138 │       if (resolved) {
+    136 139 │         this.index = resolved.index;
+  
+
+Checked 4 files in 28ms. No fixes applied.
+Found 6 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

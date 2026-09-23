@@ -1,0 +1,12 @@
+# restored tree, run immediately after the falsified run above left its foreign tables standing
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (8 tests) 840ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  11:26:22
+   Duration  2.28s (transform 899ms, setup 9ms, collect 1.30s, tests 840ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.04s wall, 563.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

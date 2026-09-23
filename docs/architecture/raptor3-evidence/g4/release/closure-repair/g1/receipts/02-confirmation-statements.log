@@ -1,0 +1,6 @@
+STMT SELECT "q0"."id" AS "id", "q0"."email" AS "email", "q0"."count" AS "count" FROM "post_g3_selector_upserts" AS "q0" WHERE "q0"."email" = ? ORDER BY "q0"."id" ASC LIMIT ?
+STMT SELECT "q0"."id" AS "id", "q0"."email" AS "email", "q0"."count" AS "count" FROM "post_g3_selector_upserts" AS "q0" WHERE ("q0"."email" = ? AND "q0"."count" = ?) ORDER BY "q0"."id" ASC LIMIT ?
+STMT SELECT "q0"."id" AS "id", "q0"."email" AS "email", "q0"."count" AS "count" FROM "post_g3_selector_upserts" AS "q0" WHERE ("q0"."email" = ? AND "q0"."count" >= ?) ORDER BY "q0"."id" ASC LIMIT ?
+STMT SELECT "q0"."id" AS "id", "q0"."email" AS "email", "q0"."count" AS "count" FROM "post_g3_selector_upserts" AS "q0" WHERE ((("q0"."email" = ? AND "q0"."count" = ?) AND ("q0"."email" = ? AND "q0"."count" >= ?)) AND "q0"."id" = ?) ORDER BY "q0"."id" ASC LIMIT ?
+STMT UPDATE "post_g3_selector_upserts" SET "count" = ? WHERE "id" = ? RETURNING "id" AS "id"
+STMT SELECT "q0"."id" AS "id", "q0"."email" AS "email", "q0"."count" AS "count" FROM "post_g3_selector_upserts" AS "q0" WHERE "q0"."id" = ?

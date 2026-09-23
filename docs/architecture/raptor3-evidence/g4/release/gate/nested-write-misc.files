@@ -1,0 +1,7 @@
+tests/contracts/engine/write/supplier-continuation.test.ts
+tests/contracts/engine/write/nested-semantic-stability.test.ts
+tests/contracts/engine/write/nested-error-attribution.test.ts
+tests/contracts/engine/write/parent-held-compound-edge.test.ts
+tests/contracts/engine/write/parent-held-lookup.test.ts
+tests/contracts/engine/write/inverse-to-one-update-depth.test.ts
+tests/contracts/engine/write/shared-pk-update-root.test.ts

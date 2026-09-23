@@ -1,0 +1,23 @@
+{
+  "identity": {
+    "production": "5bc430bba17b3a2a765ad51ebd290a47199a6c7b41f0da113ffbe07988bc3edc",
+    "harness": "88289cbaa424f4034ed565273b01a3d566b1d4776ec9068431b984b090b70cfd",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "recipe": {
+    "seed": 1000,
+    "mode": "coc-found",
+    "actors": 2,
+    "fault": "none",
+    "multiFault": false
+  },
+  "profile": "scripted-returning-weak",
+  "phase": "commands execute",
+  "failure": "AssertionError [ERR_ASSERTION]: g3-transport:reply-consumption; Unconsumed explicit replies: actor-1\n\nundefined !== 2\n\n    at ScriptedTransport.finish (/private/tmp/viborm-g4-lane-6/tests/raptor3/transport/driver.ts:331:14)\n    at /private/tmp/viborm-g4-lane-6/tests/raptor3/transport/world.ts:636:14\n    at Recorder.control (/private/tmp/viborm-g4-lane-6/tests/raptor3/harness/recorder.ts:156:14)\n    at runTransportWorld (/private/tmp/viborm-g4-lane-6/tests/raptor3/transport/world.ts:591:3)\n    at /private/tmp/viborm-g4-lane-6/tests/raptor3/transport-campaign.test.ts:73:23\n    at file:///private/tmp/viborm-g4-lane-6/node_modules/.pnpm/@vitest+runner@3.1.4/node_modules/@vitest/runner/dist/index.js:596:20"
+}

@@ -1,0 +1,5 @@
+command: node scripts/measure-raptor3-baseline.mjs --bundle --output /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/cutover/bundles-identity4.json
+cwd: /private/tmp/viborm-g4-perf-candidate  HEAD: e05519c2ec41c74292a5d6bda65b26a84685db82
+started: 2026-09-16T16:54:58Z  load: load averages: 12.46 15.77 17.65
+node scripts/measure-raptor3-baseline.mjs --bundle --output "$OUT"  3.86s user 0.70s system 122% cpu 3.716 total
+EXIT=0

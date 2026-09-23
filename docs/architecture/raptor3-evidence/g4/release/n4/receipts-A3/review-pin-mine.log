@@ -1,0 +1,52 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+stdout | tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts > G4-02 decisions review — R-D3's identity across the non-int domains > names every non-int domain with the same registered identity, and dispatches nothing
+[decimal key]
+  shipped   ok:{"id":"7","label":"a"}
+            rows [{"id":700,"label":"a"}]
+  candidate ok:{"id":"7","label":"a"}
+            rows [{"id":700,"label":"a"}]
+            writes dispatched ["UPDATE \"g4r2d_p_dec\" SET \"id\" = \"id\" + CAST(? AS INTEGER) WHERE \"id\" = CAST(? AS INTEGER)","UPDATE \"g4r2d_p_dec\" SET \"id\" = \"id\" + CAST(? AS INTEGER) WHERE \"id\" = CAST(? AS INTEGER)"] (of 9 statements)
+            meta null
+
+stdout | tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts > G4-02 decisions review — R-D3's identity across the non-int domains > still publishes an INT key expression on the same batch profile
+[int key control]
+  candidate ok:{"id":7,"label":"a"}
+            rows [{"id":7,"label":"a"}]
+
+ ❯ |g4-review-unit02-decisions| tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts (2 tests | 1 failed) 29ms
+   × G4-02 decisions review — R-D3's identity across the non-int domains > names every non-int domain with the same registered identity, and dispatches nothing 25ms
+     → decimal key
++ actual - expected
+
++ 'ok:{"id":"7","label":"a"}'
+- `UnsupportedOperationError: Cannot publish the updated value of 'decKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a decimal field.`
+
+   ✓ G4-02 decisions review — R-D3's identity across the non-int domains > still publishes an INT key expression on the same batch profile 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-decisions| tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts > G4-02 decisions review — R-D3's identity across the non-int domains > names every non-int domain with the same registered identity, and dispatches nothing
+AssertionError: decimal key
++ actual - expected
+
++ 'ok:{"id":"7","label":"a"}'
+- `UnsupportedOperationError: Cannot publish the updated value of 'decKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a decimal field.`
+
+
+Expected: [32m"UnsupportedOperationError: Cannot publish the updated value of 'decKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a decimal field."[39m
+Received: [31m"ok:{"id":"7","label":"a"}"[39m
+
+ ❯ tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts:170:14
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  07:53:40
+   Duration  1.33s (transform 809ms, setup 9ms, collect 1.18s, tests 29ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 1.82s wall, 359.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

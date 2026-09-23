@@ -1,0 +1,20 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 145ms
+ ✓ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 73ms
+ ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 16ms
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 51ms
+ ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 37ms
+ ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 25ms
+ ✓ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 23ms
+ ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 30ms
+
+ Test Files  8 passed (8)
+      Tests  62 passed (62)
+   Start at  16:34:37
+   Duration  2.93s (transform 1.26s, setup 15ms, collect 2.36s, tests 399ms, environment 0ms, prepare 24ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-AW4BtB/vitest.json
+Vitest resources: 4.98s wall, 721.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-AW4BtB

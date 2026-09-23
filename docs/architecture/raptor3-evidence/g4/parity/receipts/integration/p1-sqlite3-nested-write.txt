@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests) 1037ms
+
+ Test Files  1 passed (1)
+      Tests  85 passed (85)
+   Start at  13:12:18
+   Duration  4.83s (transform 2.25s, setup 14ms, collect 3.47s, tests 1.04s, environment 0ms, prepare 64ms)
+
+Vitest resources: 8.39s wall, 605.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

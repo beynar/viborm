@@ -1,0 +1,15 @@
+cell                                   engine     CPU before  CPU after     ΔCPU wall before wall after    Δwall    captures/op b→a
+scalar-find-unique/prepare             shipped         12.70      12.36    -0.34        5.82       5.52    -0.30    0.000 -> 0.000
+scalar-find-unique/prepare             candidate       25.59      16.93    -8.66       15.85       8.64    -7.21    0.000 -> 0.000
+fixed-collection-rowref-20/prepare     shipped         19.81      20.05     0.24       10.59      10.78     0.19    0.000 -> 0.000
+fixed-collection-rowref-20/prepare     candidate       35.29      25.46    -9.83       21.01      13.10    -7.91    0.000 -> 0.000
+bulk-update-returning-100/prepare      shipped         25.98      25.75    -0.23       17.83      17.70    -0.13    0.000 -> 0.000
+bulk-update-returning-100/prepare      candidate       45.62      32.58   -13.03       30.70      21.59    -9.12    0.000 -> 0.000
+nested-conditional-found/full          shipped        198.00     194.95    -3.05      127.63     125.83    -1.80    0.000 -> 0.000
+nested-conditional-found/full          candidate      158.34     141.81   -16.53      127.33     100.70   -26.63    1.000 -> 0.000
+
+ratios candidate/shipped (CPU, wall):
+  scalar-find-unique/prepare  CPU 2.015 -> 1.370   wall 2.723 -> 1.565
+  fixed-collection-rowref-20/prepare  CPU 1.781 -> 1.270   wall 1.984 -> 1.215
+  bulk-update-returning-100/prepare  CPU 1.756 -> 1.265   wall 1.722 -> 1.220
+  nested-conditional-found/full     CPU 0.800 -> 0.727   wall 0.998 -> 0.800

@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01b
+
+ ✓ |coverage-raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests) 40ms
+ ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests) 41ms
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  23:21:00
+   Duration  3.08s (transform 1.70s, setup 16ms, collect 2.66s, tests 80ms, environment 0ms, prepare 58ms)
+
+Vitest resources: 5.07s wall, 537.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

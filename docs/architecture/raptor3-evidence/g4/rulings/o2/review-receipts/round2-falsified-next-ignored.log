@@ -1,0 +1,43 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+ ❯ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests | 1 failed) 55ms
+   ✓ the decoder fails closed on a wrong provider row > a null _count carrier is a malformed row, not a null count 20ms
+   ✓ the decoder fails closed on a wrong provider row > a relation that is not an array raises the public class 2ms
+   ✓ the decoder fails closed on a wrong provider row > a document that is not a row raises the public class 1ms
+   ✓ the driver result seam is reached (D-17) > the driver's own json rule decodes a top-level document 1ms
+   ✓ the driver result seam is reached (D-17) > a driver rule that throws is a malformed value, not a raw SyntaxError 0ms
+   ✓ the driver result seam is reached (D-17) > the count and the exists answer are the decoder's, not the seam's (D-35) 6ms
+   ✓ the driver result seam is reached (D-17) > a JSON integer outside the safe range is refused, and a safe one is a number 2ms
+   ✓ the adapter result seam decides nothing (D-40) > PostgreSQL answers the count and the exists from the decoder alone 5ms
+   ✓ the adapter result seam decides nothing (D-40) > MySQL answers them from the decoder alone, and only under its own alias 3ms
+   × the adapter result seam decides nothing (D-40) > the three shipped adapters share one pass-through, and a custom adapter's own is still asked 7ms
+     → promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+   ✓ one physical vocabulary > a decimal carried inside a window stays TEXT 1ms
+   ✓ one physical vocabulary > the cursor carrier has one home 1ms
+   ✓ one physical vocabulary > the registered _distance collision sentence, in both orders 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > the three shipped adapters share one pass-through, and a custom adapter's own is still asked
+AssertionError: promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:358:42
+    356|     const custom = new CustomAdapter();
+    357|     const client = on(custom, "sqlite")([{ zz_count: 2 }]);
+    358|     await expect(client.counted.count({})).resolves.toBe(2);
+       |                                          ^
+    359|     await client.$disconnect();
+    360|     expect(custom.asked).toEqual([
+
+Caused by: QueryEngineError: Driver "scripted" returned a malformed int scalar for operation "count": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V9001', meta: { driver: 'scripted', operation: 'count', scalarType: 'int' }, timestamp: '2026-09-17T22:59:34.627Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Start at  00:59:32
+   Duration  2.37s (transform 1.22s, setup 11ms, collect 1.89s, tests 55ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 5.51s wall, 458.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

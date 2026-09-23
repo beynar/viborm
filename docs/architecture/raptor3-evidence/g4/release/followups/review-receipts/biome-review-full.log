@@ -1,0 +1,1732 @@
+src/query-engine/raptor3/commands/relation-body.ts:876:40 lint/correctness/noUnusedVariables ━━━━━━━━━━
+
+  i This variable conditionalTarget is unused.
+  
+    874 │     }
+    875 │     if (conditionalParentBinding && conditionalFound) {
+  > 876 │       const { edge: reference, target: conditionalTarget } =
+        │                                        ^^^^^^^^^^^^^^^^^
+    877 │         conditionalParentBinding;
+    878 │       const contribution = origin
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+
+tests/contracts/engine/write/dead-symbol-gate.core.test.ts:127:3 suppressions/unused ━━━━━━━━━━━━━━━
+
+  ! Suppression comment has no effect. Remove the suppression or make sure you are suppressing the correct rule.
+  
+    125 │ /** A whole-identifier matcher for `name` (dynamic — one per deleted symbol). */
+    126 │ function wholeWord(name: string): RegExp {
+  > 127 │   // biome-ignore lint/performance/useTopLevelRegex: built once per deleted symbol
+        │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    128 │   return new RegExp(`\\b${name}\\b`);
+    129 │ }
+  
+
+scripts/measure-raptor3-baseline.mjs:2:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+    1 │ /** Read-only source accounting; optional in-memory bundles, never candidate code. */
+  > 2 │ import { execFileSync } from "node:child_process";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3 │ import { createHash } from "node:crypto";
+    4 │ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      9   9 │   import { gzipSync } from "node:zlib";
+     10  10 │   import ts from "typescript";
+     11     │ - import·{·calibrationSourceIdentity·}·from·"../benchmarks/operation-pipeline-semantics.mjs";
+     12     │ - import·{
+     13     │ - ··RAPTOR3_WORKLOADS,
+     14     │ - ··RAPTOR3_WORKLOAD_VERSION,
+     15     │ - ··WORKLOADS,
+     16     │ - }·from·"../benchmarks/operation-pipeline-catalog.mjs";
+         11 │ + import·{
+         12 │ + ··RAPTOR3_WORKLOAD_VERSION,
+         13 │ + ··RAPTOR3_WORKLOADS,
+         14 │ + ··WORKLOADS,
+         15 │ + }·from·"../benchmarks/operation-pipeline-catalog.mjs";
+         16 │ + import·{·calibrationSourceIdentity·}·from·"../benchmarks/operation-pipeline-semantics.mjs";
+     17  17 │   
+     18  18 │   const root = resolve(import.meta.dirname, "..");
+  
+
+scripts/measure-raptor3-baseline.mjs:162:7 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    160 │       return [];
+    161 │     if (
+  > 162 │       !statement.moduleSpecifier ||
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 163 │       !ts.isStringLiteral(statement.moduleSpecifier)
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    164 │     )
+    165 │       return [];
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    160 160 │         return [];
+    161 161 │       if (
+    162     │ - ······!statement.moduleSpecifier·||
+    163     │ - ······!ts.isStringLiteral(statement.moduleSpecifier)
+        162 │ + ······!(statement.moduleSpecifier·&&ts.isStringLiteral(statement.moduleSpecifier))
+    164 163 │       )
+    165 164 │         return [];
+  
+
+scripts/measure-raptor3-baseline.mjs:407:29 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    405 │   },
+    406 │   preAuditForecast: {
+  > 407 │     wholeEngineTokenLines: [20200, 31000],
+        │                             ^^^^^
+    408 │     s1ThroughS4TokenLines: [4100, 6650],
+    409 │     provisionalNavigationDenominator: 47625,
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+    405 405 │     },
+    406 406 │     preAuditForecast: {
+    407     │ - ····wholeEngineTokenLines:·[20200,·31000],
+        407 │ + ····wholeEngineTokenLines:·[20_200,·31000],
+    408 408 │       s1ThroughS4TokenLines: [4100, 6650],
+    409 409 │       provisionalNavigationDenominator: 47625,
+  
+
+scripts/measure-raptor3-baseline.mjs:407:36 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    405 │   },
+    406 │   preAuditForecast: {
+  > 407 │     wholeEngineTokenLines: [20200, 31000],
+        │                                    ^^^^^
+    408 │     s1ThroughS4TokenLines: [4100, 6650],
+    409 │     provisionalNavigationDenominator: 47625,
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+    405 405 │     },
+    406 406 │     preAuditForecast: {
+    407     │ - ····wholeEngineTokenLines:·[20200,·31000],
+        407 │ + ····wholeEngineTokenLines:·[20200,·31_000],
+    408 408 │       s1ThroughS4TokenLines: [4100, 6650],
+    409 409 │       provisionalNavigationDenominator: 47625,
+  
+
+scripts/measure-raptor3-baseline.mjs:409:39 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    407 │     wholeEngineTokenLines: [20200, 31000],
+    408 │     s1ThroughS4TokenLines: [4100, 6650],
+  > 409 │     provisionalNavigationDenominator: 47625,
+        │                                       ^^^^^
+    410 │     qualification:
+    411 │       "Preimplementation prediction retained unchanged, not a candidate measurement",
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+    407 407 │       wholeEngineTokenLines: [20200, 31000],
+    408 408 │       s1ThroughS4TokenLines: [4100, 6650],
+    409     │ - ····provisionalNavigationDenominator:·47625,
+        409 │ + ····provisionalNavigationDenominator:·47_625,
+    410 410 │       qualification:
+    411 411 │         "Preimplementation prediction retained unchanged, not a candidate measurement",
+  
+
+scripts/measure-raptor3-baseline.mjs:447:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    445 │     ),
+    446 │     ...list(resolve(root, "scripts"), ".mjs").filter((file) =>
+  > 447 │       /raptor3/.test(file)
+        │       ^^^^^^^^^
+    448 │     ),
+    449 │   ].map((absolute) => {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/measure-raptor3-baseline.mjs:554:51 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    552 │       if (module && ts.isStringLiteral(module) && module.text.startsWith(".")) {
+    553 │         visitDeclaration(
+  > 554 │           resolve(file, "..", module.text.replace(/\.mjs$/, ".d.mts"))
+        │                                                   ^^^^^^^^
+    555 │         );
+    556 │       }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-manifest.mjs:1293:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1291 │     "Only a candidate-subject G4 child can qualify"
+    1292 │   );
+  > 1293 │   assert.equal(receipt.qualifying, true);
+         │   ^^^^^^
+    1294 │   assert.equal(receipt.status, "complete");
+    1295 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1315:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1313 │   );
+    1314 │   assert.equal(receipt.qualifying, false);
+  > 1315 │   assert.equal(receipt.status, "oracle-validation");
+         │   ^^^^^^
+    1316 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+    1317 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:895:14 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    893 │     const path = `${directory}/${entry.name}`;
+    894 │     if (entry.isDirectory()) files.push(...sourceFiles(root, path));
+  > 895 │     else if (/\.(?:ts|mts|mjs|js|json)$/.test(entry.name)) files.push(path);
+        │              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    896 │   }
+    897 │   return files;
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-manifest.mjs:949:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    947 │   actual = captureRaptor3Identity()
+    948 │ ) {
+  > 949 │   assert.deepEqual(
+        │   ^^^^^^
+    950 │     actual,
+    951 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:967:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    965 │     "Structural measurement base runtime is not the qualified Node version"
+    966 │   );
+  > 967 │   assert.equal(
+        │   ^^^^^^
+    968 │     instrumentedIdentity.runtime.node,
+    969 │     RAPTOR3_MEASUREMENT_NODE_VERSION,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:975:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    974 │ export function assertG0CampaignReceipt(receipt) {
+  > 975 │   assert.deepEqual(
+        │   ^^^^^^
+    976 │     receipt.campaign,
+    977 │     G0_CAMPAIGN,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:980:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    978 │     "Incomplete or changed G0 campaign"
+    979 │   );
+  > 980 │   assert.equal(receipt.fixedCells, 24, "Missing required G0 profile/case");
+        │   ^^^^^^
+    981 │   assert.equal(receipt.seededCells, 200, "Missing G0 schedule seeds");
+    982 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:981:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    979 │   );
+    980 │   assert.equal(receipt.fixedCells, 24, "Missing required G0 profile/case");
+  > 981 │   assert.equal(receipt.seededCells, 200, "Missing G0 schedule seeds");
+        │   ^^^^^^
+    982 │   assert.equal(
+    983 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:982:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    980 │   assert.equal(receipt.fixedCells, 24, "Missing required G0 profile/case");
+    981 │   assert.equal(receipt.seededCells, 200, "Missing G0 schedule seeds");
+  > 982 │   assert.equal(
+        │   ^^^^^^
+    983 │     receipt.replays,
+    984 │     (receipt.fixedCells + receipt.seededCells) * G0_CAMPAIGN.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:986:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    984 │     (receipt.fixedCells + receipt.seededCells) * G0_CAMPAIGN.replayCount
+    985 │   );
+  > 986 │   assert.equal(receipt.skipped, 0, "Required G0 cells cannot be skipped");
+        │   ^^^^^^
+    987 │   assert.deepEqual(
+    988 │     [...receipt.falsifiers].sort(),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:987:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    985 │   );
+    986 │   assert.equal(receipt.skipped, 0, "Required G0 cells cannot be skipped");
+  > 987 │   assert.deepEqual(
+        │   ^^^^^^
+    988 │     [...receipt.falsifiers].sort(),
+    989 │     [...G0_FALSIFIERS].sort(),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:999:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+     997 │   campaign = G1_CAMPAIGN
+     998 │ ) {
+   > 999 │   assert.equal(receipt.firstSeed, firstSeed);
+         │   ^^^^^^
+    1000 │   assert.equal(receipt.seedCount, campaign.batchSize);
+    1001 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1000:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+     998 │ ) {
+     999 │   assert.equal(receipt.firstSeed, firstSeed);
+  > 1000 │   assert.equal(receipt.seedCount, campaign.batchSize);
+         │   ^^^^^^
+    1001 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1002 │   assert.equal(receipt.skipped, 0);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1001:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+     999 │   assert.equal(receipt.firstSeed, firstSeed);
+    1000 │   assert.equal(receipt.seedCount, campaign.batchSize);
+  > 1001 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1002 │   assert.equal(receipt.skipped, 0);
+    1003 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1002:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1000 │   assert.equal(receipt.seedCount, campaign.batchSize);
+    1001 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  > 1002 │   assert.equal(receipt.skipped, 0);
+         │   ^^^^^^
+    1003 │   assert.equal(
+    1004 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1003:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1001 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1002 │   assert.equal(receipt.skipped, 0);
+  > 1003 │   assert.equal(
+         │   ^^^^^^
+    1004 │     receipt.replays,
+    1005 │     campaign.batchSize * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1015:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1013 │     )
+    1014 │     .sort();
+  > 1015 │   assert.deepEqual(
+         │   ^^^^^^
+    1016 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1017 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1040:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1038 │ ) {
+    1039 │   assertRaptor3Identity(receipt.identity, identity);
+  > 1040 │   assert.equal(receipt.formatVersion, 1);
+         │   ^^^^^^
+    1041 │   assert.equal(receipt.qualifying, true);
+    1042 │   assert.equal(receipt.status, "complete");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1041:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1039 │   assertRaptor3Identity(receipt.identity, identity);
+    1040 │   assert.equal(receipt.formatVersion, 1);
+  > 1041 │   assert.equal(receipt.qualifying, true);
+         │   ^^^^^^
+    1042 │   assert.equal(receipt.status, "complete");
+    1043 │   assert.equal(receipt.firstSeed, firstSeed);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1042:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1040 │   assert.equal(receipt.formatVersion, 1);
+    1041 │   assert.equal(receipt.qualifying, true);
+  > 1042 │   assert.equal(receipt.status, "complete");
+         │   ^^^^^^
+    1043 │   assert.equal(receipt.firstSeed, firstSeed);
+    1044 │   assert(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1043:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1041 │   assert.equal(receipt.qualifying, true);
+    1042 │   assert.equal(receipt.status, "complete");
+  > 1043 │   assert.equal(receipt.firstSeed, firstSeed);
+         │   ^^^^^^
+    1044 │   assert(
+    1045 │     Number.isInteger(receipt.seedCount) &&
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1055:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1053 │     "G3 child seed range is outside the frozen campaign"
+    1054 │   );
+  > 1055 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1056 │   assert.equal(receipt.skipped, 0);
+    1057 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1056:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1054 │   );
+    1055 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  > 1056 │   assert.equal(receipt.skipped, 0);
+         │   ^^^^^^
+    1057 │   assert.equal(
+    1058 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1057:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1055 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1056 │   assert.equal(receipt.skipped, 0);
+  > 1057 │   assert.equal(
+         │   ^^^^^^
+    1058 │     receipt.replays,
+    1059 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1061:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1059 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+    1060 │   );
+  > 1061 │   assert.equal(
+         │   ^^^^^^
+    1062 │     receipt.completed.length,
+    1063 │     receipt.seedCount * campaign.profiles.length
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1073:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1071 │     )
+    1072 │     .sort();
+  > 1073 │   assert.deepEqual(
+         │   ^^^^^^
+    1074 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1075 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1086:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1084 │         (cell.seed - campaign.firstSeed) % 4
+    1085 │       ];
+  > 1086 │       assert.equal(cell.actors, expectedActors, "Changed G3 actor recipe");
+         │       ^^^^^^
+    1087 │       assert.equal(
+    1088 │         cell.actorOverlap,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1087:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1085 │       ];
+    1086 │       assert.equal(cell.actors, expectedActors, "Changed G3 actor recipe");
+  > 1087 │       assert.equal(
+         │       ^^^^^^
+    1088 │         cell.actorOverlap,
+    1089 │         expectedActors === 2,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1092:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1090 │         "G3 actor recipe lacks an actual overlap cut"
+    1091 │       );
+  > 1092 │       assert.equal(
+         │       ^^^^^^
+    1093 │         cell.faults > 0,
+    1094 │         expectedFault,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1097:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1095 │         "G3 fault recipe lacks an actual legal injected failure"
+    1096 │       );
+  > 1097 │       assert.equal(
+         │       ^^^^^^
+    1098 │         cell.contract,
+    1099 │         expectedContract,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1120:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1118 │ export function assertExtensionCampaignReceipt(receipt, campaign, identity) {
+    1119 │   assertRaptor3Identity(receipt.identity, identity);
+  > 1120 │   assert.equal(receipt.slice, campaign.slice);
+         │   ^^^^^^
+    1121 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+    1122 │   assert.equal(receipt.seedCount, campaign.seedCount);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1121:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1119 │   assertRaptor3Identity(receipt.identity, identity);
+    1120 │   assert.equal(receipt.slice, campaign.slice);
+  > 1121 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+         │   ^^^^^^
+    1122 │   assert.equal(receipt.seedCount, campaign.seedCount);
+    1123 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1122:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1120 │   assert.equal(receipt.slice, campaign.slice);
+    1121 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+  > 1122 │   assert.equal(receipt.seedCount, campaign.seedCount);
+         │   ^^^^^^
+    1123 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1124 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1123:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1121 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+    1122 │   assert.equal(receipt.seedCount, campaign.seedCount);
+  > 1123 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1124 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+    1125 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1124:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1122 │   assert.equal(receipt.seedCount, campaign.seedCount);
+    1123 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  > 1124 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+         │   ^^^^^^
+    1125 │   assert.equal(
+    1126 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1125:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1123 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1124 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+  > 1125 │   assert.equal(
+         │   ^^^^^^
+    1126 │     receipt.replays,
+    1127 │     campaign.seedCount * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1129:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1127 │     campaign.seedCount * campaign.profiles.length * campaign.replayCount
+    1128 │   );
+  > 1129 │   assert.equal(
+         │   ^^^^^^
+    1130 │     receipt.completed.length,
+    1131 │     campaign.seedCount * campaign.profiles.length
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1141:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1139 │     )
+    1140 │     .sort();
+  > 1141 │   assert.deepEqual(
+         │   ^^^^^^
+    1142 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1143 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1147:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1145 │   );
+    1146 │   for (const cell of receipt.completed) {
+  > 1147 │     assert.equal(cell.recipe.formatVersion, 1);
+         │     ^^^^^^
+    1148 │     assert.equal(cell.recipe.slice, campaign.slice);
+    1149 │     assert.equal(cell.recipe.seed, cell.seed);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1148:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1146 │   for (const cell of receipt.completed) {
+    1147 │     assert.equal(cell.recipe.formatVersion, 1);
+  > 1148 │     assert.equal(cell.recipe.slice, campaign.slice);
+         │     ^^^^^^
+    1149 │     assert.equal(cell.recipe.seed, cell.seed);
+    1150 │     assert.deepEqual(cell.schedule, cell.recipe.schedule);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1149:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1147 │     assert.equal(cell.recipe.formatVersion, 1);
+    1148 │     assert.equal(cell.recipe.slice, campaign.slice);
+  > 1149 │     assert.equal(cell.recipe.seed, cell.seed);
+         │     ^^^^^^
+    1150 │     assert.deepEqual(cell.schedule, cell.recipe.schedule);
+    1151 │     assert(cell.schedule.length > 0, "CS-03 recipe omitted its schedule");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1150:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1148 │     assert.equal(cell.recipe.slice, campaign.slice);
+    1149 │     assert.equal(cell.recipe.seed, cell.seed);
+  > 1150 │     assert.deepEqual(cell.schedule, cell.recipe.schedule);
+         │     ^^^^^^
+    1151 │     assert(cell.schedule.length > 0, "CS-03 recipe omitted its schedule");
+    1152 │     const expectedOutcome =
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1157:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1155 │         ? "failure"
+    1156 │         : "success";
+  > 1157 │     assert.equal(cell.observation.outcome.kind, expectedOutcome);
+         │     ^^^^^^
+    1158 │   }
+    1159 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1179:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1177 │         )
+    1178 │       );
+  > 1179 │   assert.equal(candidate.slice, reference.slice);
+         │   ^^^^^^
+    1180 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+    1181 │   assert.equal(candidate.seedCount, reference.seedCount);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1180:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1178 │       );
+    1179 │   assert.equal(candidate.slice, reference.slice);
+  > 1180 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+         │   ^^^^^^
+    1181 │   assert.equal(candidate.seedCount, reference.seedCount);
+    1182 │   assert.deepEqual(candidate.profiles, reference.profiles);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1181:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1179 │   assert.equal(candidate.slice, reference.slice);
+    1180 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+  > 1181 │   assert.equal(candidate.seedCount, reference.seedCount);
+         │   ^^^^^^
+    1182 │   assert.deepEqual(candidate.profiles, reference.profiles);
+    1183 │   assert.equal(candidate.replays, reference.replays);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1182:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1180 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+    1181 │   assert.equal(candidate.seedCount, reference.seedCount);
+  > 1182 │   assert.deepEqual(candidate.profiles, reference.profiles);
+         │   ^^^^^^
+    1183 │   assert.equal(candidate.replays, reference.replays);
+    1184 │   assert.equal(candidate.skipped, reference.skipped);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1183:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1181 │   assert.equal(candidate.seedCount, reference.seedCount);
+    1182 │   assert.deepEqual(candidate.profiles, reference.profiles);
+  > 1183 │   assert.equal(candidate.replays, reference.replays);
+         │   ^^^^^^
+    1184 │   assert.equal(candidate.skipped, reference.skipped);
+    1185 │   assert.deepEqual(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1184:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1182 │   assert.deepEqual(candidate.profiles, reference.profiles);
+    1183 │   assert.equal(candidate.replays, reference.replays);
+  > 1184 │   assert.equal(candidate.skipped, reference.skipped);
+         │   ^^^^^^
+    1185 │   assert.deepEqual(
+    1186 │     canonicalCells(candidate),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1185:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1183 │   assert.equal(candidate.replays, reference.replays);
+    1184 │   assert.equal(candidate.skipped, reference.skipped);
+  > 1185 │   assert.deepEqual(
+         │   ^^^^^^
+    1186 │     canonicalCells(candidate),
+    1187 │     canonicalCells(reference),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1194:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1192 │ function assertG4BatchShape(receipt, firstSeed, campaign, identity) {
+    1193 │   assertRaptor3Identity(receipt.identity, identity);
+  > 1194 │   assert.equal(receipt.formatVersion, 1);
+         │   ^^^^^^
+    1195 │   assert.equal(receipt.firstSeed, firstSeed);
+    1196 │   assert(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1195:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1193 │   assertRaptor3Identity(receipt.identity, identity);
+    1194 │   assert.equal(receipt.formatVersion, 1);
+  > 1195 │   assert.equal(receipt.firstSeed, firstSeed);
+         │   ^^^^^^
+    1196 │   assert(
+    1197 │     Number.isInteger(receipt.seedCount) &&
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1207:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1205 │     "G4 child seed range is outside the frozen campaign"
+    1206 │   );
+  > 1207 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1208 │   // Every profile in a lane must denote a DIFFERENT read transport, or the
+    1209 │   // lane pays for cells it cannot distinguish.
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1210:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1208 │   // Every profile in a lane must denote a DIFFERENT read transport, or the
+    1209 │   // lane pays for cells it cannot distinguish.
+  > 1210 │   assert.equal(
+         │   ^^^^^^
+    1211 │     new Set(campaign.profiles.map((profile) => G4_TRANSPORT_MODELS[profile]))
+    1212 │       .size,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1216:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1214 │     "Two G4 campaign profiles denote the same read transport model"
+    1215 │   );
+  > 1216 │   assert.equal(receipt.skipped, 0, "Required G4 cells cannot be skipped");
+         │   ^^^^^^
+    1217 │   assert.equal(
+    1218 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1217:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1215 │   );
+    1216 │   assert.equal(receipt.skipped, 0, "Required G4 cells cannot be skipped");
+  > 1217 │   assert.equal(
+         │   ^^^^^^
+    1218 │     receipt.replays,
+    1219 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1221:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1219 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+    1220 │   );
+  > 1221 │   assert.equal(
+         │   ^^^^^^
+    1222 │     receipt.completed.length,
+    1223 │     receipt.seedCount * campaign.profiles.length
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1233:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1231 │     )
+    1232 │     .sort();
+  > 1233 │   assert.deepEqual(
+         │   ^^^^^^
+    1234 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1235 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1243:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1241 │         (cell.seed - campaign.firstSeed) % G4_READ_CONTRACT_FAMILIES.length
+    1242 │       ];
+  > 1243 │     assert.equal(cell.contract, expectedContract, "Changed G4 contract family");
+         │     ^^^^^^
+    1244 │     assert(
+    1245 │       G4_READ_SCHEMA_FAMILIES.includes(cell.family),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1249:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1247 │     );
+    1248 │     if (cell.contract === "Q-S")
+  > 1249 │       assert.equal(cell.family, "relation", "Q-S must use the relation family");
+         │       ^^^^^^
+    1250 │     if (cell.contract === "Q-A")
+    1251 │       assert.equal(cell.family, "codec", "Q-A must use the codec family");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1251:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1249 │       assert.equal(cell.family, "relation", "Q-S must use the relation family");
+    1250 │     if (cell.contract === "Q-A")
+  > 1251 │       assert.equal(cell.family, "codec", "Q-A must use the codec family");
+         │       ^^^^^^
+    1252 │     // This campaign injects no peer actor and no fault: reads publish no
+    1253 │     // effect for a peer to observe. The quota is therefore an exact zero,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1255:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1253 │     // effect for a peer to observe. The quota is therefore an exact zero,
+    1254 │     // which a recipe that silently started injecting would break.
+  > 1255 │     assert.equal(cell.actors, 1, "G4 read cells carry exactly one actor");
+         │     ^^^^^^
+    1256 │     assert.equal(cell.faults, 0, "G4 read cells inject no fault");
+    1257 │     assert(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1256:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1254 │     // which a recipe that silently started injecting would break.
+    1255 │     assert.equal(cell.actors, 1, "G4 read cells carry exactly one actor");
+  > 1256 │     assert.equal(cell.faults, 0, "G4 read cells inject no fault");
+         │     ^^^^^^
+    1257 │     assert(
+    1258 │       Number.isInteger(cell.rows) && cell.rows >= 0 && cell.rows <= 64,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1265:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1263 │       "A G4 read cell must reach the provider at least once"
+    1264 │     );
+  > 1265 │     assert.equal(
+         │     ^^^^^^
+    1266 │       cell.transport,
+    1267 │       G4_TRANSPORT_MODELS[cell.profile],
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1273:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1271 │     // stream of that profile is exactly three entries per submitted read.
+    1272 │     if (cell.transport === "atomic-submission")
+  > 1273 │       assert.equal(
+         │       ^^^^^^
+    1274 │         cell.statements % 3,
+    1275 │         0,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1288:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1286 │   identity
+    1287 │ ) {
+  > 1288 │   assert.equal(
+         │   ^^^^^^
+    1289 │     receipt.subject,
+    1290 │     "candidate",
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1294:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1292 │   );
+    1293 │   assert.equal(receipt.qualifying, true);
+  > 1294 │   assert.equal(receipt.status, "complete");
+         │   ^^^^^^
+    1295 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+    1296 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1309:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1307 │   identity
+    1308 │ ) {
+  > 1309 │   assert.equal(
+         │   ^^^^^^
+    1310 │     receipt.subject,
+    1311 │     "shipped",
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1314:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1312 │     "An oracle-validation G4 child runs the shipped subject"
+    1313 │   );
+  > 1314 │   assert.equal(receipt.qualifying, false);
+         │   ^^^^^^
+    1315 │   assert.equal(receipt.status, "oracle-validation");
+    1316 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:962:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    960 │   instrumentedIdentity
+    961 │ ) {
+  > 962 │   assert.equal(
+        │   ^^^^^^
+    963 │     baseIdentity.runtime.node,
+    964 │     RAPTOR3_MEASUREMENT_NODE_VERSION,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+src/query-engine/raptor3/commands/relation-body.ts:83:5 lint/style/noParameterProperties ━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    81 │   private readonly hasSupply: boolean;
+    82 │   constructor(
+  > 83 │     private readonly commands: Commands,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    84 │     private readonly parent: RecordCommand,
+    85 │     private readonly slot: ResolvedSlot,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/relation-body.ts:84:5 lint/style/noParameterProperties ━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    82 │   constructor(
+    83 │     private readonly commands: Commands,
+  > 84 │     private readonly parent: RecordCommand,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    85 │     private readonly slot: ResolvedSlot,
+    86 │     private readonly admitted: Input,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/relation-body.ts:85:5 lint/style/noParameterProperties ━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    83 │     private readonly commands: Commands,
+    84 │     private readonly parent: RecordCommand,
+  > 85 │     private readonly slot: ResolvedSlot,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    86 │     private readonly admitted: Input,
+    87 │     private readonly raw: Input
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/relation-body.ts:86:5 lint/style/noParameterProperties ━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    84 │     private readonly parent: RecordCommand,
+    85 │     private readonly slot: ResolvedSlot,
+  > 86 │     private readonly admitted: Input,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    87 │     private readonly raw: Input
+    88 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/relation-body.ts:87:5 lint/style/noParameterProperties ━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    85 │     private readonly slot: ResolvedSlot,
+    86 │     private readonly admitted: Input,
+  > 87 │     private readonly raw: Input
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    88 │   ) {
+    89 │     this.direct =
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   assembleAdapterSelect,
+  > 3 │   getAdapterInternals
+  > 4 │ } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5 │ import type { AnyDriver } from "@drivers";
+    6 │ import { attachCommitCertainty } from "@drivers/driver-error-context";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      39   39 │   import {
+      40   40 │     InvalidScalarResult,
+      41      │ - ··Queries,
+      42      │ - ··type·PreparedProjection,
+           41 │ + ··type·PreparedProjection,
+      43   42 │     type PreparedSelector,
+      44   43 │     type ProjectionShape,
+      45      │ - ··type·Query,
+           44 │ + ··Queries,
+           45 │ + ··type·Query,
+      46   46 │     type Read,
+      47   47 │     returningSafeProjection,
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:310:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    308 │   }
+    309 │   constructor(
+  > 310 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    311 │     factoryDriver: AnyDriver,
+    312 │     readonly modelName: string,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:312:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    310 │     readonly schema: EngineSchema,
+    311 │     factoryDriver: AnyDriver,
+  > 312 │     readonly modelName: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    313 │     readonly operation: Operation,
+    314 │     binding?: ExecutionBinding,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:313:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    311 │     factoryDriver: AnyDriver,
+    312 │     readonly modelName: string,
+  > 313 │     readonly operation: Operation,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    314 │     binding?: ExecutionBinding,
+    315 │     prepareBatch = false,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:323:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    321 │      * attribution (g4/unit03/note.md B-4).
+    322 │      */
+  > 323 │     private readonly callerAttribution?: QueryExecutionContext
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    324 │   ) {
+    325 │     if (binding?.kind === "atomic-array") {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       1    1 │   import {
+       2    2 │     assembleAdapterSelect,
+       3      │ - ··getAdapterInternals
+            3 │ + ··getAdapterInternals,
+       4    4 │   } from "@adapters/adapter-internals";
+       5    5 │   import type { AnyDriver } from "@drivers";
+    ········· │ 
+       8    8 │   import {
+       9    9 │     bindExecutionTransactionPhases,
+      10      │ - ··deriveStatementExecutionContext
+           10 │ + ··deriveStatementExecutionContext,
+      11   11 │   } from "@drivers/execution-context";
+      12   12 │   import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
+    ········· │ 
+      14   14 │     BatchQuery,
+      15   15 │     QueryExecutionContext,
+      16      │ - ··QueryResult
+           16 │ + ··QueryResult,
+      17   17 │   } from "@drivers/types";
+      18   18 │   import {
+    ········· │ 
+      25   25 │     TransactionError,
+      26   26 │     UniqueConstraintError,
+      27      │ - ··UnsupportedOperationError
+           27 │ + ··UnsupportedOperationError,
+      28   28 │   } from "@errors";
+      29   29 │   import type { AnyModel } from "@schema/model";
+    ········· │ 
+      31   31 │   import {
+      32   32 │     compileBindBudgetChunks,
+      33      │ - ··normalizedBindParameterLimit
+           33 │ + ··normalizedBindParameterLimit,
+      34   34 │   } from "../../bind-budget";
+      35      │ - import·type·{
+      36      │ - ··PreparedBatchGuard,
+      37      │ - ··PreparedBatchOperation
+      38      │ - }·from·"../../types";
+           35 │ + import·type·{·PreparedBatchGuard,·PreparedBatchOperation·}·from·"../../types";
+      39   36 │   import {
+      40   37 │     InvalidScalarResult,
+    ········· │ 
+      53   50 │     isReadOperation,
+      54   51 │     type Operation,
+      55      │ - ··record
+           52 │ + ··record,
+      56   53 │   } from "./schema";
+      57   54 │   import { type Membership, physicalField } from "./storage";
+    ········· │ 
+      68   65 │     "update",
+      69   66 │     "delete",
+      70      │ - ··"upsert"
+           67 │ + ··"upsert",
+      71   68 │   ]);
+      72   69 │   
+    ········· │ 
+     331  328 │               model: modelName,
+     332  329 │               operation,
+     333      │ - ············method:·"$transaction([...])"
+     334      │ - ··········}
+          330 │ + ············method:·"$transaction([...])",
+          331 │ + ··········},
+     335  332 │           }
+     336  333 │         );
+    ········· │ 
+     361  358 │           model: this.modelName,
+     362  359 │           operation: this.operation,
+     363      │ - ········correlationId:·this.correlationId
+          360 │ + ········correlationId:·this.correlationId,
+     364  361 │         }
+     365  362 │       );
+    ········· │ 
+     374  371 │         model: this.modelName,
+     375  372 │         operation: this.operation,
+     376      │ - ······correlationId:·this.correlationId
+          373 │ + ······correlationId:·this.correlationId,
+     377  374 │       };
+     378  375 │     }
+    ········· │ 
+     414  411 │       const query = transferPreparedStatement(prepared, {
+     415  412 │         ...prepared,
+     416      │ - ······context
+          413 │ + ······context,
+     417  414 │       });
+     418  415 │       this.attempt.pending.push(query);
+    ········· │ 
+     496  493 │     }
+     497  494 │     suppressionRefusal(): TransactionError | undefined {
+     498      │ - ····return·(this.ownership·===·"borrowed-transaction"·&&·!this.memberRollback)·||
+          495 │ + ····return·(this.ownership·===·"borrowed-transaction"·&&
+          496 │ + ······!this.memberRollback)·||
+     499  497 │         this.ownership === "batch-preparation" ||
+     500  498 │         this.usesBatch
+    ········· │ 
+     505  503 │                 driver: this.driver.driverName,
+     506  504 │                 model: this.modelName,
+     507      │ - ··············operation:·this.operation
+     508      │ - ············}
+          505 │ + ··············operation:·this.operation,
+          506 │ + ············},
+     509  507 │             }
+     510  508 │           )
+    ········· │ 
+     569  567 │             ...(this.mayHaveCommittedSegment
+     570  568 │               ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
+     571      │ - ············:·{})
+          569 │ + ············:·{}),
+     572  570 │           })
+     573  571 │         : failure;
+    ········· │ 
+     627  625 │     /** Run the operation inside the one region it owns. */
+     628  626 │     private async withinRegion<T>(
+     629      │ - ····region:·(execute:·(driver:·AnyDriver)·=>·Promise<unknown>)·=>·Promise<unknown>,
+          627 │ + ····region:·(
+          628 │ + ······execute:·(driver:·AnyDriver)·=>·Promise<unknown>
+          629 │ + ····)·=>·Promise<unknown>,
+     630  630 │       body: () => Promise<T>
+     631  631 │     ): Promise<T> {
+    ········· │ 
+    1024 1024 │         sql: adapter.clauses.select(
+    1025 1025 │           sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
+    1026      │ - ······)
+         1026 │ + ······),
+    1027 1027 │       };
+    1028 1028 │     }
+    ········· │ 
+    1111 1111 │             context
+    1112 1112 │           ),
+    1113      │ - ········context
+         1113 │ + ········context,
+    1114 1114 │         };
+    1115 1115 │       });
+    ········· │ 
+    1124 1124 │             `Created record '${continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+    1125 1125 │             { meta: { model: this.modelName, operation: this.operation } }
+    1126      │ - ········)
+         1126 │ + ········),
+    1127 1127 │         });
+    1128 1128 │       const members = attempt.drainMembers();
+    ········· │ 
+    1148 1148 │             undefined,
+    1149 1149 │             this.attribution,
+    1150      │ - ··········this.driver.supportsOrderedCommittedSegments·?·acknowledged·:·undefined
+         1150 │ + ··········this.driver.supportsOrderedCommittedSegments
+         1151 │ + ············?·acknowledged
+         1152 │ + ············:·undefined
+    1151 1153 │           )
+    1152 1154 │         );
+    ········· │ 
+    1407 1409 │           select: Object.fromEntries(
+    1408 1410 │             this.schema.keys(model).map((field) => [field, true])
+    1409      │ - ········)
+         1411 │ + ········),
+    1410 1412 │         },
+    1411 1413 │         undefined,
+    ········· │ 
+    1424 1426 │           // verb is what makes two guards of the same shape agree.
+    1425 1427 │           message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+    1426      │ - ········raceable:·false
+         1428 │ + ········raceable:·false,
+    1427 1429 │         },
+    1428 1430 │         model: model["~"].names.ts!,
+    1429      │ - ······operation:·this.operation
+         1431 │ + ······operation:·this.operation,
+    1430 1432 │       });
+    1431 1433 │       this.queue(
+    ········· │ 
+    1543 1545 │             sql: query.sql,
+    1544 1546 │             params: query.params ?? [],
+    1545      │ - ··········context:·query.context·??·this.attribution
+         1547 │ + ··········context:·query.context·??·this.attribution,
+    1546 1548 │           })
+  187 more lines truncated
+  
+
+src/query-engine/raptor3/shared/schema.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     12  12 │   import { createResolvedSchemaRegistry } from "@validation/builder";
+     13  13 │   import { isRecord } from "@validation/value-guards";
+     14     │ - import·{
+     15     │ - ··parseValidated,
+     16     │ - ··upsertEnvelopeSchema,
+     17     │ - }·from·"./parse-boundary";
+         14 │ + import·{·parseValidated,·upsertEnvelopeSchema·}·from·"./parse-boundary";
+     18  15 │   import type { Leaf, PreparedProjection } from "./query";
+     19  16 │   import {
+    ······· │ 
+    181 178 │       ClearableMembership
+    182 179 │     >();
+    183     │ - ··constructor(readonly·schema:·Schema,·resolved?:·ResolvedSchemaViews)·{
+        180 │ + ··constructor(
+        181 │ + ····readonly·schema:·Schema,
+        182 │ + ····resolved?:·ResolvedSchemaViews
+        183 │ + ··)·{
+    184 184 │       if (resolved) {
+    185 185 │         this.index = resolved.index;
+  
+
+src/query-engine/raptor3/shared/schema.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { DatabaseAdapter } from "@adapters/database-adapter";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { AnyDriver } from "@drivers";
+    3 │ import { QueryEngineError } from "@errors";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      8   8 │     type ClearableMembership,
+      9   9 │   } from "@schema/relation/clearability";
+     10     │ - import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     11     │ - import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+         10 │ + import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+         11 │ + import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     12  12 │   import { createResolvedSchemaRegistry } from "@validation/builder";
+     13  13 │   import { isRecord } from "@validation/value-guards";
+  
+
+src/query-engine/raptor3/shared/schema.ts:183:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    181 │     ClearableMembership
+    182 │   >();
+  > 183 │   constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^
+    184 │     if (resolved) {
+    185 │       this.index = resolved.index;
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+vitest.workspace.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { defineWorkspace } from "vitest/config";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { CLIENT_COVERAGE_TESTS } from "./scripts/client-test-manifest.mjs";
+    3 │ import { EXTENDED_LOCAL_TESTS } from "./scripts/credential-free-test-manifest.mjs";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      8   8 │   import { MIGRATION_COVERAGE_TESTS } from "./scripts/migration-test-manifest.mjs";
+      9   9 │   import {
+     10     │ - ··RAPTOR3_LIVE_PROVIDER_TESTS,
+     11     │ - ··RAPTOR3_PROVIDER_TESTS,
+     12     │ - ··RAPTOR3_DETERMINISTIC_TESTS,
+     13     │ - ··RAPTOR3_PROJECT_TESTS,
+     14     │ - }·from·"./scripts/raptor3-manifest.mjs";
+         10 │ + ··QUERY_ENGINE_CORE_TESTS,
+         11 │ + ··WRITE_ENGINE_CORE_TESTS,
+         12 │ + ··WRITE_ENGINE_COVERAGE_TESTS,
+         13 │ + }·from·"./scripts/query-engine-test-manifest.mjs";
+     15  14 │   import {
+     16     │ - ··QUERY_ENGINE_CORE_TESTS,
+     17     │ - ··WRITE_ENGINE_CORE_TESTS,
+     18     │ - ··WRITE_ENGINE_COVERAGE_TESTS,
+     19     │ - }·from·"./scripts/query-engine-test-manifest.mjs";
+         15 │ + ··RAPTOR3_DETERMINISTIC_TESTS,
+         16 │ + ··RAPTOR3_LIVE_PROVIDER_TESTS,
+         17 │ + ··RAPTOR3_PROJECT_TESTS,
+         18 │ + ··RAPTOR3_PROVIDER_TESTS,
+         19 │ + }·from·"./scripts/raptor3-manifest.mjs";
+     20  20 │   
+     21  21 │   const layerProject = (
+  
+
+Checked 30 files in 50ms. No fixes applied.
+Found 92 errors.
+Found 1 warning.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -1,0 +1,99 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-transactions.test.ts (11 tests | 2 failed) 72ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02/NS-05 one callback transaction commits, and a throw rolls every member back 23ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself 11ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-03 a nested transaction is a savepoint that keeps the outer effects 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction keeps admission order, per-member results and atomicity 7ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner 5ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-04 DIVERGENCE PIN blocker B-1: an array transaction containing a read is refused on a batch-only driver 7ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'ok:[[{"email":"read-array@example.test"}]]'
+- 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+
+   × G4-03 C13 candidate transactions, arrays and raw > LX-14 DIVERGENCE PIN blocker B-1: a statement-atomic write inside a callback transaction opens one extra observed region 5ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
+    'savepoint:create',
+    'statement:create',
+-   'statement:create'
+  ]
+
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 DIVERGENCE PIN blocker B-1: a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on the shipped route and only its own member on the candidate route 3ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > RF-09 a callback transaction stays refused on a non-interactive transport 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-05/LX-06/NS-03 raw SQL bypasses the route entirely 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > NS-05 two clients over one database keep their own bound drivers 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-04 DIVERGENCE PIN blocker B-1: an array transaction containing a read is refused on a batch-only driver
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'ok:[[{"email":"read-array@example.test"}]]'
+- 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+
+
+Expected: [32m"TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically."[39m
+Received: [31m"ok:[[{"email":"read-array@example.test"}]]"[39m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:410:12
+    408|       'ok:[[{"email":"read-array@example.test"}]]'
+    409|     );
+    410|     assert.equal(
+       |            ^
+    411|       observations.candidate.outcome,
+    412|       `${TransactionError.name}:Driver "sqlite3" does not support call…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-14 DIVERGENCE PIN blocker B-1: a statement-atomic write inside a callback transaction opens one extra observed region
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
+    'savepoint:create',
+    'statement:create',
+-   'statement:create'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "transaction:$transaction(callback)",[22m
+[2m    "operation:create",[22m
+[2m    "savepoint:create",[22m
+[2m    "statement:create",[22m
+[32m-   "statement:create",[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:468:12
+    466|       "statement:create",
+    467|     ]);
+    468|     assert.deepEqual(observations.candidate.units, [
+       |            ^
+    469|       "transaction:$transaction(callback)",
+    470|       "operation:create",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 9 passed (11)
+   Start at  05:48:22
+   Duration  1.88s (transform 1.14s, setup 8ms, collect 1.67s, tests 72ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6CY4m2/vitest.json
+Vitest resources: 3.85s wall, 526.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6CY4m2

@@ -1,0 +1,45 @@
+{
+  "capturedAt": "2026-09-15T06:55:40.230Z",
+  "openFiles": 132,
+  "closeFiles": 139,
+  "added": [
+    {
+      "path": "tests/raptor3/g4/review/unit02-phase2/arithmetic-parity.review.test.ts",
+      "owner": "other-reviewer",
+      "bytes": 6510
+    },
+    {
+      "path": "tests/raptor3/g4/review/unit02-phase2/counted-slot.review.test.ts",
+      "owner": "other-reviewer",
+      "bytes": 5049
+    },
+    {
+      "path": "tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts",
+      "owner": "other-reviewer",
+      "bytes": 6507
+    },
+    {
+      "path": "tests/raptor3/g4/review/unit02-phase2/recursive-carrier.review.test.ts",
+      "owner": "other-reviewer",
+      "bytes": 7158
+    },
+    {
+      "path": "tests/raptor3/g4/review/unit02-phase2/review.workspace.ts",
+      "owner": "other-reviewer",
+      "bytes": 797
+    },
+    {
+      "path": "tests/raptor3/g4/review/unit02-phase2/root-create-fold.review.test.ts",
+      "owner": "other-reviewer",
+      "bytes": 5935
+    },
+    {
+      "path": "tests/raptor3/g4/review/unit02-phase2/witness-defect-checks.review.test.ts",
+      "owner": "other-reviewer",
+      "bytes": 3502
+    }
+  ],
+  "removed": [],
+  "changed": [],
+  "witnessOwnedUnchanged": true
+}

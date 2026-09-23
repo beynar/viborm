@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "status": "candidate-b-feature-only-cost-reconstruction-complete",
+  "method": {
+    "codeBearingLines": "Distinct lines containing parser-owned TypeScript token starts; comments, JSDoc, blank lines, and EOF are excluded.",
+    "actualParserTokens": "Parser-owned TypeScript leaf tokens, excluding JSDoc and EOF.",
+    "sourceBytes": "Whole-file byte count.",
+    "ownerScopes": {
+      "core": "The same 12 Raptor command and shared owners used by the accepted CS-02 candidate census.",
+      "broader": "The same 28 complete production owners used by the accepted CS-02 candidate census; no new production owner was added."
+    }
+  },
+  "foundationBaseline": {
+    "productionIdentity": "5184a1d65c3e2bd703360c3c403780cb293c8806bd11e847ffc6c45fd00440f8",
+    "core": { "files": 12, "codeBearingLines": 6499, "actualParserTokens": 40472, "sourceBytes": 215468 },
+    "broader": { "files": 28, "codeBearingLines": 10573, "actualParserTokens": 65096, "sourceBytes": 448515 }
+  },
+  "candidateB": {
+    "productionIdentity": "99f03b7f2d2198f52e5e20b4991921098cf93ae64c50b18727d5a2200f24c017",
+    "runtime": "v24.21.0",
+    "core": { "files": 12, "codeBearingLines": 6546, "actualParserTokens": 40849, "sourceBytes": 217080 },
+    "broader": { "files": 28, "codeBearingLines": 10620, "actualParserTokens": 65473, "sourceBytes": 450127 }
+  },
+  "delta": {
+    "core": { "files": 0, "codeBearingLines": 47, "actualParserTokens": 377, "sourceBytes": 1612 },
+    "broader": { "files": 0, "codeBearingLines": 47, "actualParserTokens": 377, "sourceBytes": 1612 }
+  },
+  "referenceDelta": { "codeBearingLines": 46, "actualParserTokens": 390, "sourceBytes": 1612 },
+  "claim": "The feature-only candidate extension B source reconstruction costs +47 code-bearing lines, +377 actual parser tokens, and +1612 source bytes from the post-review foundation baseline. The separate foundation cleanup is not credited to the extension. The formatter-contaminated +15-line receipt is excluded from comparison. Behavioral qualification remains owned by the composed source unless this exact standalone endpoint is executed."
+}

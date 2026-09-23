@@ -1,0 +1,4 @@
+src/query-engine/raptor3/shared/query.ts: my changed lines=106, of which the formatter would change 11 -> [3811, 4134, 4135, 4175, 4176, 4226, 4276, 4316, 4333, 4334, 4750]
+tests/raptor3/recursive-query/provider-sql-sqlite.test.ts: my changed lines=20, of which the formatter would change 2 -> [57, 58]
+tests/raptor3/recursive-query/provider-sql-pglite.test.ts: my changed lines=16, of which the formatter would change 2 -> [61, 62]
+tests/raptor3/recursive-query/provider-sql-native.test.ts: my changed lines=40, of which the formatter would change 4 -> [87, 91, 112, 114]

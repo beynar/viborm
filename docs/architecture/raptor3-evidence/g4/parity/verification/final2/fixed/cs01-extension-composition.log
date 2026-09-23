@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 43ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  16:14:51
+   Duration  1.66s (transform 934ms, setup 9ms, collect 1.39s, tests 43ms, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-dbcBTr/vitest.json
+Vitest resources: 3.64s wall, 477.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs01-extension-composition contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-dbcBTr

@@ -1,0 +1,55 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-transactions.test.ts (11 tests | 1 failed) 69ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02/NS-05 one callback transaction commits, and a throw rolls every member back 23ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself 10ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-03 a nested transaction is a savepoint that keeps the outer effects 3ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction keeps admission order, per-member results and atomicity 6ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner 4ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-04 DIVERGENCE PIN blocker B-1: an array transaction containing a read is refused on a batch-only driver 7ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'ok:[[{"email":"read-array@example.test"}]]'
+- 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-14 DIVERGENCE PIN blocker B-1: a statement-atomic write inside a callback transaction opens one extra observed region 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 DIVERGENCE PIN blocker B-1: a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on the shipped route and only its own member on the candidate route 3ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > RF-09 a callback transaction stays refused on a non-interactive transport 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-05/LX-06/NS-03 raw SQL bypasses the route entirely 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > NS-05 two clients over one database keep their own bound drivers 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-04 DIVERGENCE PIN blocker B-1: an array transaction containing a read is refused on a batch-only driver
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'ok:[[{"email":"read-array@example.test"}]]'
+- 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+
+
+Expected: [32m"TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically."[39m
+Received: [31m"ok:[[{"email":"read-array@example.test"}]]"[39m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:410:12
+    408|       'ok:[[{"email":"read-array@example.test"}]]'
+    409|     );
+    410|     assert.equal(
+       |            ^
+    411|       observations.candidate.outcome,
+    412|       `${TransactionError.name}:Driver "sqlite3" does not support call…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 passed (11)
+   Start at  03:57:23
+   Duration  1.97s (transform 1.15s, setup 8ms, collect 1.69s, tests 69ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PRihO7/vitest.json
+Vitest resources: 4.07s wall, 535.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PRihO7
+exit=1

@@ -1,5 +1,10 @@
 /**
- * LibSQL client raw, scalar round-trips, decimal exactness, upsert atomicity, and the create-nested-upsert and batch primary-key dataflow schemas.
+ * LibSQL client raw, scalar round-trips, decimal exactness, upsert atomicity
+ * and the batch primary-key dataflow schema.
+ *
+ * C-01 deleted the create-nested-upsert and update-nested-upsert behaviours
+ * with the engine they addressed; the six provider contracts below outlived
+ * them and stay registered here.
  *
  * One file of the LibSQL provider suite, which is split across sibling
  * `libsql-*.test.ts` files. Every registered contract instantiates the
@@ -18,8 +23,6 @@ import {
   scalarRoundtripContract,
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
-import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
-import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
 import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { describe } from "vitest";
 import { BatchOnlyLibSQLDriver } from "./libsql-fixtures";
@@ -48,27 +51,11 @@ describe.skip("LibSQL contracts that need effectful live-schema setup (DRIVER_NO
     driverName: "LibSQL",
     createDriver: createInMemoryLibSQLDriver,
   });
-  runCreateNestedUpsertBehavior({
-    name: "LibSQL transaction",
-    createDriver: createInMemoryLibSQLDriver,
-  });
-  runCreateNestedUpsertBehavior({
-    name: "LibSQL atomic batch",
-    createDriver: () => new BatchOnlyLibSQLDriver(),
-  });
   // T4b CLASS III — the batch updated/generated-PK dataflow on the volatile-rowid
   // driver: the updated-PK cases (compile-derived literal FK) and the generated-PK
   // cases (last_insert_rowid batch-ref store) both proven on a real LibSQL batch.
   batchPrimaryKeyDataflowContract.register({
     driverName: "LibSQL batch-only",
-    createDriver: () => new BatchOnlyLibSQLDriver(),
-  });
-  runUpdateNestedUpsertBehavior({
-    name: "LibSQL transaction",
-    createDriver: createInMemoryLibSQLDriver,
-  });
-  runUpdateNestedUpsertBehavior({
-    name: "LibSQL atomic batch",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });
 });

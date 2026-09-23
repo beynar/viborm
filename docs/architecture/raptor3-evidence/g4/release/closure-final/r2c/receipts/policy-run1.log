@@ -1,0 +1,77 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (6 tests | 3 failed) 15508ms
+   ✓ MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create 179ms
+   ✓ MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate 70ms
+   × MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race 71ms
+     → expected [ …(2) ] to have a length of 1 but got 2
+   × MySQL2 concurrency policy > a native deadlock > the victim fails visibly, commits nothing, and leaves the survivor correct 68ms
+     → expected AggregateError: Transaction deadlock dete… { errors: [ …(3) ] } to be an instance of TransactionError
+   ✓ MySQL2 concurrency policy > a native deadlock > the same two transactions in the SAME order both succeed  15064ms
+   × MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle 56ms
+     → expected [ …(3) ] to deeply equal []
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race
+AssertionError: expected [ …(2) ] to have a length of 1 but got 2
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:331:47
+    329|       expect(rows).toHaveLength(1);
+    330|       expect(rows[0]).toMatchObject({ id: "occupant", slug: "occupied"…
+    331|       expect(inserts(loserDriver, TAG_TABLE)).toHaveLength(1);
+       |                                               ^
+    332|     });
+    333|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > a native deadlock > the victim fails visibly, commits nothing, and leaves the survivor correct
+AssertionError: expected AggregateError: Transaction deadlock dete… { errors: [ …(3) ] } to be an instance of TransactionError
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:373:23
+    371|       // The normalized provider failure, with its own attribution — n…
+    372|       // constraint error and not a success with partial data.
+    373|       expect(failure).toBeInstanceOf(TransactionError);
+       |                       ^
+    374|       expect(failure).not.toBeInstanceOf(UniqueConstraintError);
+    375|       expect((failure as TransactionError).code).toBe(VibORMErrorCode.…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle
+AssertionError: expected [ …(3) ] to deeply equal []
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "SAVEPOINT sp_39b39adf2b594d2fb03d797c49203329",[39m
+[31m+   "ROLLBACK TO SAVEPOINT sp_39b39adf2b594d2fb03d797c49203329",[39m
+[31m+   "RELEASE SAVEPOINT sp_39b39adf2b594d2fb03d797c49203329",[39m
+[31m+ ][39m
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:456:75
+    454|       // operation on the ONE pooled connection the caller's transacti…
+    455|       expect(inserts(borrowedDriver, TAG_TABLE)).toHaveLength(1);
+    456|       expect(statements.filter((statement) => SAVEPOINT.test(statement…
+       |                                                                           ^
+    457|         []
+    458|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+   Start at  10:33:19
+   Duration  17.36s (transform 1.14s, setup 10ms, collect 1.69s, tests 15.51s, environment 0ms, prepare 41ms)
+
+Vitest resources: 19.40s wall, 561.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

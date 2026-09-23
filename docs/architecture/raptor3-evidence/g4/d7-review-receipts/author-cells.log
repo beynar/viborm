@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/lone-statement-transport.test.ts (7 tests) 48ms
+ ✓ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (7 tests) 21ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  23:40:01
+   Duration  2.15s (transform 1.21s, setup 9ms, collect 1.86s, tests 69ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 4.31s wall, 576.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

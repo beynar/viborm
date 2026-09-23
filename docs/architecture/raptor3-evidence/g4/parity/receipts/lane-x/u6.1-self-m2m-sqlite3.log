@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-x
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests | 84 skipped) 36ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 84 skipped (85)
+   Start at  10:33:10
+   Duration  2.07s (transform 1.26s, setup 12ms, collect 1.86s, tests 36ms, environment 0ms, prepare 41ms)
+
+Vitest resources: 4.48s wall, 462.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

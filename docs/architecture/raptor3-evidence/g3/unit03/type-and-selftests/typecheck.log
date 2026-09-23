@@ -1,0 +1,52 @@
+
+> viborm@0.1.0 test:types /Users/arnaud/code/viborm
+> node scripts/run-typecheck.mjs
+
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g3/generation/bulk-scenario.ts(71,3): error TS2322: Type 'unknown' is not assignable to type 'number'.
+tests/raptor3/g3/generation/bulk-scenario.ts(148,9): error TS2322: Type '{ id: number; code: string; secret: string; score: number; label: string | undefined; }[]' is not assignable to type 'BulkRow[]'.
+  Type '{ id: number; code: string; secret: string; score: number; label: string | undefined; }' is not assignable to type 'BulkRow'.
+    Types of property 'label' are incompatible.
+      Type 'string | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.
+tests/raptor3/g3/generation/failure-minimization.test.ts(60,5): error TS2345: Argument of type '(record: ReplayRecord) => Promise<ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }>' is not assignable to parameter of type '(record: G0ReplayRecord) => Promise<void>'.
+  Type 'Promise<ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }>' is not assignable to type 'Promise<void>'.
+    Type 'ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }' is not assignable to type 'void'.
+      Type 'ObservedWorld' is not assignable to type 'void'.
+tests/raptor3/g3/generation/sqlite-campaign.ts(205,11): error TS2345: Argument of type '(record: ReplayRecord) => Promise<ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }>' is not assignable to parameter of type '(record: ReplayRecord) => Promise<void>'.
+  Type 'Promise<ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }>' is not assignable to type 'Promise<void>'.
+    Type 'ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }' is not assignable to type 'void'.
+      Type 'ObservedWorld' is not assignable to type 'void'.
+tests/raptor3/g3/generation/sqlite-campaign.ts(212,42): error TS2322: Type 'G0ReplayRecord | TransportReplayRecord | undefined' is not assignable to type 'ReplayRecord'.
+  Type 'undefined' is not assignable to type 'ReplayRecord'.
+tests/raptor3/g3/generation/transport-campaign.ts(170,11): error TS2345: Argument of type '(record: ReplayRecord) => Promise<ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }>' is not assignable to parameter of type '(record: ReplayRecord) => Promise<void>'.
+  Type 'Promise<ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }>' is not assignable to type 'Promise<void>'.
+    Type 'ObservedWorld | { record: TransportReplayRecord; observation: RunObservation; statements: StatementCompletion[]; fixture: { ...; }; }' is not assignable to type 'void'.
+      Type 'ObservedWorld' is not assignable to type 'void'.
+tests/raptor3/g3/generation/transport-campaign.ts(177,42): error TS2322: Type 'G0ReplayRecord | TransportReplayRecord | undefined' is not assignable to type 'ReplayRecord'.
+  Type 'undefined' is not assignable to type 'ReplayRecord'.
+tests/raptor3/g3/generation/transport-plans.ts(209,46): error TS2345: Argument of type '{ id: string; code: string; secret: string; score: number; label: string | undefined; }' is not assignable to parameter of type '{ id: string; code: string; label: string; secret: string; score: number; }'.
+  Types of property 'label' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+tests/raptor3/g3/generation/transport-scenario.ts(136,28): error TS18048: 'driver' is possibly 'undefined'.
+tests/raptor3/g3/scope-failure-contract.test.ts(87,60): error TS2554: Expected 3 arguments, but got 4.
+tests/raptor3/g3/scope-failure-contract.test.ts(220,13): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Type 'TestTransactionOperation<unknown>' is not assignable to type 'BatchTransactionOperation<unknown>'.
+      Type 'TestTransactionOperation<unknown>' is missing the following properties from type 'RawOperation<unknown>': [RAW_OPERATION], catch, [Symbol.toStringTag], finally
+tests/raptor3/g3/scope-failure-contract.test.ts(223,11): error TS2322: Type 'Promise<Settled<unknown>>' is not assignable to type 'Promise<Settled<unknown[]>>'.
+  Type 'Settled<unknown>' is not assignable to type 'Settled<unknown[]>'.
+    Type '{ readonly status: "fulfilled"; readonly value: unknown; }' is not assignable to type 'Settled<unknown[]>'.
+      Type '{ readonly status: "fulfilled"; readonly value: unknown; }' is not assignable to type '{ readonly status: "fulfilled"; readonly value: unknown[]; }'.
+        Types of property 'value' are incompatible.
+          Type 'unknown' is not assignable to type 'unknown[]'.
+TypeScript (whole estate, native): 12.49s wall, 5517.1 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+ ELIFECYCLE  Command failed with exit code 1.

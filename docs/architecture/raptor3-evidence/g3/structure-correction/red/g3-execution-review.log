@@ -1,0 +1,68 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (5 tests | 2 failed) 41ms
+   ✓ G3-02 execution boundary review > keeps standalone multi-statement createMany on its atomic batch route 24ms
+   × G3-02 execution boundary review > reads a supported incremented key when the public result omits it 8ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    4,
++   4,
++   4
+-   2
+  ]
+
+   × G3-02 execution boundary review > reads through a supported compound key transition with omitted result keys 4ms
+     → Driver 'sqlite3' cannot execute this operation because one indivisible statement needs 6 bound values, above the verified limit of 4.
+   ✓ G3-02 execution boundary review > partitions set inserts by compiled bind count and preserves result order 2ms
+   ✓ G3-02 execution boundary review > partitions non-returning terminal reads by bind count and preserves input order 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts > G3-02 execution boundary review > reads a supported incremented key when the public result omits it
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    4,
++   4,
++   4
+-   2
+  ]
+
+
+- Expected
++ Received
+
+  [
+    4,
+-   2,
++   4,
++   4,
+  ]
+
+ ❯ tests/raptor3/g3/review-execution-boundaries.test.ts:163:14
+    161|         ]
+    162|       );
+    163|       assert.deepEqual(
+       |              ^
+    164|         selectStatements(driver)
+    165|           .filter(({ parameters }) => parameters.length > 0)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts > G3-02 execution boundary review > reads through a supported compound key transition with omitted result keys
+UnsupportedOperationError: Driver 'sqlite3' cannot execute this operation because one indivisible statement needs 6 bound values, above the verified limit of 4.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  18:33:33
+   Duration  1.60s (transform 975ms, setup 8ms, collect 1.43s, tests 41ms, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ac8VS5/vitest.json
+Vitest resources: 3.57s wall, 515.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ac8VS5

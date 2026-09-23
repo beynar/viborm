@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 37ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  16:14:04
+   Duration  1.68s (transform 970ms, setup 9ms, collect 1.43s, tests 37ms, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ocW8so/vitest.json
+Vitest resources: 3.87s wall, 469.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-clearability-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ocW8so

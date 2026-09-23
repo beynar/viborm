@@ -1,0 +1,10 @@
+scripts/credential-free-test-manifest.mjs
+scripts/raptor3-campaign-receipts.test.mjs
+scripts/raptor3-cli.test.mjs
+scripts/raptor3-manifest.mjs
+scripts/run-raptor3.mjs
+tests/raptor3/g3/generation/recipe.ts
+tests/raptor3/g3/generation/sqlite-campaign.ts
+tests/raptor3/g3/generation/transport-campaign.ts
+tests/raptor3/transitions/live-world.ts
+vitest.workspace.ts

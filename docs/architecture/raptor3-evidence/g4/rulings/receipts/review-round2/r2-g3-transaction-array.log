@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 31ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  21:56:12
+   Duration  1.51s (transform 857ms, setup 8ms, collect 1.28s, tests 31ms, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp-ra/viborm-raptor3-g0-GvRTPV/vitest.json
+Vitest resources: 3.84s wall, 453.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-transaction-array contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp-ra/viborm-raptor3-g0-GvRTPV

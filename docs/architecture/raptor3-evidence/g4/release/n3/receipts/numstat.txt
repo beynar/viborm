@@ -1,0 +1,9 @@
+3	0	scripts/credential-free-test-manifest.mjs
+15	0	scripts/raptor3-manifest.mjs
+36	0	src/query-engine/raptor3/AGENTS.md
+42	7	src/query-engine/raptor3/commands/commands.ts
+25	6	src/query-engine/raptor3/commands/execution.ts
+15	0	src/query-engine/raptor3/commands/relation-body.ts
+91	53	src/query-engine/raptor3/shared/operation-context.ts
+168	7	tests/raptor3/g4/parity/lax-to-one.test.ts
+5	4	tests/raptor3/transitions/staleness.ts

@@ -44,10 +44,6 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
-import {
-  isRetryableRace,
-  markRaceable,
-} from "@src/query-engine/write-engine/race-retry";
 import { expectTypeOf } from "vitest";
 
 /**
@@ -288,40 +284,25 @@ describe("the retry policy reads the same switch", () => {
   });
 });
 
-describe("the routed race retry, now stated in classification terms", () => {
-  it("still retries a self-declared raceable guard abort", () => {
+describe("the raceable mark, stated in classification terms", () => {
+  it("classifies a self-declared raceable guard abort as a failure", () => {
     // The errors that actually carry meta.raceable: guard aborts raised as
     // NestedWriteError, or as TransactionError for the upsert skip premise
-    // (failureError, batch-error-attribution.ts). Both classify as expected.
+    // (createFailureError, batch-error-attribution.ts). Both classify as
+    // expected — the mark never turns a failure into something else.
     const abort = new NestedWriteError("premise changed", "posts");
     abort.meta.raceable = true;
     expect(classifyFailure(abort).kind).toBe("failure");
-    expect(isRetryableRace(abort)).toBe(true);
     const skipAbort = new TransactionError("skip premise changed");
     skipAbort.meta.raceable = true;
     expect(classifyFailure(skipAbort).kind).toBe("failure");
-    expect(isRetryableRace(skipAbort)).toBe(true);
   });
 
-  it("still retries an error the executor pinned, and nothing else", () => {
-    const pinned = new UniqueConstraintError("lost the create race");
-    expect(isRetryableRace(pinned)).toBe(false);
-    markRaceable(pinned);
-    expect(isRetryableRace(pinned)).toBe(true);
-    expect(isRetryableRace(new UniqueConstraintError("unrelated"))).toBe(false);
-  });
-
-  it("never retries a defect, whatever metadata it wears", () => {
+  it("classifies a defect as a defect, whatever metadata it wears", () => {
     // Not reachable today — nothing raises a V9001 with meta.raceable — but the disposition is
     // now explicit rather than incidental: a broken invariant is not a race.
     const defect = new QueryEngineError("invariant broken");
     defect.meta.raceable = true;
     expect(classifyFailure(defect).kind).toBe("defect");
-    expect(isRetryableRace(defect)).toBe(false);
-  });
-
-  it("never retries a raw throwable", () => {
-    expect(isRetryableRace(new Error("raw"))).toBe(false);
-    expect(isRetryableRace("boom")).toBe(false);
   });
 });

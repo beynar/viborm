@@ -1,0 +1,13 @@
+=== 22:06:32 rulings final verification on a3b76c503 ===
+typecheck exit=0 diagnostics=0
+core exit=1 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯  Test Files 1 failed | 399 passed (400)  Tests 1 failed | 8387 passed (8388) 
+provider-local exit=0  Test Files 7 passed | 5 skipped (12)  Tests 764 passed | 664 skipped (1428) 
+provider-pg exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 25 ⎯⎯⎯⎯⎯⎯⎯  Test Files 2 failed | 2 passed (4)  Tests 25 failed | 426 passed | 7 skipped (458) 
+provider-mysql exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 165 ⎯⎯⎯⎯⎯⎯  Test Files 6 failed | 2 passed (8)  Tests 165 failed | 575 passed | 1 skipped (741) 
+=== 22:10:03 group estate finished ===
+pg: parity red=26 rulings red=25 REGRESSIONS=0 newly-green=1
+mysql: parity red=165 rulings red=165 REGRESSIONS=0 newly-green=0
+g2-transport exit=0 Vitest resources: 3.55s wall, 649.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-transport contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-Qr9qlP 
+=== 22:13:51 group fixed finished ===
+fixed: 59 green, 0 red
+=== 22:13:51 rulings final verification done ===

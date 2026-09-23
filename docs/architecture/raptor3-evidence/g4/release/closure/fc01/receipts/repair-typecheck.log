@@ -1,0 +1,3 @@
+# Repair round (2026-09-21) — typecheck once, whole estate, on the FINAL tree
+# (re-run after the last comment reflow in operation-context.ts).
+TypeScript (whole estate, native): 7.00s wall, 4172.2 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

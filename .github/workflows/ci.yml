@@ -171,12 +171,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # scripts/coverage-policy.test.mjs, scripts/bounded-process.test.mjs and
-      # scripts/test-run-lock.test.mjs are the regression tests behind manifest
-      # completeness, the hard heap and RSS ceilings, verified teardown, and the
-      # workspace lock. They run first and on every pull request so none of that
-      # can regress while the rest of CI stays green. Each one runs bounded
-      # through scripts/run-node-safe.mjs with a 512 MB heap and a 60 s wall.
+      # scripts/coverage-policy.test.mjs, scripts/bounded-process.test.mjs,
+      # scripts/test-run-lock.test.mjs and scripts/raptor3-refusal-census.test.mjs
+      # are the regression tests behind manifest completeness, the hard heap and
+      # RSS ceilings, verified teardown, the workspace lock, and the refusal
+      # census reading the sentences a site builds and throws through the
+      # engine's failure owner. They run first and on every pull request so none
+      # of that can regress while the rest of CI stays green. Each one runs
+      # bounded through scripts/run-node-safe.mjs with a 512 MB heap and a 60 s
+      # wall.
       - name: Run runner and coverage policy gates
         run: pnpm test:coverage:policy
 

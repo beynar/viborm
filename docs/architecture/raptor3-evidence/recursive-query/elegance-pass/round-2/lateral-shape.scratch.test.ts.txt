@@ -1,0 +1,63 @@
+// SCRATCH (outside the repository): the recursive statement text on every
+// dialect, lowered through the ordinary command engine with provider-less
+// drivers. PostgreSQL and MySQL take the LATERAL arm F38 rewrites; SQLite takes
+// the scalar arm. Writes each shape's SQL text and bind values to $SQL_SHAPE_OUT.
+import { writeFileSync } from "node:fs";
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { s } from "@schema";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { GRAPH_WORLD, providerSchema } from "@tests/raptor3/recursive-query/provider-sql-fixture";
+import { it } from "vitest";
+
+class Observed extends SqlOnlyDriver {
+  readonly seen: { sql: string; values: unknown[] }[] = [];
+  protected override async execute<T>(_client: null, statement: string, parameters: unknown[]): Promise<{ rows: T[]; rowCount: number }> {
+    this.seen.push({ sql: statement, values: parameters });
+    return { rows: [], rowCount: 0 };
+  }
+}
+
+const tree = s
+  .model({
+    id: s.string().id(),
+    parentId: s.string().nullable().map("parent_id"),
+    rank: s.int(),
+    parent: s.toOne(() => tree).fields("parentId").references("id").name("rq07m"),
+    children: s.toMany(() => tree).name("rq07m"),
+  })
+  .map("rq07_measure_nodes");
+
+const schemas = { tree: { tree }, graph: GRAPH_WORLD.schema, provider: providerSchema } as const;
+const shapes = [
+  { label: "tree bounded", schema: "tree", model: "tree", op: "findUnique", where: { id: "c2" }, relation: "children", recurse: { depth: 2 }, extra: { orderBy: { rank: "asc" } } },
+  { label: "tree exhaustive", schema: "tree", model: "tree", op: "findUnique", where: { id: "c2" }, relation: "children", recurse: { depth: false }, extra: { orderBy: { rank: "asc" } } },
+  { label: "tree upward singular bounded", schema: "tree", model: "tree", op: "findUnique", where: { id: "c2" }, relation: "parent", recurse: { depth: 32 }, extra: {} },
+  { label: "tree multi-root findMany", schema: "tree", model: "tree", op: "findMany", where: {}, relation: "children", recurse: { depth: 3 }, extra: { orderBy: { rank: "desc" } } },
+  { label: "graph bounded, prevention off", schema: "graph", model: "vertex", op: "findUnique", where: { id: "k0" }, relation: "out", recurse: { depth: 8, preventCycles: false }, extra: { orderBy: { rank: "asc" } } },
+  { label: "graph exhaustive", schema: "graph", model: "vertex", op: "findUnique", where: { id: "k0" }, relation: "out", recurse: { depth: false }, extra: { orderBy: { rank: "asc" } } },
+  { label: "compound mapped key, multi-root", schema: "provider", model: "node", op: "findMany", where: {}, relation: "children", recurse: { depth: 2 }, extra: { orderBy: { rank: "asc" } } },
+] as const;
+const dialects = [
+  ["postgresql", () => new PostgresAdapter("public", true)],
+  ["mysql", () => new MySQLAdapter()],
+  ["sqlite", () => new SQLiteAdapter()],
+] as const;
+
+it("renders the recursive statement text on every dialect", async () => {
+  const out: Record<string, unknown>[] = [];
+  for (const [dialect, adapter] of dialects) {
+    for (const shape of shapes) {
+      const driver = new Observed(adapter(), dialect, "lateral-shape");
+      const engine = createCommandEngine({ schema: schemas[shape.schema] as never, driver });
+      const args = { where: shape.where, select: { [shape.relation]: { recurse: shape.recurse, ...shape.extra, select: { rank: true } } } };
+      await engine.execute(shape.model, shape.op, args);
+      if (driver.seen.length !== 1) throw new Error(`${dialect} ${shape.label}: ${driver.seen.length} statements`);
+      const [statement] = driver.seen;
+      out.push({ dialect, label: shape.label, chars: statement!.sql.length, sql: statement!.sql, values: statement!.values });
+    }
+  }
+  writeFileSync(process.env.SQL_SHAPE_OUT!, JSON.stringify(out, null, 1));
+});

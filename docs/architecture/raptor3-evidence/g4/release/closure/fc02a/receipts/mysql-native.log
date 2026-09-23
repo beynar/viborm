@@ -1,0 +1,41 @@
+# FC-02A — the native MySQL qualification (local docker, 127.0.0.1:55731).
+#
+# The connection string is read from a file and never printed, logged or copied.
+# The suite owns five `fc02a_*` tables, creates them verbatim and drops only
+# those; no schema was pushed and no database was dropped.
+#
+# Command (run twice, once per tree state):
+#   MYSQL_TEST_CONNECTION_STRING="$(cat /private/tmp/viborm-m1-env/mysql)" \
+#     node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts \
+#     --project=provider-mysql2 tests/providers/docker/mysql2-cascaded-identity.test.ts
+#
+# The two outputs below are transcribed verbatim from the executed runs; the
+# shared database was not touched a third time to re-capture them to a file.
+
+=== AFTER (the repaired tree) ===
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02a
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-cascaded-identity.test.ts (4 tests) 273ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  22:07:29
+   Duration  1.88s (transform 941ms, setup 9ms, collect 1.38s, tests 273ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 3.70s wall, 479.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+=== BEFORE (falsification A: the base's behavior restored in a backup copy) ===
+
+   × FC-02A: the cascaded current identity on native MySQL > reads the holder back at the identity the cascade left it at 46ms
+     → UPDATE did not produce the required record
+   × FC-02A: the cascaded current identity on native MySQL > names every member of a compound cascade at the readback 33ms
+     → UPDATE did not produce the required record
+   × FC-02A: the cascaded current identity on native MySQL > binds a descendant under the moved holder to the new key 24ms
+     → UPDATE did not produce the required record
+   ✓ FC-02A: the cascaded current identity on native MySQL > leaves a holder no arm moved at the key it was located by 29ms
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-cascaded-identity.test.ts > FC-02A: the cascaded current identity on native MySQL > reads the holder back at the identity the cascade left it at
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-cascaded-identity.test.ts > FC-02A: the cascaded current identity on native MySQL > names every member of a compound cascade at the readback
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-cascaded-identity.test.ts > FC-02A: the cascaded current identity on native MySQL > binds a descendant under the moved holder to the new key
+      Tests  3 failed | 1 passed (4)

@@ -7,12 +7,18 @@ import {
   ASSERTION_MARKER,
   batchMayContainAssertionCollision,
 } from "@drivers/error-mapping";
+import {
+  bindExecutionTransactionPhases,
+  deriveStatementExecutionContext,
+  getExecutionTransactionPhases,
+} from "@drivers/execution-context";
 import { normalizePostgresRowCount } from "@drivers/shared/postgres-result";
 import {
   nestedTransactionDispatchError,
   runSavepoint,
   unsupportedCallbackTransactionError,
 } from "@drivers/shared/transactions";
+import type { QueryExecutionContext } from "@drivers/types";
 import { QueryError, UnsupportedOperationError } from "@errors";
 import { sql } from "@sql";
 import { describe, expect, test, vi } from "vitest";
@@ -242,5 +248,49 @@ describe("savepoint lifecycle", () => {
       `ROLLBACK TO SAVEPOINT ${savepoint}`,
       `RELEASE SAVEPOINT ${savepoint}`,
     ]);
+  });
+});
+
+/**
+ * A caller's execution context is an ordinary object literal, not a context
+ * this owner made: `client/array-transaction.ts` binds phases on
+ * `context ?? {}`, and the raptor3 route derives a statement context from
+ * whatever the caller passed. Neither can carry the private values, so an
+ * untrusted context is SNAPSHOTTED — its public fields re-read as strings —
+ * and the private ones start empty on the trusted context that replaces it.
+ */
+describe("execution context derived from an untrusted caller context", () => {
+  const caller: QueryExecutionContext = {
+    correlationId: "caller-correlation",
+    model: "author",
+    operation: "findMany",
+  };
+
+  test("a derived statement context re-attributes the model and keeps the rest", () => {
+    const derived = deriveStatementExecutionContext(caller, "post");
+    expect(derived).not.toBe(caller);
+    expect({ ...derived }).toEqual({
+      correlationId: "caller-correlation",
+      model: "post",
+      operation: "findMany",
+    });
+    expect(getExecutionTransactionPhases(derived)).toBeUndefined();
+  });
+
+  test("binding phases on an untrusted context attaches them privately", () => {
+    const phases = { readyToCommit: vi.fn(), committed: vi.fn() };
+    const bound = bindExecutionTransactionPhases(caller, phases);
+
+    expect(bound).not.toBe(caller);
+    expect({ ...bound }).toEqual({
+      correlationId: "caller-correlation",
+      model: "author",
+      operation: "findMany",
+    });
+    // Readable only through the owner, never off the object, and never
+    // retroactively attached to the caller's own context.
+    expect(bound).not.toHaveProperty("transactionPhases");
+    expect(getExecutionTransactionPhases(bound)).toBe(phases);
+    expect(getExecutionTransactionPhases(caller)).toBeUndefined();
   });
 });

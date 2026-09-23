@@ -1,0 +1,5 @@
+control (as measured): ACCEPTED
+changed-SQL specimen (must be accepted): ACCEPTED
+wrong-result specimen (must be refused): REFUSED — ["sqlite3","scalar-find-unique"] changed outcome
+wrong-final-state specimen (must be refused): REFUSED — ["sqlite3","scalar-find-unique"] changed final
+workload=scalar-find-unique/full VERDICT=FALSIFIERS HOLD

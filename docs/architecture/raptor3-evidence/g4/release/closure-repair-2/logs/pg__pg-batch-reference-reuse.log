@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+(node:59981) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-batch-reference-reuse.test.ts (6 tests) 6372ms
+   ✓ pg Driver batch reference reuse > a key recycled onto another row before the unit cannot move the connection  1013ms
+   ✓ pg Driver batch reference reuse > a COMPOUND key recycled before the unit cannot move the connection, in either member  878ms
+   ✓ pg Driver batch reference reuse > the unit's premise HOLDS the located row through the statement that spends it  1830ms
+   ✓ pg Driver batch reference reuse > a located target that disappears before the unit aborts it with the arm's own failure  760ms
+   ✓ pg Driver batch reference reuse > a reference nulled before the unit is refused by the relation's own sentence, and the NULL is never written  770ms
+   ✓ pg Driver batch reference reuse > an uncontended found consumption commits its ordinary result on the forced batch profile  795ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  01:32:36
+   Duration  7.92s (transform 936ms, setup 10ms, collect 1.41s, tests 6.37s, environment 0ms, prepare 27ms)
+
+Vitest resources: 9.75s wall, 506.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

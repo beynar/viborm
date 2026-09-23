@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/lateral-shape.scratch.test.ts (1 test) 20ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:30:00
+   Duration  1.56s (transform 919ms, setup 14ms, collect 1.37s, tests 20ms, environment 0ms, prepare 52ms)
+
+Vitest resources: 2.09s wall, 396.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,201 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests | 3 failed) 69ms
+   × G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested child update whose key names set beside an operator 33ms
+     → candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":11,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
+      {
++       id: 11,
+-       id: 10,
+        name: 'i',
+        ownerId: 1
+      }
+    ],
+    owners: [
+
+   × G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested child upsert whose key names set beside an operator 12ms
+     → candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":11,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
+      {
++       id: 11,
+-       id: 10,
+        name: 'i',
+        ownerId: 1
+      }
+    ],
+    owners: [
+
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested updateMany member whose key names set beside an operator 4ms
+   × G4-02 — R-D2 (c) at the nested sites (decisions round 2) > answers the arity sentence when a nested child key names nothing 7ms
+     → candidate {"answer":"QueryEngineError: Unknown update operation: ","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Unknown update operation: ',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.",
+    items: [
+      {
+        id: 10,
+        name: 'i',
+        ownerId: 1
+
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > leaves a nested child key naming exactly one operation reachable 11ms
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > answers the shipped sentence for a relation-free root upsert whose key names nothing 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts > G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested child update whose key names set beside an operator
+AssertionError: candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":11,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
+      {
++       id: 11,
+-       id: 10,
+        name: 'i',
+        ownerId: 1
+      }
+    ],
+    owners: [
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,10 +1,10 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",[39m
+[31m+   "answer": "ok:{\"id\":1,\"label\":\"o\"}",[39m
+[2m    "items": [[22m
+[2m      {[22m
+[32m-       "id": 10,[39m
+[31m+       "id": 11,[39m
+[2m        "name": "i",[22m
+[2m        "ownerId": 1,[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "owners": [[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/nested-key-refusal.test.ts:123:10
+    121|   const candidate = await run("candidate", model, operation, args);
+    122|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    123|   assert.deepEqual(
+       |          ^
+    124|     candidate,
+    125|     shipped,
+ ❯ tests/raptor3/g4/unit02/nested-key-refusal.test.ts:140:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts > G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested child upsert whose key names set beside an operator
+AssertionError: candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":11,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
+      {
++       id: 11,
+-       id: 10,
+        name: 'i',
+        ownerId: 1
+      }
+    ],
+    owners: [
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,10 +1,10 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",[39m
+[31m+   "answer": "ok:{\"id\":1,\"label\":\"o\"}",[39m
+[2m    "items": [[22m
+[2m      {[22m
+[32m-       "id": 10,[39m
+[31m+       "id": 11,[39m
+[2m        "name": "i",[22m
+[2m        "ownerId": 1,[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "owners": [[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/nested-key-refusal.test.ts:123:10
+    121|   const candidate = await run("candidate", model, operation, args);
+    122|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    123|   assert.deepEqual(
+       |          ^
+    124|     candidate,
+    125|     shipped,
+ ❯ tests/raptor3/g4/unit02/nested-key-refusal.test.ts:158:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts > G4-02 — R-D2 (c) at the nested sites (decisions round 2) > answers the arity sentence when a nested child key names nothing
+AssertionError: candidate {"answer":"QueryEngineError: Unknown update operation: ","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Unknown update operation: ',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.",
+    items: [
+      {
+        id: 10,
+        name: 'i',
+        ownerId: 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.",[39m
+[31m+   "answer": "QueryEngineError: Unknown update operation: ",[39m
+[2m    "items": [[22m
+[2m      {[22m
+[2m        "id": 10,[22m
+[2m        "name": "i",[22m
+[2m        "ownerId": 1,[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/nested-key-refusal.test.ts:123:10
+    121|   const candidate = await run("candidate", model, operation, args);
+    122|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    123|   assert.deepEqual(
+       |          ^
+    124|     candidate,
+    125|     shipped,
+ ❯ tests/raptor3/g4/unit02/nested-key-refusal.test.ts:198:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+   Start at  18:59:10
+   Duration  2.23s (transform 1.40s, setup 10ms, collect 2.03s, tests 69ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 2.78s wall, 479.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

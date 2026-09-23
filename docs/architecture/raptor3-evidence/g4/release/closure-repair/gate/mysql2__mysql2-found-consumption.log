@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts (12 tests) 3664ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the confirmation's lock > holds the FOUND row through the consuming effect  1212ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  22:02:42
+   Duration  5.03s (transform 838ms, setup 8ms, collect 1.24s, tests 3.66s, environment 0ms, prepare 26ms)
+
+Vitest resources: 6.71s wall, 608.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

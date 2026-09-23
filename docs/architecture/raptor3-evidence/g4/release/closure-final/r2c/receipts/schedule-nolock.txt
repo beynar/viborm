@@ -1,0 +1,17 @@
+# counterfactual: probe WITHOUT 'FOR UPDATE'; each transaction commits when its own work is done (A=conn75 B=conn76)
+A: probe -> 0 rows
+B: probe -> 0 rows
+## locks @ after both probes
+A: INSERT 'plain-race-1' -> ok
+B: INSERT 'plain-race-2' -> pending (blocked on A's uncommitted key)
+## locks @ B waiting on the duplicate key
+   A  TABLE IX GRANTED idx=- data=-
+   B  TABLE IX GRANTED idx=- data=-
+   B  RECORD S WAITING idx=r2c_sched_tags_name_key data='plain-race', 'plain-race-1'
+   B  RECORD X,REC_NOT_GAP GRANTED idx=r2c_sched_tags_name_key data='plain-race', 'plain-race-1'
+A: COMMIT (its own operation is done)
+B: INSERT result -> ER_DUP_ENTRY/1062
+B: ROLLBACK (the engine's recovery re-runs the operation)
+B: re-probe (retry) -> 1 row(s) {"id":"plain-race-1","name":"plain-race","count":1}
+B: UPDATE + COMMIT (update arm)
+# final rows: [{"id":"plain-race-1","name":"plain-race","count":20}]

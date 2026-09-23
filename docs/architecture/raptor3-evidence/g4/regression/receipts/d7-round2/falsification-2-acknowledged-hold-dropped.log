@@ -1,0 +1,324 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (10 tests | 1 failed) 66ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 25ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 6ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 6ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 2ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 8. a malformed result AND a throwing listener: the refusal stays primary 2ms
+   × G4-02 — an uncertain outcome is not a record series > 9. the same pair on the BATCH transport keeps the refusal primary too 9ms
+     → {
+  "candidate": {
+    "batches": 1,
+    "failure": {
+      "code": "V10004",
+      "kind": "CacheConfigurationError",
+      "meta": {
+        "commitCertainty": "committed",
+        "method": "invalidate",
+        "model": "owner",
+        "operation": "createMany",
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "result",
+          "committedSegments": 1,
+          "completedMembers": 0,
+          "committedWriteMembers": 1
+        }
+      }
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "a"
+      },
+      {
+        "id": 22,
+        "owner_label": "b"
+      }
+    ]
+  },
+  "shipped": {
+    "batches": 1,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "createMany",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "createMany",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "createMany"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "a"
+      },
+      {
+        "id": 22,
+        "owner_label": "b"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
++   code: 'V10004',
++   kind: 'CacheConfigurationError',
++   meta: {
++     commitCertainty: 'committed',
++     method: 'invalidate',
++     model: 'owner',
++     operation: 'createMany'
+-   cause: {
+-     code: 'V9001',
+-     kind: 'QueryEngineError',
+-     meta: {
+-       driver: 'sqlite3',
+-       operation: 'createMany',
+-       scalarType: 'int'
+-     }
+    },
+-   errors: [
+-     {
+-       code: 'V9001',
+-       kind: 'QueryEngineError',
+-       meta: {
+-         driver: 'sqlite3',
+-         operation: 'createMany',
+-         scalarType: 'int'
+-       }
+-     },
+-     {
+-       code: 'V10004',
+-       kind: 'CacheConfigurationError',
+-       meta: {
+-         commitCertainty: 'committed',
+-         method: 'invalidate',
+-         model: 'owner',
+-         operation: 'createMany'
+-       }
+-     }
+-   ],
+-   kind: 'AggregateError',
+-   message: 'Query execution and write-outcome publication both failed.'
+  }
+
+   ✓ G4-02 — an uncertain outcome is not a record series > 10. a split write inside the operation's OWN region tells the cache nothing 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 9. the same pair on the BATCH transport keeps the refusal primary too
+AssertionError: {
+  "candidate": {
+    "batches": 1,
+    "failure": {
+      "code": "V10004",
+      "kind": "CacheConfigurationError",
+      "meta": {
+        "commitCertainty": "committed",
+        "method": "invalidate",
+        "model": "owner",
+        "operation": "createMany",
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "result",
+          "committedSegments": 1,
+          "completedMembers": 0,
+          "committedWriteMembers": 1
+        }
+      }
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "a"
+      },
+      {
+        "id": 22,
+        "owner_label": "b"
+      }
+    ]
+  },
+  "shipped": {
+    "batches": 1,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "createMany",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "createMany",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "createMany"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 21,
+        "owner_label": "a"
+      },
+      {
+        "id": 22,
+        "owner_label": "b"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
++   code: 'V10004',
++   kind: 'CacheConfigurationError',
++   meta: {
++     commitCertainty: 'committed',
++     method: 'invalidate',
++     model: 'owner',
++     operation: 'createMany'
+-   cause: {
+-     code: 'V9001',
+-     kind: 'QueryEngineError',
+-     meta: {
+-       driver: 'sqlite3',
+-       operation: 'createMany',
+-       scalarType: 'int'
+-     }
+    },
+-   errors: [
+-     {
+-       code: 'V9001',
+-       kind: 'QueryEngineError',
+-       meta: {
+-         driver: 'sqlite3',
+-         operation: 'createMany',
+-         scalarType: 'int'
+-       }
+-     },
+-     {
+-       code: 'V10004',
+-       kind: 'CacheConfigurationError',
+-       meta: {
+-         commitCertainty: 'committed',
+-         method: 'invalidate',
+-         model: 'owner',
+-         operation: 'createMany'
+-       }
+-     }
+-   ],
+-   kind: 'AggregateError',
+-   message: 'Query execution and write-outcome publication both failed.'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "cause": {[39m
+[32m-     "code": "V9001",[39m
+[32m-     "kind": "QueryEngineError",[39m
+[32m-     "meta": {[39m
+[32m-       "driver": "sqlite3",[39m
+[32m-       "operation": "createMany",[39m
+[32m-       "scalarType": "int",[39m
+[32m-     },[39m
+[32m-   },[39m
+[32m-   "errors": [[39m
+[32m-     {[39m
+[32m-       "code": "V9001",[39m
+[32m-       "kind": "QueryEngineError",[39m
+[32m-       "meta": {[39m
+[32m-         "driver": "sqlite3",[39m
+[32m-         "operation": "createMany",[39m
+[32m-         "scalarType": "int",[39m
+[32m-       },[39m
+[32m-     },[39m
+[32m-     {[39m
+[2m    "code": "V10004",[22m
+[2m    "kind": "CacheConfigurationError",[22m
+[2m    "meta": {[22m
+[2m      "commitCertainty": "committed",[22m
+[2m      "method": "invalidate",[22m
+[2m      "model": "owner",[22m
+[2m      "operation": "createMany",[22m
+[32m-       },[39m
+[2m    },[22m
+[32m-   ],[39m
+[32m-   "kind": "AggregateError",[39m
+[32m-   "message": "Query execution and write-outcome publication both failed.",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:646:12
+    644|     const diagnostic = JSON.stringify({ candidate, shipped }, undefine…
+    645|     assert.equal(candidate.batches, 1, diagnostic);
+    646|     assert.deepEqual(
+       |            ^
+    647|       withoutProgress(candidate.failure),
+    648|       withoutProgress(shipped.failure),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  00:22:19
+   Duration  2.21s (transform 1.31s, setup 8ms, collect 1.90s, tests 66ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 4.43s wall, 578.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,5 @@
+TypeScript (whole estate, native): 6.19s wall, 5079.7 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+
+# repair round, 2026-09-21T08:44Z — re-run after the two script repairs
+TypeScript (whole estate, native): 5.62s wall, 5078.1 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+exit=0, 0 diagnostics.

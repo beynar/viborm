@@ -1,0 +1,75 @@
+{
+  "formatVersion": 1,
+  "milestone": "g4",
+  "attempt": 6,
+  "purpose": "Prove attempt 6's two special support receipts were taken on the frozen bytes: the source-cost census in the lane-5 worktree, the CLI self-test in the main tree, both against g4/freeze/identity.json",
+  "frozenIdentity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
+  },
+  "laneFiveIdentity": {
+    "receipt": "support/source-cost-lane5-identity.json",
+    "role": "the lane-5 worktree the source-cost census was measured in",
+    "present": true,
+    "capturedAt": null,
+    "equalToFreeze": true
+  },
+  "mainTreeIdentity": {
+    "receipt": "support/main-tree-identity.json",
+    "role": "the main tree the CLI self-test ran in",
+    "present": false
+  },
+  "cliSelfTest": {
+    "receipt": "support/cli-selftest.log",
+    "pass": 10,
+    "fail": 0,
+    "keptFirstAttempt": "support/cli-selftest.attempt1-red.log",
+    "firstAttemptCounts": {
+      "pass": 9,
+      "fail": 1
+    },
+    "reRunAlone": true,
+    "why": "The outer-watchdog cell is a race against a real process reaching its wait; under six live campaign lanes it loses. The sequencer re-runs the file alone after the campaigns when the first attempt is red, and keeps the red log whole."
+  },
+  "sourceCost": {
+    "receipt": "support/source-cost.json",
+    "sha256": "bcef78fdb870e15895e6b9fe54c2c9c681e912980d06531e746b900a0a1f365b",
+    "status": "source-accounted-bundle-pending",
+    "sourceCommit": "ff5e77ca5f37e747d45460b588b573b72790f1b8",
+    "sourceClean": false,
+    "charged": {
+      "files": 171,
+      "bytes": 2518074,
+      "physicalLines": 71146,
+      "tokenLines": 53890
+    },
+    "navigationSubtotal": {
+      "files": 147,
+      "bytes": 2201864,
+      "physicalLines": 62274,
+      "tokenLines": 47710
+    },
+    "censusOwner": "scripts/query-engine-structure.mjs",
+    "censusFunctionSha256": "15889231a22297fcf001ae22ca01e6e8c9cd7489dd635c60529dfdc0ac06461e",
+    "measuredIn": "lane-5 worktree (/private/tmp/viborm-g4-lane-5)",
+    "toolDefectUnpatched": "scripts/measure-raptor3-baseline.mjs still dies with spawnSync git ENOBUFS in the main tree (git status --porcelain past Node's default 1 MiB maxBuffer at line 318); the tool was not modified, the measurement was taken in a worktree whose own status output is small",
+    "keptFirstAttempt": null,
+    "censusReadFrozenBytes": {
+      "label": "source-cost.json#files (the token-line census)",
+      "files": 581,
+      "outsideIdentity": [],
+      "differingFromFreeze": []
+    },
+    "toolSourceAttestation": {
+      "label": "source-cost.json#source.sourceIdentity.files (the tool's own source attestation)",
+      "files": 658,
+      "outsideIdentity": [
+        "biome.jsonc",
+        "tsdown.config.ts"
+      ],
+      "differingFromFreeze": []
+    },
+    "filesOutsideIdentityAreConfigOnly": "captureRaptor3Identity does not hash biome.jsonc or tsdown.config.ts; they are the only files the tool's own attestation covers and the identity does not"
+  },
+  "verdict": "the lane-5 census read the frozen bytes and the CLI self-test is green"
+}

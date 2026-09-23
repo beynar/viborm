@@ -1,0 +1,2 @@
+carries a generated parent key to its nested creates in one native batch, through the INSERT's own RETURNING :: [UNIT] 7
+carries the key to a nested createMany across the series' committed segments :: [UNIT] 7

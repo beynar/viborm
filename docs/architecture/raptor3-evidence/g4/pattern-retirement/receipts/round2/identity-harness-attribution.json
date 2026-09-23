@@ -1,0 +1,12 @@
+{
+  "question": "harness fingerprint with ONLY this unit's reviewer probes excluded",
+  "excluded": [
+    "tests/raptor3/g4/review/pattern-retirement/dropped-gate-cells.review.test.ts",
+    "tests/raptor3/g4/review/pattern-retirement/retirement-closure.review.test.ts",
+    "tests/raptor3/g4/review/pattern-retirement/type-anchor-parity.review.test.ts",
+    "tests/raptor3/g4/review/pattern-retirement/vitest.review.config.ts"
+  ],
+  "harnessWithoutPatternRetirementProbes": "da070a15ff1ceed4bf0c03b981194579f8f45bcdd381702d9d4df79db5340ea9",
+  "round1Harness": "da070a15ff1ceed4bf0c03b981194579f8f45bcdd381702d9d4df79db5340ea9",
+  "equalsRound1": true
+}

@@ -22,6 +22,7 @@ import { validateRawParameters } from "@drivers/provider-parameter-snapshot";
 import {
   InvalidTransactionInputError,
   QueryError,
+  retainWriteOutcomeFailure,
   VibORMErrorCode,
 } from "@errors";
 import {
@@ -32,7 +33,6 @@ import { observeOperation } from "@extensions/observation";
 import {
   executePreparedQuery,
   type RawQueryKind,
-  retainWriteOutcomeFailure,
   type WriteOutcomeNotifications,
 } from "@extensions/query";
 import {

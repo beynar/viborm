@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/d14-publication.review.test.ts (9 tests) 29ms
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/routed-operations-authority.review.test.ts (4 tests) 7ms
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/one-owner-every-lineage.review.test.ts (3 tests) 6ms
+
+ Test Files  3 passed (3)
+      Tests  16 passed (16)
+   Start at  00:17:30
+   Duration  1.96s (transform 1.09s, setup 15ms, collect 1.76s, tests 41ms, environment 0ms, prepare 44ms)
+
+Vitest resources: 2.49s wall, 445.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

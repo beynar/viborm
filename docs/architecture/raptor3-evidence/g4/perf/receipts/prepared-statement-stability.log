@@ -1,0 +1,10 @@
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/prepared-statement-stability.test.ts (3 tests) 29ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  11:09:41
+   Duration  1.99s (transform 1.19s, setup 9ms, collect 1.74s, tests 29ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.41s wall, 564.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

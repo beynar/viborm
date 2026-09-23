@@ -1,0 +1,108 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (10 tests | 1 failed) 63ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 25ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 2ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 8. a malformed result AND a throwing listener: the refusal stays primary 2ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 9. the same pair on the BATCH transport keeps the refusal primary too 5ms
+   × G4-02 — an uncertain outcome is not a record series > 10. a split write inside the operation's OWN region tells the cache nothing 8ms
+     → {
+  "candidate": {
+    "batches": 0,
+    "failure": {
+      "code": "V9001",
+      "kind": "QueryEngineError",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "createMany",
+        "scalarType": "int"
+      }
+    },
+    "invalidations": 1,
+    "rows": []
+  },
+  "shipped": {
+    "batches": 0,
+    "failure": {
+      "code": "V9001",
+      "kind": "QueryEngineError",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "createMany",
+        "scalarType": "int"
+      }
+    },
+    "invalidations": 0,
+    "rows": []
+  }
+}
+
+1 !== 0
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 10. a split write inside the operation's OWN region tells the cache nothing
+AssertionError: {
+  "candidate": {
+    "batches": 0,
+    "failure": {
+      "code": "V9001",
+      "kind": "QueryEngineError",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "createMany",
+        "scalarType": "int"
+      }
+    },
+    "invalidations": 1,
+    "rows": []
+  },
+  "shipped": {
+    "batches": 0,
+    "failure": {
+      "code": "V9001",
+      "kind": "QueryEngineError",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "createMany",
+        "scalarType": "int"
+      }
+    },
+    "invalidations": 0,
+    "rows": []
+  }
+}
+
+1 !== 0
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:684:12
+    682|       `the shipped engine publishes no durable write for a rolled-back…
+    683|     );
+    684|     assert.equal(candidate.invalidations, shipped.invalidations, diagn…
+       |            ^
+    685|     assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
+    686|     assert.deepEqual(candidate.rows, [], diagnostic);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  00:22:29
+   Duration  2.56s (transform 1.43s, setup 9ms, collect 2.18s, tests 63ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 4.82s wall, 577.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

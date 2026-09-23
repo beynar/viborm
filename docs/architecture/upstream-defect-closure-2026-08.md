@@ -59,7 +59,7 @@ survived verification; fourteen were fixed in the same round:
 - `$transaction([...])` shared batches derive the same per-statement execution
   context as standalone execution, so provider failures name the same model on
   every route (engine-owned guards/postconditions keep operation attribution on
-  both — documented in ATOM.md);
+  both — documented in `docs/architecture/retired/write-engine-ATOM.md`);
 - the SQLite adapter's duplicate DateTime refusal was deleted because the
   physical codec makes REAL/Julian crossing total to the millisecond across the
   public domain (one guard per invariant); an unreachable bigint re-check in

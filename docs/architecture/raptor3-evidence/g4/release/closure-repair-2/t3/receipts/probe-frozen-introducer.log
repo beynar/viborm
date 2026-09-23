@@ -1,0 +1,4 @@
+reader session={"c":"utf8mb4","cc":"utf8mb4","r":"utf8mb4"}
+note: "_latin1\\'plain\\'" codes=5f 6c 61 74 69 6e 31 5c 27 70 6c 61 69 6e 5c 27
+accent: "_latin1\\'café\\'" codes=5f 6c 61 74 69 6e 31 5c 27 63 61 66 e9 5c 27
+SHOW CREATE: "CREATE TABLE `tm_frozen_introducer` (\n  `id` int NOT NULL,\n  `note` text NOT NULL DEFAULT (_latin1'plain'),\n  `accent` text NOT NULL DEFAULT (_latin1'caf?'),\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"

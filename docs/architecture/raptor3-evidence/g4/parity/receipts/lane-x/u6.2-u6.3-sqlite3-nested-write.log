@@ -1,0 +1,176 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-x
+
+ ❯ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests | 8 failed) 338ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > declares an atomic strategy for nested writes 22ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > rejects default-only createMany duplicate skipping before writing 8ms
+   × SQLite3 Driver > SQLite3 nested write behavior > rejects nested default-only duplicate skipping before the parent write 11ms
+     → promise resolved "{ id: 'default-only-parent' }" instead of rejecting
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > create derives to-one and to-many foreign keys 6ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > create connects and connect-or-creates nullable children 6ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > update creates, createManys, and connects children 6ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > update disconnects and sets nullable children 5ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > update and updateMany keep child mutations parent-correlated 4ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > delete and deleteMany keep child mutations parent-correlated 4ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > to-many upsert creates and updates the current parent's child 4ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > to-one upsert creates and updates the current target 5ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > to-one nested update modifies the connected author 5ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > to-one disconnect true nulls the foreign key, both rows survive 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > to-one delete true deletes the related row 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives 2ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > explicit join rows work as a practical many-to-many case 2ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > unsupported nested create keys reject before parent mutation 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > nested child failures roll back parent and prior children 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > to-many updates cannot target another parent's child 4ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > non-nullable child foreign keys reject disconnect atomically 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > nested create propagates foreign keys through mapped columns 2ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > nested create derives mapped foreign keys for createMany and connect 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > set keeping all required-FK children is a no-op and succeeds 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > set on required-FK children rejects only when rows would be orphaned 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > set disconnects only nullable-FK children leaving the set 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > connect with a list of targets reparents every one of them 4ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > a connect list with one absent target writes nothing 2ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > disconnect with a list nulls every one of them 2ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > a create tree's connect list reparents every one of them 2ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone 3ms
+   ✓ SQLite3 Driver > SQLite3 nested write behavior > delete with a relation projection > the `include` spelling is unaffected 3ms
+   ✓ SQLite3 Driver > SQLite3 advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes 5ms
+   ✓ SQLite3 Driver > SQLite3 advanced nested write behavior > top-level upsert guards gate nested update branch 4ms
+   × SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the delegation seam stores the JSON document, not the ORM's envelope 7ms
+     → Unknown update operation: z
+   × SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a JSON document that LOOKS like the update envelope round-trips verbatim 5ms
+     → expected { z: 1 } to deeply equal { set: { z: 1 }, increment: 4 }
+   × SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a depth-2 to-one chain writes both JSON columns exactly 3ms
+     → Unknown update operation: m
+   × SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a depth-3 to-one chain writes all three JSON columns exactly 3ms
+     → Unknown update operation: s
+   × SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a delegated TO-MANY update target stores its JSON document exactly 4ms
+     → Unknown update operation: z
+   × SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the documented `data`-column escape stores the document at the delegation seam 6ms
+     → Unknown update operation: label
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > JsonNull writes the JSON null document through the delegation seam 3ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > DbNull writes the database NULL through the delegation seam 3ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a sentinel at depth 2 writes the same two nulls 3ms
+   × SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the non-delegated depth-1 target is unchanged by all of this 3ms
+     → Unknown update operation: z
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > push enforces the compound primary key 2ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > push enforces the compound unique constraint 1ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > findUnique resolves compound id and compound unique selectors 1ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > nested create from a compound-id parent populates all FK columns 1ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > connect from a compound-id parent populates all FK columns 2ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > include correlates on every compound FK column, not just one 2ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > is null treats a partially-null compound FK as no relation 2ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > update and delete by compound id target only that row 2ms
+   ✓ SQLite3 Driver > SQLite3 compound key behavior > upsert on a compound-id model takes both branches 2ms
+   ✓ SQLite3 Driver > SQLite3 compound junction storage > round-trips two complete string-key sides and their cascade 6ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic member junction storage > creates, enforces and converges the member tables 7ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > connect inserts junction rows without touching unrelated foreign keys 5ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > connect is idempotent 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > connect of a missing record fails 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > create connects and creates through the junction on parent create 6ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > connectOrCreate connects existing and creates missing 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > disconnect removes the association and keeps the row 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > set replaces the association set 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > delete removes the child row and all its associations 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > delete of a record not connected to the parent fails 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > deleteMany deletes only connected rows matching the filter 5ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > writes from the side without junction config resolve the same junction 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > implicit default junction works end to end 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > rows participating in a many-to-many can be deleted directly 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > nested update modifies a connected record only 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > nested updateMany touches only connected rows matching the filter 5ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > nested upsert updates a connected record 6ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > nested upsert creates and connects a missing record 3ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > nested upsert of an existing but unconnected record fails 3ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > connect lands after a deleteMany that cannot see it 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > boolean disconnect on a many-to-many relation is rejected 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > named duplicate pairs keep isolated junction tables 3ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL 3ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > self-referential many-to-many round trip 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > create through the junction with a DB-generated target primary key 3ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > junction create with a generated target PK under an update root 3ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing 4ms
+   ✓ SQLite3 Driver > SQLite3 many-to-many write behavior > upsert through the junction creates a target whose PK the database generates 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 nested write behavior > rejects nested default-only duplicate skipping before the parent write
+AssertionError: promise resolved "{ id: 'default-only-parent' }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "id": "default-only-parent",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/nested-write-behavior.ts:85:7
+     83|           },
+     84|         })
+     85|       ).rejects.toThrow("no portable duplicate-only DEFAULT VALUES pri…
+       |       ^
+     86| 
+     87|       expect(await currentClient.defaultOnlyParent.count()).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the delegation seam stores the JSON document, not the ORM's envelope
+QueryEngineError: Unknown update operation: z
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a JSON document that LOOKS like the update envelope round-trips verbatim
+AssertionError: expected { z: 1 } to deeply equal { set: { z: 1 }, increment: 4 }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "increment": 4,[39m
+[32m-   "set": {[39m
+[2m    "z": 1,[22m
+[32m-   },[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/nested-write-json-envelope-behavior.ts:265:9
+    263|       expect(
+    264|         (await db().person.findUniqueOrThrow({ where: { id: "h1" } }))…
+    265|       ).toEqual(written);
+       |         ^
+    266|     });
+    267| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a depth-2 to-one chain writes both JSON columns exactly
+QueryEngineError: Unknown update operation: m
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a depth-3 to-one chain writes all three JSON columns exactly
+QueryEngineError: Unknown update operation: s
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a delegated TO-MANY update target stores its JSON document exactly
+QueryEngineError: Unknown update operation: z
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the documented `data`-column escape stores the document at the delegation seam
+QueryEngineError: Unknown update operation: label
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the non-delegated depth-1 target is unchanged by all of this
+QueryEngineError: Unknown update operation: z
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 77 passed (85)
+   Start at  10:44:24
+   Duration  1.77s (transform 866ms, setup 8ms, collect 1.30s, tests 338ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 3.70s wall, 581.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

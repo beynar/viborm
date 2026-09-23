@@ -1,0 +1,3 @@
+Campaign receipt and registration self-tests: 12/12; 0.25 seconds; registered 1536 MiB RSS / 768 MiB heap / 120000 ms wall ceilings; teardown verified.
+CLI falsifiers: 7/7; 207.38 seconds; 220.4 MiB peak RSS under the registered 1536 MiB RSS / 768 MiB heap / 600000 ms wall ceilings; teardown verified.
+CLI command evidence is archived at ../cli/commands.json.

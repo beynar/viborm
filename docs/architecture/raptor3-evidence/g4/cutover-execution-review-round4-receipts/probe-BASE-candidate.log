@@ -1,0 +1,17 @@
+▲ [WARNING] Expected the "target" option to be nested inside a "compilerOptions" object [tsconfig.json]
+
+    ../../tsconfig.json:2:1:
+      2 │  "target": "es2022",
+        ╵  ~~~~~~~~
+
+
+ RUN  v3.1.4 /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/rev4/base
+
+ ✓ |review-cutover| tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts (5 tests) 23ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  01:46:24
+   Duration  1.82s (transform 1.17s, setup 12ms, collect 1.68s, tests 23ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 2.28s wall, 457.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

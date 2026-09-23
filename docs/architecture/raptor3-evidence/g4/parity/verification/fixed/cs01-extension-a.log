@@ -1,0 +1,77 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ❯ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests | 1 failed) 62ms
+   ✓ CS-01 A returns omitted-key rows only after every relation-series member 31ms
+   ✓ CS-01 A reads compound final keys while keeping injected keys private 7ms
+   ✓ CS-01 A refuses a missing terminal row and rolls back interactively 4ms
+   × CS-01 A reports acknowledged member progress when a terminal row is missing 10ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    atomicity: 'segment',
++   committedSegments: 2,
++   committedWriteMembers: 2,
++   completedMembers: 2,
+-   committedSegments: 3,
+-   committedWriteMembers: 3,
+-   completedMembers: 3,
+    phase: 'result'
+  }
+
+   ✓ CS-01 A preserves the createMany terminal underflow error contract 5ms
+   ✓ CS-01 A returns selected scalar updates but does not widen relation projections 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts > CS-01 A reports acknowledged member progress when a terminal row is missing
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    atomicity: 'segment',
++   committedSegments: 2,
++   committedWriteMembers: 2,
++   completedMembers: 2,
+-   committedSegments: 3,
+-   committedWriteMembers: 3,
+-   completedMembers: 3,
+    phase: 'result'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "atomicity": "segment",[22m
+[32m-   "committedSegments": 3,[39m
+[32m-   "committedWriteMembers": 3,[39m
+[32m-   "completedMembers": 3,[39m
+[31m+   "committedSegments": 2,[39m
+[31m+   "committedWriteMembers": 2,[39m
+[31m+   "completedMembers": 2,[39m
+[2m    "phase": "result",[22m
+[2m  }[22m
+
+ ❯ runMissingFinalRow tests/raptor3/core-structure/extension-a.contract.test.ts:238:14
+    236|     );
+    237|     if (batch) {
+    238|       assert.deepEqual(failure.meta.recordSeriesProgress, {
+       |              ^
+    239|         atomicity: "segment",
+    240|         phase: "result",
+ ❯ tests/raptor3/core-structure/extension-a.contract.test.ts:278:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  14:57:53
+   Duration  3.97s (transform 2.21s, setup 52ms, collect 3.32s, tests 62ms, environment 0ms, prepare 67ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-dK791L/vitest.json
+Vitest resources: 8.97s wall, 456.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-dK791L

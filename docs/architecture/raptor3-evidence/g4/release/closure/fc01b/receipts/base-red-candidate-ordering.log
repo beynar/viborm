@@ -1,0 +1,93 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01b
+
+ ❯ |coverage-raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests | 2 failed) 48ms
+   × Raptor 3 relation key order: commands > sqlite-interactive 39ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   × Raptor 3 relation key order: commands > sqlite-atomic-batch 9ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+ ❯ |raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests | 2 failed) 43ms
+   × Raptor 3 relation key order: commands > sqlite-interactive 33ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+   × Raptor 3 relation key order: commands > sqlite-atomic-batch 10ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/candidate-ordering.test.ts > Raptor 3 relation key order: commands > sqlite-interactive
+ FAIL  |coverage-raptor3| tests/raptor3/candidate-ordering.test.ts > Raptor 3 relation key order: commands > sqlite-atomic-batch
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+
+Expected: [32m"[7mNestedWrite[27mError"[39m
+Received: [31m"[7mUniqueConstraint[27mError"[39m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:255:16
+    253|         assert.equal(observation.outcome.kind, "failure");
+    254|         if (observation.outcome.kind !== "failure") return;
+    255|         assert.equal(observation.outcome.failure.name, "NestedWriteErr…
+       |                ^
+    256|         assert.equal(observation.outcome.failure.code, "V7001");
+    257|         assert.equal(
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:249:20
+ ❯ tests/raptor3/candidate-ordering.test.ts:47:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |raptor3| tests/raptor3/candidate-ordering.test.ts > Raptor 3 relation key order: commands > sqlite-interactive
+ FAIL  |raptor3| tests/raptor3/candidate-ordering.test.ts > Raptor 3 relation key order: commands > sqlite-atomic-batch
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'NestedWriteError'
+
+
+Expected: [32m"[7mNestedWrite[27mError"[39m
+Received: [31m"[7mUniqueConstraint[27mError"[39m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:255:16
+    253|         assert.equal(observation.outcome.kind, "failure");
+    254|         if (observation.outcome.kind !== "failure") return;
+    255|         assert.equal(observation.outcome.failure.name, "NestedWriteErr…
+       |                ^
+    256|         assert.equal(observation.outcome.failure.code, "V7001");
+    257|         assert.equal(
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:249:20
+ ❯ tests/raptor3/candidate-ordering.test.ts:47:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  4 failed (4)
+   Start at  23:10:58
+   Duration  4.04s (transform 2.30s, setup 23ms, collect 3.55s, tests 91ms, environment 0ms, prepare 80ms)
+
+Vitest resources: 6.23s wall, 541.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (11 tests) 1954ms
+   ✓ MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed  321ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  16:58:10
+   Duration  4.15s (transform 1.09s, setup 9ms, collect 1.64s, tests 1.95s, environment 0ms, prepare 33ms)
+
+Vitest resources: 6.05s wall, 621.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+EXIT=0

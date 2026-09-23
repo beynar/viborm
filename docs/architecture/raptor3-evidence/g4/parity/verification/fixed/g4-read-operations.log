@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 262ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  14:53:28
+   Duration  6.67s (transform 3.76s, setup 19ms, collect 5.86s, tests 262ms, environment 0ms, prepare 66ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-S7j4Kp/vitest.json
+Vitest resources: 11.93s wall, 432.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-operations contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-S7j4Kp

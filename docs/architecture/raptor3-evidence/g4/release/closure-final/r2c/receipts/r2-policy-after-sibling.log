@@ -1,0 +1,12 @@
+# run immediately after tests/providers/docker/mysql2-writes-raw.test.ts -t concurrent (r2-four-cells.log), which leaves its own tables standing in the shared database
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (8 tests) 737ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  11:17:41
+   Duration  2.17s (transform 876ms, setup 10ms, collect 1.30s, tests 737ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.89s wall, 594.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
