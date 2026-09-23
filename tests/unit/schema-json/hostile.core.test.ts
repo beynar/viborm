@@ -645,6 +645,27 @@ describe("defaults", () => {
     }
   });
 
+  it("refuses a decimal default written as a JSON number", () => {
+    // A JSON number is a double, so the decimal domain refuses it exactly as
+    // it refuses one at the query boundary; the string spelling is accepted.
+    const decimal = { type: "decimal", precision: 10, scale: 2 };
+    for (const field of [
+      { ...decimal, default: 1.5 },
+      { ...decimal, array: true, default: ["1.5", 2] },
+    ]) {
+      const error = refusal(withUserField(field));
+      expect(issues(error)).toEqual([
+        "[J008] /models/user/fields/probe/default",
+      ]);
+      expect(error.issues[0]?.message).toContain(
+        "a JavaScript number is a double and is not accepted"
+      );
+    }
+    expect(String(serializedDefault({ ...decimal, default: "1.5" }))).toBe(
+      "1.5"
+    );
+  });
+
   it("takes a blob default as `$bytes` and nothing else", () => {
     expect(
       serializedDefault({ type: "blob", default: { $bytes: "AQID" } })

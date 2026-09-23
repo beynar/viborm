@@ -884,7 +884,7 @@ describe("provider physical representation", () => {
     ).toBeUndefined();
   });
 
-  test("decodes widened sums in both vocabularies without materializing Decimal", () => {
+  test("decodes widened sums in both vocabularies to canonical text", () => {
     const text = decodePhysicalWidenedSum("123456789012345.67", money, "text");
     const coefficient = decodePhysicalWidenedSum(
       "12345678901234567",

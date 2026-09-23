@@ -127,6 +127,16 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
     });
   }
 
+  test("a raw double that bypassed validation is refused at the binder", () => {
+    // The binder reads the same admission as the field boundary, so a number
+    // that reaches it on an unvalidated path is a named refusal, never a
+    // float spelling handed to the database.
+    const engine = engineFor();
+    expect(() => referencedColumnLowering(engine, 9.5)).toThrow(
+      "Decimal field 'key' received a value that is not an exact decimal."
+    );
+  });
+
   test("the FK never wears a lossy decimal cast", () => {
     const engine = engineFor();
     const fk = rendered(referenceSql(engine, slip, "vaultKey", BIG30));
