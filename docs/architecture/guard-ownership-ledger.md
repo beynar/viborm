@@ -2162,18 +2162,20 @@ the JSON Schema projection states the same minimum as `minItems`. Falsifier:
 removing it fails "still refuses a ring shorter than three vertices before any
 SQL" (`geopoint-sql.core.test.ts`).
 
-**Retired: winding normalization** (outer counterclockwise, holes clockwise,
-computed by `signedArea` over longitudes unwrapped across the antimeridian).
-It was output normalization, not a refusal, and it was retired in its own
-commit so that it can be reverted alone. Invariant: PostGIS `geography` and
-MySQL SRID 4326 decide a polygon's interior without regard to ring
-orientation. Falsifier (Docker only, not runnable in the provider-free
-lanes): `tests/contracts/drivers/behaviors/geopoint-behavior.ts`, "includes
-polygon boundaries and excludes holes", whose last assertion sends the outer
-ring and the hole reversed and expects the same members, on pg, postgres and
-mysql2; `tests/providers/docker/mysql2.test.ts` sends a counterclockwise hole.
-If MySQL answers differently, the reversal returns as a kept normalization
-naming `withinPolygon` in `src/adapters/databases/mysql/mysql-adapter.ts`.
+**Kept output normalization: winding (outer counterclockwise, holes
+clockwise)** (`wound` in `validateGeoPolygon`, computed by `signedArea` over
+longitudes unwrapped across the antimeridian). It is not a refusal and judges
+nothing, so decision D2 does not retire it. Consumer: the GeoJSON bound by
+`withinPolygon` in `src/adapters/databases/postgres/postgres-adapter.ts` and
+`src/adapters/databases/mysql/mysql-adapter.ts`; that PostGIS `geography` and
+MySQL SRID 4326 read the interior the same way for either orientation is
+unproven (`docs/architecture/v1-public-api-geopoint-plan.md`), so VibORM keeps
+sending one orientation. Retiring it needs the Docker falsifiers
+(`tests/contracts/drivers/behaviors/geopoint-behavior.ts` reversed rings on
+pg, postgres and mysql2; `tests/providers/docker/mysql2.test.ts`) green
+against un-rewound rings and an owner decision. Witnesses: "normalizes winding
+and keeps open rings" (`geo-area.core.test.ts`) and "binds canonical polygons
+and never concatenates caller geometry" (`geopoint-sql.core.test.ts`).
 
 **Kept output normalization: `holes: []` is omitted** (`validateGeoPolygon`).
 An empty and an absent hole list emit the same GeoJSON; one spelling keeps them

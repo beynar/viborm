@@ -210,7 +210,7 @@ describe("GeoArea validation boundary", () => {
     ]);
   });
 
-  test("keeps the input winding and open rings", () => {
+  test("normalizes winding and keeps open rings", () => {
     const clockwise = [point(0, 0), point(0, 4), point(4, 4), point(4, 0)];
     const holeCounterClockwise = [
       point(1, 1),
@@ -224,10 +224,10 @@ describe("GeoArea validation boundary", () => {
     });
     expect(result.issues).toBeUndefined();
     if (result.issues) return;
-    // PostGIS geography and MySQL SRID 4326 decide the interior; VibORM
-    // emits the rings as given.
-    expect(result.value.outer).toEqual(clockwise);
-    expect(result.value.holes?.[0]).toEqual(holeCounterClockwise);
+    expect(result.value.outer).toEqual([...clockwise].reverse());
+    expect(result.value.holes?.[0]).toEqual(
+      [...holeCounterClockwise].reverse()
+    );
     expect(result.value.outer).not.toBe(clockwise);
   });
 
