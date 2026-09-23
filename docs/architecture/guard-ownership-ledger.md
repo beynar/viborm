@@ -1857,6 +1857,16 @@ second `FK003`: that one compares scalar TYPE, array shape, decimal domain and
 SQLite datetime form; two `string` columns that pass it can still hold different
 identifier domains.
 
+A reference CYCLE is one path set, not one path per arm: the derivation settles
+each strongly connected component of the reference graph as a unit, so every
+declaration on a cycle and every key the cycle reaches outside itself must agree,
+and the verdict is the same whatever order the schema lists its models in (the
+earlier walk answered a field still being resolved with its own declaration,
+which accepted `{ a, b }` and refused `{ b, a }`). No guard was added or removed:
+this is the same clause, asked of the right unit. Pins:
+`tests/unit/schema-validation/id-domain-derivation.core.test.ts`, "a reference
+cycle derives one domain, whatever order registers it".
+
 **`FK012` widened — two answers to how a foreign key column stores its key's
 values (same file, same gate; added by the Raptor 3 port review).** Unique
 coverage: a foreign key and the key it references that hold ONE domain but that

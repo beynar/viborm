@@ -181,9 +181,8 @@ describe("a foreign key inherits its target's domain", () => {
   });
 
   test("a reference cycle with no declaration on it has no domain", () => {
-    // `a.peerId` derives from `b.mateId`, which derives from `a.peerId`. The
-    // walk marks a field in progress while its targets resolve, so the cycle
-    // closes on the declaration each arm carries — here, none.
+    // `a.peerId` derives from `b.mateId`, which derives from `a.peerId`: one
+    // component, whose domain is what its declarations agree on — here, none.
     const a = s.model({
       id: s.string().id(),
       peerId: s.string().unique().nullable(),
@@ -614,5 +613,231 @@ describe("without a schema context", () => {
     const issue = deriveIdDomains(index).issues[0];
     expect(issue?.code).toBe("F013");
     expect(issue?.message).toContain("model.id");
+  });
+});
+
+/**
+ * A reference cycle is one strongly connected component of the reference
+ * graph: every field on it holds every other's values, so the component holds
+ * ONE domain, agreed by every declaration on it and every key it references
+ * outside itself. Registration order is an object's key order, and a schema's
+ * validity cannot depend on it.
+ */
+describe("a reference cycle derives one domain, whatever order registers it", () => {
+  /** `a.peerId` → `b.mateId` → `a.peerId`, each side optionally declaring. */
+  const pair = (
+    onA: "uuid" | "ulid" | undefined,
+    onB: "uuid" | "ulid" | undefined
+  ) => {
+    const key = (format: "uuid" | "ulid" | undefined) => {
+      const base = s.string().unique().nullable();
+      if (format === "uuid") return base.uuid("p");
+      if (format === "ulid") return base.ulid();
+      return base;
+    };
+    const a = s.model({
+      id: s.string().id(),
+      peerId: key(onA),
+      peer: s
+        .toOne(() => b)
+        .name("peer")
+        .fields("peerId")
+        .references("mateId"),
+      mates: s.toOne(() => b).name("mate"),
+    });
+    const b = s.model({
+      id: s.string().id(),
+      mateId: key(onB),
+      mate: s
+        .toOne(() => a)
+        .name("mate")
+        .fields("mateId")
+        .references("peerId"),
+      peers: s.toOne(() => a).name("peer"),
+    });
+    return { a, b };
+  };
+
+  test("one declaration on a two-model cycle is every member's domain, in both orders", () => {
+    for (const declaring of ["a", "b"] as const) {
+      const forward = pair(
+        declaring === "a" ? "uuid" : undefined,
+        declaring === "b" ? "uuid" : undefined
+      );
+      const forwardIndex = okIndex({ a: forward.a, b: forward.b });
+      const backward = pair(
+        declaring === "a" ? "uuid" : undefined,
+        declaring === "b" ? "uuid" : undefined
+      );
+      const backwardIndex = okIndex({ b: backward.b, a: backward.a });
+      for (const [{ a, b }, index] of [
+        [forward, forwardIndex],
+        [backward, backwardIndex],
+      ] as const) {
+        expect(idDomainOf(a, "peerId", index)).toMatchObject({
+          format: "uuid",
+          prefix: "p",
+        });
+        expect(idDomainOf(b, "mateId", index)).toMatchObject({
+          format: "uuid",
+          prefix: "p",
+        });
+      }
+    }
+  });
+
+  test("two declarations that disagree on a cycle are refused in both orders", () => {
+    const forward = pair("uuid", "ulid");
+    const backward = pair("uuid", "ulid");
+    for (const issues of [
+      refusal({ a: forward.a, b: forward.b }),
+      refusal({ b: backward.b, a: backward.a }),
+    ]) {
+      const conflict = issues.find((issue) => issue.code === "FK012");
+      expect(conflict?.message).toContain("a uuid value");
+      expect(conflict?.message).toContain("a ulid value");
+    }
+  });
+
+  test("a three-model cycle with one declaration derives it in every order", () => {
+    const ring = () => {
+      const a = s.model({
+        id: s.string().id(),
+        nextId: s.string().unique().nullable().uuid("r"),
+        next: s
+          .toOne(() => b)
+          .name("ab")
+          .fields("nextId")
+          .references("nextId"),
+        prev: s.toOne(() => c).name("ca"),
+      });
+      const b = s.model({
+        id: s.string().id(),
+        nextId: s.string().unique().nullable(),
+        next: s
+          .toOne(() => c)
+          .name("bc")
+          .fields("nextId")
+          .references("nextId"),
+        prev: s.toOne(() => a).name("ab"),
+      });
+      const c = s.model({
+        id: s.string().id(),
+        nextId: s.string().unique().nullable(),
+        next: s
+          .toOne(() => a)
+          .name("ca")
+          .fields("nextId")
+          .references("nextId"),
+        prev: s.toOne(() => b).name("bc"),
+      });
+      return { a, b, c };
+    };
+    const orders = [
+      ["a", "b", "c"],
+      ["a", "c", "b"],
+      ["b", "a", "c"],
+      ["b", "c", "a"],
+      ["c", "a", "b"],
+      ["c", "b", "a"],
+    ] as const;
+    for (const order of orders) {
+      const models = ring();
+      const index = okIndex(
+        Object.fromEntries(order.map((name) => [name, models[name]]))
+      );
+      for (const model of [models.a, models.b, models.c]) {
+        expect(idDomainOf(model, "nextId", index)).toMatchObject({
+          format: "uuid",
+          prefix: "r",
+        });
+      }
+    }
+  });
+
+  test("a cycle inside one model derives one domain, in both field orders", () => {
+    const loop = (first: "peer" | "mate") => {
+      const peer = {
+        peerId: s.string().unique().nullable().ulid(),
+        peer: s
+          .toOne(() => node)
+          .name("peer")
+          .fields("peerId")
+          .references("mateId"),
+        peerOf: s.toOne(() => node).name("peer"),
+      };
+      const mate = {
+        mateId: s.string().unique().nullable(),
+        mate: s
+          .toOne(() => node)
+          .name("mate")
+          .fields("mateId")
+          .references("peerId"),
+        mateOf: s.toOne(() => node).name("mate"),
+      };
+      const node = s.model(
+        first === "peer"
+          ? { id: s.string().id(), ...peer, ...mate }
+          : { id: s.string().id(), ...mate, ...peer }
+      );
+      return node;
+    };
+    for (const first of ["peer", "mate"] as const) {
+      const node = loop(first);
+      const index = okIndex({ node });
+      expect(idDomainOf(node, "mateId", index)).toMatchObject({
+        format: "ulid",
+      });
+    }
+  });
+
+  test("a cycle takes the domain of a key it references outside itself", () => {
+    const owned = (onB: "uuid" | undefined) => {
+      const user = s.model({
+        id: s.string().id().ksuid(),
+        pair: s.toOne(() => a).name("owner"),
+      });
+      const a = s.model({
+        id: s.string().id(),
+        peerId: s.string().unique().nullable(),
+        peer: s
+          .toOne(() => b)
+          .name("peer")
+          .fields("peerId")
+          .references("mateId"),
+        owner: s
+          .toOne(() => user)
+          .name("owner")
+          .fields("peerId")
+          .references("id"),
+        mates: s.toOne(() => b).name("mate"),
+      });
+      const mateId = s.string().unique().nullable();
+      const b = s.model({
+        id: s.string().id(),
+        mateId: onB === "uuid" ? mateId.uuid() : mateId,
+        mate: s
+          .toOne(() => a)
+          .name("mate")
+          .fields("mateId")
+          .references("peerId"),
+        peers: s.toOne(() => a).name("peer"),
+      });
+      return { user, a, b };
+    };
+    for (const reversed of [false, true]) {
+      const { user, a, b } = owned(undefined);
+      const index = okIndex(reversed ? { b, a, user } : { user, a, b });
+      expect(idDomainOf(b, "mateId", index)).toMatchObject({ format: "ksuid" });
+
+      const declaring = owned("uuid");
+      const conflict = refusal(
+        reversed
+          ? { b: declaring.b, a: declaring.a, user: declaring.user }
+          : { user: declaring.user, a: declaring.a, b: declaring.b }
+      ).find((issue) => issue.code === "FK012");
+      expect(conflict?.message).toContain("a ksuid value");
+      expect(conflict?.message).toContain("a uuid value");
+    }
   });
 });
