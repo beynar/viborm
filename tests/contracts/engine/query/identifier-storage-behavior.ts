@@ -875,6 +875,17 @@ export function runIdentifierStorageBehavior(options: {
         _min: { id: true },
       });
       expect(empty._min.id).toBeNull();
+
+      // A NULL row stays out of the aggregate. Only one account was invited,
+      // so the answer is its inviter — SQLite's `hex(NULL)` is the empty
+      // string, and without the guard INSIDE the aggregate the two uninvited
+      // rows would win `MIN` with a zero-byte identifier.
+      const invited = await client.account.aggregate({
+        _min: { invitedById: true },
+        _max: { invitedById: true },
+      });
+      expect(invited._min.invitedById).toBe(ACCOUNT_A);
+      expect(invited._max.invitedById).toBe(ACCOUNT_A);
     });
 
     test("having aggregates the same spelling the select list does", async () => {

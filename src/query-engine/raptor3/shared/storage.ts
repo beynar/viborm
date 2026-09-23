@@ -38,6 +38,12 @@ export type PhysicalField = {
   readonly name: string;
   readonly scalar: Scalar;
   readonly nullable: boolean;
+  /**
+   * The KEY a private column stands in for — a polymorphic row carrier's id
+   * column — which is what its identifier domain is resolved against
+   * (`identifier.ts`). A declared scalar is its own key and carries none.
+   */
+  readonly reference?: PolymorphicStorageColumn["reference"];
 };
 
 /** Orient the already resolved storage once; no declaration getter or inverse search. */

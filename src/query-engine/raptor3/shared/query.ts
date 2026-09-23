@@ -58,6 +58,16 @@ import {
   sameDecimalDomain,
   type DecimalDescriptor,
 } from "./decimal";
+import {
+  aggregatedIdentifier,
+  decodeIdentifier,
+  identifierColumn,
+  encodeIdentifier,
+  type IdentifierColumn,
+  incomparableIdentifiers,
+  isCompact,
+  transportedIdentifier,
+} from "./identifier";
 import { parse } from "@validation";
 import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
@@ -110,6 +120,12 @@ export type Leaf = {
   widened?: boolean;
   /** The declared physical timestamp spelling of this column. */
   dateTime?: DateTimePhysicalForm;
+  /**
+   * The column's identifier domain and what it physically holds, resolved
+   * once per (adapter, model, field) — a foreign key's DERIVED domain and a
+   * private carrier column's referenced key included (`identifier.ts`).
+   */
+  id?: IdentifierColumn;
   enumValues?: ReadonlySet<string>;
   dimension?: number;
   /**
@@ -796,9 +812,21 @@ export class Queries {
       physicalField(this.schema, model, field).scalar,
       value,
       field,
+      this.scalarShape(model, field).id,
     );
   }
-  private scalarValue(scalar: Scalar, value: unknown, field: string): Sql {
+  /**
+   * `id` is the destination column's identifier storage, which the scalar
+   * alone cannot answer: a foreign key DERIVES its domain and a private
+   * carrier column names the key it stands in for. Only a COLUMN operand
+   * carries it — an aggregate's `having` operand is a number.
+   */
+  private scalarValue(
+    scalar: Scalar,
+    value: unknown,
+    field: string,
+    id?: IdentifierColumn,
+  ): Sql {
     const a = this.adapter;
     const state = scalar["~"].state;
     if (value instanceof Sql) {
@@ -812,6 +840,15 @@ export class Queries {
     if (value === null || value === undefined) return a.literals.null();
     if (state.array === true && Array.isArray(value))
       return this.listValue(state, value, field);
+    // A COMPACT identifier binds its physical form — the payload's bytes, or
+    // a PostgreSQL `uuid`'s canonical text — through the adapter's one
+    // identifier literal. A text-stored domain holds the public string itself
+    // and takes the ordinary arm below, byte for byte what it took before.
+    if (isCompact(id))
+      return a.literals.id(
+        encodeIdentifier(id, value, field),
+        id.representation,
+      );
     // A single value bound against a LIST field is one MEMBER of that field's
     // container (`has` is the operator that asks for one), and a container
     // carries what it was WRITTEN with — the same fact {@link nativeType}
@@ -895,6 +932,7 @@ export class Queries {
   }
   projectedColumn(model: AnyModel, field: string, alias?: string): Sql {
     const column = this.column(model, field, alias);
+    const leaf = this.scalarShape(model, field);
     const state = physicalField(this.schema, model, field).scalar["~"].state;
     if (state.type === "decimal")
       return state.array === true
@@ -918,7 +956,7 @@ export class Queries {
           )
         : projected;
     }
-    return column;
+    return transportedIdentifier(this.adapter, leaf.id, column, leaf.nullable);
   }
   /**
    * A projected value carried INSIDE a JSON document. A value that is already
@@ -963,12 +1001,26 @@ export class Queries {
     let shape = leaves.get(field);
     if (shape === undefined) {
       const physical = physicalField(this.schema, model, field);
-      shape = this.leaf(physical.scalar, physical.nullable);
+      shape = this.leaf(
+        physical.scalar,
+        physical.nullable,
+        identifierColumn(
+          this.adapter,
+          this.schema.index,
+          model,
+          field,
+          physical,
+        ),
+      );
       leaves.set(field, shape);
     }
     return shape;
   }
-  private leaf(scalar: Scalar, nullable: boolean): Leaf {
+  private leaf(
+    scalar: Scalar,
+    nullable: boolean,
+    id: IdentifierColumn | undefined,
+  ): Leaf {
     const state = scalar["~"].state;
     return Object.freeze({
       kind: "scalar",
@@ -989,6 +1041,7 @@ export class Queries {
           : undefined,
       dimension: state.dimension,
       jsonSchema: state.type === "json" ? state.schema : undefined,
+      id,
     });
   }
   junctionWhere(
@@ -1051,7 +1104,9 @@ export class Queries {
       fields[pair.junctionField] = shape;
       const column = a.identifiers.column(alias, pair.junctionField);
       return a.identifiers.aliased(
-        shape.type === "decimal" ? a.expressions.cast(column, "text") : column,
+        shape.type === "decimal"
+          ? a.expressions.cast(column, "text")
+          : transportedIdentifier(a, shape.id, column, shape.nullable),
         pair.junctionField,
       );
     });
@@ -1811,6 +1866,16 @@ export class Queries {
       throw new QueryEngineError(
         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`,
       );
+    const storage = incomparableIdentifiers(
+      this.scalarShape(model, owner.field).id,
+      this.scalarShape(model, payload.field).id,
+      owner.field,
+      payload.field,
+    );
+    if (storage !== undefined)
+      throw new QueryEngineError(
+        `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': ${storage}`,
+      );
     return {
       kind: "field",
       scalar: Object.freeze({
@@ -2077,11 +2142,19 @@ export class Queries {
     // engine's case-sensitivity contract governs every other comparison. An
     // `insensitive` mode is a filter spelling and never reaches a discriminator,
     // so it keeps the folded pair rather than silently folding one side.
+    // A COLUMN target's identifier storage: its value operands bind the
+    // physical form, and a compact column is compared as the bytes (or the
+    // `uuid`) it holds — never collated or ASCII-folded as text.
+    const id =
+      target.kind === "column" && scalar
+        ? this.scalarShape(scalar.model, scalar.field).id
+        : undefined;
     const text =
       !(target.kind === "column" && target.key === true && !insensitive) &&
       state !== undefined &&
       state.array !== true &&
-      (state.type === "string" || state.type === "enum");
+      (state.type === "string" || state.type === "enum") &&
+      !isCompact(id);
     const exact = (expression: Sql) =>
       text ? a.expressions.caseSensitiveText(expression) : expression;
     const folded = text
@@ -2116,7 +2189,7 @@ export class Queries {
           : exact(comparable);
       }
       const literal = scalar
-        ? this.targetValue(target, scalar, member.value)
+        ? this.targetValue(target, scalar, member.value, id)
         : this.value(member.value);
       return fold ? a.expressions.asciiCaseFold(literal) : literal;
     };
@@ -2298,6 +2371,7 @@ export class Queries {
     target: PreparedTarget,
     scalar: PreparedScalar,
     value: unknown,
+    id: IdentifierColumn | undefined,
   ): Sql {
     const state = scalar.physical.scalar["~"].state;
     const domain =
@@ -2307,7 +2381,7 @@ export class Queries {
     const operand = domain ? decimalSumOperand(value, domain) : undefined;
     // A value that is not an exact decimal is the ordinary binder's refusal.
     if (!domain || operand === undefined)
-      return this.scalarValue(scalar.physical.scalar, value, scalar.field);
+      return this.scalarValue(scalar.physical.scalar, value, scalar.field, id);
     const { canonical, coefficient } = operand;
     const precision =
       this.adapter.aggregates.decimalSumOperandPrecision(coefficient);
@@ -3376,9 +3450,22 @@ export class Queries {
       case "_sum":
         return a.aggregates.sum(column!);
       case "_min":
-        return a.aggregates.min(column!);
-      case "_max":
-        return a.aggregates.max(column!);
+      case "_max": {
+        assertInvariant(
+          scalar !== undefined && column !== undefined,
+          `Raptor 3 aggregate '${aggregate}' names no column: admission admits '_all' under '_count' alone.`,
+        );
+        // A compact identifier is aggregated in the spelling it TRAVELS in
+        // (`identifier.ts`); every other column is aggregated as stored.
+        const operand = aggregatedIdentifier(
+          a,
+          this.scalarShape(scalar.model, scalar.field).id,
+          column,
+        );
+        return aggregate === "_min"
+          ? a.aggregates.min(operand)
+          : a.aggregates.max(operand);
+      }
       case "_avg":
         return state?.type === "decimal" && state.decimal
           ? a.aggregates.decimalAvg(column!, state.decimal)
@@ -4131,9 +4218,20 @@ export class Queries {
    */
   private recursiveIdentity(model: AnyModel, key: readonly Sql[]): Sql {
     return this.adapter.json.array(
-      this.schema.keys(model).map((field, index) =>
-        this.carriedValue(this.scalarShape(model, field), key[index]!),
-      ),
+      this.schema.keys(model).map((field, index) => {
+        // The carried key is the RAW column, so a byte identifier takes its
+        // transport spelling here, as every projected column already has.
+        const leaf = this.scalarShape(model, field);
+        return this.carriedValue(
+          leaf,
+          transportedIdentifier(
+            this.adapter,
+            leaf.id,
+            key[index]!,
+            leaf.nullable,
+          ),
+        );
+      }),
     );
   }
 
@@ -4962,6 +5060,21 @@ export class Queries {
     // `"just a json string"` into a `SyntaxError`.
     const value = carried ? raw : this.providerValue(leaf.type, raw);
     if (leaf.list) return this.decodeList(leaf, value, internal);
+    // An identifier column hands back its PHYSICAL value — bytes, their hex
+    // transport, a `uuid`'s text, or the stored text — and the codec turns it
+    // into the canonical PUBLIC string, prefix re-applied. A TEXT column's
+    // physical value is the spelling itself, so an INTERNAL read keeps the
+    // bytes the row holds (a captured identity must address its own row) while
+    // a public one canonicalizes — the split the datetime arm below takes.
+    if (leaf.id !== undefined) {
+      const decoded = decodeIdentifier(leaf.id, value);
+      if (decoded === undefined)
+        throw new InvalidScalarResult(
+          leaf.type,
+          "the value is not in this column's declared identifier domain",
+        );
+      return internal && leaf.id.representation === "text" ? value : decoded;
+    }
     switch (leaf.type) {
       case "string":
         if (typeof value === "string") return value;
