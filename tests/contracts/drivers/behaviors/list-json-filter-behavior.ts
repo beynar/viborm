@@ -1104,6 +1104,46 @@ export function runListJsonFilterBehavior({
         expect(await requireClient(client).entry.count()).toBe(14);
       });
     });
+
+    describe("json in having", () => {
+      // `_count` of a JSON column is COUNT(col): a row count, compared with the
+      // integer operand as an integer. It is not a JSON document, so neither
+      // the JSON comparison classes nor a JSON-typed parameter may reach it.
+      // Bucket b holds a NULL document, so COUNT(col) and COUNT(*) disagree.
+      async function seedBuckets(): Promise<void> {
+        await requireClient(client).entry.createMany({
+          data: [
+            { id: "a1", name: "a", metadata: { k: 1 } },
+            { id: "a2", name: "a", metadata: { k: 1 } },
+            { id: "a3", name: "a", metadata: { k: 1 } },
+            { id: "b1", name: "b", metadata: { k: 1 } },
+            { id: "b2", name: "b", metadata: DbNull },
+            { id: "c1", name: "c", metadata: { k: 2 } },
+            { id: "c2", name: "c", metadata: 2 },
+          ],
+        });
+      }
+
+      async function bucketsWhereCount(
+        filter: Record<string, unknown>
+      ): Promise<string[]> {
+        const groups = await requireClient(client).entry.groupBy({
+          by: ["name"],
+          having: { metadata: { _count: filter } },
+        });
+        return groups.map((group) => group.name).sort();
+      }
+
+      test("_count compares the row count with every operator", async () => {
+        await seedBuckets();
+        expect(await bucketsWhereCount({ equals: 2 })).toEqual(["c"]);
+        expect(await bucketsWhereCount({ not: 2 })).toEqual(["a", "b"]);
+        expect(await bucketsWhereCount({ in: [2] })).toEqual(["c"]);
+        expect(await bucketsWhereCount({ notIn: [2] })).toEqual(["a", "b"]);
+        expect(await bucketsWhereCount({ gt: 1 })).toEqual(["a", "c"]);
+        expect(await bucketsWhereCount({ lte: 1 })).toEqual(["b"]);
+      });
+    });
   });
 }
 
