@@ -137,23 +137,35 @@ export const DECIMAL_CONSTRUCTOR_REFUSAL = `Expected an exact decimal: a Decimal
 /**
  * Write one normalized coefficient and scale as canonical text: the integer
  * digits, a point only when there are fraction digits, and a sign only on a
- * value below zero. The one rendering there is — `toString` and the seam the
- * codec reads both come here, so no caller can be shown a second spelling.
+ * value below zero. The one canonical rendering — `toString` and the seam the
+ * codec reads both come here, so no caller can be shown a second spelling;
+ * `toFixed` shares its point placement.
  */
 function renderParts(coefficient: bigint, scale: number): string {
   const negative = coefficient < 0n;
-  const digits = (negative ? -coefficient : coefficient).toString();
+  return placePoint(
+    negative,
+    (negative ? -coefficient : coefficient).toString(),
+    scale
+  );
+}
+
+/** Unsigned digits with the point `fractionDigits` from the right, and a sign. */
+function placePoint(
+  negative: boolean,
+  digits: string,
+  fractionDigits: number
+): string {
   const sign = negative ? "-" : "";
-  if (scale === 0) return `${sign}${digits}`;
-  const padded = digits.padStart(scale + 1, "0");
-  const point = padded.length - scale;
+  if (fractionDigits === 0) return `${sign}${digits}`;
+  const padded = digits.padStart(fractionDigits + 1, "0");
+  const point = padded.length - fractionDigits;
   return `${sign}${padded.slice(0, point)}.${padded.slice(point)}`;
 }
 
 /**
  * Write a coefficient and scale with exactly `fractionDigits` fraction digits,
- * rounding half away from zero: `toFixed`, and the fixed rendering the codec
- * reads from text without going through the prototype.
+ * rounding half away from zero: `toFixed`.
  */
 function renderFixed(
   coefficient: bigint,
@@ -170,11 +182,7 @@ function renderFixed(
   // zero: `-0.004` to two places is `-0.00`, which says the value was below
   // zero and too small to show. Zero itself is never negative, so there is no
   // second rule to apply.
-  const sign = negative ? "-" : "";
-  if (fractionDigits === 0) return `${sign}${rounded}`;
-  const padded = rounded.padStart(fractionDigits + 1, "0");
-  const point = padded.length - fractionDigits;
-  return `${sign}${padded.slice(0, point)}.${padded.slice(point)}`;
+  return placePoint(negative, rounded, fractionDigits);
 }
 
 /**
@@ -293,19 +301,21 @@ let textOf: (value: ExactDecimal) => string;
  * Module-private: what the package exports is {@link Decimal} below, whose
  * declared type carries ONE construct signature — the public grammar. The
  * two-argument form here is the internal seam a coefficient at a non-zero
- * scale arrives through, and nothing outside this module can spell it.
+ * scale arrives through; TypeScript outside this module cannot spell it, but
+ * untyped JavaScript reaches it (`new Decimal(123n, 2)` is 1.23) and the
+ * scale is not checked there.
  */
 class ExactDecimal implements Decimal {
   readonly #c: bigint;
   readonly #scale: number;
 
-  constructor(value: Decimal | DecimalPrimitive, scale = 0) {
+  constructor(value: Decimal | DecimalPrimitive, scale?: number) {
     // A `bigint` is a coefficient: a public one is a whole number (scale 0),
     // and the internal seam passes its scale. Normalized here so every result
     // in this file is normalized in one place.
     if (typeof value === "bigint") {
       let coefficient = value;
-      let places = scale;
+      let places = scale ?? 0;
       while (places > 0 && coefficient % TEN === 0n) {
         coefficient /= TEN;
         places--;
@@ -322,8 +332,7 @@ class ExactDecimal implements Decimal {
       this.#scale = value.#scale;
       return;
     }
-    const canonical =
-      typeof value === "string" ? admitDecimal(value) : undefined;
+    const canonical = admitDecimal(value);
     if (canonical === undefined) {
       throw new TypeError(DECIMAL_CONSTRUCTOR_REFUSAL);
     }

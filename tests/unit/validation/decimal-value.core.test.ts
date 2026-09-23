@@ -74,6 +74,12 @@ describe("decimal value: what it accepts", () => {
     }
   });
 
+  test("keeps the constructor's declared arity", () => {
+    // The value and the internal seam's scale: an optional parameter, not a
+    // defaulted one, so the published function keeps `length` 2.
+    expect(Decimal.length).toBe(2);
+  });
+
   test("admits a whole bigint as the integer it names", () => {
     for (const [input, canonical] of [
       [0n, "0"],
