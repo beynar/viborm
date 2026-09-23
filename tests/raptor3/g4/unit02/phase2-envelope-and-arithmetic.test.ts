@@ -233,7 +233,7 @@ describe("G4-02 scalar update language (SC-03…SC-06 write side)", () => {
       try {
         await live.engine.execute("ledger", "update", {
           where: { id: 1 },
-          data: { amount: { divide: 0 } },
+          data: { amount: { divide: "0" } },
         });
       } catch (caught) {
         failure = caught;
