@@ -8,6 +8,20 @@ Principle, unchanged from the native-ids program: **declare facts once, derive
 everything else; one owner per invariant; measure before and after with the
 same frozen instrument.**
 
+
+> **Measured (2026-09-23).** Workstream 7's premise is false: column kinds are
+> not spelled once per phase and dialect in `src/migrations`. A reader mapped
+> every per-kind decision and found ≈130 lines of restated facts; the lane
+> delivered −59 code lines, all one-authority changes (enum-replacement UPDATE
+> builder, SQLite column body, PostgreSQL decimal constraint name, SQLite
+> DateTime form table). The measured duplication mass in migrations is
+> command orchestration: `operators.ts`, `apply-v1.ts` and `reset-v1.ts`
+> share ≈290 verbatim lines. A `type-mapping` kind table (≈ −100) waits for
+> the engine merge because the engine rewrites that file. Round 1 had already
+> shown the "Where it ends" bundle targets to be wrong (dedup buys 2–5% of
+> non-engine bytes; only dependency removal moved the bundle). Estimates in
+> this document are not to be quoted until a reader has measured the row.
+
 ## Where it starts
 
 Measured on branch `native-ids-bigjs` (PR #43), `pg-representative` fixture,

@@ -28,6 +28,20 @@ Extension-cost witness, measured: adding the identifier kind (Stage D) touched
 62 source files across five layers. That is the number this plan exists to
 lower.
 
+
+> **Measured (2026-09-23, rounds 2 and 3).** The §4 estimates were derived
+> from file sizes and were wrong where the files are public surface. Decimal
+> and geo (D1, D2): estimated ≈1,290, delivered ≈950 net. V1 core: estimated
+> ≈2,390, delivered **176** net over 18 files — the record walker was already
+> one walker (`createObjectValidator`; `fromKeys`, `fromObject`, `omit`
+> delegate to it), `v.ts` already aliases every member, and the remaining
+> lines are exported interfaces, overloads and emitted JSDoc that the
+> byte-identical declaration rule freezes. V1's real yield was type
+> assertions 106 → 45 and non-null assertions 18 → 9 in the primitives, plus
+> 32 new pins. Rows V3 and V4 keep their estimates only until a reader
+> measures them. Reports: `validation-kinds-report.md`, and the round-3 lane
+> reports in the workflow journal.
+
 ## 1. What the layer must express
 
 Required behaviour, from which everything else is derived:
