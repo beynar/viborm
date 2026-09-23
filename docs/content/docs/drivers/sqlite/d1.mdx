@@ -170,18 +170,24 @@ refuses temporary objects, so on D1 it is an ordinary table,
 
 - it is empty between batches — each batch deletes the rows it stored, keyed by
   its own batch id, before it ends, and a failed batch rolls them back;
-- VibORM's SQLite introspection leaves it out, so `push` and `diff` never plan
-  its drop;
+- VibORM's SQLite introspection leaves it out of the snapshot, so a `diff`
+  over a database file that holds it does not plan its drop (introspection over
+  the D1 binding itself does not run yet, see Migrations below);
 - dropping it while no request is running is harmless: the next batch that
   needs it creates it again.
 
 ### Migrations
 
-Migration V1 permits offline generation and read-only inspection on D1, but
+Migration V1 admits offline generation and read-only commands on D1, and
 refuses every effectful `push`, `apply`, `down`, `reset`, and `verify` command
-before SQL. D1's native batch alone does not prove table recreation, foreign-key
-handling, migration locking, and marker compare-and-swap together. Apply live
-schema changes with `wrangler d1 migrations` instead.
+before SQL. D1's native batch alone does not prove table recreation,
+foreign-key handling, migration locking, and marker compare-and-swap together.
+Apply live schema changes with `wrangler d1 migrations` instead.
+
+Live introspection over the D1 binding does not work yet: D1 lists its internal
+`_cf_METADATA` table in `sqlite_master` and refuses `PRAGMA table_info` on it
+(`SQLITE_AUTH`), so a read-only command that introspects the database fails
+with a `QueryError`.
 
 ## Capabilities
 
