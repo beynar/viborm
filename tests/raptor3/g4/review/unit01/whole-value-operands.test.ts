@@ -101,7 +101,7 @@ describe("G4-01 review — whole-value scalar operands", () => {
   it("filters a decimal column by a Decimal operand", async () => {
     const created = world();
     try {
-      const { Decimal } = await import("decimal.js");
+      const { Decimal } = await import("@src/index");
       assert.deepEqual(
         await ids(created, { balance: new Decimal("12.34") }),
         [1]

@@ -7,7 +7,7 @@ import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import Database from "better-sqlite3";
-import Decimal from "decimal.js";
+import { Decimal } from "@src/index";
 import { describe, it } from "vitest";
 import {
   differential,

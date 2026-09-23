@@ -8,7 +8,7 @@ import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { Sql } from "@sql";
 import Database from "better-sqlite3";
-import Decimal from "decimal.js";
+import { Decimal } from "@src/index";
 import { describe, it, vi } from "vitest";
 
 const selectAssembly = vi.hoisted(() => ({ calls: 0 }));

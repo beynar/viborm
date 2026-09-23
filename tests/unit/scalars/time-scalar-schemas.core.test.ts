@@ -12,7 +12,7 @@
  * SHAPE, and only a value another kind admits exposes it.
  */
 
-import { time } from "@schema/scalars/datetime";
+import { time } from "@schema/scalars/datetime/time-scalar";
 import { parse } from "@validation";
 import { getScalarSchemas } from "@validation/scalars";
 import { describe, expect, test } from "vitest";

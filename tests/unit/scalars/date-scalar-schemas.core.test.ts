@@ -14,7 +14,7 @@
  * produce the right SHAPE, and only a value the other kind admits shows it.
  */
 
-import { date } from "@schema/scalars/datetime";
+import { date } from "@schema/scalars/datetime/date-scalar";
 import { parse } from "@validation";
 import { getScalarSchemas } from "@validation/scalars";
 import { describe, expect, test } from "vitest";
