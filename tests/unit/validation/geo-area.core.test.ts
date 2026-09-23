@@ -231,6 +231,34 @@ describe("GeoArea validation boundary", () => {
     expect(result.value.outer).not.toBe(clockwise);
   });
 
+  test("judges a short ring by its length before any vertex", () => {
+    const shortRing = {
+      message: "A GeoPolygon ring needs at least 3 vertices",
+      path: ["outer"],
+    };
+    expect(
+      validateGeoPolygon({ outer: [point(0, 0), point(999, 0)] }).issues
+    ).toEqual([shortRing]);
+    expect(validateGeoPolygon({ outer: [point(0, 999)] }).issues).toEqual([
+      shortRing,
+    ]);
+    expect(
+      validateGeoPolygon({
+        outer: [point(0, 0), point(1, 0), point(1, 1)],
+        holes: [[point(0, 999)]],
+      }).issues
+    ).toEqual([{ ...shortRing, path: ["holes", 0] }]);
+    expect(
+      validateGeoPolygon({ outer: [point(0, 0), point(1, 0), point(999, 0)] })
+        .issues
+    ).toEqual([
+      {
+        message: "Longitude must be between -180 and 180",
+        path: ["outer", 2, "longitude"],
+      },
+    ]);
+  });
+
   test("spells an empty and an absent hole list as one validated polygon", () => {
     const outer = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
     const expected = { value: { outer } };

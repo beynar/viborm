@@ -107,16 +107,18 @@ export function validateGeoBounds(value: unknown): ValidationResult<GeoBounds> {
 /**
  * A ring is its vertices in input order, at least GEO_POLYGON_MIN_RING_POINTS
  * of them: the JSON Schema states that minimum, and closedRing
- * (adapters/shared/geo-point.ts) reads the first vertex of every ring.
+ * (adapters/shared/geo-point.ts) reads the first vertex of every ring. The
+ * count is judged before any vertex, so a short ring reports its length.
  */
 function validateRing(value: unknown): ValidationResult<GeoPoint[]> {
-  const ring = validateArray(value, validateGeoPoint);
-  if (ring.issues || ring.value.length >= GEO_POLYGON_MIN_RING_POINTS) {
-    return ring;
+  const members = validateArray(value, ok);
+  if (members.issues) return members;
+  if (members.value.length < GEO_POLYGON_MIN_RING_POINTS) {
+    return fail(
+      `A GeoPolygon ring needs at least ${GEO_POLYGON_MIN_RING_POINTS} vertices`
+    );
   }
-  return fail(
-    `A GeoPolygon ring needs at least ${GEO_POLYGON_MIN_RING_POINTS} vertices`
-  );
+  return validateArray(members.value, validateGeoPoint);
 }
 
 const polygonRecord = object(
