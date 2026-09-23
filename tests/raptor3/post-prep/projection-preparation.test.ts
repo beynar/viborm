@@ -7,9 +7,16 @@ import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { Sql } from "@sql";
-import Database from "better-sqlite3";
 import { Decimal } from "@src/index";
+import Database from "better-sqlite3";
 import { describe, it, vi } from "vitest";
+
+const LEFT_SOURCE = /"left_source"/;
+const RIGHT_SOURCE = /"right_source"/;
+const INVALID_PROVIDER_DECIMAL = /Invalid provider decimal/;
+const INSERT_STATEMENT = /^INSERT\b/;
+const SELECT_ANYWHERE = /SELECT\b/;
+const LEADING_WORD = /^\w+/;
 
 const selectAssembly = vi.hoisted(() => ({ calls: 0 }));
 
@@ -159,14 +166,14 @@ describe("post-G3 projection preparation", () => {
       "nested lowering must exercise SELECT assembly"
     );
     const leftSql = renderedColumns(left.columns);
-    assert.match(leftSql, /"left_source"/);
-    assert.doesNotMatch(leftSql, /"right_source"/);
+    assert.match(leftSql, LEFT_SOURCE);
+    assert.doesNotMatch(leftSql, RIGHT_SOURCE);
 
     const right = queries.lowerProjection(prepared, "right_source");
     assert.equal(selectAssembly.calls - firstAssemblyCount, firstAssemblyCount);
     const rightSql = renderedColumns(right.columns);
-    assert.match(rightSql, /"right_source"/);
-    assert.doesNotMatch(rightSql, /"left_source"/);
+    assert.match(rightSql, RIGHT_SOURCE);
+    assert.doesNotMatch(rightSql, LEFT_SOURCE);
     assert.notEqual(left.columns, right.columns);
     assert.notEqual(left.entries, right.entries);
     assert.deepEqual(
@@ -234,7 +241,7 @@ describe("post-G3 projection preparation", () => {
         queries.decodeProjection(prepared.shape, [
           { ...providerRow, amount: "not-a-coefficient" },
         ]),
-      /Invalid provider decimal/
+      INVALID_PROVIDER_DECIMAL
     );
   });
 
@@ -302,10 +309,10 @@ describe("post-G3 projection preparation", () => {
       assert(firstBatch);
       assert(continuationBatch);
       assert.equal(firstBatch.length, 1);
-      assert.match(firstBatch[0] ?? "", /^INSERT\b/);
+      assert.match(firstBatch[0] ?? "", INSERT_STATEMENT);
       assert.equal(continuationBatch.length, 2);
-      assert.match(continuationBatch[0] ?? "", /SELECT\b/);
-      assert.match(continuationBatch[1] ?? "", /^INSERT\b/);
+      assert.match(continuationBatch[0] ?? "", SELECT_ANYWHERE);
+      assert.match(continuationBatch[1] ?? "", INSERT_STATEMENT);
     } finally {
       await driver.disconnect();
       database.close();
@@ -362,7 +369,9 @@ describe("post-G3 projection preparation", () => {
       assert(controls?.projection);
       assert.equal(controls.projection, preparedResult.value);
       assert.deepEqual(
-        driver.statements.map((statement) => statement.match(/^\w+/)?.[0]),
+        driver.statements.map(
+          (statement) => statement.match(LEADING_WORD)?.[0]
+        ),
         ["UPDATE", "SELECT"]
       );
       assert.deepEqual(

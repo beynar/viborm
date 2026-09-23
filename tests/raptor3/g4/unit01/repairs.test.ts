@@ -6,15 +6,10 @@ import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
-import Database from "better-sqlite3";
 import { Decimal } from "@src/index";
+import Database from "better-sqlite3";
 import { describe, it } from "vitest";
-import {
-  differential,
-  seedAuthor,
-  seedPost,
-  type World,
-} from "./world";
+import { differential, seedAuthor, seedPost, type World } from "./world";
 
 /**
  * Repair witnesses for the G4-01 review findings. Every observable choice is
@@ -22,6 +17,14 @@ import {
  * same provider wherever the shipped engine can answer at all: the candidate
  * may not answer an admitted input differently.
  */
+
+const DISTANCE_SELECT_UNSUPPORTED =
+  /point\.distance select is not supported\. GeoPoint distance is not supported by this provider\./;
+const ONE_DISTANCE_FIELD =
+  /Distance select supports only one _distance field per select\./;
+const ST_X = /ST_X/;
+const AS_DISTANCE = /AS "_distance"/;
+const AS_AT = /AS "at"/;
 
 function seedRatings(world: World): void {
   for (const [id, rating] of [
@@ -112,10 +115,16 @@ describe("G4-01 repair — default null placement (Q-O01, Q-P01)", () => {
         orderBy: { author: { name: direction } },
         select: { id: true },
       });
-      assert.deepEqual(bare.candidate, bare.shipped, `bare relation path ${direction}`);
       assert.deepEqual(
         bare.candidate,
-        direction === "asc" ? [{ id: 3 }, { id: 2 }, { id: 1 }] : [{ id: 1 }, { id: 2 }, { id: 3 }],
+        bare.shipped,
+        `bare relation path ${direction}`
+      );
+      assert.deepEqual(
+        bare.candidate,
+        direction === "asc"
+          ? [{ id: 3 }, { id: 2 }, { id: 1 }]
+          : [{ id: 1 }, { id: 2 }, { id: 3 }],
         `bare relation path ${direction}`
       );
     }
@@ -349,11 +358,11 @@ describe("G4-01 repair — distance projection (Q-O02, SC-14)", () => {
     try {
       await assert.rejects(
         () => world.client.place.findMany(args),
-        /point\.distance select is not supported\. GeoPoint distance is not supported by this provider\./
+        DISTANCE_SELECT_UNSUPPORTED
       );
       await assert.rejects(
         () => world.engine.execute("place", "findMany", args),
-        /point\.distance select is not supported\. GeoPoint distance is not supported by this provider\./
+        DISTANCE_SELECT_UNSUPPORTED
       );
     } finally {
       await world.driver.disconnect();
@@ -372,7 +381,7 @@ describe("G4-01 repair — distance projection (Q-O02, SC-14)", () => {
               via: { _distance: { to: { longitude: 1, latitude: 1 } } },
             },
           }),
-        /Distance select supports only one _distance field per select\./
+        ONE_DISTANCE_FIELD
       );
     } finally {
       await world.driver.disconnect();
@@ -395,13 +404,13 @@ describe("G4-01 repair — distance projection (Q-O02, SC-14)", () => {
       },
     } as never);
     const statement = query.sql.toStatement("$n");
-    assert.match(statement, /ST_X/);
-    assert.match(statement, /AS "_distance"/);
+    assert.match(statement, ST_X);
+    assert.match(statement, AS_DISTANCE);
     // The selected point column is referenced by the distance expression and
     // projected under no name of its own.
     const shape = query.shape as { fields: Record<string, unknown> };
     assert.deepEqual(Object.keys(shape.fields), ["id", "_distance"]);
-    assert.doesNotMatch(statement, /AS "at"/);
+    assert.doesNotMatch(statement, AS_AT);
     assert.deepEqual(
       queries.decodeQuery(query, [{ id: 1, _distance: 4_852_312.5 }]),
       [{ id: 1, _distance: 4_852_312.5 }]
