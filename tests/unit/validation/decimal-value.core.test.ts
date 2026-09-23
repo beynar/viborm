@@ -224,6 +224,10 @@ describe("decimal value: arithmetic", () => {
     expect(new Decimal("1").div("16", 2, "half-even").toString()).toBe("0.06");
     expect(new Decimal("7").div("8", 2, "half-up").toString()).toBe("0.88");
     expect(new Decimal("7").div("8", 2, "half-even").toString()).toBe("0.88");
+    // A remainder past the half rounds up under either mode: no tie to break.
+    expect(new Decimal("2").div("3").toString()).toBe("0.66666666666666666667");
+    expect(new Decimal("2").div("3", 0, "half-up").toString()).toBe("1");
+    expect(new Decimal("2").div("3", 0, "half-even").toString()).toBe("1");
   });
 
   test("refuses to divide by zero, however it was spelled", () => {
@@ -315,6 +319,8 @@ describe("decimal value: rendering", () => {
     expect(new Decimal("-2.5").toFixed(0)).toBe("-3");
     expect(new Decimal("0.005").toFixed(2)).toBe("0.01");
     expect(new Decimal("-0.005").toFixed(2)).toBe("-0.01");
+    expect(new Decimal("1.46").toFixed(1)).toBe("1.5");
+    expect(new Decimal("-1.46").toFixed(1)).toBe("-1.5");
     // A value too small to show keeps the sign it had: `-0.00` says the value
     // was below zero, where `0.00` would say it was not.
     expect(new Decimal("-0.004").toFixed(2)).toBe("-0.00");

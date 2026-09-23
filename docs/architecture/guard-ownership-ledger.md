@@ -1928,6 +1928,23 @@ the field round-trips as a bare `{"type":"string"}`. Not reachable from
 `serializeSchema`, which writes `implicit` only for an `.id()` field; reachable
 from any hand-authored or externally produced document.
 
+**The identifier domain's second crossing, after a custom schema
+(`validation/primitives/helpers.ts` `buildValidator`, added by the PR #43
+review).** Not a new predicate: the same `canonicalizeId` admission, with the
+same `Expected <domain>` message, chained a second time only when the field
+carries a `.schema()`. Unique coverage: the custom schema's OUTPUT. The first
+crossing admits the caller's input and hands the custom schema the canonical
+spelling; the schema is caller code and a Standard Schema may return any
+string, and nothing after it asked the domain again — `"garbage"` was admitted
+and died at the binding as `EngineInvariantError` (the encode invariant below),
+and a returned alias was admitted unfolded, one identifier under two cache
+keys. The first crossing is not made redundant by the second: it is what gives
+the custom schema canonical input, and it refuses an input outside the domain
+before caller code runs on it. No transform position is added: `idDomain` is
+passed only by `validation/scalars/string.ts`, whose field state carries no
+transform. Pins: `tests/unit/scalars/string-scalar-schemas.core.test.ts`, "a
+custom schema's output crosses the domain again".
+
 **The engine's text-predicate refusal
 (`query-engine/builders/scalar-filter-operators.ts`).** *RETIRED by the Raptor 3
 port (2026-09-23): admission (`validation/scalars/string.ts`,
@@ -1946,7 +1963,7 @@ that function is.
 `encodeIdValue`).** *Became ONE INVARIANT in the Raptor 3 port (2026-09-23):
 `raptor3/shared/identifier.ts` `encodeIdentifier`, an `assertInvariant`, not a
 refusal (N4). Every path the two sentences below named is, in raptor3, a value
-admission canonicalized (a `{ set }` crosses the validated base schema; filter
+admission canonicalized, a custom schema's output included (a `{ set }` crosses the validated base schema; filter
 operands, cursors, unique selectors and connect keys are validated) or a
 captured row key the decoder returned as the canonical public string; a
 relation-correlated key is a raw column sub-select that never reaches the

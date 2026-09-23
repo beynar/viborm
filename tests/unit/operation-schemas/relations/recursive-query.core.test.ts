@@ -6,6 +6,7 @@ import { s } from "@schema";
 import { CountingMemoryCache } from "@tests/fixtures/counting-memory-cache";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry, parse } from "@validation";
+import { carriesRepeatedKey } from "@validation/relations/recurrence";
 import { describe, expect, test } from "vitest";
 
 const node = s.model({
@@ -295,6 +296,19 @@ describe("recursive relation admission — depth, cycle and clause rules", () =>
         value: { recurse: { depth: 100, cycles: "allow" } },
       });
     }
+  });
+
+  test("the normalized depth decides which levels carry the repeated key", () => {
+    // `carriesRepeatedKey` is the one rule the raptor3 decoder and the cache
+    // walker read off an admitted depth: level 1 is the outer slot's own
+    // occurrences, a numeric depth drops the key AT its cutoff, and an
+    // exhaustive traversal carries it at every level.
+    expect(carriesRepeatedKey(3, 1)).toBe(true);
+    expect(carriesRepeatedKey(3, 2)).toBe(true);
+    expect(carriesRepeatedKey(3, 3)).toBe(false);
+    expect(carriesRepeatedKey(1, 1)).toBe(false);
+    expect(carriesRepeatedKey(false, 1)).toBe(true);
+    expect(carriesRepeatedKey(false, 1000)).toBe(true);
   });
 
   test("reads recurse: undefined as the ordinary node and refuses recurse: false", () => {
