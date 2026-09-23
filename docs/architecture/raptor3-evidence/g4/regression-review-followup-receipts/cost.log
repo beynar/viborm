@@ -1,0 +1,9 @@
+physical bytes file
+    2022   73982 src/query-engine/raptor3/shared/operation-context.ts
+     400   16173 src/query-engine/raptor3/route/client-route.ts
+    2422   90155 total
+
+core (commands/ + shared/, 12 files):
+   10403  367632 total
+whole src/query-engine/raptor3 (15 files):
+   11439  404537 total

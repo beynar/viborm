@@ -1,0 +1,124 @@
+{
+ "capturedAt": "2026-09-15T18:05:11.423Z",
+ "worktree": "/private/tmp/viborm-g4-perf-candidate",
+ "state": "frozen G4 production re-synced, cutover NOT yet re-applied",
+ "worktreeIdentity": {
+  "production": "e2d5bcb2201641372941c2c1fa6e648f52429fb3ca8ce948678baa80a31b589f",
+  "harness": "93761f13b64ae25f6873a01948a41d75ca8da858dff1c978898cacef9b36e13c",
+  "runtime": {
+   "node": "v24.21.0",
+   "platform": "darwin",
+   "architecture": "arm64",
+   "sqliteDriver": "12.6.0",
+   "vitest": "3.1.4"
+  }
+ },
+ "frozenIdentity": {
+  "production": "e2d5bcb2201641372941c2c1fa6e648f52429fb3ca8ce948678baa80a31b589f",
+  "harness": "838a1e1bb2080e863f5decb56ce90c5218da1e1a341532c21d5b0e04453bc6c5",
+  "runtime": {
+   "node": "v24.21.0",
+   "platform": "darwin",
+   "architecture": "arm64",
+   "sqliteDriver": "12.6.0",
+   "vitest": "3.1.4"
+  }
+ },
+ "productionMatchesFreeze": true,
+ "harnessMatchesFreeze": false,
+ "harnessDifferenceReason": "the worktree carries the byte-identical benchmarks/ protocol overlay (5 files) and does not carry the freeze units test files added under tests/raptor3 after the prep stage; the harness fingerprint therefore cannot equal the freeze value by construction",
+ "copiedFiles": [
+  {
+   "file": "scripts/raptor3-manifest.mjs",
+   "sha256": "9900fb6da622ef43c6c48af87b3c8850dfd5e19ef6d2358d430f45bb6f56523a"
+  },
+  {
+   "file": "src/adapters/database-adapter.ts",
+   "sha256": "ab95ed3cd1b8542e4ef19c0efdd7a8a9e340eefb156bdd068c1bd5866644e2c5"
+  },
+  {
+   "file": "src/adapters/databases/mysql/mysql-adapter.ts",
+   "sha256": "1dd38ed31a23679b247402e5c609179945032df87e1915de44e43bc5fe2beb00"
+  },
+  {
+   "file": "src/adapters/databases/postgres/postgres-adapter.ts",
+   "sha256": "b29d1393a2148369228b0a359138e1d3d8df30d48bd872ffc520c4e9dcef3f7e"
+  },
+  {
+   "file": "src/adapters/databases/sqlite/sqlite-adapter.ts",
+   "sha256": "679de883012390217143900b1f52539a767c67460c7e0a1c8ea1a79b58ae450d"
+  },
+  {
+   "file": "src/client/client.ts",
+   "sha256": "764336127b1eba68195f98bb1a3a05dbc4f6c391de7d542caf7c0470d57459bf"
+  },
+  {
+   "file": "src/query-engine/pending-operation.ts",
+   "sha256": "1e19986c9a751ab1b57d63e64512fabdebd22bffa276b433fe8da617a6df85ef"
+  },
+  {
+   "file": "src/query-engine/query-engine.ts",
+   "sha256": "bb07f7a0e52e61c086eb85d811361b2621cae950d1d396ee4908236680d5b612"
+  },
+  {
+   "file": "src/query-engine/raptor3/AGENTS.md",
+   "sha256": "5572d96aa5bdb315e3af7d670a02e48f54b61140c74ebffa2e9d95f37766b006"
+  },
+  {
+   "file": "src/query-engine/raptor3/commands/assignments.ts",
+   "sha256": "654a27a2f8c59b5eaf0c3aa17dddce92b31adfad385220933355309dcb64592d"
+  },
+  {
+   "file": "src/query-engine/raptor3/commands/commands.ts",
+   "sha256": "7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1"
+  },
+  {
+   "file": "src/query-engine/raptor3/commands/execution.ts",
+   "sha256": "54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2"
+  },
+  {
+   "file": "src/query-engine/raptor3/commands/index.ts",
+   "sha256": "f551151f6d279eb783a911e6c1f7794af141704df40cd202c334fc6d4c7c3be9"
+  },
+  {
+   "file": "src/query-engine/raptor3/commands/relation-body.ts",
+   "sha256": "61af50d82a5c3479b6484dd615ff211186f054b06916329bb0eb447679c2b5d9"
+  },
+  {
+   "file": "src/query-engine/raptor3/commands/selection.ts",
+   "sha256": "84aa0c448e375713bca8791c591a28015dec97ace0afb635df51df716d189ace"
+  },
+  {
+   "file": "src/query-engine/raptor3/program/index.ts",
+   "sha256": "4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd"
+  },
+  {
+   "file": "src/query-engine/raptor3/shared/operation-context.ts",
+   "sha256": "3e0b3bf69b1cabddcacab38c5ec179231da2fb97efc4338722e056903327752b"
+  },
+  {
+   "file": "src/query-engine/raptor3/shared/query.ts",
+   "sha256": "38328088e4f3a5cea13723ff5dd0e3855ef7af5438b420d7818fa59816ef7bd6"
+  },
+  {
+   "file": "src/query-engine/raptor3/shared/schema.ts",
+   "sha256": "b3f237a172ff9355b46d96c0b759530f7ee8169048c32b73eeca9b49faa77b86"
+  },
+  {
+   "file": "src/query-engine/raptor3/shared/storage.ts",
+   "sha256": "752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2"
+  },
+  {
+   "file": "vitest.workspace.ts",
+   "sha256": "6fc8ea81e63f644b1b36b812e56eedd5a0a24685effadf5432d053adc19d75c2"
+  },
+  {
+   "file": "src/query-engine/raptor3/route/client-route.ts",
+   "sha256": "7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103"
+  },
+  {
+   "file": "benchmarks/baseline.json",
+   "sha256": "1dadef6901997756121170465edefe632a017025c7ac940404a0a1ad1518a244"
+  }
+ ]
+}

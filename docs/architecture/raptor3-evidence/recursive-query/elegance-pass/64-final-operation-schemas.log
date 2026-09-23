@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/select-include.core.test.ts (54 tests) 29ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/recursive-query.core.test.ts (22 tests) 48ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-many.core.test.ts (64 tests) 9ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one.core.test.ts (40 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-selection.core.test.ts (19 tests) 6ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/orderby.core.test.ts (22 tests) 2ms
+
+ Test Files  6 passed (6)
+      Tests  221 passed (221)
+   Start at  15:19:49
+   Duration  21.59s (transform 9.67s, setup 106ms, collect 20.17s, tests 100ms, environment 0ms, prepare 220ms)
+
+Vitest resources: 34.84s wall, 411.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

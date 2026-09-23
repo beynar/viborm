@@ -11,34 +11,44 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { beforeAll, describe, expect, test } from "vitest";
 
 /**
- * PHASE 8.1 — the terminal read, folded into the mutating statement
- * (query-performance-plan).
+ * PHASE 8.1/8.2 — the terminal read and the nested-create tree, RE-EXPRESSED
+ * onto the shipped fold (D-15).
  *
- * A mutation that answers with a RELATION projection used to send its write and
- * then a separate `SELECT` to shape the answer. On PostgreSQL the two are now one
- * statement:
+ * WHAT THIS FILE PINNED. The retired engine had a second, Phase-8 fold on top of
+ * the scalar one: a CTE that carried a relation-projecting mutation and its
+ * terminal read in ONE statement,
  *
  *   WITH "__viborm_mutation" AS (UPDATE … RETURNING <every column>)
  *   SELECT <projection over the CTE> FROM "__viborm_mutation" AS "t0"
  *
- * MEASURED at c9c06e5, PGlite, before the fold:
- *   update + include, transaction ....... 3 statements (locate, UPDATE, SELECT)
- *   update + include, atomic batch ...... 4 statements (locate, guard, UPDATE, SELECT)
- *   update + `_count`, transaction ...... 3 statements
- *   create + include, transaction ....... 2 statements (INSERT, SELECT)
- * and after: 1, 2 (the batch keeps its in-unit presence guard), 1, 1.
+ * gated by two snapshot-legality guards (`projectionReadsMutatedModel`,
+ * `setCanFireReferentialAction`), plus a Phase-8.2 variant that chained a
+ * nested-create tree through sibling `"__viborm_write_n"` arms. MEASURED at
+ * c9c06e5, PGlite, before that fold: update + include 3 statements
+ * (transaction) / 4 (atomic batch), create + include 2 — and after it: 1, 2, 1.
  *
- * The fold is legal only while the outer `SELECT` reads nothing the statement
- * CHANGES — PostgreSQL gives every sub-statement of one command the same
- * snapshot, so a read of a changed table answers pre-statement. Two guards say
- * so, and both are witnessed here declining:
- *   · `projectionReadsMutatedModel` — a self-relation in the projection.
- *   · `setCanFireReferentialAction` — a SET that can cascade into a child table.
+ * WHAT SHIPPED. D-15 retired the `pattern/` experiment and every production
+ * owner it alone kept alive, and the CTE machinery went with it: grep
+ * `__viborm_mutation` or `MUTATION_CTE` across `src/` and there is nothing.
+ * Raptor 3 ports the FIRST fold only — the scalar `UPDATE/INSERT … RETURNING` —
+ * behind one gate, `Queries.returningSafeProjection`
+ * (`src/query-engine/raptor3/shared/query.ts`, "the one owner of 'may this
+ * projection ride a RETURNING?' — `fields.every(kind === "scalar" || kind === "sentinel")`",
+ * `raptor3/AGENTS.md`). A relation projection — an `include`, a relation
+ * `select`, a `_count` — must read other rows, which no `RETURNING` carries, so
+ * it keeps the located/mutated/re-read route; `g4/unit02/note.md` §12.1 measures
+ * that route and leaves it multi-statement on purpose ("update with a relation
+ * projection | n statements, 1 tx | unchanged"). The two snapshot guards were
+ * the CTE's own legality question and have no shipped counterpart: the terminal
+ * read is a separate statement, so it always reads post-mutation state, which is
+ * why every answer below is unchanged.
  *
- * The ORACLE below is what makes the whole thing checkable: every folded answer
- * is asserted against the SAME projection read back through `findUnique`, on the
- * same row, over seeded state. Not against a literal, and not only on the
- * substrate that happens to fold.
+ * So the statement-traffic cells now pin the SHIPPED route and its shape, the
+ * retired per-case `folds` decisions are recorded as history beside the cases
+ * that carried them, and the ORACLE — the half that was never about the fold —
+ * stands exactly as it was: every answer is asserted against the SAME projection
+ * read back through `findUnique`, on the same row, over seeded state, on both
+ * substrates.
  */
 
 const account = s
@@ -277,11 +287,22 @@ function drain(driver: RecordingPGliteDriver): string[] {
   return driver.statements.splice(0, driver.statements.length);
 }
 
+/**
+ * D-15: the SHIPPED fold is the scalar one — the mutating statement alone,
+ * answering out of its own `RETURNING`. `WITH "__viborm_mutation"` is gone, so
+ * "folded" can no longer mean "starts with WITH".
+ */
 const foldedInOneStatement = (statements: string[]) =>
-  statements.length === 1 && statements[0]?.startsWith("WITH ") === true;
+  statements.length === 1 &&
+  MUTATION_STATEMENT.test(statements[0] ?? "") &&
+  statements[0]?.includes(" RETURNING ") === true;
+const MUTATION_STATEMENT = /^(?:UPDATE|INSERT|DELETE)\b/;
+/** No statement is a CTE fold: the machinery D-15 deleted emitted nothing else. */
+const noCteFold = (statements: string[]) =>
+  statements.every((sql) => !sql.startsWith("WITH "));
 
 describe("Phase 8.1 — the fold's statement traffic", () => {
-  test("update + include is ONE statement, and it is the CTE", async () => {
+  test("update + include is the located/mutated/re-read route, not one statement", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -293,10 +314,17 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // THE measurement: three payload statements became one.
-    expect(statements).toHaveLength(1);
-    expect(statements[0]).toContain('WITH "__viborm_mutation" AS (UPDATE');
-    expect(statements[0]).toContain('FROM "__viborm_mutation"');
+    // THE measurement, re-expressed onto the shipped gate (D-15): `include` is a
+    // relation projection, `returningSafeProjection` refuses it, and the three
+    // statements the Phase-8 CTE folded into one are the three the shipped
+    // engine sends — locate, mutate, re-read. The mutation still carries the
+    // RETURNING the scalar fold answers its own row from.
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(3);
+    expect(statements[0]?.startsWith("SELECT")).toBe(true);
+    expect(statements[1]?.startsWith("UPDATE")).toBe(true);
+    expect(statements[1]).toContain(" RETURNING ");
+    expect(statements[2]?.startsWith("SELECT")).toBe(true);
 
     expect(updated).toEqual({
       id: 3,
@@ -318,7 +346,7 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     ).toEqual({ label: "changed" });
   });
 
-  test("create + include is ONE statement, and it is the CTE", async () => {
+  test("create + include is an INSERT and its terminal read, not one statement", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -329,10 +357,14 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    expect(statements).toHaveLength(1);
-    expect(statements[0]).toContain('WITH "__viborm_mutation" AS (INSERT');
+    // D-15: same gate, the `create` arm. A fresh root asks nothing first, so the
+    // route is the INSERT and the terminal read — two, where the CTE made one.
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(2);
+    expect(statements[0]?.startsWith("INSERT")).toBe(true);
+    expect(statements[1]?.startsWith("SELECT")).toBe(true);
 
-    // A fresh row owns nothing, and the CTE says so — the same `[]` the separate
+    // A fresh row owns nothing, and the terminal read says so — the same `[]` the separate
     // terminal read answered.
     expect(created).toEqual({
       id: 100,
@@ -343,11 +375,12 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     });
   });
 
-  // PIN UPDATED DELIBERATELY. This shape sent four statements (planning locate,
-  // in-unit presence guard, UPDATE, terminal SELECT). The guard is what the
-  // atomic batch uses instead of a JS postcondition (PLAN Phase 6.2), so it
-  // stays; the locate and the terminal read are what the fold removes.
-  test("batch mode folds behind its in-unit presence guard", async () => {
+  // PIN RE-EXPRESSED (D-15). The Phase-8 fold left this shape at two statements
+  // — the in-unit presence guard and the CTE — by removing the locate and the
+  // terminal read. With the CTE gone all four are back: planning locate, in-unit
+  // presence guard, UPDATE, terminal SELECT. The guard is what the atomic batch
+  // uses instead of a JS postcondition (PLAN Phase 6.2) and is unaffected.
+  test("batch mode keeps its in-unit presence guard, and the route around it", async () => {
     const { driver, client } = await boot(true);
 
     driver.recording = true;
@@ -359,9 +392,12 @@ describe("Phase 8.1 — the fold's statement traffic", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    expect(statements).toHaveLength(2);
-    expect(statements[0]).toContain("__viborm_assert__");
-    expect(statements[1]).toContain('WITH "__viborm_mutation" AS (UPDATE');
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(4);
+    expect(statements[0]?.startsWith("SELECT")).toBe(true);
+    expect(statements[1]).toContain("__viborm_assert__");
+    expect(statements[2]?.startsWith("UPDATE")).toBe(true);
+    expect(statements[3]?.startsWith("SELECT")).toBe(true);
 
     expect(updated).toEqual({
       id: 4,
@@ -384,26 +420,32 @@ const filterUnderAnd = {
 
 describe("Phase 8.1 — the fold answers what the read answers", () => {
   /**
-   * THE ORACLE. Each case runs the mutation folded and asserts its projection
-   * against `findUnique`'s answer for the SAME projection on the SAME row — the
-   * control the `_count` correlation defect got past on the RETURNING fold
-   * (`delete-fold.test.ts`), and the reason this fold projects over an aliased
-   * `FROM` instead.
+   * THE ORACLE. Each case runs the mutation and asserts its projection against
+   * `findUnique`'s answer for the SAME projection on the SAME row — the control
+   * the `_count` correlation defect got past on the RETURNING fold
+   * (`delete-fold.test.ts`).
+   *
+   * D-15: every projection in this table is a RELATION projection, so the
+   * shipped gate (`returningSafeProjection`) refuses every one of them and they
+   * all take the same route — locate, UPDATE, terminal read, plus the batch
+   * leg's in-unit presence guard. The retired `folds` column that told them
+   * apart went with the CTE, and each case's own note below is kept as the
+   * record of why the RETIRED gate decided as it did. What the cases still do,
+   * and what they were always strongest at, is the oracle: twelve distinct
+   * projections, each answered identically by the mutation and by the read, on
+   * both substrates.
    */
   const projections = [
     {
       name: "a to-many include",
-      folds: true,
       args: { include: { notes: true } },
     },
     {
       name: "a to-many include with its own select",
-      folds: true,
       args: { include: { notes: { select: { body: true } } } },
     },
     {
       name: "a to-many include with a where and an orderBy",
-      folds: true,
       args: {
         include: {
           notes: { where: { id: { gt: 30 } }, orderBy: { id: "desc" } },
@@ -412,7 +454,6 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     },
     {
       name: "_count with an explicit relation",
-      folds: true,
       args: { select: { id: true, _count: { select: { notes: true } } } },
     },
     {
@@ -422,12 +463,10 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
       // still holds, which is the point of asserting the answer separately
       // from the fold decision.
       name: "_count shorthand (every relation)",
-      folds: false,
       args: { select: { id: true, _count: true } },
     },
     {
       name: "a select mixing scalars and a relation",
-      folds: true,
       args: { select: { label: true, notes: { select: { id: true } } } },
     },
     // ── The relation payload's FILTER reaches the mutated table ──────────────
@@ -441,7 +480,6 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     // `where` cannot get both right by luck.
     {
       name: "an include filtered through a relation on the mutated table (NEW value)",
-      folds: false,
       args: {
         include: {
           notes: { where: { account: { label: { equals: "oracle" } } } },
@@ -450,7 +488,6 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     },
     {
       name: "an include filtered through a relation on the mutated table (OLD value)",
-      folds: false,
       args: {
         include: { notes: { where: { account: { label: { equals: "L3" } } } } },
       },
@@ -459,14 +496,12 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
       // The walk is over the whole payload, not over a list of keys that may
       // carry a filter: an array element is walked like any other value.
       name: "the same filter under an AND",
-      folds: false,
       args: filterUnderAnd,
     },
     {
       // `_count`'s per-relation `where` reaches by the identical mechanism, and
       // it answered 0 against a truth of 3.
       name: "_count whose per-relation where reaches the mutated table",
-      folds: false,
       args: {
         select: {
           id: true,
@@ -481,7 +516,6 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     {
       // `orderBy` reads a table exactly as `where` does.
       name: "an include ordered through a relation on the mutated table",
-      folds: false,
       args: { include: { notes: { orderBy: { account: { label: "asc" } } } } },
     },
     {
@@ -491,7 +525,6 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
       // untouched child table, and they still fold into ONE statement. The
       // `where`+`orderBy` case earlier in this list is the other half of this.
       name: "a to-many include with a cursor on the child's own key",
-      folds: true,
       args: {
         include: {
           notes: { cursor: { id: 31 }, orderBy: { id: "asc" }, take: 5 },
@@ -525,15 +558,18 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
         driver.recording = false;
 
         expect(answer).toEqual(truth);
-        // …and by the route the gate chose, not another one.
-        expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(
-          projection.folds
-        );
+        // …and by the route the SHIPPED gate chooses, not another one: no CTE
+        // fold exists to take, the mutation is its own statement, and the
+        // projection is shaped by the terminal read that follows it.
+        expect(noCteFold(statements)).toBe(true);
+        expect(statements).toHaveLength(batch ? 4 : 3);
+        expect(statements[batch ? 2 : 1]?.startsWith("UPDATE")).toBe(true);
+        expect(statements.at(-1)?.startsWith("SELECT")).toBe(true);
       }
     });
   }
 
-  test("a create's include folds to the read's answer", async () => {
+  test("a create's include answers what the read answers, through its terminal read", async () => {
     const { client: truthClient } = await boot();
     await truthClient.account.create({
       data: { id: 200, email: "a200@x", label: "L200" },
@@ -553,7 +589,12 @@ describe("Phase 8.1 — the fold answers what the read answers", () => {
     driver.recording = false;
 
     expect(created).toEqual(truth);
-    expect(foldedInOneStatement(statements)).toBe(true);
+    // D-15: `_count` is a relation projection too (`g4/unit02/note.md` §4.4), so
+    // the create answers through its terminal read rather than through a CTE.
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(2);
+    expect(statements[0]?.startsWith("INSERT")).toBe(true);
+    expect(statements[1]?.startsWith("SELECT")).toBe(true);
   });
 });
 
@@ -706,7 +747,7 @@ describe("Phase 8.1 — the two legality guards", () => {
     expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
   });
 
-  test("on that same model, an ordinary column still folds", async () => {
+  test("on that same model, a scalar-only projection still folds", async () => {
     const family = getHostFamily();
     const driver = new RecordingPGliteDriver({
       client: family.database,
@@ -725,15 +766,34 @@ describe("Phase 8.1 — the two legality guards", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // ANTI-VACUITY: widening guard 2 to unique indexes did not turn it into
-    // "never fold a model that has one". `label` participates in nothing.
-    expect(foldedInOneStatement(statements)).toBe(true);
+    // ANTI-VACUITY, re-expressed onto the shipped gate (D-15). The retired
+    // guard 2 asked what the SET rewrites, and this case witnessed that widening
+    // it to unique indexes had not turned it into "never fold a model that has
+    // one". The shipped gate asks about the PROJECTION instead
+    // (`returningSafeProjection`), so the same `label` SET folds or not by what
+    // it answers with: a relation projection takes the three-statement route…
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(3);
     expect(updated).toEqual({
       id: 2,
       code: "K2",
       label: "renamed",
       pets: [{ id: 20, name: "q1", hostCode: "K2" }],
     });
+
+    // …and a scalar-only projection over the very same SET is still ONE
+    // statement, the mutation answering out of its own RETURNING. That is the
+    // fold Raptor 3 ports, and this model has a unique index all the same.
+    driver.recording = true;
+    const renamed = await client.host.update({
+      where: { id: 2 },
+      data: { label: "renamed twice" },
+      select: { id: true, label: true },
+    });
+    const scalarOnly = drain(driver);
+    driver.recording = false;
+    expect(foldedInOneStatement(scalarOnly)).toBe(true);
+    expect(renamed).toEqual({ id: 2, label: "renamed twice" });
   });
 
   test("a unique rewrite with a scalar-only projection is untouched by guard 2", async () => {
@@ -840,7 +900,7 @@ describe("Phase 8.1 — what the fold must not change", () => {
     );
   });
 
-  test("a model nothing references folds a key rewrite that the cascading model declines", async () => {
+  test("a model nothing references takes the same route as the cascading one", async () => {
     const family = getSoloFamily();
     const driver = new RecordingPGliteDriver({
       client: family.database,
@@ -851,7 +911,7 @@ describe("Phase 8.1 — what the fold must not change", () => {
     await client.palette.create({ data: { id: 1, title: "warm" } });
 
     driver.recording = true;
-    await client.tag.update({
+    const updated = await client.tag.update({
       where: { id: 1 },
       data: { color: "#00f" },
       select: { id: true, _count: { select: { palettes: true } } },
@@ -859,10 +919,21 @@ describe("Phase 8.1 — what the fold must not change", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // Guard 2 is about what the SET rewrites, not about the model having
-    // relations: `color` is in no unique constraint, so no action can fire and
-    // the m2m `_count` folds.
-    expect(foldedInOneStatement(statements)).toBe(true);
+    // The retired guard 2 asked what the SET rewrites, not whether the model has
+    // relations: `color` is in no unique constraint, so no action could fire and
+    // the m2m `_count` folded here while the cascading model's key rewrite
+    // declined. D-15 retired that question with the CTE. The shipped gate asks
+    // about the PROJECTION, and `_count` is a relation projection on both models
+    // (`g4/unit02/note.md` §4.4) — so the route is the same three statements on
+    // either, and what is left to tell is that the answer is the read's.
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(3);
+    expect(updated).toEqual(
+      await client.tag.findUnique({
+        where: { id: 1 },
+        select: { id: true, _count: { select: { palettes: true } } },
+      })
+    );
   });
 });
 
@@ -872,14 +943,21 @@ describe("Phase 8.1 — what the fold must not change", () => {
  * MEASURED at c9c06e5, PGlite, before the fold: a root plus two nested children
  * sent FOUR statements — three INSERTs and the terminal read. After: one.
  *
- * The fresh-parent elision ladder (ATOM §4) is what makes it legal: a child of a
+ * The fresh-parent elision ladder (ATOM §4) is what made it legal: a child of a
  * row this operation is creating cannot pre-exist, so no correlated probe under
  * it can match, and the tree asks the database nothing before it writes. That is
- * why the fold's gate is spelled "no guards, and no statement reads another
+ * why the fold's gate was spelled "no guards, and no statement reads another
  * statement's output" rather than as a shape whitelist.
+ *
+ * D-15 retired that machinery with the rest of the CTE (`"__viborm_write_n"`
+ * sibling arms included), so the four statements are back and the cells below
+ * pin the route the shipped engine sends: one statement per arm, in the order
+ * the payload declared them, then the terminal read. The elision ladder itself
+ * is untouched — it is why none of these trees asks anything first — and every
+ * declining case in this describe still declines, for the reason it always did.
  */
 describe("Phase 8.2 — the nested-create tree", () => {
-  test("a root and its two children are ONE statement", async () => {
+  test("a root and its two children are one INSERT per arm, in declaration order", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -899,11 +977,15 @@ describe("Phase 8.2 — the nested-create tree", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // THE measurement: four statements became one.
-    expect(statements).toHaveLength(1);
-    expect(statements[0]).toContain('WITH "__viborm_mutation" AS (INSERT');
-    expect(statements[0]).toContain('"__viborm_write_0" AS (INSERT');
-    expect(statements[0]).toContain('"__viborm_write_1" AS (INSERT');
+    // THE measurement, re-expressed (D-15): the four statements the tree fold
+    // chained into one are the four the shipped engine sends — the root's INSERT,
+    // one INSERT per arm in the payload's order, and the terminal read.
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(4);
+    expect(statements[0]).toContain('"p81_accounts"');
+    expect(statements[1]).toContain('"p81_notes"');
+    expect(statements[2]).toContain('"p81_notes"');
+    expect(statements[3]?.startsWith("SELECT")).toBe(true);
 
     expect(created).toEqual({
       id: 300,
@@ -923,7 +1005,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
     ]);
   });
 
-  test("a nested createMany rides the same fold", async () => {
+  test("a nested createMany rides the same route, one INSERT per row", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -945,7 +1027,10 @@ describe("Phase 8.2 — the nested-create tree", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    expect(statements).toHaveLength(1);
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(4);
+    expect(statements[1]).toContain('"p81_notes"');
+    expect(statements[2]).toContain('"p81_notes"');
     expect(
       await client.note.findMany({ where: { accountId: 301 } })
     ).toHaveLength(2);
@@ -1072,7 +1157,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
     expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
   });
 
-  test("ONE arm taking a generated key still folds: its row order is the statement's own", async () => {
+  test("ONE arm taking a generated key keeps the caller's row order across its INSERTs", async () => {
     const family = getCrateFamily();
     const driver = new RecordingPGliteDriver({
       client: family.database,
@@ -1093,11 +1178,17 @@ describe("Phase 8.2 — the nested-create tree", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // ANTI-VACUITY: the conjunct is "at most one arm", not "no generated keys".
-    // A multi-row INSERT assigns its sequence values in its own VALUES order,
-    // which the planner does not get to choose — so this one folds, and the
-    // rows still come back in the order they were written.
-    expect(foldedInOneStatement(statements)).toBe(true);
+    // ANTI-VACUITY, re-expressed (D-15). The retired conjunct was "at most one
+    // arm", not "no generated keys": a multi-row INSERT assigned its sequence
+    // values in its own VALUES order, which the planner did not get to choose,
+    // so this shape folded where its two-arm sibling above declined. With the
+    // tree fold gone the arm is one INSERT per row, sent in the payload's order,
+    // and the row order it produces is the same one — which is the claim this
+    // case was ever making.
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(4);
+    expect(statements[1]).toContain('"p82_item"');
+    expect(statements[2]).toContain('"p82_item"');
     expect(
       await client.item.findMany({
         where: { crateId: 2 },
@@ -1221,7 +1312,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
     ]);
   });
 
-  test("a skip-carrying arm on another table still folds", async () => {
+  test("a skip-carrying arm on another table takes a member rollback region per row", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -1244,7 +1335,18 @@ describe("Phase 8.2 — the nested-create tree", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    expect(foldedInOneStatement(statements)).toBe(true);
+    // D-15 retired the tree fold, and what this arm shows instead is the shipped
+    // `skipDuplicates` mechanism on the live route: each row's INSERT inside its
+    // OWN member rollback region (`SAVEPOINT` / `RELEASE SAVEPOINT`), which is
+    // the region G3P-04 names and the atomic-batch leg refuses for want of.
+    expect(noCteFold(statements)).toBe(true);
+    expect(statements).toHaveLength(8);
+    expect(
+      statements.filter((sql) => sql.startsWith("SAVEPOINT "))
+    ).toHaveLength(2);
+    expect(
+      statements.filter((sql) => sql.startsWith("RELEASE SAVEPOINT "))
+    ).toHaveLength(2);
     expect(
       await client.note.findMany({
         where: { accountId: 308 },

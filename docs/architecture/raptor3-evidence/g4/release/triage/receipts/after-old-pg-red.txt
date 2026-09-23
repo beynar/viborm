@@ -1,0 +1,20 @@
+pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes
+pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh
+pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases
+pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical
+pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs
+pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions
+pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions
+pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections
+pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds
+pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering
+pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset
+pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression
+pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate
+pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude
+pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates
+pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK
+pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches
+pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs
+pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK
+pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create

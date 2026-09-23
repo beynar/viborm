@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 41ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  02:49:54
+   Duration  2.06s (transform 1.23s, setup 9ms, collect 1.78s, tests 41ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 4.24s wall, 563.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

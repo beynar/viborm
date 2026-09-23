@@ -1,0 +1,1784 @@
+diff --git a/tests/raptor3/g4/route-admission.test.ts b/tests/raptor3/g4/route-admission.test.ts
+new file mode 100644
+index 00000000..0245f124
+--- /dev/null
++++ b/tests/raptor3/g4/route-admission.test.ts
+@@ -0,0 +1,201 @@
++/**
++ * G4-03 C13 — one admission, candidate results, candidate refusals.
++ *
++ * The route never parses a payload: it hands the client-prepared payload to
++ * `createCommandEngine`, which admits it exactly once through
++ * `EngineSchema.admit`. The counter below is the falsifier for that claim — a
++ * second admission runs the field transform twice.
++ *
++ * Also pins what the route must NOT do: fall back to the shipped engine for a
++ * verb the candidate does not implement, and re-shape the candidate's results
++ * or error identities.
++ */
++
++import assert from "node:assert/strict";
++import type { VibORMClient } from "@client/client";
++import type { QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { UniqueConstraintError, ValidationError } from "@errors";
++import { createCandidateClient } from "@query-engine/raptor3/route/client-route";
++import { s } from "@schema";
++import { createClient } from "@src/index";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import v from "@validation/primitives/v";
++import Database from "better-sqlite3";
++import { afterEach, describe, expect, test } from "vitest";
++
++let admissions: string[] = [];
++
++const note = s
++  .model({
++    id: s.int().id().increment(),
++    slug: s.string().unique(),
++    title: s.string().schema(
++      v.string({
++        transform(value) {
++          admissions.push(value);
++          return `${value}-admitted`;
++        },
++      })
++    ),
++  })
++  .map("g4_admission_notes");
++
++const schema = { note };
++
++const UNIMPLEMENTED_VERB = /Raptor 3 G1 operation is not implemented/;
++
++class CountingDriver extends SQLite3Driver {
++  readonly statements: string[] = [];
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ): Promise<QueryResult<T>> {
++    this.statements.push(statement);
++    return super.execute<T>(client, statement, parameters);
++  }
++}
++
++type WorldClient = VibORMClient<{
++  driver: CountingDriver;
++  schema: typeof schema;
++}>;
++
++interface World {
++  readonly client: WorldClient;
++  readonly database: Database.Database;
++  readonly driver: CountingDriver;
++}
++
++const worlds: World[] = [];
++
++async function createWorld(route: "shipped" | "candidate"): Promise<World> {
++  const database = new Database(":memory:");
++  const driver = new CountingDriver({ client: database });
++  const config = { driver, schema };
++  const client: WorldClient =
++    route === "shipped" ? createClient(config) : createCandidateClient(config);
++  const migration = await syncLiveSchema(client);
++  if (!migration.applied) throw new Error("The world's schema did not apply");
++  driver.statements.length = 0;
++  admissions = [];
++  const world: World = { client, database, driver };
++  worlds.push(world);
++  return world;
++}
++
++afterEach(async () => {
++  for (const world of worlds.splice(0)) {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++describe("G4-03 C13 candidate admission, results and refusals", () => {
++  test("one admitted input is evaluated exactly once, request transform first", async () => {
++    const world = await createWorld("candidate");
++    const client = world.client.$extends({
++      name: "request-first",
++      request: {
++        note: {
++          create({ input }) {
++            return {
++              data: { ...input.data, title: `${input.data.title}-req` },
++            };
++          },
++        },
++      },
++    });
++    const created = await client.note.create({
++      data: { slug: "once", title: "value" },
++    });
++    // Exactly one evaluation, of the request-transformed value.
++    assert.deepEqual(admissions, ["value-req"]);
++    assert.equal((created as { title: string }).title, "value-req-admitted");
++
++    admissions = [];
++    await client.note.createMany({
++      data: [
++        { slug: "bulk-a", title: "a" },
++        { slug: "bulk-b", title: "b" },
++      ],
++    });
++    assert.deepEqual(admissions, ["a", "b"]);
++  });
++
++  test("the same admission count as the shipped route for the same payload", async () => {
++    const shipped = await createWorld("shipped");
++    await shipped.client.note.create({ data: { slug: "s", title: "value" } });
++    const shippedAdmissions = [...admissions];
++    const candidate = await createWorld("candidate");
++    await candidate.client.note.create({ data: { slug: "c", title: "value" } });
++    assert.deepEqual(admissions, shippedAdmissions);
++    assert.deepEqual(admissions, ["value"]);
++  });
++
++  test("an unsupported verb keeps the candidate's refusal and never falls back", async () => {
++    const world = await createWorld("candidate");
++    await world.client.note.create({ data: { slug: "present", title: "t" } });
++    const statementsBefore = world.driver.statements.length;
++    const refusals: string[] = [];
++    for (const attempt of [
++      () => world.client.note.findFirst({ where: { slug: "present" } }),
++      () => world.client.note.count(),
++      () => world.client.note.aggregate({ _count: true }),
++      () => world.client.note.exist({ where: { slug: "present" } }),
++      () => world.client.note.delete({ where: { slug: "present" } }),
++      () => world.client.note.findUniqueOrThrow({ where: { slug: "absent" } }),
++    ]) {
++      try {
++        await attempt();
++        refusals.push("no refusal");
++      } catch (error) {
++        refusals.push((error as Error).message);
++      }
++    }
++    for (const refusal of refusals) {
++      assert.match(refusal, UNIMPLEMENTED_VERB);
++    }
++    // No statement ran: the refusal precedes provider work and no shipped
++    // operation was constructed to answer it.
++    assert.equal(world.driver.statements.length, statementsBefore);
++    assert.deepEqual(
++      world.database.prepare("SELECT slug FROM g4_admission_notes").all(),
++      [{ slug: "present" }]
++    );
++  });
++
++  test("results are fresh containers and errors keep their public identity", async () => {
++    const world = await createWorld("candidate");
++    await world.client.note.create({ data: { slug: "fresh", title: "t" } });
++    const first = await world.client.note.findMany({ select: { slug: true } });
++    const second = await world.client.note.findMany({ select: { slug: true } });
++    assert.deepEqual(first, second);
++    assert.notEqual(first, second);
++    assert.notEqual(first[0], second[0]);
++    (first[0] as { slug: string }).slug = "mutated";
++    assert.deepEqual(second, [{ slug: "fresh" }]);
++
++    await expect(
++      world.client.note.create({ data: { slug: "fresh", title: "t" } })
++    ).rejects.toMatchObject({ name: UniqueConstraintError.name });
++    await expect(
++      world.client.note.create({
++        data: { slug: 1 as unknown as string, title: "t" },
++      })
++    ).rejects.toMatchObject({ name: ValidationError.name });
++  });
++
++  test("a findUnique miss answers null on both routes", async () => {
++    const shipped = await createWorld("shipped");
++    const candidate = await createWorld("candidate");
++    for (const world of [shipped, candidate]) {
++      assert.equal(
++        await world.client.note.findUnique({ where: { slug: "absent" } }),
++        null
++      );
++    }
++  });
++});
+diff --git a/tests/raptor3/g4/route-cache.test.ts b/tests/raptor3/g4/route-cache.test.ts
+new file mode 100644
+index 00000000..f93807a0
+--- /dev/null
++++ b/tests/raptor3/g4/route-cache.test.ts
+@@ -0,0 +1,231 @@
++/**
++ * G4-03 C13 — the official cache over the candidate route.
++ *
++ * The cache extension, its keys and its invalidation rules are the existing
++ * owners'; the candidate supplies the executed operation and, for a cached
++ * read, the canonical result codec. Two halves are separable and are reported
++ * separately here:
++ *
++ *  - invalidation (LX-08) and every documented BYPASS (LX-07, RF-10) never need
++ *    the result codec and are verified against the shipped client;
++ *  - the cached-read STORE/MATERIALIZE half needs the candidate's prepared read
++ *    shape, which the frozen `createCommandEngine` boundary does not publish
++ *    (note.md B-1). Its refusal is pinned exactly, so the pin fails the day the
++ *    requested seam lands.
++ *
++ * Inventory rows: LX-07, LX-08, RF-10, NS-04.
++ */
++
++import assert from "node:assert/strict";
++import type { VibORMClient } from "@client/client";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { UnsupportedOperationError } from "@errors";
++import { createCandidateClient } from "@query-engine/raptor3/route/client-route";
++import { s } from "@schema";
++import { MemoryCache } from "@src/cache/drivers/memory";
++import type { CacheEntry } from "@src/cache/exports";
++import { cache } from "@src/cache/exports";
++import { createClient, sql } from "@src/index";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { afterEach, describe, expect, test } from "vitest";
++
++const entry = s
++  .model({
++    id: s.int().id().increment(),
++    label: s.string().unique(),
++  })
++  .map("g4_cache_entries");
++
++const schema = { entry };
++
++class RecordingCache extends MemoryCache {
++  readonly gets: string[] = [];
++  readonly invalidations: string[] = [];
++  readonly sets: string[] = [];
++
++  protected override async get<T>(key: string): Promise<CacheEntry<T> | null> {
++    this.gets.push(key);
++    return super.get<T>(key);
++  }
++
++  protected override async set<T>(
++    key: string,
++    storageTtl: number,
++    entry: CacheEntry<T>
++  ): Promise<void> {
++    this.sets.push(key);
++    return super.set<T>(key, storageTtl, entry);
++  }
++
++  protected override async delete(keys: string[]): Promise<void> {
++    this.invalidations.push(`delete:${keys.join(",")}`);
++    return super.delete(keys);
++  }
++
++  protected override async clear(prefix: string): Promise<void> {
++    this.invalidations.push(`clear:${prefix}`);
++    return super.clear(prefix);
++  }
++}
++
++type BaseClient = VibORMClient<{
++  driver: SQLite3Driver;
++  schema: typeof schema;
++}>;
++
++/** Open worlds, closed in `afterEach` without naming the extended client type. */
++const openWorlds: {
++  close(): Promise<void>;
++  database: Database.Database;
++}[] = [];
++
++async function createCacheWorld(route: "shipped" | "candidate") {
++  const database = new Database(":memory:");
++  const driver = new SQLite3Driver({ client: database });
++  const config = { driver, schema };
++  const base: BaseClient =
++    route === "shipped" ? createClient(config) : createCandidateClient(config);
++  const migration = await syncLiveSchema(base);
++  if (!migration.applied) throw new Error("The world's schema did not apply");
++  const cacheDriver = new RecordingCache();
++  const background: Promise<unknown>[] = [];
++  const client = base.$extends(
++    cache({
++      driver: cacheDriver,
++      waitUntil(promise) {
++        background.push(promise);
++      },
++    })
++  );
++  openWorlds.push({
++    close: () => client.$disconnect(),
++    database,
++  });
++  return {
++    cacheDriver,
++    client,
++    database,
++    async settle(): Promise<void> {
++      await Promise.all(background.splice(0));
++    },
++  };
++}
++
++afterEach(async () => {
++  for (const world of openWorlds.splice(0)) {
++    await world.close();
++    world.database.close();
++  }
++});
++
++describe("G4-03 C13 official cache over the candidate route", () => {
++  test("LX-08/NS-04 a committed candidate write publishes exactly one invalidation", async () => {
++    const shipped = await createCacheWorld("shipped");
++    const candidate = await createCacheWorld("candidate");
++    for (const world of [shipped, candidate]) {
++      await world.client.entry.create({
++        cache: { autoInvalidate: true },
++        data: { label: "published" },
++      });
++      await world.settle();
++    }
++    assert.equal(candidate.cacheDriver.invalidations.length, 1);
++    assert.deepEqual(
++      candidate.cacheDriver.invalidations.map((entryKey) =>
++        entryKey.slice(0, entryKey.indexOf(":"))
++      ),
++      shipped.cacheDriver.invalidations.map((entryKey) =>
++        entryKey.slice(0, entryKey.indexOf(":"))
++      )
++    );
++  });
++
++  test("LX-08 a rolled-back candidate write publishes no invalidation", async () => {
++    const world = await createCacheWorld("candidate");
++    const rollback = new Error("caller rollback");
++    await assert.rejects(
++      world.client.$transaction(async (tx) => {
++        await tx.entry.create({
++          cache: { autoInvalidate: true },
++          data: { label: "rolled-back" },
++        });
++        throw rollback;
++      }),
++      (error) => error === rollback
++    );
++    await world.settle();
++    assert.deepEqual(world.cacheDriver.invalidations, []);
++    assert.deepEqual(
++      world.database.prepare("SELECT label FROM g4_cache_entries").all(),
++      []
++    );
++  });
++
++  test("LX-08 a transaction publishes its members' invalidations only after commit", async () => {
++    const world = await createCacheWorld("candidate");
++    await world.client.$transaction(async (tx) => {
++      await tx.entry.create({
++        cache: { autoInvalidate: true },
++        data: { label: "inside" },
++      });
++      assert.deepEqual(world.cacheDriver.invalidations, []);
++    });
++    await world.settle();
++    assert.equal(world.cacheDriver.invalidations.length, 1);
++  });
++
++  test("RF-10/LX-07 a cached read inside a transaction bypasses the cache entirely", async () => {
++    const world = await createCacheWorld("candidate");
++    await world.client.entry.create({ data: { label: "bypassed" } });
++    const rows = await world.client.$transaction(async (tx) => {
++      const cached = (
++        tx as unknown as { $withCache?: () => typeof tx }
++      ).$withCache?.();
++      // A transaction view exposes no cached proxy; the read runs unchanged.
++      assert.equal(cached, undefined);
++      return tx.entry.findMany({ select: { label: true } });
++    });
++    await world.settle();
++    assert.deepEqual(rows, [{ label: "bypassed" }]);
++    assert.deepEqual(world.cacheDriver.gets, []);
++    assert.deepEqual(world.cacheDriver.sets, []);
++  });
++
++  test("LX-07 a raw read is never a cached operation on either route", async () => {
++    const world = await createCacheWorld("candidate");
++    await world.client.entry.create({ data: { label: "raw" } });
++    const rows = await world.client.$queryRaw<{ label: string }[]>(
++      sql`SELECT label FROM g4_cache_entries`
++    );
++    await world.settle();
++    expect(rows).toEqual([{ label: "raw" }]);
++    assert.deepEqual(world.cacheDriver.gets, []);
++    assert.deepEqual(world.cacheDriver.sets, []);
++  });
++
++  test("LX-07 PENDING blocker B-1: a cached read refuses at the candidate result codec", async () => {
++    const shipped = await createCacheWorld("shipped");
++    await shipped.client.entry.create({ data: { label: "cacheable" } });
++    const shippedCached = shipped.client.$withCache();
++    assert(shippedCached);
++    await shippedCached.entry.findMany({ select: { label: true } });
++    await shipped.settle();
++    // The shipped route stores one entry under its canonical key.
++    assert.equal(shipped.cacheDriver.sets.length, 1);
++
++    const world = await createCacheWorld("candidate");
++    await world.client.entry.create({ data: { label: "cacheable" } });
++    const cached = world.client.$withCache();
++    assert(cached);
++    await assert.rejects(
++      cached.entry.findMany({ select: { label: true } }),
++      (error: Error) =>
++        error.constructor.name === UnsupportedOperationError.name &&
++        error.message.includes("publishes no prepared read shape")
++    );
++    await world.settle();
++    // Nothing was stored, and nothing was read from the cache.
++    assert.deepEqual(world.cacheDriver.sets, []);
++  });
++});
+diff --git a/tests/raptor3/g4/route-lifecycle.test.ts b/tests/raptor3/g4/route-lifecycle.test.ts
+new file mode 100644
+index 00000000..21e49ed8
+--- /dev/null
++++ b/tests/raptor3/g4/route-lifecycle.test.ts
+@@ -0,0 +1,471 @@
++/**
++ * G4-03 C13 — the candidate reached only through the ordinary client lifecycle.
++ *
++ * Every case here runs the SAME world twice: once through the shipped public
++ * client and once through the private Raptor 3 route
++ * (`createCandidateClient`). The oracle is the shipped client's observable
++ * behavior — results, error identities and the lifecycle units observers see.
++ * A lifecycle event the route fails to produce fails these tests: the observed
++ * unit kinds are asserted as exact sequences, not as "at least".
++ *
++ * Inventory rows: LX-01 (lazy pending operation, memoized preparation),
++ * LX-09/LX-11 (default omit, request transforms before admission), LX-10
++ * (extension chain order and collisions), LX-12 (query interceptors),
++ * LX-13 (statement transforms), LX-14/LX-15 (observers, instrumentation),
++ * LX-16/LX-17 (connect/disconnect/dispose, `$driver`, `$schema`,
++ * introspection).
++ */
++
++import assert from "node:assert/strict";
++import type { VibORMClient } from "@client/client";
++import type { BatchQuery, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCandidateClient } from "@query-engine/raptor3/route/client-route";
++import { s } from "@schema";
++import { defaultOmit } from "@src/client/exports";
++import {
++  createClient,
++  getOperationPayloadSchema,
++  renderOperationResultType,
++  validateOperationPayload,
++} from "@src/index";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { afterEach, describe, expect, test } from "vitest";
++
++const author = s
++  .model({
++    id: s.int().id().increment(),
++    email: s.string().unique(),
++    name: s.string(),
++    secret: s.string().default("hidden"),
++    score: s.int().default(0),
++  })
++  .map("g4_route_authors");
++
++const schema = { author };
++
++class WitnessDriver extends SQLite3Driver {
++  readonly statements: string[] = [];
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ): Promise<QueryResult<T>> {
++    this.statements.push(statement);
++    return super.execute<T>(client, statement, parameters);
++  }
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    for (const query of queries) this.statements.push(query.sql);
++    return super.executeBatch<T>(client, queries);
++  }
++}
++
++type WorldClient = VibORMClient<{
++  driver: WitnessDriver;
++  schema: typeof schema;
++}>;
++
++interface World {
++  readonly client: WorldClient;
++  readonly database: Database.Database;
++  readonly driver: WitnessDriver;
++}
++
++const worlds: World[] = [];
++
++async function createWorld(route: "shipped" | "candidate"): Promise<World> {
++  const database = new Database(":memory:");
++  const driver = new WitnessDriver({ client: database });
++  const config = { driver, schema };
++  const client: WorldClient =
++    route === "shipped" ? createClient(config) : createCandidateClient(config);
++  const migration = await syncLiveSchema(client);
++  if (!migration.applied) throw new Error("The world's schema did not apply");
++  driver.statements.length = 0;
++  const world: World = { client, database, driver };
++  worlds.push(world);
++  return world;
++}
++
++afterEach(async () => {
++  for (const world of worlds.splice(0)) {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++/**
++ * Apply an extension without its type gate, the way the shipped extension
++ * contracts do: a collision and a write interceptor that never proceeds are
++ * both refused at COMPILE time on the typed surface, so the RUNTIME refusal
++ * needs an untyped application to reach it.
++ */
++function applyUnsafe<T extends object>(client: T, definition: unknown): T {
++  const extend = Reflect.get(client, "$extends") as CallableFunction;
++  return Reflect.apply(extend, client, [definition]) as T;
++}
++
++/** Run one scenario on both routes and return both observations. */
++async function onBothRoutes<T>(
++  scenario: (world: World) => Promise<T>
++): Promise<{ candidate: T; shipped: T }> {
++  const shipped = await scenario(await createWorld("shipped"));
++  const candidate = await scenario(await createWorld("candidate"));
++  return { candidate, shipped };
++}
++
++describe("G4-03 C13 candidate client lifecycle", () => {
++  test("LX-01 a model call is lazy and memoizes one preparation, value and failure", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      let prepared = 0;
++      const client = world.client.$extends({
++        name: "counting-request",
++        request({ input }) {
++          prepared += 1;
++          return input;
++        },
++      });
++      const pending = client.author.create({
++        data: { email: "lazy@example.test", name: "Lazy" },
++      });
++      const beforeAwait = world.driver.statements.length;
++      const first = await pending;
++      const second = await pending;
++
++      let failedPreparations = 0;
++      const failing = client.author.create({
++        data: { email: 1 as unknown as string, name: "Invalid" },
++      });
++      const failures: string[] = [];
++      for (const _attempt of [0, 1]) {
++        try {
++          await failing;
++        } catch (error) {
++          failedPreparations += 1;
++          failures.push((error as Error).constructor.name);
++        }
++      }
++      return {
++        beforeAwait,
++        failedPreparations,
++        failures,
++        first,
++        prepared,
++        second,
++      };
++    });
++
++    assert.equal(observations.candidate.beforeAwait, 0);
++    assert.equal(
++      observations.candidate.prepared,
++      observations.shipped.prepared
++    );
++    assert.equal(observations.candidate.failedPreparations, 2);
++    assert.deepEqual(
++      observations.candidate.failures,
++      observations.shipped.failures
++    );
++    assert.deepEqual(observations.candidate.first, observations.shipped.first);
++    // The same await answers the same memoized value, never a second execution.
++    assert.equal(observations.candidate.first, observations.candidate.second);
++  });
++
++  test("LX-09/LX-11 request transforms run once, before admission, and default omit still applies", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const seen: unknown[] = [];
++      const client = world.client
++        .$extends({
++          name: "request-transform",
++          request: {
++            author: {
++              create({ input }) {
++                seen.push(structuredClone(input));
++                return {
++                  data: {
++                    ...input.data,
++                    name: `${input.data.name}-transformed`,
++                  },
++                };
++              },
++            },
++          },
++        })
++        .$extends(defaultOmit<typeof schema>()({ author: { secret: true } }));
++      const created = await client.author.create({
++        data: { email: "transform@example.test", name: "Ada" },
++      });
++      return { created, seen };
++    });
++
++    assert.deepEqual(
++      observations.candidate.created,
++      observations.shipped.created
++    );
++    assert.deepEqual(observations.candidate.seen, observations.shipped.seen);
++    assert.equal(
++      (observations.candidate.created as { name: string }).name,
++      "Ada-transformed"
++    );
++    assert.equal(
++      Object.hasOwn(observations.candidate.created as object, "secret"),
++      false
++    );
++  });
++
++  test("LX-10 the extension chain keeps its order and its collision refusal", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const order: string[] = [];
++      const client = world.client
++        .$extends({
++          name: "first",
++          request: {
++            author: {
++              findMany({ input }) {
++                order.push("first");
++                return input;
++              },
++            },
++          },
++        })
++        .$extends({
++          name: "second",
++          request: {
++            author: {
++              findMany({ input }) {
++                order.push("second");
++                return input;
++              },
++            },
++          },
++        });
++      await client.author.findMany();
++      let collision: string | undefined;
++      try {
++        applyUnsafe(
++          applyUnsafe(client, {
++            client: () => ({ $probe: () => 1 }),
++            name: "collide-a",
++          }),
++          { client: () => ({ $probe: () => 2 }), name: "collide-b" }
++        );
++      } catch (error) {
++        collision = (error as Error).constructor.name;
++      }
++      return { collision, order };
++    });
++
++    assert.deepEqual(observations.candidate.order, observations.shipped.order);
++    assert.deepEqual(observations.candidate.order, ["first", "second"]);
++    assert.equal(
++      observations.candidate.collision,
++      observations.shipped.collision
++    );
++  });
++
++  test("LX-12 a query interceptor owns proceed() and short-circuit; its input is the client payload (blocker B-1)", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const order: string[] = [];
++      const seen: unknown[] = [];
++      const client = world.client.$extends({
++        name: "interceptor",
++        query: {
++          author: {
++            async findMany({ input, proceed }) {
++              seen.push(structuredClone(input));
++              order.push("findMany:in");
++              const rows = await proceed();
++              order.push("findMany:out");
++              return rows;
++            },
++            // A READ may answer without proceeding at all.
++            findUnique: async () => {
++              order.push("findUnique:short-circuit");
++              return null;
++            },
++          },
++        },
++      });
++      // A WRITE that never proceeds is refused by the extension owner; the
++      // refusal must read the same on both routes.
++      const writing = applyUnsafe(client, {
++        name: "write-interceptor",
++        query: {
++          author: {
++            update: async () => {
++              order.push("update:no-proceed");
++              return { email: "never", id: 0, name: "never" };
++            },
++          },
++        },
++      });
++      await client.author.create({
++        data: { email: "intercepted@example.test", name: "Grace" },
++      });
++      const rows = await client.author.findMany({
++        select: { email: true },
++        where: { email: "intercepted@example.test" },
++      });
++      const selectsBefore = world.driver.statements.length;
++      const shortCircuit = await client.author.findUnique({
++        where: { email: "intercepted@example.test" },
++      });
++      const statementsWhileShortCircuited =
++        world.driver.statements.length - selectsBefore;
++      let writeRefusal: string | undefined;
++      try {
++        await writing.author.update({
++          data: { name: "never" },
++          where: { email: "intercepted@example.test" },
++        });
++      } catch (error) {
++        writeRefusal = (error as Error).message;
++      }
++      const updates = world.driver.statements.filter((statement) =>
++        statement.startsWith("UPDATE")
++      ).length;
++      return {
++        order,
++        rows,
++        seen,
++        shortCircuit,
++        statementsWhileShortCircuited,
++        updates,
++        writeRefusal,
++      };
++    });
++
++    assert.deepEqual(observations.candidate.rows, observations.shipped.rows);
++    // Blocker B-1, pinned exactly: the shipped route snapshots its ADMITTED
++    // payload, the candidate route the client-prepared one it is about to
++    // admit. Every other interceptor fact below is identical. This pin is
++    // self-falsifying: the requested prepare/execute split makes both equal.
++    assert.deepEqual(observations.shipped.seen, [
++      {
++        select: { email: true },
++        where: { email: { equals: "intercepted@example.test" } },
++      },
++    ]);
++    assert.deepEqual(observations.candidate.seen, [
++      { select: { email: true }, where: { email: "intercepted@example.test" } },
++    ]);
++    // The read answered from the interceptor alone.
++    assert.equal(observations.candidate.shortCircuit, null);
++    assert.equal(observations.shipped.shortCircuit, null);
++    assert.equal(observations.candidate.statementsWhileShortCircuited, 0);
++    assert.equal(
++      observations.candidate.writeRefusal,
++      observations.shipped.writeRefusal
++    );
++    assert.equal(observations.candidate.updates, 0);
++    assert.deepEqual(observations.candidate.order, observations.shipped.order);
++    assert.deepEqual(observations.candidate.order, [
++      "findMany:in",
++      "findMany:out",
++      "findUnique:short-circuit",
++      "update:no-proceed",
++    ]);
++  });
++
++  test("LX-13 PENDING blocker B-4: statement transforms do not reach candidate statements", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const observed: string[] = [];
++      const client = world.client.$extends({
++        name: "statement-observer",
++        statement({ statement }) {
++          observed.push((statement.strings[0] ?? "").slice(0, 6));
++          return statement;
++        },
++      });
++      await client.author.create({
++        data: { email: "statements@example.test", name: "Hedy" },
++      });
++      await client.author.findMany({ select: { email: true } });
++      return { observed };
++    });
++
++    // The shipped route hands the driver its trusted execution context, which
++    // is what carries the resolved extension chain.
++    assert(observations.shipped.observed.includes("INSERT"));
++    assert(observations.shipped.observed.includes("SELECT"));
++    // The candidate builds its own plain attribution, so the chain never
++    // reaches `applyTrustedStatementTransforms`. This pin is self-falsifying:
++    // when the requested context seam lands (note.md B-4) it fails here and
++    // becomes the real LX-13 oracle.
++    assert.deepEqual(observations.candidate.observed, []);
++  });
++
++  test("LX-14 operation units match; statement units PENDING blocker B-4", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const units: string[] = [];
++      const completions: Promise<unknown>[] = [];
++      const client = world.client.$extends({
++        name: "lifecycle-observer",
++        observe(unit, proceed) {
++          units.push(`${unit.kind}:${unit.operation}`);
++          completions.push(proceed());
++        },
++      });
++      await client.author.create({
++        data: { email: "observed@example.test", name: "Alan" },
++      });
++      await client.author.findMany({ select: { email: true } });
++      await Promise.all(completions);
++      return { units };
++    });
++
++    const operationUnits = (units: string[]) =>
++      units.filter((unit) => unit.startsWith("operation:"));
++    assert.deepEqual(
++      operationUnits(observations.candidate.units),
++      operationUnits(observations.shipped.units)
++    );
++    assert.deepEqual(operationUnits(observations.candidate.units), [
++      "operation:create",
++      "operation:findMany",
++    ]);
++    assert(
++      observations.shipped.units.some((unit) => unit.startsWith("statement:")),
++      "the shipped route observes statement units"
++    );
++    // PENDING blocker B-4, exactly as LX-13 above: statement, transaction and
++    // savepoint units are driver-side observations that read the chain from the
++    // execution context the candidate does not receive.
++    assert.deepEqual(
++      observations.candidate.units.filter(
++        (unit) => !unit.startsWith("operation:")
++      ),
++      []
++    );
++  });
++
++  test("LX-16/LX-17 lifecycle and introspection stay on the existing owners", async () => {
++    const world = await createWorld("candidate");
++    await world.client.$connect();
++    expect(world.client.$driver).toBe(world.driver);
++    expect(world.client.$schema).toBe(schema);
++    // Introspection is the schema's own owner and never reaches a route.
++    expect(
++      getOperationPayloadSchema(schema, "author", "findMany")
++    ).toBeDefined();
++    expect(
++      validateOperationPayload(schema, "author", "findMany", {
++        where: { email: "introspected@example.test" },
++      })
++    ).toEqual({
++      where: { email: { equals: "introspected@example.test" } },
++    });
++    expect(
++      typeof renderOperationResultType(schema, "author", "findUnique", {
++        where: { id: 1 },
++      })
++    ).toBe("string");
++    // The disposal door is the same function object as `$disconnect`.
++    expect(world.client[Symbol.asyncDispose]).toBe(world.client.$disconnect);
++  });
++});
+diff --git a/tests/raptor3/g4/route-transactions.test.ts b/tests/raptor3/g4/route-transactions.test.ts
+new file mode 100644
+index 00000000..f151afbf
+--- /dev/null
++++ b/tests/raptor3/g4/route-transactions.test.ts
+@@ -0,0 +1,627 @@
++/**
++ * G4-03 C13 — transactions, arrays and raw through the candidate route.
++ *
++ * The transaction, array and raw owners are the existing ones; the route only
++ * decides which driver the candidate borrows. Each case runs on both routes and
++ * compares public results, database state and error identities.
++ *
++ * Inventory rows: LX-02 (callback transaction), LX-03 (nested savepoint),
++ * LX-04 (array transaction: sequential fallback and native package),
++ * LX-05/LX-06 + NS-03 (raw bypass is never interpreted by the route),
++ * NS-05 (the exact bound driver executes), RF-09 (callback transactions are
++ * refused on a non-interactive transport; unsupported options are refused).
++ */
++
++import assert from "node:assert/strict";
++import { VibORM, type VibORMClient } from "@client/client";
++import type { BatchQuery, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { TransactionError, UniqueConstraintError } from "@errors";
++import {
++  type ClientOperationRoute,
++  createCandidateRoute,
++} from "@query-engine/raptor3/route/client-route";
++import { s } from "@schema";
++import { createClient, sql } from "@src/index";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { afterEach, describe, expect, test } from "vitest";
++
++const author = s
++  .model({
++    id: s.int().id().increment(),
++    email: s.string().unique(),
++    name: s.string(),
++    books: s.toMany(() => book),
++  })
++  .map("g4_tx_authors");
++
++const book = s
++  .model({
++    id: s.int().id().increment(),
++    title: s.string().unique(),
++    authorId: s.int(),
++    author: s
++      .toOne(() => author)
++      .fields("authorId")
++      .references("id"),
++  })
++  .map("g4_tx_books");
++
++const schema = { author, book };
++
++class InteractiveDriver extends SQLite3Driver {
++  readonly statements: string[] = [];
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[]
++  ): Promise<QueryResult<T>> {
++    this.statements.push(statement);
++    return super.execute<T>(client, statement, parameters);
++  }
++}
++
++class BatchOnlyDriver extends InteractiveDriver {
++  readonly batches: BatchQuery[][] = [];
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    this.batches.push(queries);
++    return this.transaction(client, (transaction) =>
++      super.executeBatch<T>(transaction, queries)
++    );
++  }
++}
++
++type WorldClient = VibORMClient<{
++  driver: InteractiveDriver;
++  schema: typeof schema;
++}>;
++
++interface World {
++  readonly client: WorldClient;
++  readonly database: Database.Database;
++  readonly driver: InteractiveDriver;
++  readonly routeCalls: string[];
++}
++
++const worlds: World[] = [];
++
++async function createWorld(
++  route: "shipped" | "candidate",
++  driverKind: "interactive" | "batch-only" = "interactive"
++): Promise<World> {
++  const database = new Database(":memory:");
++  const driver: InteractiveDriver =
++    driverKind === "interactive"
++      ? new InteractiveDriver({ client: database })
++      : new BatchOnlyDriver({ client: database });
++  const routeCalls: string[] = [];
++  const config = { driver, schema };
++  const client: WorldClient =
++    route === "shipped"
++      ? createClient(config)
++      : VibORM.create(config, (clientSchema, clientDriver) =>
++          countingRoute(
++            createCandidateRoute(clientSchema, clientDriver),
++            routeCalls
++          )
++        );
++  const migration = await syncLiveSchema(client);
++  if (!migration.applied) throw new Error("The world's schema did not apply");
++  driver.statements.length = 0;
++  routeCalls.length = 0;
++  const world: World = { client, database, driver, routeCalls };
++  worlds.push(world);
++  return world;
++}
++
++/** Record every operation the route is asked for, without changing one. */
++function countingRoute(
++  route: ClientOperationRoute,
++  calls: string[]
++): ClientOperationRoute {
++  return {
++    operation(model, requestedOperation, args) {
++      calls.push(`${model["~"].names.ts}.${requestedOperation}`);
++      return route.operation(model, requestedOperation, args);
++    },
++  };
++}
++
++afterEach(async () => {
++  for (const world of worlds.splice(0)) {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++async function onBothRoutes<T>(
++  scenario: (world: World) => Promise<T>,
++  driverKind: "interactive" | "batch-only" = "interactive"
++): Promise<{ candidate: T; shipped: T }> {
++  const shipped = await scenario(await createWorld("shipped", driverKind));
++  const candidate = await scenario(await createWorld("candidate", driverKind));
++  return { candidate, shipped };
++}
++
++function storedAuthors(world: World): unknown[] {
++  return world.database
++    .prepare("SELECT email FROM g4_tx_authors ORDER BY id")
++    .all();
++}
++
++describe("G4-03 C13 candidate transactions, arrays and raw", () => {
++  test("LX-02/NS-05 one callback transaction commits, and a throw rolls every member back", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const committed = await world.client.$transaction(async (tx) => {
++        await tx.author.create({
++          data: { email: "committed@example.test", name: "Ada" },
++        });
++        return tx.author.findMany({ select: { email: true } });
++      });
++      const rollback = new Error("caller rollback");
++      let rejection: unknown;
++      try {
++        await world.client.$transaction(async (tx) => {
++          await tx.author.create({
++            data: { email: "rolled-back@example.test", name: "Grace" },
++          });
++          throw rollback;
++        });
++      } catch (error) {
++        rejection = error;
++      }
++      return { committed, rejection, stored: storedAuthors(world) };
++    });
++
++    assert.deepEqual(
++      observations.candidate.committed,
++      observations.shipped.committed
++    );
++    assert.deepEqual(observations.candidate.committed, [
++      { email: "committed@example.test" },
++    ]);
++    assert.equal(
++      (observations.candidate.rejection as Error).message,
++      "caller rollback"
++    );
++    assert.deepEqual(
++      observations.candidate.stored,
++      observations.shipped.stored
++    );
++    assert.deepEqual(observations.candidate.stored, [
++      { email: "committed@example.test" },
++    ]);
++  });
++
++  test("LX-02 a failed operation inside a callback transaction rolls back only itself", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const failure = await world.client.$transaction(async (tx) => {
++        await tx.author.create({
++          data: { email: "keeper@example.test", name: "Keeper" },
++        });
++        let caught: string | undefined;
++        try {
++          await tx.author.create({
++            data: {
++              books: { create: [{ title: "first" }, { title: "first" }] },
++              email: "partial@example.test",
++              name: "Partial",
++            },
++          });
++        } catch (error) {
++          caught = (error as Error).constructor.name;
++        }
++        return caught;
++      });
++      return {
++        books: world.database
++          .prepare("SELECT title FROM g4_tx_books ORDER BY id")
++          .all(),
++        failure,
++        stored: storedAuthors(world),
++      };
++    });
++
++    assert.equal(observations.candidate.failure, observations.shipped.failure);
++    // The caller's transaction survived, keeping only the first author, and the
++    // failed operation left neither its author row nor its first book behind.
++    assert.deepEqual(observations.candidate.stored, [
++      { email: "keeper@example.test" },
++    ]);
++    assert.deepEqual(observations.candidate.books, []);
++    assert.deepEqual(
++      observations.candidate.stored,
++      observations.shipped.stored
++    );
++    assert.deepEqual(observations.candidate.books, observations.shipped.books);
++  });
++
++  test("LX-03 a nested transaction is a savepoint that keeps the outer effects", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const inner = new Error("inner rollback");
++      let rejection: string | undefined;
++      await world.client.$transaction(async (tx) => {
++        await tx.author.create({
++          data: { email: "outer@example.test", name: "Outer" },
++        });
++        try {
++          await tx.$transaction(async (nested) => {
++            await nested.author.create({
++              data: { email: "inner@example.test", name: "Inner" },
++            });
++            throw inner;
++          });
++        } catch (error) {
++          rejection = (error as Error).message;
++        }
++      });
++      return { rejection, stored: storedAuthors(world) };
++    });
++
++    assert.equal(observations.candidate.rejection, "inner rollback");
++    assert.deepEqual(
++      observations.candidate.stored,
++      observations.shipped.stored
++    );
++    assert.deepEqual(observations.candidate.stored, [
++      { email: "outer@example.test" },
++    ]);
++  });
++
++  test("LX-04 an array transaction keeps admission order, per-member results and atomicity", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const results = await world.client.$transaction([
++        world.client.author.create({
++          data: { email: "array-one@example.test", name: "One" },
++          select: { email: true },
++        }),
++        world.client.author.createMany({
++          data: [
++            { email: "array-two@example.test", name: "Two" },
++            { email: "array-three@example.test", name: "Three" },
++          ],
++        }),
++      ]);
++      let rejection: string | undefined;
++      try {
++        await world.client.$transaction([
++          world.client.author.create({
++            data: { email: "array-four@example.test", name: "Four" },
++          }),
++          world.client.author.create({
++            // The unique collision is the second member: the first must not
++            // survive the array's rollback.
++            data: { email: "array-one@example.test", name: "Collide" },
++          }),
++        ]);
++      } catch (error) {
++        rejection = (error as Error).constructor.name;
++      }
++      return { rejection, results, stored: storedAuthors(world) };
++    });
++
++    assert.deepEqual(
++      observations.candidate.results,
++      observations.shipped.results
++    );
++    assert.deepEqual(observations.candidate.results, [
++      { email: "array-one@example.test" },
++      { count: 2 },
++    ]);
++    assert.equal(
++      observations.candidate.rejection,
++      observations.shipped.rejection
++    );
++    assert.deepEqual(
++      observations.candidate.stored,
++      observations.shipped.stored
++    );
++    assert.deepEqual(observations.candidate.stored, [
++      { email: "array-one@example.test" },
++      { email: "array-two@example.test" },
++      { email: "array-three@example.test" },
++    ]);
++  });
++
++  test("LX-04 a batch-only driver packages candidate operations through the array owner", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const results = await world.client.$transaction([
++        world.client.author.createMany({
++          data: [
++            { email: "packaged-one@example.test", name: "One" },
++            { email: "packaged-two@example.test", name: "Two" },
++          ],
++        }),
++        world.client.author.deleteMany({
++          where: { email: "packaged-two@example.test" },
++        }),
++      ]);
++      return {
++        batches: (world.driver as BatchOnlyDriver).batches.length,
++        results,
++        stored: storedAuthors(world),
++      };
++    }, "batch-only");
++
++    assert.deepEqual(
++      observations.candidate.results,
++      observations.shipped.results
++    );
++    assert.deepEqual(observations.candidate.results, [
++      { count: 2 },
++      { count: 1 },
++    ]);
++    assert.deepEqual(
++      observations.candidate.stored,
++      observations.shipped.stored
++    );
++    // One native batch carried both members' packages.
++    assert.equal(observations.candidate.batches, 1);
++  });
++
++  /**
++   * DIVERGENCE PIN (r3 repair of review finding 2) — LX-04's READ half.
++   *
++   * On a batch-only driver the array owner asks each member for one prepared
++   * statement (`owner.prepare`) and, when there is none, for a package
++   * (`owner.prepareBatch`). `PendingOperation.#resolveSinglePlan` answers
++   * `undefined` for every routed operation, and the candidate cannot PACKAGE a
++   * read: `batch-preparation` ownership throws `incompletePreparation`
++   * (`raptor3/shared/operation-context.ts`), which `createCommandEngine`
++   * converts to `undefined` (`raptor3/commands/index.ts`), so the array owner
++   * refuses the whole array. The shipped route batches that same read as one
++   * statement.
++   *
++   * Owner: the same seam as blocker B-1 — the candidate boundary publishes no
++   * prepared read shape, here in its `prepareBatch` half. This pin asserts
++   * TODAY'S refusal, so it goes red the day the seam lands and must then be
++   * rewritten into the real LX-04 read oracle.
++   */
++  test("LX-04 DIVERGENCE PIN blocker B-1: an array transaction containing a read is refused on a batch-only driver", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      await world.client.author.create({
++        data: { email: "read-array@example.test", name: "Ada" },
++      });
++      let outcome: string;
++      try {
++        outcome = `ok:${JSON.stringify(
++          await world.client.$transaction([
++            world.client.author.findMany({ select: { email: true } }),
++          ])
++        )}`;
++      } catch (error) {
++        outcome = `${(error as Error).constructor.name}:${(error as Error).message}`;
++      }
++      return { outcome };
++    }, "batch-only");
++
++    assert.equal(
++      observations.shipped.outcome,
++      'ok:[[{"email":"read-array@example.test"}]]'
++    );
++    assert.equal(
++      observations.candidate.outcome,
++      `${TransactionError.name}:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.`
++    );
++  });
++
++  /**
++   * DIVERGENCE PIN (r3 repair of review finding 1) — the region the route opens.
++   *
++   * Inside a caller transaction `runCandidate` opens ONE
++   * `engineDriver.withTransaction(..., execution.context)` for every write, so
++   * the candidate borrows a scope it never opened and gets the member-rollback
++   * capability the test above ("a failed operation … rolls back only itself")
++   * depends on. The shipped executor opens that region only for a
++   * MULTI-statement write (`runTransaction` → `runTransactionScope`); a
++   * statement-atomic write runs envelope-free (`runStatementAtomic`,
++   * `write-engine/OperationExecutor.ts`).
++   *
++   * The route cannot take the shipped decision: statement-atomicity is a
++   * property of the COMPILED operation (`compileSingleStatementCandidate` +
++   * `canExecuteDirectly`), and the candidate boundary admits and compiles
++   * inside `execute` (blocker B-1), so nothing is compiled when the binding is
++   * chosen. The region carries the client's TRUSTED execution context, so an
++   * observer sees it — one extra `savepoint` unit plus two extra `statement`
++   * units (the region's own control statements: a lifecycle unit carries no
++   * SQL, so that attribution is inferred from the candidate's own statements
++   * being unobserved under blocker B-4, which the root oracle in
++   * `route-lifecycle.test.ts` measures).
++   *
++   * This pin asserts TODAY'S exact sequence on BOTH routes, so it goes red the
++   * day either shape changes, including the day the B-1 seam lets the route
++   * mirror the shipped condition.
++   */
++  test("LX-14 DIVERGENCE PIN blocker B-1: a statement-atomic write inside a callback transaction opens one extra observed region", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      const units: string[] = [];
++      const completions: Promise<unknown>[] = [];
++      const client = world.client.$extends({
++        name: "envelope-observer",
++        observe(unit, proceed) {
++          units.push(`${unit.kind}:${unit.operation}`);
++          completions.push(proceed());
++        },
++      });
++      await client.$transaction(async (tx) => {
++        await tx.author.create({
++          data: { email: "envelope@example.test", name: "Ada" },
++        });
++      });
++      await Promise.all(completions);
++      return { units };
++    });
++
++    assert.deepEqual(observations.shipped.units, [
++      "transaction:$transaction(callback)",
++      "operation:create",
++      "statement:create",
++    ]);
++    assert.deepEqual(observations.candidate.units, [
++      "transaction:$transaction(callback)",
++      "operation:create",
++      "savepoint:create",
++      "statement:create",
++      "statement:create",
++    ]);
++  });
++
++  /**
++   * DIVERGENCE PIN (repair 2, review follow-up finding 9) — the STATE and
++   * CALLER-OUTCOME half of the same divergence D-1 the pin above measures as
++   * observed units.
++   *
++   * The region `runCandidate` opens for a write inside a caller transaction is
++   * a NESTED `withTransaction`, and the base driver tracks a nested transaction
++   * with `poisonOnFailure = false` (`src/drivers/driver.ts:797-799`), poisoning
++   * the caller's scope only when nobody observes the rejection. The route
++   * awaits it, so a failed member leaves the caller's transaction usable. The
++   * shipped route runs a statement-atomic write as a DIRECT statement on the
++   * caller's transaction driver, tracked with `poisonOnFailure = true`
++   * (`driver.ts:665-667`), which marks the caller's scope rollback-only
++   * (`markCurrentScopeRollbackOnly`, `driver.ts:564-566`).
++   *
++   * So for a statement-atomic write that fails inside `$transaction(callback)`
++   * the two routes commit different rows and return different caller outcomes;
++   * this is NOT the multi-statement case the LX-02 oracle above covers, where
++   * the shipped route opens its own `runTransactionScope` savepoint and the two
++   * routes agree. Mechanism, ownership and the planned resolution (G4-02 brief
++   * item 11: the candidate decides the envelope, a single-statement borrowed
++   * write runs directly on the borrowed driver) are in `note.md` §R.1/§R.10.
++   *
++   * This pin asserts TODAY'S exact outcome on BOTH routes, so it goes red the
++   * day either side moves — including the day the candidate's own envelope
++   * decision makes the candidate column equal the shipped one.
++   */
++  test("LX-02 DIVERGENCE PIN blocker B-1: a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on the shipped route and only its own member on the candidate route", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      await world.client.author.create({
++        data: { email: "taken@example.test", name: "Taken" },
++      });
++      let inner: string | undefined;
++      let afterWrite: string | undefined;
++      let outer: string | undefined;
++      try {
++        await world.client.$transaction(async (tx) => {
++          await tx.author.create({
++            data: { email: "kept@example.test", name: "Kept" },
++          });
++          try {
++            await tx.author.create({
++              data: { email: "taken@example.test", name: "Duplicate" },
++            });
++          } catch (error) {
++            inner = (error as Error).constructor.name;
++          }
++          // The caller catches the failure and keeps using its transaction.
++          try {
++            await tx.author.create({
++              data: { email: "after@example.test", name: "After" },
++            });
++            afterWrite = "ok";
++          } catch (error) {
++            afterWrite = (error as Error).constructor.name;
++          }
++        });
++      } catch (error) {
++        outer = (error as Error).constructor.name;
++      }
++      return { afterWrite, inner, outer, stored: storedAuthors(world) };
++    });
++
++    // The failing member itself keeps the same public identity on both routes.
++    assert.equal(observations.shipped.inner, UniqueConstraintError.name);
++    assert.equal(observations.candidate.inner, observations.shipped.inner);
++
++    // SHIPPED, today: the caller's transaction is poisoned. The next operation
++    // rejects with the same error, `$transaction` rejects, nothing commits.
++    assert.equal(observations.shipped.afterWrite, UniqueConstraintError.name);
++    assert.equal(observations.shipped.outer, UniqueConstraintError.name);
++    assert.deepEqual(observations.shipped.stored, [
++      { email: "taken@example.test" },
++    ]);
++
++    // CANDIDATE, today: only the member rolls back. The next operation
++    // succeeds, `$transaction` resolves, and both members commit.
++    assert.equal(observations.candidate.afterWrite, "ok");
++    assert.equal(observations.candidate.outer, undefined);
++    assert.deepEqual(observations.candidate.stored, [
++      { email: "taken@example.test" },
++      { email: "kept@example.test" },
++      { email: "after@example.test" },
++    ]);
++  });
++
++  test("RF-09 a callback transaction stays refused on a non-interactive transport", async () => {
++    const observations = await onBothRoutes(async (world) => {
++      let refusal: { message: string; name: string } | undefined;
++      try {
++        await world.client.$transaction(async (tx) => {
++          await tx.author.findMany();
++        });
++      } catch (error) {
++        refusal = {
++          message: (error as Error).message,
++          name: (error as Error).constructor.name,
++        };
++      }
++      return { refusal };
++    }, "batch-only");
++
++    assert.deepEqual(
++      observations.candidate.refusal,
++      observations.shipped.refusal
++    );
++    assert.equal(observations.candidate.refusal?.name, TransactionError.name);
++  });
++
++  test("LX-05/LX-06/NS-03 raw SQL bypasses the route entirely", async () => {
++    const world = await createWorld("candidate");
++    await world.client.author.create({
++      data: { email: "raw@example.test", name: "Raw" },
++    });
++    const routeCallsAfterModelWrite = [...world.routeCalls];
++    const rows = await world.client.$queryRaw<{ email: string }[]>(
++      sql`SELECT email FROM g4_tx_authors ORDER BY id`
++    );
++    const affected = await world.client.$executeRawUnsafe(
++      "UPDATE g4_tx_authors SET name = ? WHERE email = ?",
++      "Renamed",
++      "raw@example.test"
++    );
++    expect(rows).toEqual([{ email: "raw@example.test" }]);
++    expect(affected).toBe(1);
++    // Raw is a physical statement: the route is never asked for an operation.
++    assert.deepEqual(world.routeCalls, routeCallsAfterModelWrite);
++    assert.deepEqual(world.routeCalls, ["author.create"]);
++  });
++
++  test("NS-05 two clients over one database keep their own bound drivers", async () => {
++    const left = await createWorld("candidate");
++    const right = await createWorld("candidate");
++    await Promise.all([
++      left.client.$transaction(async (tx) => {
++        await tx.author.create({
++          data: { email: "left@example.test", name: "Left" },
++        });
++      }),
++      right.client.$transaction(async (tx) => {
++        await tx.author.create({
++          data: { email: "right@example.test", name: "Right" },
++        });
++      }),
++    ]);
++    assert.deepEqual(storedAuthors(left), [{ email: "left@example.test" }]);
++    assert.deepEqual(storedAuthors(right), [{ email: "right@example.test" }]);
++    assert.deepEqual(left.routeCalls, ["author.create"]);
++    assert.deepEqual(right.routeCalls, ["author.create"]);
++  });
++});
+diff --git a/tests/types/raptor3/route-public-types.core.types.ts b/tests/types/raptor3/route-public-types.core.types.ts
+new file mode 100644
+index 00000000..2305a4d3
+--- /dev/null
++++ b/tests/types/raptor3/route-public-types.core.types.ts
+@@ -0,0 +1,224 @@
++/**
++ * LX-18 — the private Raptor 3 route consumes the canonical public types.
++ *
++ * The claim this file checks is a NEGATIVE one: selecting the candidate route
++ * changes nothing a caller can see in the type system. It is probed the way the
++ * client contextual-typing gate probes the shipped client
++ * (`tests/types/client/contextual-typing-gate.core.types.ts`) — through the real
++ * public syntax, with a typo BESIDE A REAL KEY at every nesting level, with
++ * variable-held and possibly-undefined clause values, and with
++ * `@ts-expect-error` directives that fail (TS2578) the moment a surface stops
++ * refusing. Nothing here is called; only the types matter.
++ *
++ * The first assertion is the whole unit in one line: the candidate client's
++ * type is the shipped client's type.
++ */
++
++import { PGliteDriver } from "@drivers/pglite";
++import { createCandidateClient } from "@query-engine/raptor3/route/client-route";
++import { createClient, s } from "@src/index";
++import { describe, expectTypeOf, test } from "vitest";
++
++const author = s.model({
++  id: s.string().id(),
++  email: s.string(),
++  passwordHash: s.string(),
++  books: s.toMany(() => book),
++});
++
++const book = s.model({
++  id: s.string().id(),
++  title: s.string(),
++  pages: s.int(),
++  authorId: s.string(),
++  writer: s
++    .toOne(() => author)
++    .fields("authorId")
++    .references("id"),
++});
++
++const schema = { author, book };
++const config = { driver: new PGliteDriver(), schema };
++
++const shipped = createClient(config);
++const candidate = createCandidateClient(config);
++
++describe("the candidate client's public type is the shipped client's type", () => {
++  test("one type, not two", () => {
++    expectTypeOf(candidate).toEqualTypeOf<typeof shipped>();
++    expectTypeOf(candidate.$schema).toEqualTypeOf<typeof schema>();
++  });
++
++  test("every operation answers the canonical result type", async () => {
++    const rows = await candidate.book.findMany({ select: { title: true } });
++    expectTypeOf(rows).toEqualTypeOf<{ title: string }[]>();
++
++    const one = await candidate.book.findUnique({ where: { id: "b" } });
++    expectTypeOf(one).toEqualTypeOf<{
++      id: string;
++      title: string;
++      pages: number;
++      authorId: string;
++    } | null>();
++
++    const created = await candidate.book.create({
++      data: { authorId: "a", id: "b", pages: 1, title: "t" },
++      select: { title: true },
++    });
++    expectTypeOf(created).toEqualTypeOf<{ title: string }>();
++
++    const counted = await candidate.book.createMany({
++      data: [{ authorId: "a", id: "b", pages: 1, title: "t" }],
++    });
++    expectTypeOf(counted).toEqualTypeOf<{ count: number }>();
++
++    const returned = await candidate.book.createMany({
++      data: [{ authorId: "a", id: "b", pages: 1, title: "t" }],
++      select: { title: true },
++    });
++    expectTypeOf(returned).toEqualTypeOf<{ title: string }[]>();
++  });
++});
++
++describe("candidate query args refuse a typo beside a real key at every level", () => {
++  const _keyed = () =>
++    candidate.book.findMany({
++      cursor: { id: "1" },
++      distinct: ["title"],
++      orderBy: { title: "asc" },
++      select: { id: true, writer: { select: { email: true } } },
++      where: { title: { contains: "x" }, writer: { is: { email: "e" } } },
++    });
++
++  const _operationKeyTypoBesideReal = () =>
++    // @ts-expect-error - "takee" is refused next to the real "take"
++    candidate.book.findMany({ take: 1, takee: 1 });
++
++  const _whereTypoBesideReal = () =>
++    // @ts-expect-error - "ttitle" is refused next to the real "title"
++    candidate.book.findMany({ where: { title: "x", ttitle: "x" } });
++
++  const _selectTypoBesideReal = () =>
++    // @ts-expect-error - "ttitle" is refused next to the real "title"
++    candidate.book.findMany({ select: { title: true, ttitle: true } });
++
++  /**
++   * PINNED NEGATIVE, identical on both routes: the clause guard keys the
++   * OPERATION-level clauses, and a relation's own nested `select` bag is one
++   * level deeper than the guard reaches. It compiles here exactly as it
++   * compiles on the shipped client, which is what this file claims.
++   */
++  const _nestedSelectTypoCompiles = () =>
++    candidate.author.findMany({
++      select: {
++        books: { select: { title: true, titl: true } },
++        email: true,
++      },
++    });
++
++  const _includeTypoBesideReal = () =>
++    candidate.author.findMany({
++      // @ts-expect-error - "bokos" is refused next to the real "books"
++      include: { bokos: true, books: true },
++    });
++
++  const _orderByTypoBesideReal = () =>
++    // @ts-expect-error - "ttitle" is refused next to the real "title"
++    candidate.book.findMany({ orderBy: { title: "asc", ttitle: "asc" } });
++
++  const _omitTypoBesideReal = () =>
++    // @ts-expect-error - "ttitle" is refused next to the real "title"
++    candidate.book.findMany({ omit: { title: true, ttitle: true } });
++
++  /** PINNED NEGATIVE: `data` is not one of the guarded clauses, on either route. */
++  const _dataTypoCompiles = () =>
++    candidate.book.create({
++      data: { authorId: "a", id: "b", pages: 1, titel: "t", title: "t" },
++    });
++
++  /** PINNED NEGATIVE: the nested write bag is not guarded either. */
++  const _nestedWriteTypoCompiles = () =>
++    candidate.author.create({
++      data: {
++        books: {
++          creat: [],
++          create: [{ id: "b", pages: 1, title: "t" }],
++        },
++        email: "e",
++        id: "a",
++        passwordHash: "p",
++      },
++    });
++
++  test("the probes above compile (assertions live in @ts-expect-error)", () => {
++    expectTypeOf(_keyed).toBeFunction();
++    expectTypeOf(_operationKeyTypoBesideReal).toBeFunction();
++    expectTypeOf(_whereTypoBesideReal).toBeFunction();
++    expectTypeOf(_selectTypoBesideReal).toBeFunction();
++    expectTypeOf(_nestedSelectTypoCompiles).toBeFunction();
++    expectTypeOf(_includeTypoBesideReal).toBeFunction();
++    expectTypeOf(_orderByTypoBesideReal).toBeFunction();
++    expectTypeOf(_omitTypoBesideReal).toBeFunction();
++    expectTypeOf(_dataTypoCompiles).toBeFunction();
++    expectTypeOf(_nestedWriteTypoCompiles).toBeFunction();
++  });
++});
++
++describe("candidate clauses stay keyed when the value is held or optional", () => {
++  const _optionalWhereTypoBesideReal = (
++    maybeWhere: { title: string; ttitle: string } | undefined
++  ) =>
++    // @ts-expect-error - "ttitle" is refused; `| undefined` does not disable the guard
++    candidate.book.findMany({ where: maybeWhere });
++
++  const _forwardedOptionalSelectTypo = (args: {
++    select?: { title: true; ttitle: true };
++  }) =>
++    // @ts-expect-error - "ttitle" is refused through the forwarded optional too
++    candidate.book.findMany({ select: args.select });
++
++  const _explicitUndefinedIsStillAllowed = () =>
++    candidate.book.findMany({ orderBy: undefined, where: undefined });
++
++  const _correctOptionalClauseCompiles = (
++    where: { title: string } | undefined
++  ) => candidate.book.findMany({ where });
++
++  test("the probes above compile (assertions live in @ts-expect-error)", () => {
++    expectTypeOf(_optionalWhereTypoBesideReal).toBeFunction();
++    expectTypeOf(_forwardedOptionalSelectTypo).toBeFunction();
++    expectTypeOf(_explicitUndefinedIsStillAllowed).toBeFunction();
++    expectTypeOf(_correctOptionalClauseCompiles).toBeFunction();
++  });
++});
++
++describe("candidate transactions keep the canonical member and result types", () => {
++  const _callback = async () =>
++    candidate.$transaction(async (tx) => {
++      const created = await tx.book.create({
++        data: { authorId: "a", id: "b", pages: 1, title: "t" },
++        select: { title: true },
++      });
++      expectTypeOf(created).toEqualTypeOf<{ title: string }>();
++      // A transaction view owns no root lifecycle method.
++      expectTypeOf(tx).not.toHaveProperty("$disconnect");
++      return created;
++    });
++
++  const _arrayMembers = async () => {
++    const results = await candidate.$transaction([
++      candidate.book.findMany({ select: { title: true } }),
++      candidate.book.createMany({
++        data: [{ authorId: "a", id: "b", pages: 1, title: "t" }],
++      }),
++    ]);
++    expectTypeOf(results).toEqualTypeOf<
++      [{ title: string }[], { count: number }]
++    >();
++  };
++
++  test("the probes above compile (assertions live in @ts-expect-error)", () => {
++    expectTypeOf(_callback).toBeFunction();
++    expectTypeOf(_arrayMembers).toBeFunction();
++  });
++});

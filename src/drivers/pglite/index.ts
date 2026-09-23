@@ -224,12 +224,32 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     );
   }
 
+  /**
+   * Whether the surface a caller can reach on this instance is still the
+   * SHIPPED one.
+   *
+   * The result leg asks for the parser OBJECT, not for one of its hooks: a
+   * consumable result hands out the provider's own row objects, so a driver is
+   * stock only while `result` is what this class ships there — and this class
+   * ships nothing, so the stock surface is the ABSENCE of a parser. Any object
+   * a caller put there, whatever hook it spells, is a middleware that will see
+   * those rows and keeps the transport borrowed (root `AGENTS.md` rule 5: a
+   * stock driver with "unchanged typed execution/parser surfaces", where "a
+   * parser middleware … stays borrowed"). Asking only about `parseResult`
+   * asked a narrower question and admitted every object that merely lacks one
+   * (Arnaud's D-39; `SQLite3Driver.hasCanonicalProducerSurface` states the same
+   * rule over the parser object that family ships).
+   *
+   * The adapter leg is unchanged, and is a different question: the adapter is
+   * this driver's own object, captured once at construction, so what is asked
+   * there is whether anything re-entered it afterwards.
+   */
   private static hasCanonicalProducerSurface(driver: PGliteDriver): boolean {
     return (
       Object.getPrototypeOf(driver) === PGliteDriver.prototype &&
       driver._execute === PGliteDriver.canonicalExecuteEntry &&
       driver.execute === PGliteDriver.canonicalExecute &&
-      driver.result?.parseResult === undefined &&
+      driver.result === undefined &&
       driver.adapter.result.parseResult === driver.canonicalAdapterParseResult
     );
   }

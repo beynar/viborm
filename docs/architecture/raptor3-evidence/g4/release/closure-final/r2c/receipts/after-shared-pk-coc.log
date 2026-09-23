@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-connect-or-create.test.ts (29 tests) 962ms
+
+ Test Files  1 passed (1)
+      Tests  29 passed (29)
+   Start at  10:44:12
+   Duration  2.37s (transform 833ms, setup 9ms, collect 1.24s, tests 962ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.09s wall, 1511.4 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

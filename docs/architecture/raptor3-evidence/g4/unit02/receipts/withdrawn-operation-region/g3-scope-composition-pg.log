@@ -1,0 +1,24 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-live-provider| tests/raptor3/g3/scope-composition-native.test.ts (2 tests | 1 failed) 79ms
+   ✓ G3 native pg bulk and scope composition > executes grouped bulk results, scalar suppression and limited returns 51ms
+   × G3 native pg bulk and scope composition > composes exact-root suppression into one caller transaction and keeps descendants fatal 27ms
+     → Transaction scope for driver "pg" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g3/scope-composition-native.test.ts > G3 native pg bulk and scope composition > composes exact-root suppression into one caller transaction and keeps descendants fatal
+TransactionError: Transaction scope for driver "pg" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  03:47:36
+   Duration  1.81s (transform 983ms, setup 9ms, collect 1.51s, tests 79ms, environment 0ms, prepare 33ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-A5mlhd/vitest.json
+Vitest resources: 3.92s wall, 520.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-A5mlhd
+exit=1 (port 65504, container viborm-raptor3-g3-pg-20260914)

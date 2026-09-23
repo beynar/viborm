@@ -264,6 +264,26 @@ export function runListJsonFilterBehavior({
             })
           )
         ).toEqual(["both", "single"]);
+        // The controls that a member spelled in the container's vocabulary is
+        // still COMPARED there, not merely accepted: a moment one stored list
+        // holds selects that list alone, and a moment no list holds selects
+        // nothing.
+        expect(
+          names(
+            await current.entry.findMany({
+              where: { moments: { has: THIRD_MOMENT } },
+            })
+          )
+        ).toEqual(["single"]);
+        expect(
+          names(
+            await current.entry.findMany({
+              where: {
+                moments: { has: new Date("2024-04-05T06:07:08.000Z") },
+              },
+            })
+          )
+        ).toEqual([]);
       });
 
       test("isEmpty treats null lists as empty on every dialect", async () => {

@@ -1,0 +1,30 @@
+{
+ "workload": "flat-scalar-update",
+ "stage": "full",
+ "engine": "candidate",
+ "checks": [
+  117,
+  117,
+  117,
+  117
+ ],
+ "preparation": {
+  "statementCount": 2,
+  "statements": [
+   {
+    "sql": "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+    "params": [
+     "update_target"
+    ]
+   },
+   {
+    "sql": "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\"",
+    "params": [
+     1,
+     "update_target"
+    ]
+   }
+  ],
+  "preparationSeam": "package"
+ }
+}

@@ -1,0 +1,362 @@
+== falsifier: shared/query.ts swapped to the pre-closure identity
+f84afb627278884e271b5f775aeb242e64e44163  src/query-engine/raptor3/shared/query.ts
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests | 3 failed) 211ms
+   × G2 live mysql atomic-batch unique races: commands > g2-race-selected-unique-recovery 120ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+      {
++       email: 'claim@x',
+-       email: 'winner@x',
+        id: 'wanted',
++       name: 'loser'
+-       name: 'winner'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+
+   × G2 live mysql atomic-batch unique races: commands > g2-race-unrelated-unique-refused 45ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+        email: 'claim@x',
++       id: 'wanted',
++       name: 'loser'
+-       id: 'other',
+-       name: 'unrelated'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+...
+      },
++     {
++       authorId: 'wanted',
++       id: 'p-request',
++       title: 'Request'
++     }
+    ]
+  }
+
+   × G2 live mysql atomic-batch unique races: commands > g2-race-wrong-insert-same-constraint 45ms
+     → wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
++ []
+- [
+-   'unrelated-missing-choice-observed'
+- ]
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-selected-unique-recovery
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+      {
++       email: 'claim@x',
+-       email: 'winner@x',
+        id: 'wanted',
++       name: 'loser'
+-       name: 'winner'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -4,13 +4,13 @@[39m
+[2m        "email": "decoy@x",[22m
+[2m        "id": "decoy",[22m
+[2m        "name": "untouched",[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "email": "winner@x",[39m
+[31m+       "email": "claim@x",[39m
+[2m        "id": "wanted",[22m
+[32m-       "name": "winner",[39m
+[31m+       "name": "loser",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m    "posts": [[22m
+[2m      {[22m
+[2m        "authorId": "decoy",[22m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:483:14
+    481|     assert(observation: RunObservation) {
+    482|       assert.deepEqual(observation.initial, initial);
+    483|       assert.deepEqual(observation.final, final);
+       |              ^
+    484|       assert.deepEqual(observation.defaults, []);
+    485|       assert.deepEqual(
+ ❯ runUniqueRaceScenario tests/raptor3/transitions/unique-races-live.ts:573:11
+ ❯ tests/raptor3/transitions/unique-races-live-commands.test.ts:16:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-unrelated-unique-refused
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+        email: 'claim@x',
++       id: 'wanted',
++       name: 'loser'
+-       id: 'other',
+-       name: 'unrelated'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+...
+      },
++     {
++       authorId: 'wanted',
++       id: 'p-request',
++       title: 'Request'
++     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -5,17 +5,22 @@[39m
+[2m        "id": "decoy",[22m
+[2m        "name": "untouched",[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "email": "claim@x",[22m
+[32m-       "id": "other",[39m
+[32m-       "name": "unrelated",[39m
+[31m+       "id": "wanted",[39m
+[31m+       "name": "loser",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m    "posts": [[22m
+[2m      {[22m
+[2m        "authorId": "decoy",[22m
+[2m        "id": "p-decoy",[22m
+[2m        "title": "Untouched",[22m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "authorId": "wanted",[39m
+[31m+       "id": "p-request",[39m
+[31m+       "title": "Request",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:483:14
+    481|     assert(observation: RunObservation) {
+    482|       assert.deepEqual(observation.initial, initial);
+    483|       assert.deepEqual(observation.final, final);
+       |              ^
+    484|       assert.deepEqual(observation.defaults, []);
+    485|       assert.deepEqual(
+ ❯ runUniqueRaceScenario tests/raptor3/transitions/unique-races-live.ts:573:11
+ ❯ tests/raptor3/transitions/unique-races-live-commands.test.ts:16:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-wrong-insert-same-constraint
+AssertionError: wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
++ []
+- [
+-   'unrelated-missing-choice-observed'
+- ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "unrelated-missing-choice-observed",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:198:14
+    196|         "Unique constraint violation"
+    197|       );
+    198|       assert.deepEqual(
+       |              ^
+    199|         observation.reachedCuts,
+    200|         Array.from({ length: expectedAttempts }, () => cut),
+ ❯ runWrongInsertScenario tests/raptor3/transitions/unique-races-live.ts:292:11
+ ❯ tests/raptor3/transitions/unique-races-live-commands.test.ts:16:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  14:26:32
+   Duration  1.62s (transform 893ms, setup 10ms, collect 1.28s, tests 211ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.52s wall, 523.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+== author estate, same swap
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts (16 tests) 61ms
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (2 tests | 2 failed) 68ms
+   × G4-02 unique discriminator > spells the discriminator with the constraint's equality and the filter half with the text contract 10ms
+     → findUnique addresses the row through the constraint, as the shipped engine does
++ actual - expected
+
+  [
++   'exact'
+-   'constraint'
+  ]
+
+   × G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does 58ms
+     → findUnique on a collation-equal key
++ actual - expected
+
+  {
++   ok: null
+-   ok: {
+-     email: 'claim@x',
+-     id: 'wanted',
+-     name: 'winner'
+-   }
+  }
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 10ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 18ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 13ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 19ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 18ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (7 tests) 27ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 10ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 13ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 10ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 5ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 4ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 12ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 101ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 1ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test | 1 skipped)
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 5ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 unique discriminator > spells the discriminator with the constraint's equality and the filter half with the text contract
+AssertionError: findUnique addresses the row through the constraint, as the shipped engine does
++ actual - expected
+
+  [
++   'exact'
+-   'constraint'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "constraint",[39m
+[31m+   "exact",[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:105:14
+    103|       );
+    104|       assert.deepEqual(shippedUnique.key, ["constraint"]);
+    105|       assert.deepEqual(
+       |              ^
+    106|         candidateUnique.key,
+    107|         shippedUnique.key,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does
+AssertionError: findUnique on a collation-equal key
++ actual - expected
+
+  {
++   ok: null
+-   ok: {
+-     email: 'claim@x',
+-     id: 'wanted',
+-     name: 'winner'
+-   }
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": {[39m
+[32m-     "email": "claim@x",[39m
+[32m-     "id": "wanted",[39m
+[32m-     "name": "winner",[39m
+[32m-   },[39m
+[31m+   "ok": null,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:300:18
+    298|           const expected = await answer(shipped);
+    299|           const measured = await answer(candidate);
+    300|           assert.deepEqual(measured, expected, name);
+       |                  ^
+    301|         }
+    302|         // The conditional probe and the constraint must agree: a prob…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 17 passed | 1 skipped (19)
+      Tests  2 failed | 93 passed | 1 skipped (96)
+   Start at  14:26:40
+   Duration  3.27s (transform 1.11s, setup 16ms, collect 2.65s, tests 398ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.68s wall, 694.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+== restored
+d14323c62c29c9164da75c0cc433fb9f6473e6bf  src/query-engine/raptor3/shared/query.ts

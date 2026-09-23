@@ -1,0 +1,15 @@
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the delegation seam stores the JSON document, not the ORM's envelope 5ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a JSON document that LOOKS like the update envelope round-trips verbatim 5ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a depth-2 to-one chain writes both JSON columns exactly 3ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a depth-3 to-one chain writes all three JSON columns exactly 3ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a delegated TO-MANY update target stores its JSON document exactly 5ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the documented `data`-column escape stores the document at the delegation seam 4ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > JsonNull writes the JSON null document through the delegation seam 6ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > DbNull writes the database NULL through the delegation seam 4ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > a sentinel at depth 2 writes the same two nulls 3ms
+   ✓ SQLite3 Driver > SQLite3 delegated nested update — JSON write envelope > the non-delegated depth-1 target is unchanged by all of this 4ms
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 nested write behavior > update and updateMany keep child mutations parent-correlated
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 nested write behavior > delete and deleteMany keep child mutations parent-correlated
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts > SQLite3 Driver > SQLite3 many-to-many write behavior > self-referential many-to-many round trip
+      Tests  4 failed | 81 passed (85)

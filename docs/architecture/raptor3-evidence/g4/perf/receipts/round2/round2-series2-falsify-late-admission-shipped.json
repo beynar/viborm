@@ -1,0 +1,5 @@
+{
+ "engine": "shipped",
+ "status": "contract FAILED",
+ "error": "series effects started before every member was admitted\n\n4 !== 5\n"
+}

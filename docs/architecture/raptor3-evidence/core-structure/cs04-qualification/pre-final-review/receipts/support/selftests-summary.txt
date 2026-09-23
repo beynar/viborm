@@ -1,0 +1,2 @@
+Raptor campaign receipt owner: 15 tests passed, 0 failed.
+Raptor CLI owner: 7 tests passed, 0 failed; artifact rZJhMA; 202.02 seconds wall; 222.2 MiB peak sampled process-group RSS; teardown verified.

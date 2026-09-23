@@ -1,0 +1,708 @@
+/**
+ * MySQL2 concurrency policy — the three facts a deadlock repair must keep apart.
+ *
+ * A database-selected deadlock victim is a FAILED TRANSACTION. It is not a
+ * rejected unique INSERT, and it is not an operation the engine may quietly run
+ * again. The engine already separates the two at the driver boundary —
+ * `ER_DUP_ENTRY` (1062) normalizes to `UniqueConstraintError`, which is the
+ * signal `CommandExecution.recover` converges on, and `ER_LOCK_DEADLOCK` (1213)
+ * normalizes to a `TransactionError` carrying `VibORMErrorCode.DEADLOCK`, which
+ * nothing recovers. What the engine used to do was MANUFACTURE the second from
+ * the first: an `upsert` / `connectOrCreate` probe asked for `FOR UPDATE`, and
+ * MySQL answers a miss on a unique index with a gap lock over the index
+ * supremum. Two racers were GRANTED that same gap lock at once, and the
+ * insert-intention each then requested waited for the other's gap — a cycle
+ * InnoDB breaks by aborting one whole transaction. Both schedules are measured
+ * under `g4/release/closure-final/r2c/receipts/`.
+ *
+ * So the probe of an arm that INSERTS the key it just looked for no longer
+ * locks that absence (`Selection.insertsWhenAbsent`), and the three groups
+ * below state what must remain true afterwards:
+ *
+ *  1. an eligible unique-key race converges, on the producer the selector
+ *     names, with ONE admission of the create arm and the correct winner;
+ *  2. a real deadlock — two transactions taking two ROW locks in opposite
+ *     order through the public client — still fails VISIBLY, with no committed
+ *     victim effects, no replay, and a correct survivor;
+ *  3. a BORROWED transaction keeps its caller's ownership: the member's own
+ *     savepoint and nothing else — no retry, no replacement transaction, and
+ *     the caller decides what happens next.
+ *
+ * A fourth section states what the withdrawal COSTS, because a statement is
+ * chosen before its own answer is known: the probe reads unlocked in BOTH
+ * outcomes, so a row it FINDS is no longer held for the update arm either. What
+ * answers that is the read the write already issues of the row it has just
+ * written, now a current read (`OperationContext.update`) — measured before
+ * that, this schedule returned the probe's row, update NOT applied, as a
+ * success.
+ *
+ * NOTE: These tests require a running MySQL database (e.g. docker).
+ * Set MYSQL_TEST_CONNECTION_STRING to enable.
+ */
+
+import {
+  createClient,
+  type VibORMClient,
+  type VibORMConfig,
+} from "@client/client";
+import type { QueryExecutionContext } from "@drivers/driver";
+import { MySQL2Driver } from "@drivers/mysql2";
+import type { QueryResult } from "@drivers/types";
+import {
+  TransactionError,
+  UniqueConstraintError,
+  VibORMErrorCode,
+} from "@errors";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import type { Pool, PoolConnection } from "mysql2/promise";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./mysql2-fixtures";
+
+const schema = (() => {
+  const tag = s
+    .model({
+      id: s.string().id(),
+      name: s.string().unique(),
+      slug: s.string().unique(),
+      count: s.int().default(0),
+    })
+    .map("r2c_policy_tags");
+
+  const author = s
+    .model({
+      id: s.string().id(),
+      name: s.string(),
+      posts: s.toMany(() => post),
+    })
+    .map("r2c_policy_authors");
+
+  const post = s
+    .model({
+      id: s.string().id(),
+      title: s.string(),
+      authorId: s.string().nullable(),
+      author: s
+        .toOne(() => author)
+        .fields("authorId")
+        .references("id"),
+    })
+    .map("r2c_policy_posts");
+
+  return { tag, author, post };
+})();
+
+type PolicyConfig = VibORMConfig<typeof schema>;
+type PolicyClient = VibORMClient<PolicyConfig>;
+
+type StatementHook = (statement: string) => void | Promise<void>;
+
+/**
+ * A driver that records every statement it sends and the provider client it
+ * sent it on, and can run an arbitrary callback immediately BEFORE a chosen
+ * statement. The callback is what turns a race into a SCHEDULE: the planting
+ * client commits the winner on its own connection while the loser's
+ * transaction is open and its plan-time probe has already answered "absent".
+ * Under the old locking probe that planting INSERT would wait on the loser's
+ * gap lock, so these rows also fail if the probe starts locking again.
+ */
+class RecordingMySQL2Driver extends MySQL2Driver {
+  readonly statements: string[] = [];
+  readonly providerClients: Array<Pool | PoolConnection> = [];
+  private readonly before: StatementHook | undefined;
+
+  constructor(hooks: { beforeStatement?: StatementHook } = {}) {
+    // The URL's path binds the namespace and a docker MySQL reached directly is
+    // not behind a rewriting proxy, so the attestation is true by construction
+    // here — the same one every sibling fixture in this directory states.
+    super({
+      databaseUrl: TEST_CONNECTION_STRING,
+      migrationNamespaceAttestation: "non-redirecting",
+    });
+    this.before = hooks.beforeStatement;
+  }
+
+  private async record(
+    client: Pool | PoolConnection,
+    statement: string
+  ): Promise<void> {
+    this.providerClients.push(client);
+    this.statements.push(statement);
+    await this.before?.(statement);
+  }
+
+  protected override async execute<T>(
+    client: Pool | PoolConnection,
+    statement: string,
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    await this.record(client, statement);
+    return await super.execute<T>(client, statement, params, context);
+  }
+
+  protected override async executeRaw<T>(
+    client: Pool | PoolConnection,
+    statement: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    await this.record(client, statement);
+    return await super.executeRaw<T>(client, statement, params, context);
+  }
+}
+
+const TAG_TABLE = /`?r2c_policy_tags`?/;
+const AUTHOR_TABLE = /`?r2c_policy_authors`?/;
+const SAVEPOINT_OPEN = /^SAVEPOINT /i;
+const SAVEPOINT_ROLLBACK = /^ROLLBACK TO SAVEPOINT /i;
+const SAVEPOINT_RELEASE = /^RELEASE SAVEPOINT /i;
+const ANY_SAVEPOINT = /\bSAVEPOINT\b/i;
+const FOR_UPDATE = /\bFOR UPDATE\b/i;
+const WHITESPACE = /\s+/;
+
+const matching = (
+  driver: RecordingMySQL2Driver,
+  verb: string,
+  table: RegExp
+): string[] =>
+  driver.statements.filter(
+    (statement) => statement.startsWith(verb) && table.test(statement)
+  );
+
+/**
+ * The plan-time probe: the FIRST read this operation issued of that table, the
+ * one whose arm may INSERT the key it looked for. The read a write issues of
+ * the row it has just written is a different statement and a different fact —
+ * it asks what this operation's own UPDATE did, which only a current read can
+ * answer — so these rows name the probe rather than filtering every SELECT.
+ */
+const probeOf = (driver: RecordingMySQL2Driver, table: RegExp): string =>
+  matching(driver, "SELECT", table)[0] ?? "";
+
+/** Every failure the rejection carries, primary first, composed ones after. */
+const composed = (failure: unknown): unknown[] => [
+  failure,
+  ...(failure instanceof AggregateError ? failure.errors : []),
+];
+
+/** A latch over two real connections: both parties arrive, then both continue. */
+function createArrivalLatch(parties: number, timeoutMs: number) {
+  let arrived = 0;
+  let open = () => {
+    /* replaced below */
+  };
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return {
+    arrive: async () => {
+      arrived += 1;
+      if (arrived >= parties) {
+        open();
+        return;
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stall = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      });
+      await Promise.race([opened, stall]);
+      if (timer) clearTimeout(timer);
+    },
+  };
+}
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+
+describeIf("MySQL2 concurrency policy", () => {
+  let clients: PolicyClient[] = [];
+
+  function boot(driver: MySQL2Driver): PolicyClient {
+    const client = createClient({ schema, driver });
+    clients.push(client);
+    return client;
+  }
+
+  // The siblings' approved reset, and for their reason: this lane shares ONE
+  // database and runs its files serially, so whatever the previous file left
+  // standing is the normal state this one starts in. Dropping only the three
+  // tables named here leaves those foreign ones behind, and the push below
+  // then reads one of them as a rename of a table this schema declares and
+  // refuses the whole migration ("Unresolved ambiguous change"). Pushing the
+  // EMPTY schema drops every live table, which is what makes the push that
+  // follows an addition.
+  beforeEach(dropEveryLiveTable);
+
+  beforeEach(async () => {
+    clients = [];
+    // A persistent database keeps tables between runs and re-pushing a UNIQUE
+    // is not idempotent, so every run starts from an empty schema.
+    await syncLiveSchema(boot(new RecordingMySQL2Driver()));
+  });
+
+  afterEach(async () => {
+    for (const client of clients.splice(0)) {
+      await client.$disconnect();
+    }
+  });
+
+  // === 1. The eligible unique-key race ===================================
+
+  describe("an eligible unique-key race", () => {
+    test("converges through the update arm on ONE admitted create", async () => {
+      const planter = boot(new RecordingMySQL2Driver());
+      let planted = false;
+      const loserDriver = new RecordingMySQL2Driver({
+        beforeStatement: async (statement) => {
+          if (planted || !statement.startsWith("INSERT")) return;
+          if (!TAG_TABLE.test(statement)) return;
+          planted = true;
+          await planter.tag.create({
+            data: { id: "winner", name: "contested", slug: "winner-slug" },
+          });
+        },
+      });
+      const loser = boot(loserDriver);
+
+      const result = await loser.tag.upsert({
+        where: { name: "contested" },
+        create: {
+          id: "loser",
+          name: "contested",
+          slug: "loser-slug",
+          count: 1,
+        },
+        update: { count: 42 },
+      });
+
+      // The correct winner: the row that committed first, carrying the update
+      // the loser asked for — never a second row and never the loser's create.
+      expect(result).toMatchObject({ id: "winner", count: 42 });
+      const rows = await planter.tag.findMany({ where: { name: "contested" } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        id: "winner",
+        slug: "winner-slug",
+        count: 42,
+      });
+
+      // ONE admission of the create arm: the rejected INSERT is not retried,
+      // and a lost race authorises no second INSERT.
+      expect(matching(loserDriver, "INSERT", TAG_TABLE)).toHaveLength(1);
+      // The probe of an arm that inserts its own key takes no lock. This is
+      // the statement whose gap lock manufactured `ER_LOCK_DEADLOCK`.
+      expect(FOR_UPDATE.test(probeOf(loserDriver, TAG_TABLE))).toBe(false);
+    });
+
+    test("converges through the connect arm of a nested connectOrCreate", async () => {
+      const planter = boot(new RecordingMySQL2Driver());
+      let planted = false;
+      const loserDriver = new RecordingMySQL2Driver({
+        beforeStatement: async (statement) => {
+          if (planted || !statement.startsWith("INSERT")) return;
+          if (!AUTHOR_TABLE.test(statement)) return;
+          planted = true;
+          await planter.author.create({
+            data: { id: "shared-author", name: "planted-winner" },
+          });
+        },
+      });
+      const loser = boot(loserDriver);
+
+      const post = await loser.post.create({
+        data: {
+          id: "loser-post",
+          title: "Converged",
+          author: {
+            connectOrCreate: {
+              where: { id: "shared-author" },
+              create: { id: "shared-author", name: "loser" },
+            },
+          },
+        },
+      });
+
+      expect(post.authorId).toBe("shared-author");
+      const authors = await planter.author.findMany({});
+      expect(authors).toHaveLength(1);
+      expect(authors[0]).toMatchObject({ name: "planted-winner" });
+      expect(matching(loserDriver, "INSERT", AUTHOR_TABLE)).toHaveLength(1);
+      expect(FOR_UPDATE.test(probeOf(loserDriver, AUTHOR_TABLE))).toBe(false);
+    });
+
+    test("a rejection on a constraint the selector does NOT name is not a lost race", async () => {
+      // Exact producer ownership: the convergence belongs to the constraint the
+      // choose's own selector addresses (`matchesSelectedConstraint`). A create
+      // arm refused by a DIFFERENT unique key is a failed write, not a race the
+      // update arm may adopt.
+      const planter = boot(new RecordingMySQL2Driver());
+      let planted = false;
+      const loserDriver = new RecordingMySQL2Driver({
+        beforeStatement: async (statement) => {
+          if (planted || !statement.startsWith("INSERT")) return;
+          if (!TAG_TABLE.test(statement)) return;
+          planted = true;
+          await planter.tag.create({
+            data: { id: "occupant", name: "other-name", slug: "occupied" },
+          });
+        },
+      });
+      const loser = boot(loserDriver);
+
+      await expect(
+        loser.tag.upsert({
+          where: { name: "contested" },
+          create: { id: "loser", name: "contested", slug: "occupied" },
+          update: { count: 42 },
+        })
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+      // The update arm was never taken and nothing of the loser committed: the
+      // only row is the one the other connection wrote.
+      expect(matching(loserDriver, "UPDATE", TAG_TABLE)).toEqual([]);
+      const rows = await planter.tag.findMany({});
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: "occupant", slug: "occupied" });
+      // The operation's ONE recovery allowance (D-25) is the only thing that
+      // may put a second create attempt on the wire, and it is spent once: an
+      // unbounded retry of a rejection that was never a race fails here.
+      expect(
+        matching(loserDriver, "INSERT", TAG_TABLE).length
+      ).toBeLessThanOrEqual(2);
+    });
+  });
+
+  // === 2. The real deadlock ==============================================
+
+  describe("a native deadlock", () => {
+    beforeEach(async () => {
+      await clients[0]!.tag.createMany({
+        data: [
+          { id: "row-a", name: "a", slug: "a", count: 0 },
+          { id: "row-b", name: "b", slug: "b", count: 0 },
+        ],
+      });
+    });
+
+    test("the victim fails visibly, replays nothing, and leaves the survivor's state", async () => {
+      // Two transactions take the SAME two ROW locks in OPPOSITE order through
+      // the public client, inside `$transaction`. Nothing here is the engine's
+      // doing — it is the textbook cycle on locks that are genuinely required,
+      // and the contract is that the engine reports it as what it is rather
+      // than replaying it or reading it as a rejected INSERT.
+      const latch = createArrivalLatch(2, 15_000);
+      const firstDriver = new RecordingMySQL2Driver();
+      const secondDriver = new RecordingMySQL2Driver();
+      const first = boot(firstDriver);
+      const second = boot(secondDriver);
+
+      const cross = (
+        client: PolicyClient,
+        one: string,
+        two: string,
+        base: number
+      ) =>
+        client.$transaction(async (tx) => {
+          await tx.tag.update({ where: { id: one }, data: { count: base } });
+          await latch.arrive();
+          await tx.tag.update({
+            where: { id: two },
+            data: { count: base + 1 },
+          });
+        });
+
+      const settled = await Promise.allSettled([
+        cross(first, "row-a", "row-b", 11),
+        cross(second, "row-b", "row-a", 21),
+      ]);
+
+      // Exactly one victim, chosen by the database — either party may be it.
+      const victimIndex = settled.findIndex(
+        (outcome) => outcome.status === "rejected"
+      );
+      expect(victimIndex).toBeGreaterThan(-1);
+      expect(
+        settled.filter((outcome) => outcome.status === "rejected")
+      ).toHaveLength(1);
+
+      const failure = (settled[victimIndex] as PromiseRejectedResult).reason;
+      const carried = composed(failure);
+      const deadlocks = carried.filter(
+        (error): error is TransactionError =>
+          error instanceof TransactionError &&
+          error.code === VibORMErrorCode.DEADLOCK
+      );
+      // The normalized provider failure, with its own attribution — one
+      // deadlock, and no constraint error anywhere in what the caller receives.
+      expect(deadlocks).toHaveLength(1);
+      expect(deadlocks[0]?.message).toBe("Transaction deadlock detected");
+      expect(
+        carried.some((error) => error instanceof UniqueConstraintError)
+      ).toBe(false);
+
+      // No replay and no borrowed-work retry: the victim rolled its member
+      // back and issued nothing afterwards but the savepoint's own release.
+      const victimDriver = victimIndex === 0 ? firstDriver : secondDriver;
+      const victimStatements = victimDriver.statements;
+      const rolledBackAt = victimStatements.findIndex((statement) =>
+        SAVEPOINT_ROLLBACK.test(statement)
+      );
+      expect(rolledBackAt).toBeGreaterThan(-1);
+      expect(
+        victimStatements
+          .slice(rolledBackAt + 1)
+          .every((statement) => SAVEPOINT_RELEASE.test(statement))
+      ).toBe(true);
+      expect(matching(victimDriver, "UPDATE", TAG_TABLE)).toHaveLength(1);
+
+      // The victim's transaction committed NOTHING — including the update it
+      // had already applied before the cycle closed — and the survivor's two
+      // updates are both durable.
+      const survivorBase = victimIndex === 0 ? 21 : 11;
+      const survivorFirst = victimIndex === 0 ? "row-b" : "row-a";
+      const rows = await clients[0]!.tag.findMany({ orderBy: { id: "asc" } });
+      const counts = new Map(rows.map((row) => [row.id, row.count]));
+      expect(counts.get(survivorFirst)).toBe(survivorBase);
+      expect(counts.get(survivorFirst === "row-a" ? "row-b" : "row-a")).toBe(
+        survivorBase + 1
+      );
+    });
+
+    test("the same two row locks in the SAME order both succeed", async () => {
+      // The non-deadlocking control: the SCHEDULE is what makes a deadlock, so
+      // a group that only ever asserted failure would pass against an engine
+      // that could no longer write two rows under contention at all.
+      const first = boot(new RecordingMySQL2Driver());
+      const second = boot(new RecordingMySQL2Driver());
+
+      const ordered = (client: PolicyClient, base: number) =>
+        client.$transaction(async (tx) => {
+          await tx.tag.update({
+            where: { id: "row-a" },
+            data: { count: base },
+          });
+          await tx.tag.update({
+            where: { id: "row-b" },
+            data: { count: base + 1 },
+          });
+        });
+
+      const settled = await Promise.allSettled([
+        ordered(first, 11),
+        ordered(second, 21),
+      ]);
+      expect(settled.map((outcome) => outcome.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+      ]);
+
+      const rows = await clients[0]!.tag.findMany({ orderBy: { id: "asc" } });
+      // Whichever committed last wrote both rows, so the pair is consistent.
+      expect([
+        [11, 12],
+        [21, 22],
+      ]).toContainEqual(rows.map((row) => row.count));
+    });
+  });
+
+  // === 3. Borrowed execution =============================================
+
+  describe("borrowed execution", () => {
+    test("a lost race inside the caller's transaction is the caller's to handle", async () => {
+      const planter = boot(new RecordingMySQL2Driver());
+      let planted = false;
+      const borrowedDriver = new RecordingMySQL2Driver({
+        beforeStatement: async (statement) => {
+          if (planted || !statement.startsWith("INSERT")) return;
+          if (!TAG_TABLE.test(statement)) return;
+          planted = true;
+          await planter.tag.create({
+            data: { id: "winner", name: "contested", slug: "winner-slug" },
+          });
+        },
+      });
+      const borrower = boot(borrowedDriver);
+
+      // The operation runs inside a transaction the CALLER opened. The engine
+      // owns no region here, so it spends no recovery allowance: the rejection
+      // is reported to the caller, whose own rollback is the one that happens.
+      await expect(
+        borrower.$transaction(async (tx) => {
+          await tx.tag.upsert({
+            where: { name: "contested" },
+            create: {
+              id: "borrowed",
+              name: "contested",
+              slug: "borrowed-slug",
+              count: 1,
+            },
+            update: { count: 42 },
+          });
+        })
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
+
+      const statements = borrowedDriver.statements;
+      // No retry and no replacement transaction: ONE create attempt, and every
+      // statement of the borrowed operation on the ONE pooled connection the
+      // caller's transaction holds.
+      expect(matching(borrowedDriver, "INSERT", TAG_TABLE)).toHaveLength(1);
+      const borrowedClients = new Set(borrowedDriver.providerClients);
+      expect(borrowedClients.size).toBe(1);
+      expect(
+        [...borrowedClients].every(
+          (client) =>
+            "release" in client && typeof client.release === "function"
+        )
+      ).toBe(true);
+
+      // The only savepoint traffic is the member's OWN rollback scope, opened
+      // and released around the failed write under one name. A savepoint that
+      // outlived the member, or a second one, would be the engine holding
+      // recovery authority the caller never gave it.
+      const savepoints = statements.filter((statement) =>
+        ANY_SAVEPOINT.test(statement)
+      );
+      expect(savepoints).toHaveLength(3);
+      expect(SAVEPOINT_OPEN.test(savepoints[0] ?? "")).toBe(true);
+      expect(SAVEPOINT_ROLLBACK.test(savepoints[1] ?? "")).toBe(true);
+      expect(SAVEPOINT_RELEASE.test(savepoints[2] ?? "")).toBe(true);
+      const names = new Set(
+        savepoints.map((statement) => statement.split(WHITESPACE).pop())
+      );
+      expect(names.size).toBe(1);
+
+      // Nothing of the failed operation is committed; the winner is untouched.
+      const rows = await planter.tag.findMany({});
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        id: "winner",
+        slug: "winner-slug",
+        count: 0,
+      });
+    });
+
+    test("the caller's transaction survives the rejection it was handed", async () => {
+      // The other half of ownership: because the member rolled back to its own
+      // savepoint and nothing else, the transaction the caller opened is still
+      // the caller's to continue or abandon.
+      const planter = boot(new RecordingMySQL2Driver());
+      let planted = false;
+      const borrowedDriver = new RecordingMySQL2Driver({
+        beforeStatement: async (statement) => {
+          if (planted || !statement.startsWith("INSERT")) return;
+          if (!TAG_TABLE.test(statement)) return;
+          planted = true;
+          await planter.tag.create({
+            data: { id: "winner", name: "contested", slug: "winner-slug" },
+          });
+        },
+      });
+      const borrower = boot(borrowedDriver);
+
+      await borrower.$transaction(async (tx) => {
+        await expect(
+          tx.tag.upsert({
+            where: { name: "contested" },
+            create: {
+              id: "borrowed",
+              name: "contested",
+              slug: "borrowed-slug",
+            },
+            update: { count: 42 },
+          })
+        ).rejects.toBeInstanceOf(UniqueConstraintError);
+        // The caller keeps going and COMMITS: the engine neither took the
+        // transaction over nor condemned it.
+        await tx.tag.create({
+          data: { id: "callers-own", name: "callers-own", slug: "callers-own" },
+        });
+      });
+
+      const rows = await planter.tag.findMany({ orderBy: { id: "asc" } });
+      expect(rows.map((row) => row.id)).toEqual(["callers-own", "winner"]);
+      expect(rows.find((row) => row.id === "winner")?.count).toBe(0);
+    });
+  });
+
+  // === 4. What the withdrawal costs, on the FOUND path ====================
+
+  describe("the unlocked probe when it FINDS the row", () => {
+    test("a row deleted before the update arm fails visibly and commits nothing", async () => {
+      // The withdrawal is not confined to a miss: a statement is chosen before
+      // its own answer is known, so the probe reads unlocked in BOTH outcomes,
+      // on every provider. A row it FINDS is therefore no longer held for the
+      // update arm that follows, and a committed DELETE in that window — which
+      // `FOR UPDATE` used to block — is now reachable.
+      //
+      // What answers it is the read the write already issues of the row it has
+      // just written, now a CURRENT read (`OperationContext.update`). It has
+      // to be: under REPEATABLE READ a consistent read answers from the
+      // snapshot this transaction opened plus its own changes, so an UPDATE
+      // that affected NO row leaves the snapshot's copy standing — measured
+      // before that repair, this very schedule returned the probe's row, with
+      // the update NOT applied, as a SUCCESS. So the whole cost is here: the
+      // operation fails VISIBLY and commits nothing. It is not silent success,
+      // it is not a deadlock, and it is not a constraint rejection the update
+      // arm may adopt.
+      const planter = boot(new RecordingMySQL2Driver());
+      await planter.tag.create({
+        data: { id: "present", name: "contested", slug: "present-slug" },
+      });
+
+      let deleted = false;
+      const loserDriver = new RecordingMySQL2Driver({
+        beforeStatement: async (statement) => {
+          if (deleted || !statement.startsWith("UPDATE")) return;
+          if (!TAG_TABLE.test(statement)) return;
+          deleted = true;
+          await planter.tag.delete({ where: { id: "present" } });
+        },
+      });
+      const loser = boot(loserDriver);
+
+      const outcome = await loser.tag
+        .upsert({
+          where: { name: "contested" },
+          create: { id: "recreated", name: "contested", slug: "recreated" },
+          update: { count: 42 },
+        })
+        .then(
+          (value) => ({ failure: undefined, value }),
+          (failure: unknown) => ({ failure, value: undefined })
+        );
+
+      // The schedule really happened: the update arm was taken and its
+      // statement is the one the delete was planted in front of.
+      expect(deleted).toBe(true);
+      expect(matching(loserDriver, "UPDATE", TAG_TABLE)).toHaveLength(1);
+      // No row is reported, and the failure names the write whose row was not
+      // there — not a race the update arm may adopt and not a deadlock.
+      expect(outcome.value).toBeUndefined();
+      expect((outcome.failure as Error).message).toBe(
+        "UPDATE did not produce the required record"
+      );
+      expect(
+        composed(outcome.failure).some(
+          (error) => error instanceof UniqueConstraintError
+        )
+      ).toBe(false);
+      expect(
+        composed(outcome.failure).some(
+          (error) =>
+            error instanceof TransactionError &&
+            error.code === VibORMErrorCode.DEADLOCK
+        )
+      ).toBe(false);
+
+      // Nothing was committed: the row stays deleted, the create arm was NOT
+      // taken as a recovery from a row that vanished, and no row was written
+      // under either id.
+      expect(await planter.tag.findMany({})).toEqual([]);
+      expect(matching(loserDriver, "INSERT", TAG_TABLE)).toEqual([]);
+
+      // And the probe that handed the found row over took no lock — the fact
+      // this cell is the price of.
+      expect(FOR_UPDATE.test(probeOf(loserDriver, TAG_TABLE))).toBe(false);
+    });
+  });
+});

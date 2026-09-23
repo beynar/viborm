@@ -1,0 +1,141 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 23ms
+ ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (4 tests) 5ms
+ ❯ |raptor3| tests/raptor3/candidate.test.ts (24 tests | 1 failed) 162ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-found 9ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-missing 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-parent-rollback 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-found 6ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-missing 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s1-child-rollback 9ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s2-distinct-defaults 5ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s2-changed-dependency 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s3-grouped 2ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s3-empty 2ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s4-parent-pages 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-interactive > s4-shared-occurrences 3ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-found 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-missing 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-parent-rollback 6ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-found 6ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-missing 6ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s1-child-rollback 7ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-distinct-defaults 5ms
+   × Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-changed-dependency 5ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    memberPath: [
++     1
+-     9
+    ],
+    totalMembers: 2
+  }
+
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-grouped 2ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s3-empty 1ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-parent-pages 8ms
+   ✓ Raptor 3 G1-01: commands > sqlite-atomic-batch > s4-shared-occurrences 2ms
+ ❯ |raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests | 1 failed) 10ms
+   ✓ Raptor 3 relation key order: commands > sqlite-interactive 7ms
+   × Raptor 3 relation key order: commands > sqlite-atomic-batch 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    memberPath: [
++     1
+-     9
+    ],
+    totalMembers: 2
+  }
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/candidate-ordering.test.ts > Raptor 3 relation key order: commands > sqlite-atomic-batch
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    memberPath: [
++     1
+-     9
+    ],
+    totalMembers: 2
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "memberPath": [[22m
+[32m-     9,[39m
+[31m+     1,[39m
+[2m    ],[22m
+[2m    "totalMembers": 2,[22m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:284:18
+    282|           // appeared. Every engine that remains publishes it; the pin…
+    283|           // unconditional now, which is strictly the stronger record.
+    284|           assert.deepEqual(
+       |                  ^
+    285|             { memberPath, totalMembers },
+    286|             { memberPath: [9], totalMembers: 2 }
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:249:20
+ ❯ tests/raptor3/candidate-ordering.test.ts:47:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/candidate.test.ts > Raptor 3 G1-01: commands > sqlite-atomic-batch > s2-changed-dependency
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    memberPath: [
++     1
+-     9
+    ],
+    totalMembers: 2
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "memberPath": [[22m
+[32m-     9,[39m
+[31m+     1,[39m
+[2m    ],[22m
+[2m    "totalMembers": 2,[22m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:284:18
+    282|           // appeared. Every engine that remains publishes it; the pin…
+    283|           // unconditional now, which is strictly the stronger record.
+    284|           assert.deepEqual(
+       |                  ^
+    285|             { memberPath, totalMembers },
+    286|             { memberPath: [9], totalMembers: 2 }
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:249:20
+ ❯ tests/raptor3/candidate.test.ts:51:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  2 failed | 34 passed (36)
+   Start at  07:12:24
+   Duration  1.72s (transform 799ms, setup 11ms, collect 1.37s, tests 201ms, environment 0ms, prepare 25ms)
+
+JSON report written to /private/tmp/viborm-n4-tmp/viborm-raptor3-g0-Nq4SGX/vitest.json
+Vitest resources: 3.36s wall, 671.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-n4-tmp/viborm-raptor3-g0-Nq4SGX

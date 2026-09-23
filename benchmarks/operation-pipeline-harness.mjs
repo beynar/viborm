@@ -1,5 +1,6 @@
 /** Shared stage mechanics and semantic consumers for workload families. */
 
+import assert from "node:assert/strict";
 import { readBenchmarkOperation } from "../dist/internal/benchmark-operation.mjs";
 import {
   assertSemanticDigest,
@@ -10,6 +11,89 @@ export function benchmarkOperation(operation) {
   const capability = readBenchmarkOperation(operation);
   if (!capability) throw new Error("Expected a VibORM benchmark operation");
   return capability;
+}
+
+/** Untimed, fixture-owned evidence. Restore the stock execution surface before timing. */
+export async function observeBenchmarkContract(
+  fixture,
+  invoke,
+  verify,
+  afterStatement
+) {
+  assert.equal(typeof fixture.readRawState, "function");
+  const initial = await fixture.readRawState();
+  const defaultStart = fixture.defaults.length;
+  fixture.observeDefaults(true);
+  const statements = [];
+  const reachedCuts = [];
+  let observationFailure;
+  const driver = fixture.driver;
+  const originals = ["execute", "executeRaw"].map((method) => ({
+    method,
+    descriptor: Object.getOwnPropertyDescriptor(driver, method),
+    execute: driver[method],
+  }));
+  for (const original of originals) {
+    Object.defineProperty(driver, original.method, {
+      configurable: true,
+      value: async function (client, sql, params, ...rest) {
+        statements.push({ sql, params: structuredClone(params ?? []) });
+        const response = await original.execute.call(
+          this,
+          client,
+          sql,
+          params,
+          ...rest
+        );
+        try {
+          const cuts =
+            afterStatement?.(
+              client,
+              response.rows,
+              fixture.defaults.slice(defaultStart)
+            ) ?? [];
+          for (const cut of cuts) {
+            if (!reachedCuts.includes(cut)) reachedCuts.push(cut);
+          }
+        } catch (failure) {
+          observationFailure = failure;
+          throw failure;
+        }
+        return response;
+      },
+    });
+  }
+  let value;
+  try {
+    value = await invoke();
+  } finally {
+    fixture.observeDefaults(false);
+    for (const { method, descriptor } of originals) {
+      if (descriptor) Object.defineProperty(driver, method, descriptor);
+      else delete driver[method];
+    }
+  }
+  if (observationFailure !== undefined) throw observationFailure;
+  const observation = {
+    outcome: { kind: "success", value },
+    initial,
+    final: await fixture.readRawState(),
+    defaults: fixture.defaults.slice(defaultStart),
+    reachedCuts,
+  };
+  verify(observation);
+  assert(
+    statements.length > 0,
+    "contract invocation dispatched no provider statements"
+  );
+  return {
+    contractObservation: observation,
+    witness: {
+      statementCount: statements.length,
+      roundTripCount: statements.length,
+      statements,
+    },
+  };
 }
 
 export function consumeScalarRows(rows, key) {
@@ -160,7 +244,8 @@ export async function createReadHarness(
   makeOperation,
   parsedConsumer,
   rawConsumer,
-  workloadShape
+  workloadShape,
+  verifyContract
 ) {
   const preparedOperation = makeOperation();
   const preparedCapability = benchmarkOperation(preparedOperation);
@@ -172,7 +257,16 @@ export async function createReadHarness(
   const parsedFixture = preparedCapability.parseResult(rawFixture);
   parsedConsumer(parsedFixture);
   rawConsumer(rawFixture.rows);
-  const fullSemantic = await makeOperation(semanticFixture.client);
+  const contract = verifyContract
+    ? await observeBenchmarkContract(
+        semanticFixture,
+        () => makeOperation(semanticFixture.client),
+        verifyContract
+      )
+    : undefined;
+  const fullSemantic = contract
+    ? contract.contractObservation.outcome.value
+    : await makeOperation(semanticFixture.client);
   parsedConsumer(fullSemantic);
   const digest = assertSemanticDigest(
     "read prepared/raw versus public full",
@@ -182,6 +276,13 @@ export async function createReadHarness(
   return {
     witness: preparedWitness(prepared, workloadShape),
     semanticDigest: digest,
+    ...contract,
+    "cold-prepare": () => {
+      const operation = makeOperation(fixture.createColdClient());
+      const query = benchmarkOperation(operation).prepare();
+      if (!query) throw new Error("Cold read stopped preparing one statement");
+      return query.sql.length + (query.params?.length ?? 0);
+    },
     prepare: () => {
       const operation = makeOperation();
       const query = benchmarkOperation(operation).prepare();

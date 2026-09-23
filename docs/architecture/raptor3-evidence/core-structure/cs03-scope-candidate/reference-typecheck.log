@@ -1,0 +1,17 @@
+Command: env PATH=/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin:$PATH pnpm test:types
+Runtime: Node v24.21.0
+Exit: 1
+
+> viborm@0.1.0 test:types /private/tmp/viborm-cs00-reference.FtGrx0
+> node scripts/run-typecheck.mjs
+
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/pattern/pack/program-dump.ts(131,7): error TS2532: Object is possibly 'undefined'.
+TypeScript (whole estate, native): 6.32s wall, 5677.7 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

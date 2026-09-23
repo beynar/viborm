@@ -303,7 +303,8 @@ export function getPolymorphicRelationsSchemas<Source extends AnyModel>(
       const targets = getTargetSchemas<typeof state>(relation, state, resolve);
       if (state.cardinality === "many") {
         return lazyRecord({
-          filter: () => polymorphicCollectionFilterFactory(state, targets),
+          filter: () =>
+            polymorphicCollectionFilterFactory(relationKey, state, targets),
           create: () => polymorphicCollectionCreateFactory(state, targets),
           createMany: () => polymorphicCollectionCreateFactory(state, targets),
           update: () => polymorphicCollectionUpdateFactory(state, targets),

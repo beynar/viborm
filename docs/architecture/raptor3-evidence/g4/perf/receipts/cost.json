@@ -1,0 +1,319 @@
+{
+  "censusOwner": "scripts/query-engine-structure.mjs countTokenLines (copied verbatim)",
+  "base": "0f25637b",
+  "perFile": [
+    {
+      "file": "src/query-engine/raptor3/commands/assignments.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 5074,
+        "physical": 161,
+        "tokenLines": 148
+      },
+      "after": {
+        "bytes": 5074,
+        "physical": 161,
+        "tokenLines": 148
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/command-attempt.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 2948,
+        "physical": 89,
+        "tokenLines": 85
+      },
+      "after": {
+        "bytes": 2948,
+        "physical": 89,
+        "tokenLines": 85
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 46751,
+        "physical": 1311,
+        "tokenLines": 1225
+      },
+      "after": {
+        "bytes": 46817,
+        "physical": 1312,
+        "tokenLines": 1226
+      },
+      "delta": {
+        "bytes": 66,
+        "physical": 1,
+        "tokenLines": 1
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 25846,
+        "physical": 760,
+        "tokenLines": 754
+      },
+      "after": {
+        "bytes": 25921,
+        "physical": 762,
+        "tokenLines": 756
+      },
+      "delta": {
+        "bytes": 75,
+        "physical": 2,
+        "tokenLines": 2
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/index.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 7698,
+        "physical": 235,
+        "tokenLines": 176
+      },
+      "after": {
+        "bytes": 7698,
+        "physical": 235,
+        "tokenLines": 176
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/relation-body.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 32238,
+        "physical": 913,
+        "tokenLines": 867
+      },
+      "after": {
+        "bytes": 32420,
+        "physical": 920,
+        "tokenLines": 874
+      },
+      "delta": {
+        "bytes": 182,
+        "physical": 7,
+        "tokenLines": 7
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/selection.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 6505,
+        "physical": 202,
+        "tokenLines": 162
+      },
+      "after": {
+        "bytes": 7254,
+        "physical": 215,
+        "tokenLines": 163
+      },
+      "delta": {
+        "bytes": 749,
+        "physical": 13,
+        "tokenLines": 1
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/route/client-route.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 16173,
+        "physical": 401,
+        "tokenLines": 256
+      },
+      "after": {
+        "bytes": 16173,
+        "physical": 401,
+        "tokenLines": 256
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 84054,
+        "physical": 2229,
+        "tokenLines": 1892
+      },
+      "after": {
+        "bytes": 85925,
+        "physical": 2262,
+        "tokenLines": 1898
+      },
+      "delta": {
+        "bytes": 1871,
+        "physical": 33,
+        "tokenLines": 6
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 139660,
+        "physical": 3941,
+        "tokenLines": 3568
+      },
+      "after": {
+        "bytes": 141398,
+        "physical": 3970,
+        "tokenLines": 3572
+      },
+      "delta": {
+        "bytes": 1738,
+        "physical": 29,
+        "tokenLines": 4
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/schema.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 19305,
+        "physical": 527,
+        "tokenLines": 410
+      },
+      "after": {
+        "bytes": 19845,
+        "physical": 538,
+        "tokenLines": 411
+      },
+      "delta": {
+        "bytes": 540,
+        "physical": 11,
+        "tokenLines": 1
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/storage.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 6936,
+        "physical": 234,
+        "tokenLines": 215
+      },
+      "after": {
+        "bytes": 6936,
+        "physical": 234,
+        "tokenLines": 215
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+      "set": "candidate core",
+      "before": {
+        "bytes": 689,
+        "physical": 19,
+        "tokenLines": 16
+      },
+      "after": {
+        "bytes": 689,
+        "physical": 19,
+        "tokenLines": 16
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/program/index.ts",
+      "set": "retained specimen",
+      "before": {
+        "bytes": 1794,
+        "physical": 62,
+        "tokenLines": 56
+      },
+      "after": {
+        "bytes": 1794,
+        "physical": 62,
+        "tokenLines": 56
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    },
+    {
+      "file": "src/query-engine/raptor3/program/program.ts",
+      "set": "retained specimen",
+      "before": {
+        "bytes": 18938,
+        "physical": 576,
+        "tokenLines": 570
+      },
+      "after": {
+        "bytes": 18938,
+        "physical": 576,
+        "tokenLines": 570
+      },
+      "delta": {
+        "bytes": 0,
+        "physical": 0,
+        "tokenLines": 0
+      }
+    }
+  ],
+  "candidateCore": {
+    "before": {
+      "files": 13,
+      "bytes": 393877,
+      "physical": 11022,
+      "tokenLines": 9774
+    },
+    "after": {
+      "files": 13,
+      "bytes": 399098,
+      "physical": 11118,
+      "tokenLines": 9796
+    }
+  },
+  "candidateCorePlusSpecimen": {
+    "before": {
+      "files": 15,
+      "bytes": 414609,
+      "physical": 11660,
+      "tokenLines": 10400
+    },
+    "after": {
+      "files": 15,
+      "bytes": 419830,
+      "physical": 11756,
+      "tokenLines": 10422
+    }
+  }
+}

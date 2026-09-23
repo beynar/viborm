@@ -1,0 +1,76 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/lifecycle-events.test.ts (3 tests | 2 failed) 26ms
+   × G4 C13 lifecycle observation falsifiers > C13 missing-event: one model read publishes every required lifecycle unit 21ms
+     → the candidate route lost a required lifecycle unit
++ actual - expected
+
++ [
++   'statement'
++ ]
+- []
+
+   ✓ G4 C13 lifecycle observation falsifiers > C13 observer-failure-isolation: a throwing observer never changes the outcome 3ms
+   × G4 C13 lifecycle observation falsifiers > C13 statement observation covers the physical statements of one operation 2ms
+     → the candidate route published no statement unit
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-events.test.ts > G4 C13 lifecycle observation falsifiers > C13 missing-event: one model read publishes every required lifecycle unit
+AssertionError: the candidate route lost a required lifecycle unit
++ actual - expected
+
++ [
++   'statement'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "statement",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/lifecycle-events.test.ts:94:12
+     92|     await routedObserved.record?.findMany({ where: { score: { gte: 10 …
+     93|     await routedRecorder.settle();
+     94|     assert.deepEqual(
+       |            ^
+     95|       missingUnits(routedRecorder.units),
+     96|       [],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-events.test.ts > G4 C13 lifecycle observation falsifiers > C13 statement observation covers the physical statements of one operation
+AssertionError: the candidate route published no statement unit
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/lifecycle-events.test.ts:158:12
+    156|       .record?.findMany({ orderBy: { id: "asc" } });
+    157|     await routedRecorder.settle();
+    158|     assert.ok(
+       |            ^
+    159|       routedRecorder.units.some((unit) => unit.kind === "statement"),
+    160|       "the candidate route published no statement unit"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  02:42:36
+   Duration  1.84s (transform 1.14s, setup 8ms, collect 1.69s, tests 26ms, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vO7C4I/vitest.json
+Vitest resources: 3.85s wall, 533.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vO7C4I
+exit=1

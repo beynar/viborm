@@ -1,0 +1,40 @@
+
+[test:all] extended-local shared-family shard 10/12 (14 suites)
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/write/junction-progressive-preflight.test.ts (13 tests) 1637ms
+ ✓ |extended-local| tests/contracts/engine/write/m2m-mutation.test.ts (30 tests) 5428ms
+   ✓ write boundary self-referential M2M direction > connect then disconnect keeps A/B orientation  1963ms
+   ✓ M2M connectOrCreate Pin Rule structure > missing arm: child INSERT carries the racePin, no tag-arm guard  572ms
+   ✓ M2M connectOrCreate Pin Rule structure > found arm: one exists guard raceable:false, no racePin anywhere  593ms
+ ✓ |extended-local| tests/contracts/engine/write/bulk-write.test.ts (53 tests) 8529ms
+   ✓ the removed *AndReturn method names (runtime) > createManyAndReturn fails with a clear unknown-operation error  669ms
+   ✓ the removed *AndReturn method names (runtime) > updateManyAndReturn fails with a clear unknown-operation error  691ms
+   ✓ a validation error names the operation the caller spelled > createMany — rows (select present)  823ms
+   ✓ a validation error names the operation the caller spelled > createMany — count (select absent)  869ms
+   ✓ a validation error names the operation the caller spelled > updateMany — rows (select present)  659ms
+   ✓ a validation error names the operation the caller spelled > updateMany — count (select absent)  565ms
+   ✓ a validation error names the operation the caller spelled > deleteMany — rows (select present)  608ms
+   ✓ a validation error names the operation the caller spelled > deleteMany — count (select absent)  622ms
+   ✓ an explicitly-absent select takes the count arm (runtime) > all three bulk families agree on select: undefined  636ms
+   ✓ an explicitly-absent select takes the count arm (runtime) > a present select still returns rows on all three  627ms
+   ✓ an explicitly-absent select takes the count arm (runtime) > a malformed select still rejects rather than falling back to count  640ms
+ ✓ |extended-local| tests/contracts/public-client/official-cache-invalidation.test.ts (11 tests) 821ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-owned-fk.test.ts (16 tests) 1033ms
+ ✓ |extended-local| tests/contracts/engine/write/fields-less-to-one-create.test.ts (8 tests) 1310ms
+ ✓ |extended-local| tests/contracts/engine/write/polymorphic-compound-target.test.ts (12 tests) 968ms
+ ✓ |extended-local| tests/contracts/engine/write/create-many-skip-depth.test.ts (6 tests) 657ms
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-supply-modify.test.ts (3 tests) 656ms
+ ✓ |extended-local| tests/contracts/engine/query/nested-m2m-parent-pk-dataflow.test.ts (6 tests) 823ms
+ ✓ |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-one.test.ts (7 tests) 1013ms
+ ✓ |extended-local| tests/contracts/engine/write/vacate-then-supply-parent-held-composed.test.ts (6 tests) 759ms
+ ✓ |extended-local| tests/contracts/engine/write/type-depth-ceiling.test.ts (2 tests) 897ms
+ ✓ |extended-local| tests/unit/instrumentation/namespace-attribute-segment.test.ts (1 test) 706ms
+
+ Test Files  14 passed (14)
+      Tests  174 passed (174)
+   Start at  23:22:54
+   Duration  30.73s (transform 1.90s, setup 27ms, collect 5.16s, tests 25.24s, environment 0ms, prepare 59ms)
+
+[test:all] extended-local shared-family shard 10/12 (14 suites): 34.17s wall, 1640.1 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

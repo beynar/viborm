@@ -1,0 +1,22 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3.test.ts (39 tests) 113ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts (150 tests | 1 skipped) 351ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-index-ddl.test.ts (126 tests) 993ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-scalar-roundtrip.test.ts (180 tests) 409ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests) 331ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-returning-json.test.ts (176 tests) 322ms
+ ↓ |provider-libsql| tests/providers/local/libsql-index-ddl.test.ts (117 tests | 117 skipped)
+ ↓ |provider-libsql| tests/providers/local/libsql-returning-text.test.ts (158 tests | 158 skipped)
+ ↓ |provider-libsql| tests/providers/local/libsql-scalars-upserts.test.ts (82 tests | 82 skipped)
+ ↓ |provider-libsql| tests/providers/local/libsql-parity-json.test.ts (233 tests | 233 skipped)
+ ✓ |provider-libsql| tests/providers/local/libsql.test.ts (9 tests) 104ms
+ ↓ |provider-libsql| tests/providers/local/libsql-nested-write.test.ts (73 tests | 73 skipped)
+
+ Test Files  7 passed | 5 skipped (12)
+      Tests  764 passed | 664 skipped (1428)
+   Start at  15:36:31
+   Duration  7.50s (transform 2.53s, setup 29ms, collect 4.56s, tests 2.62s, environment 0ms, prepare 58ms)
+
+Vitest resources: 9.50s wall, 710.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

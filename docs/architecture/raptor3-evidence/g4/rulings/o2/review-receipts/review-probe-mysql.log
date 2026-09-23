@@ -1,0 +1,38 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+O2RPROBE mysql phase=shipped op=count raw=[{"_count":2}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=count raw=[{"_count":1}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=count raw=[{"_all":2}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=exist raw=[{"_count":1}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=exist raw=[{"_count":0}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=aggregate raw=[{"_sum":{"rank":8}}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=findMany raw=[{"id":1,"name":"first","rank":3,"active":1},{"id":2,"name":"second","rank":5,"active":0}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=findUnique raw=[{"id":1,"name":"first","rank":3,"active":1}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=count raw=[{"_count":2}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=count raw=[{"_count":1}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=count raw=[{"_all":2}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=exist raw=[{"_count":1}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=exist raw=[{"_count":0}] deletedLegWouldDecide=undefined nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=aggregate raw=[{"_sum":{"rank":8}}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=findMany raw=[{"id":1,"name":"first","rank":3,"active":1},{"id":2,"name":"second","rank":5,"active":0}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=findUnique raw=[{"id":1,"name":"first","rank":3,"active":1}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=create raw=[{"id":11,"name":"w11","rank":7,"active":1}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=update raw=[{"id":11,"name":"w11","rank":9,"active":1}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=create raw=[{"id":12,"name":"w12","rank":1,"active":0}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql phase=shipped op=update raw=[{"id":12,"name":"w12","rank":11,"active":0}] deletedLegWouldDecide="arm-not-entered" nextCalls=1 next=next() returnedNextAnswer=true
+O2RPROBE mysql shippedLive={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE mysql shippedPrepared={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE mysql deletedLegLive={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE mysql deletedLegPrepared={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findManyIds":[1,2],"findUnique":3}
+O2RPROBE mysql shippedWrites={"created":7,"updated":9,"preparedWrites":[1,11]}
+O2RPROBE mysql deletedLegWrites={"created":7,"updated":9,"preparedWrites":[1,11]}
+O2RPROBE mysql VERDICT asks=20 legWouldHaveDecided=0 liveSame=true preparedSame=true writesSame=true
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-o2r-review-probe.test.ts (1 test) 193ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:12:33
+   Duration  1.52s (transform 811ms, setup 9ms, collect 1.20s, tests 193ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.30s wall, 465.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

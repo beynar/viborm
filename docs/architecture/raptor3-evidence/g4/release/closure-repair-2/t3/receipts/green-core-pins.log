@@ -1,0 +1,32 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ✓ |layer-migrations| tests/unit/migrations/ddl-drivers.core.test.ts (165 tests) 13ms
+ ✓ |layer-migrations| tests/unit/migrations/serializer.core.test.ts (57 tests) 13ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-sequential-program.core.test.ts (35 tests) 38ms
+ ✓ |layer-migrations| tests/unit/migrations/operators-mysql-branch-closure.core.test.ts (9 tests) 10ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-catalog-namespace.core.test.ts (23 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/provider-driver-entrypoints-coverage.core.test.ts (11 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-namespace-ddl.core.test.ts (59 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-list-defaults.core.test.ts (7 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/format-and-type-mapping.core.test.ts (51 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-descriptor-ddl.core.test.ts (13 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-recovery-and-session-coverage.core.test.ts (25 tests) 3ms
+ ✓ |coverage-migrations| tests/unit/migrations/ddl-drivers.core.test.ts (165 tests) 13ms
+ ✓ |coverage-migrations| tests/unit/migrations/serializer.core.test.ts (57 tests) 13ms
+ ✓ |coverage-migrations| tests/unit/migrations/mysql-sequential-program.core.test.ts (35 tests) 34ms
+ ✓ |coverage-migrations| tests/unit/migrations/operators-mysql-branch-closure.core.test.ts (9 tests) 9ms
+ ✓ |coverage-migrations| tests/unit/migrations/mysql-catalog-namespace.core.test.ts (23 tests) 3ms
+ ✓ |coverage-migrations| tests/unit/migrations/provider-driver-entrypoints-coverage.core.test.ts (11 tests) 2ms
+ ✓ |coverage-migrations| tests/unit/migrations/mysql-namespace-ddl.core.test.ts (59 tests) 2ms
+ ✓ |coverage-migrations| tests/unit/migrations/decimal-list-defaults.core.test.ts (7 tests) 4ms
+ ✓ |coverage-migrations| tests/unit/migrations/format-and-type-mapping.core.test.ts (51 tests) 2ms
+ ✓ |coverage-migrations| tests/unit/migrations/decimal-descriptor-ddl.core.test.ts (13 tests) 2ms
+ ✓ |coverage-migrations| tests/unit/migrations/mysql-recovery-and-session-coverage.core.test.ts (25 tests) 2ms
+
+ Test Files  22 passed (22)
+      Tests  910 passed (910)
+   Start at  23:24:25
+   Duration  3.41s (transform 1.44s, setup 26ms, collect 2.63s, tests 179ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 5.38s wall, 634.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

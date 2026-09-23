@@ -1,0 +1,1552 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-triage
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2.test.ts (85 tests | 4 failed | 1 skipped) 14112ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > round-trips point writes and returning projections 243ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds 153ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point values through callback and array transactions 176ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > parses points in ordinary and variant relation graphs 173ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > keeps cached point results detached and fresh 158ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point semantics through request and statement extensions 151ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > leaves tagged and unsafe raw point results physical 143ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering 147ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases 162ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > includes polygon boundaries and excludes holes 137ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset  518ms
+   ✓ MySQL2 Driver > creates driver with connection string 36ms
+   ✓ MySQL2 Driver > preserves every private result alias exactly 39ms
+   ✓ MySQL2 Driver > includes antimeridian polygon boundaries and excludes its hole 44ms
+   ✓ MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates  825ms
+   ✓ MySQL2 Driver > self-referencing tree deleteMany succeeds with default referential actions 136ms
+   ✓ MySQL2 Driver > applies and converges a permuted composite foreign key 176ms
+   ✓ MySQL2 Driver > $transaction portable option boundary > rejects removed isolation before the callback 64ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > push enforces the compound primary key 126ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > push enforces the compound unique constraint 153ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > findUnique resolves compound id and compound unique selectors 169ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > nested create from a compound-id parent populates all FK columns 152ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > connect from a compound-id parent populates all FK columns 176ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > include correlates on every compound FK column, not just one 150ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > is null treats a partially-null compound FK as no relation 186ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > update and delete by compound id target only that row 174ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > upsert on a compound-id model takes both branches 167ms
+   ✓ MySQL2 Driver > MySQL2 compound junction storage > round-trips two complete string-key sides and their cascade 178ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic member junction storage > creates, enforces and converges the member tables 209ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > direct writes preserve the generated private storage pair 173ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > inverse create publishes a generated parent identity 152ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > direct and inverse reads correlate exact variants without N+1 193ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > target-local omit subtracts from polymorphic select 295ms
+   ↓ MySQL2 Driver > MySQL2 polymorphic relations > inverse reads use the generated discriminator/id index
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > empty storage is optional but orphaned membership is invalid 164ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > an empty collection reads as a fresh empty array, never null 149ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly 279ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > equal ids in two target tables return two correctly tagged rows 194ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > order, window and distinct stay ARM-LOCAL 172ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a negative arm take restores the logical order 201ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > only narrows the returned variants without reordering 191ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > total and filtered counts, and count ordering 194ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table 197ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 190ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array 183ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 204ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement 207ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a fresh owner writes memberships across several variants at once 184ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > connect is idempotent for the same owner and target 214ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a plural member admits SEVERAL owners for one target 204ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it 230ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > connectOrCreate finds, then creates, without doubling either 208ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set` clears every configured variant once, then refills 226ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row 218ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set: []` empties every variant and deletes no target 222ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > disconnect removes this owner's membership and nothing else 213ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > update and updateMany reach only the connected targets 199ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > upsert creates then updates, scoped to this owner's membership 183ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > createMany writes one bulk group per variant 198ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > duplicate singular createMany targets transfer once 212ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership 201ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it 210ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER 245ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner 213ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse upsert takes both arms through the membership 214ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote 203ms
+   ✓ MySQL2 Driver > rejects artificial batch-only non-returning writes before provider access 78ms
+   ✓ MySQL2 Driver > prefix predicate on a collation viborm did not choose > the accelerator alone would answer case-insensitively 53ms
+   ✓ MySQL2 Driver > prefix predicate on a collation viborm did not choose > the shipped conjunction keeps the case-sensitivity contract 53ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the accelerator alone would answer equality case-insensitively 63ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the shipped equality conjunction keeps the case-sensitivity contract 53ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the accelerator alone would answer membership case-insensitively 51ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the shipped membership conjunction keeps the case-sensitivity contract 57ms
+   ✓ MySQL2 Driver > exact equality keeps the index it used to lose > the BINARY wrap alone forecloses the index 172ms
+   ✓ MySQL2 Driver > exact equality keeps the index it used to lose > the emitted equality plans a lookup 154ms
+   ✓ MySQL2 Driver > exact equality keeps the index it used to lose > the emitted membership plans a range 174ms
+   ✓ MySQL2 Driver > emitted equality on a collation viborm did not choose > equals answers exactly, not case-insensitively 154ms
+   ✓ MySQL2 Driver > emitted equality on a collation viborm did not choose > in answers exactly, not case-insensitively 142ms
+   ✓ MySQL namespace containment > pushes and writes into the target, not the connection's database 72ms
+   ✓ MySQL namespace containment > introspects only the target and converges on a second push 45ms
+   × MySQL namespace containment > applies into the TARGET's control tables, over a connection pointing elsewhere 12ms
+     → Query execution failed
+   × MySQL namespace containment > refuses a configured database the server does not have, before any DDL 8ms
+     → expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+   × MySQL namespace containment > refuses the same attested pool when no namespace resolves it 5ms
+     → expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+   ✓ MySQL namespace containment > refuses an inbound cross-database foreign key before planning 30ms
+   × MySQL namespace containment > applies the same portable estate to a second database 61ms
+     → Migration control tables are inconsistent: log is missing after interrupted bootstrap
+ ✓ |provider-mysql2| tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts (35 tests) 856ms
+ ❯ |provider-mysql2| tests/unit/migrations/mysql-strict-mode-docker.test.ts (8 tests | 2 failed) 449ms
+   ✓ the MySQL strict-mode proof > admits a strict session 8ms
+   ✓ the MySQL strict-mode proof > REFUSES a session with neither strict mode, naming the mode 9ms
+   ✓ the MySQL strict-mode proof > admits STRICT_ALL_TABLES on its own 7ms
+   ✓ MySQL decimal-list descriptor checks > accepts only canonical coefficient containers in a strict session 77ms
+   ✓ MySQL decimal-list descriptor checks > accepts only canonical coefficient containers in a non-strict session 70ms
+   ✓ MySQL interrupted decimal-conversion recovery > recovers after ADD CHECK, reruns the scalar transition, and converges 165ms
+   × MySQL interrupted decimal-conversion recovery > recovers after MODIFY, removes the stale list proof, and converges 95ms
+     → Check constraint violation
+   × MySQL interrupted decimal-conversion recovery > refuses a user collision before effects and preserves it 12ms
+     → expected 'MigrationError: The MySQL CHECK const…' to match /reserved.*does not match/i
+ ❯ |provider-mysql2| tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts (1 test | 1 failed) 9ms
+   × MySQL decimal-list defaults > populates old rows, serves raw omitted inserts, introspects, and converges 9ms
+     → Query execution failed
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (92 tests | 5 failed) 24521ms
+   × MySQL2 Driver > MySQL2 createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order 114ms
+     → expected [ …(5) ] to have a length of 8 but got 5
+   ✓ MySQL2 Driver > MySQL2 createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order 133ms
+   ✓ MySQL2 Driver > MySQL2 createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted 161ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit below the matching count removes exactly limit rows 134ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit equal to the matching count removes all of them 142ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit above the matching count is the uncapped delete 142ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit 0 removes nothing and reports count 0 142ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit without a where caps a whole-table delete 133ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit below the matching count updates exactly limit rows 146ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit at or above the matching count updates all of them 142ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit 0 changes nothing and reports count 0 125ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit composes with an arithmetic update 131ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit composes with a relation filter 132ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit composes with a relation filter 146ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany with select returns exactly the capped rows 131ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany with select returns exactly the capped rows 143ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set 130ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > limit works on a model with a compound primary key 149ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > limit 0 is the same no-op inside $transaction([...]) 140ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > a negative or fractional limit is rejected before any write 125ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > declares an atomic strategy for nested writes 161ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > rejects default-only createMany duplicate skipping before writing 176ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > rejects nested default-only duplicate skipping before the parent write 198ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > create derives to-one and to-many foreign keys 193ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > create connects and connect-or-creates nullable children 194ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update creates, createManys, and connects children 181ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update disconnects and sets nullable children 204ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update and updateMany keep child mutations parent-correlated 208ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete and deleteMany keep child mutations parent-correlated 213ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-many upsert creates and updates the current parent's child 215ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one upsert creates and updates the current target 242ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one nested update modifies the connected author 210ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one disconnect true nulls the foreign key, both rows survive 202ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true deletes the related row 198ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author 216ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives 218ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > explicit join rows work as a practical many-to-many case  364ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > unsupported nested create keys reject before parent mutation 220ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested child failures roll back parent and prior children  367ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-many updates cannot target another parent's child  762ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > non-nullable child foreign keys reject disconnect atomically  749ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested create propagates foreign keys through mapped columns  419ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested create derives mapped foreign keys for createMany and connect  504ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set keeping all required-FK children is a no-op and succeeds  504ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set on required-FK children rejects only when rows would be orphaned  488ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set disconnects only nullable-FK children leaving the set  522ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > connect with a list of targets reparents every one of them  579ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a connect list with one absent target writes nothing  712ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > disconnect with a list nulls every one of them  392ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing  571ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a create tree's connect list reparents every one of them  579ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone  444ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone  645ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > the `include` spelling is unaffected  631ms
+   ✓ MySQL2 Driver > MySQL2 advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes  798ms
+   ✓ MySQL2 Driver > MySQL2 advanced nested write behavior > top-level upsert guards gate nested update branch  494ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip  378ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order 282ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment 220ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params 212ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path 262ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement 296ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError  309ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError  333ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found 291ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches 224ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found 174ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist 229ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > exist > returns true when a matching row exists 225ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > exist > returns false when no row matches  302ms
+   ✓ MySQL2 Driver > raw/model array transactions (Docker MySQL) > execute in declared order and return each public result  326ms
+   ✓ MySQL2 Driver > raw/model array transactions (Docker MySQL) > a later raw failure rolls model and raw writes back 183ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert creates the row when missing 208ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert updates the row when present 209ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > does not take the update branch for a conflict outside the requested target 186ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces 206ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert returns the row when the update is a no-op 240ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert create branch resolves auto-increment ids 171ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert update branch may rewrite the unique where field 187ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert supports select on both branches 176ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert with include returns the relation payload on both branches 145ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > delete with include returns the relation payload 158ms
+   × MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed 156ms
+     → Transaction deadlock detected
+   × MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed 136ms
+     → Transaction deadlock detected
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing updates return their own writes while sharing one connection per operation 150ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a replacement row survives a delete that locked and deleted the captured PK 190ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > interleaved auto-increment creates refetch their own inserted identities 133ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing upserts identify their branches and refetch their own updates 146ms
+   × MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx) 147ms
+     → Transaction deadlock detected
+   × MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx) 185ms
+     → Transaction deadlock detected
+   ✓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx) 231ms
+   ✓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx) 200ms
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts (293 tests | 124 failed) 47670ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list round-trip > create returns real arrays with typed elements 151ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list round-trip > empty and null lists round-trip 138ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals matches the exact list 146ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals is order-sensitive 138ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals matches empty lists 147ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals matches int lists 129ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > equals null matches null lists only 133ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > not excludes the matching list and null lists 134ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has matches string elements 135ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has matches int elements 131ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has with no match returns empty 151ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > has null is rejected consistently 168ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > hasEvery requires all elements 149ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > hasSome requires any element 160ms
+   × MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list 155ms
+     → expected [] to deeply equal [ 'both' ]
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect 155ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > set replaces the whole list 210ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push appends a single value 174ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push expands an array value element-wise 154ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push appends int elements 183ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push onto an empty list 163ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > push onto a null list creates the list 136ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > unshift prepends a single value 142ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > list updates > unshift expands an array value element-wise 143ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > equals matches the exact document 155ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > equals does not match a partial document 145ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > equals null matches null json only 134ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json filters > not equals excludes the matching document and nulls 126ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a path matches the scoped value 134ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a nested path 132ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a path matches numbers 153ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents 182ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals at a missing path matches nothing 153ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys 132ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > integer path segments address array elements 139ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > path segments with dots stay literal 133ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution 149ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > string_contains at a path 159ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND 150ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode 125ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > string_contains without a path matches string roots 124ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_contains requires every candidate element 134ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate 135ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_contains without a path matches array roots only 118ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_starts_with matches the first element 133ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > array_ends_with matches the last element 137ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > not at a path inherits the path 139ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators 123ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract 117ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded 139ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold 124ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode 154ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode 139ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too 149ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored 126ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form 129ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements 137ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root 169ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form 159ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form 168ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution 155ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal 121ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only 132ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types 124ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point 118ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation 125ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross 135ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error 127ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object 144ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices 128ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root 121ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows 141ms
+   ✓ MySQL2 Driver > MySQL2 list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution 134ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only 134ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only 113ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > equals AnyNull matches both 124ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > not DbNull matches every row that holds a document 117ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs 115ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > not AnyNull matches only real documents 119ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > the truth table > the three equals predicates partition the table 121ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > DbNull and JsonNull are different stored values 119ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > update moves a row between the two nulls 142ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > upsert stores a sentinel on either arm 132ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column 124ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > a bare null in write position is refused, not guessed 120ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > AnyNull is filter-only 121ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column 141ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > a sentinel nested inside a document is refused 143ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > a sentinel under a path is refused before execution 127ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused 148ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root 133ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL 123ms
+   ✓ MySQL2 Driver > MySQL2 json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there 130ms
+   × MySQL2 Driver > MySQL2 field references > gt compares two columns of the same row 131ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > lt compares two columns of the same row 141ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > gte and lte include the equal row 147ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > equals and not compare two columns of the same row 145ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a bare reference is the equals shorthand 131ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference resolves through .map()ed column names 132ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > string prefix/suffix/substring predicates accept a reference 338ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a callback is refused where only the token is accepted 308ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation 361ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column 226ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive contains folds the referenced column 294ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive startsWith folds the referenced column 514ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive endsWith folds the referenced column 258ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive `not` complements the folded comparison 302ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds ASCII only 332ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > equals compares two enum columns of the same row 253ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > not complements it 208ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > a bare enum reference is the equals shorthand 282ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > the reference resolves through the .map()ed column name 295ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > lt on an enum is refused with the portability reason 224ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > lte on an enum is refused with the portability reason 286ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > gt on an enum is refused with the portability reason 273ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > gte on an enum is refused with the portability reason 264ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > enum references > literal enum filters are untouched 221ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference mixes with literal operands in one filter object 249ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference works inside a nested relation where 236ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > the nested scope's own model is the one a reference must name 301ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference drives updateMany and deleteMany 266ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > two decimals of the SAME domain compare exactly 240ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > two decimals of DIFFERENT domains are refused before any I/O 314ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a cross-model reference is refused before any I/O 185ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference of the wrong scalar type is refused 199ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference is refused in in/notIn 462ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference is refused in `having`, however deeply nested 433ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > a reference is refused in JSON filters and JSON write data 274ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > SQL fragment operands > an arithmetic expression compares against the row 273ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > SQL fragment operands > a scalar subquery compares against the whole table 253ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > SQL fragment operands > an interpolated value rides as a bound parameter 310ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter 208ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment drives updateMany and deleteMany 166ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment survives both execution substrates 148ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment is refused where a reference is 152ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > datetime round-trips exactly through create and findMany 145ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > datetime filters match the stored instant 155ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > datetime update round-trips exactly 178ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > decimal reads back as its exact canonical value 148ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST round-trips member by member 143ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST filters by containment on its logical members 143ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary 153ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > a decimal LIST survives a grouped projection 199ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly 141ms
+   ✓ MySQL2 Driver > MySQL2 scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly 147ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > round-trips every value in the domain exactly 146ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > callback transactions materialize fresh Decimal scalar and list results 128ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > array transactions materialize fresh Decimal scalar and list results 127ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > a nullable decimal stores and reads NULL, not zero 138ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > equals matches on value, not on spelling 148ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > equals distinguishes the two values a double cannot 155ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > in / notIn compare numerically 149ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > gt/lt compare numerically, not lexicographically 156ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > orderBy sorts numerically, windowed and not 158ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision 155ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > _avg of an all-null column is NULL, not zero and not an error 149ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > _avg rounds exact ties to the even neighbour in both signs 143ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > groupBy orders groups and filters them on exact aggregates 162ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > groupBy compares a widened _sum beyond the field precision 148ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > increment and decrement are exact and never round 151ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact 143ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour 139ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd 148ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour 149ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > a rounded tie CARRIES across the whole value 150ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > divide rounds by the same rule, in both signs 179ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign 133ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > arithmetic on a NULL column stays NULL 127ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > division by zero fails BEFORE any statement is issued 121ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > a result past the field's precision fails and leaves the row alone 123ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float 130ms
+   ✓ MySQL2 Driver > MySQL2 decimal exactness > an operand finer than the field's scale is refused, never rounded 125ms
+   × MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly top-level 124ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include 136ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > json primitives round-trip with exact types 131ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > aggregates are scalar-aware 134ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals matches case-insensitively 129ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equality and set filters fold ASCII only 157ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals stays case-sensitive without mode 123ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not stays case-sensitive without mode 134ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in stays case-sensitive without mode 135ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn stays case-sensitive without mode 132ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equals does not treat % as a wildcard 130ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not excludes case-insensitively 124ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in matches case-insensitively 137ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in does not treat % as a wildcard 211ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in with empty list matches nothing 233ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn excludes case-insensitively 330ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > contains stays case-sensitive without mode 305ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith stays case-sensitive without mode 154ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith stays case-sensitive without mode 189ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters treat wildcard characters literally 147ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters handle empty and non-ASCII values exactly 195ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith matches case-insensitively 169ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith matches case-insensitively 177ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith matches every case variant 207ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive substring filters fold ASCII only 185ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive startsWith does not treat % as a wildcard 156ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith does not treat % as a wildcard 211ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > top-level NOT excludes matching rows 163ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT {contains} does not match NULL rows (Prisma parity) 151ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT with equality also skips NULL rows 176ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with AND 174ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with OR 180ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > nested NOT double-negates but still skips NULL rows 188ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT array negates each condition and ANDs them (Prisma parity) 200ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR of two scalar predicates 193ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR with a null check matches NULL rows via IS NULL 147ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum equals matches a single value 155ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in matches listed values and skips NULL rows 160ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in with empty list matches nothing 159ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn excludes listed values and NULL rows 160ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn with empty list matches every row 140ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > empty select object throws 128ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > all-false select throws 130ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected 127ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a grouped column still works 133ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count on a field 139ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count _all 136ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _sum 158ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in filter 130ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in with empty list matches nothing 148ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate notIn with empty list matches everything 137ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate equals null uses IS NULL 150ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate not null uses IS NOT NULL 167ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > where filters rows before grouping 139ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take with orderBy limits groups 145ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with orderBy window the groups 124ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with aggregate orderBy window the groups 144ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by groups on the field combination 128ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by supports having on aggregates 141ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR of two single-group conditions matches both groups 144ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR with a single unmatchable arm keeps only the other 157ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND of the same two conditions matches nothing 137ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND accepts a bare object as well as an array 142ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR evaluates the inner conjunction 141ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR fails the arm when one conjunct misses 143ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of an aggregate condition selects the complement 162ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array negates each arm and ANDs the negations (Prisma parity) 140ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array with one unmatchable arm keeps the other complement 201ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array on a `by` field agrees with the same NOT array in where 140ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array of a single item matches the object form 153ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of a multi-key object negates that object's conjunction 143ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT inside OR restores the excluded group 155ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a combinator conjoins with sibling field-keyed conditions 176ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by` 153ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR matches no group, exactly like empty OR in where 129ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR is false, not absent, when conjoined with a sibling 141ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in AND poisons the conjunction 142ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in OR contributes nothing but is not vacuous 139ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR under NOT is true and keeps every group 140ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND and empty NOT stay true and keep every group 130ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND still conjoins its sibling rather than erasing it 132ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > create succeeds with all optional relations omitted 135ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > nested create does not demand other optional relations 140ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > where: { relation: null } matches rows with a null FK 155ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > include: { rel: false } omits the relation 166ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > select > include chains down the relation tree 147ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > nested select+include on the same node is rejected 138ms
+   ✓ MySQL2 Driver > MySQL2 optional-relation Prisma parity > create with nested writes returns scalars only without include 138ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > contains with literal % matches only literal occurrences 143ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > contains with literal _ matches only literal occurrences 130ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > contains with literal backslash matches only literal occurrences 145ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > startsWith with literal % does not act as a wildcard 129ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > endsWith with literal _ does not act as a wildcard 133ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > insensitive contains with literal % matches only literal occurrences 144ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > insensitive contains still matches case-insensitively 149ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > plain contains without wildcards still matches 150ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > not-contains with literal % excludes only literal occurrences 143ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > a percent in the value stays literal 149ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > an underscore in the value stays literal 148ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > a trailing escape character in the value stays literal 157ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > a value that is only the escape character stays literal 133ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > the empty value matches every row 146ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > every wildcard family at once stays literal 149ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > SQLite's GLOB metacharacters stay literal on every dialect 148ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > the prefix path stays case-sensitive 146ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > insensitive mode is unchanged and still ignores case 137ms
+   ✓ MySQL2 Driver > MySQL2 LIKE wildcard escaping > escaped prefix patterns > endsWith keeps its spelling and its literal wildcards 242ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in matches exactly the listed byte arrays 160ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out 120ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in with no matching member returns nothing 131ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > empty in matches nothing (Prisma semantics) 183ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > notIn excludes exactly the listed byte arrays 154ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > empty notIn matches everything (Prisma semantics) 173ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > notIn on a nullable column excludes NULL rows 163ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in on a nullable column excludes NULL rows 149ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > empty notIn on a nullable column keeps the NULL row 140ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > Buffer members are accepted alongside Uint8Array 131ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in composes with not 149ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in composes with arbitrarily nested not 132ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in composes with the boolean wrappers 132ms
+   ✓ MySQL2 Driver > MySQL2 blob in/notIn filters > in drives deleteMany, not just reads 122ms
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts (105 tests | 28 failed) 20116ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors ascending orderBy 167ms
+   × MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors descending orderBy 163ms
+     → expected [ 'Alpha', 'Beta', 'Gamma', …(2) ] to deeply equal [ 'Epsilon', 'Delta', 'Gamma', …(2) ]
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors orderBy with skip and no take 155ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > orderBy asc with nulls last places null rows at the end 156ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > orderBy desc with nulls first places null rows at the start 151ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > orderBy asc with nulls first places null rows at the start 160ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > has filter matches string array elements 143ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > has filter matches int array elements 153ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > has filter with no match returns empty 142ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > create returns the auto-increment row 136ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > concurrent creates each return their own row 157ms
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany without select returns { count }, with select returns rows 166ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with a narrow select returns only selected fields 166ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > a relation in a bulk write's select is refused, not silently emptied 182ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > include is refused with a message that names the alternative 207ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select assigns auto-increment ids 182ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves generation when another row supplies an increment id 163ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select restores input order across increment row shapes 162ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select preserves bigint generation and order 173ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > application defaults remain values while increment defaults stay database-owned 163ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only createMany rows use database generation 162ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only create uses database generation 174ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves conflict winner input order across row shapes 166ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > singleton createMany duplicate recovery returns count zero 153ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates keeps case, accent, and trailing-space unique values distinct 155ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > explicit zero increment ids reject uniformly before mutation 153ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select skips only duplicate rows and returns inserted rows 141ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates still surfaces unrelated foreign-key failures 147ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates does not suppress required, length, or conversion errors 148ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany without select returns { count }, with select returns rows 154ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic operations 147ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic decrement and multiply 157ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic divide (exact quotient) 157ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > atomic divide pins integer-division semantics on inexact quotients 153ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select returns empty array when nothing matches 142ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany without select returns { count }, with select returns the deleted rows 155ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select returns [] when nothing matches and deletes nothing 146ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select over every row returns them all 156ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   ✓ MySQL2 Driver > MySQL2 foreign-key index > push creates an index over the manyToOne FK column 134ms
+   ✓ MySQL2 Driver > MySQL2 foreign-key index > re-pushing the schema is not an index change 161ms
+   ✓ MySQL2 Driver > MySQL2 foreign-key index > re-pushing the schema is not a foreign-key change 183ms
+   ✓ MySQL2 Driver > MySQL2 foreign-key index > a declared .index() on the FK column is not duplicated 165ms
+   ✓ MySQL2 Driver > MySQL2 foreign-key index > a wider declared index over the FK columns replaces it in one push 200ms
+   ✓ MySQL2 Driver > MySQL2 foreign-key index > a compound unique over the FK columns replaces it in one push 186ms
+   ✓ MySQL2 Driver > MySQL2 declared index on a mapped field > push creates the index over the mapped column names 111ms
+   ✓ MySQL2 Driver > MySQL2 declared index on a mapped field > re-pushing the schema is not an index change 150ms
+   ✓ MySQL2 Driver > MySQL2 declared index on a mapped field > the declared index leaves the FK index nothing to add 128ms
+   ✓ MySQL2 Driver > MySQL2 partial index refusal > push refuses the declaration by name 98ms
+   ✓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips 120ms
+   ✓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > multi-model forward chain: push + create through the chain 148ms
+   ✓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > self reference: push + parent/child round-trip 142ms
+   ✓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables 161ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect inserts junction rows without touching unrelated foreign keys 202ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect is idempotent 248ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect of a missing record fails 259ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > create connects and creates through the junction on parent create 252ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate connects existing and creates missing 247ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > disconnect removes the association and keeps the row 251ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > set replaces the association set 266ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > delete removes the child row and all its associations 253ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > delete of a record not connected to the parent fails 247ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > deleteMany deletes only connected rows matching the filter 268ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > writes from the side without junction config resolve the same junction 262ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > implicit default junction works end to end 239ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > rows participating in a many-to-many can be deleted directly 256ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested update modifies a connected record only 264ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested updateMany touches only connected rows matching the filter  358ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert updates a connected record 278ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert creates and connects a missing record 248ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert of an existing but unconnected record fails 250ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect lands after a deleteMany that cannot see it 234ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association 234ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > boolean disconnect on a many-to-many relation is rejected 242ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > named duplicate pairs keep isolated junction tables 259ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL 285ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > self-referential many-to-many round trip 271ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > create through the junction with a DB-generated target primary key 251ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > junction create with a generated target PK under an update root 274ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing  391ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > upsert through the junction creates a target whose PK the database generates 295ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with some relation filter affects only matching rows 198ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with every relation filter affects only matching rows 140ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with none relation filter affects only matching rows 144ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with some relation filter deletes only matching rows 158ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with every relation filter deletes only matching rows 161ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with none relation filter deletes only matching rows 206ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and none filters 192ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and every filters 159ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object every and none filters 147ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some, every, and none filters 150ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object is and isNot filters 240ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and some filters 163ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object every and some filters 205ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and every filters 191ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none, every, and some filters 266ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object isNot and is filters 201ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > rolls back a combined-filter mutation when a later operation fails 153ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-many self-relation filter affects only matching rows 167ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-one self-relation filter affects only matching rows 171ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > deleteMany with self-relation filter deletes only matching rows 178ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-many self-relation filter 200ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-one self-relation filter 149ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > an excluding self-relation filter takes the create arm instead  304ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > update by a self-relation-filtered unique where locates or declines 195ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > delete by a self-relation-filtered unique where removes one row 188ms
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-read-surface.test.ts (122 tests) 21375ms
+   ✓ MySQL2 Driver > MySQL2 omit > create / update / upsert / delete honor omit  339ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 164 ⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors descending orderBy
+AssertionError: expected [ 'Alpha', 'Beta', 'Gamma', …(2) ] to deeply equal [ 'Epsilon', 'Delta', 'Gamma', …(2) ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "Epsilon",[39m
+[32m-   "Delta",[39m
+[32m-   "Gamma",[39m
+[32m-   "Beta",[39m
+[2m    "Alpha",[22m
+[31m+   "Beta",[39m
+[31m+   "Gamma",[39m
+[31m+   "Delta",[39m
+[31m+   "Epsilon",[39m
+[2m  ][22m
+
+ ❯ tests/contracts/drivers/behaviors/ordering-array-create-behavior.ts:128:57
+    126|       });
+    127| 
+    128|       expect(result?.books.map((entry) => entry.title)).toEqual([
+       |                                                         ^
+    129|         "Epsilon",
+    130|         "Delta",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany without select returns { count }, with select returns rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with a narrow select returns only selected fields
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > a relation in a bulk write's select is refused, not silently emptied
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > include is refused with a message that names the alternative
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select assigns auto-increment ids
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves generation when another row supplies an increment id
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select restores input order across increment row shapes
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select preserves bigint generation and order
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > application defaults remain values while increment defaults stay database-owned
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only createMany rows use database generation
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only create uses database generation
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves conflict winner input order across row shapes
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > singleton createMany duplicate recovery returns count zero
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates keeps case, accent, and trailing-space unique values distinct
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > explicit zero increment ids reject uniformly before mutation
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select skips only duplicate rows and returns inserted rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates still surfaces unrelated foreign-key failures
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates does not suppress required, length, or conversion errors
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany without select returns { count }, with select returns rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic operations
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic decrement and multiply
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic divide (exact quotient)
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > atomic divide pins integer-division semantics on inexact quotients
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select returns empty array when nothing matches
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany without select returns { count }, with select returns the deleted rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select returns [] when nothing matches and deletes nothing
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select over every row returns them all
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list
+AssertionError: expected [] to deeply equal [ 'both' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "both",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/drivers/behaviors/list-json-filter-behavior.ts:250:11
+    248|             })
+    249|           )
+    250|         ).toEqual(["both"]);
+       |           ^
+    251|         expect(
+    252|           names(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > gt compares two columns of the same row
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > lt compares two columns of the same row
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > gte and lte include the equal row
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > equals and not compare two columns of the same row
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a bare reference is the equals shorthand
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference resolves through .map()ed column names
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > string prefix/suffix/substring predicates accept a reference
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a callback is refused where only the token is accepted
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive contains folds the referenced column
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive startsWith folds the referenced column
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive endsWith folds the referenced column
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive `not` complements the folded comparison
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds ASCII only
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > equals compares two enum columns of the same row
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > not complements it
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > a bare enum reference is the equals shorthand
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > the reference resolves through the .map()ed column name
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > lt on an enum is refused with the portability reason
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > lte on an enum is refused with the portability reason
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > gt on an enum is refused with the portability reason
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > gte on an enum is refused with the portability reason
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[52/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > literal enum filters are untouched
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[53/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference mixes with literal operands in one filter object
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[54/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference works inside a nested relation where
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[55/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > the nested scope's own model is the one a reference must name
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[56/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference drives updateMany and deleteMany
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[57/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > two decimals of the SAME domain compare exactly
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[58/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > two decimals of DIFFERENT domains are refused before any I/O
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[59/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a cross-model reference is refused before any I/O
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[60/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference of the wrong scalar type is refused
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[61/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference is refused in in/notIn
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[62/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference is refused in `having`, however deeply nested
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[63/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference is refused in JSON filters and JSON write data
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[64/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > an arithmetic expression compares against the row
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[65/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a scalar subquery compares against the whole table
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[66/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > an interpolated value rides as a bound parameter
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[67/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[68/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment drives updateMany and deleteMany
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[69/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment survives both execution substrates
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[70/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment is refused where a reference is
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[71/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly top-level
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[72/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[73/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > json primitives round-trip with exact types
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[74/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > aggregates are scalar-aware
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[75/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals matches case-insensitively
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[76/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equality and set filters fold ASCII only
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[77/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals stays case-sensitive without mode
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[78/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not stays case-sensitive without mode
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[79/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in stays case-sensitive without mode
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[80/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn stays case-sensitive without mode
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[81/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equals does not treat % as a wildcard
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[82/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not excludes case-insensitively
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[83/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in matches case-insensitively
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[84/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in does not treat % as a wildcard
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[85/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in with empty list matches nothing
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[86/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn excludes case-insensitively
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[87/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > contains stays case-sensitive without mode
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[88/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith stays case-sensitive without mode
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[89/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith stays case-sensitive without mode
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[90/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters treat wildcard characters literally
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[91/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters handle empty and non-ASCII values exactly
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[92/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith matches case-insensitively
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[93/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith matches case-insensitively
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[94/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith matches every case variant
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[95/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive substring filters fold ASCII only
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[96/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive startsWith does not treat % as a wildcard
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[97/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith does not treat % as a wildcard
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[98/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > top-level NOT excludes matching rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[99/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT {contains} does not match NULL rows (Prisma parity)
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[100/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT with equality also skips NULL rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[101/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with AND
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[102/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with OR
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[103/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > nested NOT double-negates but still skips NULL rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[104/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT array negates each condition and ANDs them (Prisma parity)
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[105/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR of two scalar predicates
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[106/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR with a null check matches NULL rows via IS NULL
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[107/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum equals matches a single value
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[108/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in matches listed values and skips NULL rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[109/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in with empty list matches nothing
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[110/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn excludes listed values and NULL rows
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[111/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn with empty list matches every row
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[112/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > empty select object throws
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[113/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > all-false select throws
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[114/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[115/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a grouped column still works
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[116/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count on a field
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[117/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count _all
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[118/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _sum
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[119/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in filter
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[120/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in with empty list matches nothing
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[121/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate notIn with empty list matches everything
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[122/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate equals null uses IS NULL
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[123/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate not null uses IS NOT NULL
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[124/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > where filters rows before grouping
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[125/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take with orderBy limits groups
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[126/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with orderBy window the groups
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[127/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with aggregate orderBy window the groups
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[128/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by groups on the field combination
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[129/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by supports having on aggregates
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[130/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR of two single-group conditions matches both groups
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[131/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR with a single unmatchable arm keeps only the other
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[132/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND of the same two conditions matches nothing
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[133/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND accepts a bare object as well as an array
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[134/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR evaluates the inner conjunction
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[135/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR fails the arm when one conjunct misses
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[136/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of an aggregate condition selects the complement
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[137/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array negates each arm and ANDs the negations (Prisma parity)
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[138/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array with one unmatchable arm keeps the other complement
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[139/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array on a `by` field agrees with the same NOT array in where
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[140/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array of a single item matches the object form
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[141/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of a multi-key object negates that object's conjunction
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[142/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT inside OR restores the excluded group
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[143/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a combinator conjoins with sibling field-keyed conditions
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[144/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by`
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[145/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR matches no group, exactly like empty OR in where
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[146/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR is false, not absent, when conjoined with a sibling
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[147/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in AND poisons the conjunction
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[148/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in OR contributes nothing but is not vacuous
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[149/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR under NOT is true and keeps every group
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[150/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND and empty NOT stay true and keep every group
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[151/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND still conjoins its sibling rather than erasing it
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[152/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order
+AssertionError: expected [ …(5) ] to have a length of 8 but got 5
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 8[39m
+[31m+ 5[39m
+
+ ❯ tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts:164:28
+    162|         // each interleaved with the refetch that reads it back by its…
+    163|         // identity. Nothing here folds — the refetch needs one INSERT…
+    164|         expect(statements).toHaveLength(8);
+       |                            ^
+    165|         expect(statements.map(isInsert)).toEqual([
+    166|           true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[153/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[154/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[155/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[156/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[157/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > applies into the TARGET's control tables, over a connection pointing elsewhere
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: 1170, sqlState: '42000' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[158/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > refuses a configured database the server does not have, before any DDL
+AssertionError: expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[31m+   "_viborm_migration_state",[39m
+[2m    "ns_sentinel",[22m
+[2m  ][22m
+
+ ❯ tests/providers/docker/mysql2.test.ts:1077:41
+    1075|     });
+    1076| 
+    1077|     expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+       |                                         ^
+    1078|   });
+    1079| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[159/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > refuses the same attested pool when no namespace resolves it
+AssertionError: expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[31m+   "_viborm_migration_state",[39m
+[2m    "ns_sentinel",[22m
+[2m  ][22m
+
+ ❯ tests/providers/docker/mysql2.test.ts:1093:41
+    1091|     });
+    1092| 
+    1093|     expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+       |                                         ^
+    1094|   });
+    1095| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[160/164]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > applies the same portable estate to a second database
+MigrationError: Migration control tables are inconsistent: log is missing after interrupted bootstrap
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[161/164]⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts > MySQL decimal-list defaults > populates old rows, serves raw omitted inserts, introspects, and converges
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: 1049, sqlState: '42000' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[162/164]⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-strict-mode-docker.test.ts > MySQL interrupted decimal-conversion recovery > recovers after MODIFY, removes the stale list proof, and converges
+CheckConstraintError: Check constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_CHECK_CONSTRAINT_VIOLATED', errno: 3819, sqlState: 'HY000' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[163/164]⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-strict-mode-docker.test.ts > MySQL interrupted decimal-conversion recovery > refuses a user collision before effects and preserves it
+AssertionError: expected 'MigrationError: The MySQL CHECK const…' to match /reserved.*does not match/i
+
+[32m- Expected:[39m 
+/reserved.*does not match/i
+
+[31m+ Received:[39m 
+"MigrationError: The MySQL CHECK constraint \"viborm_decimal_s_10_2\" on table \"viborm_decimal_recovery_collision\" uses VibORM's reserved decimal-conversion namespace but the catalog contains 2 reserved proofs, although one locked conversion can leave at most one. Migration work is refused before any cleanup or schema effect; rename the user-owned constraint, or restore the exact interrupted VibORM conversion proof and run the command again."
+
+ ❯ tests/unit/migrations/mysql-strict-mode-docker.test.ts:406:29
+    404|         runSequentialProgram(pinned, command, () => Promise.resolve("b…
+    405|     ).catch((error: unknown) => error);
+    406|     expect(String(failure)).toMatch(RESERVED_PROOF_MISMATCH);
+       |                             ^
+    407| 
+    408|     const remaining = await driver._executeRaw<{ CONSTRAINT_NAME: stri…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[164/164]⎯
+
+
+ Test Files  6 failed | 2 passed (8)
+      Tests  164 failed | 576 passed | 1 skipped (741)
+   Start at  01:16:48
+   Duration  132.59s (transform 1.36s, setup 19ms, collect 3.28s, tests 129.11s, environment 0ms, prepare 28ms)
+
+Vitest resources: 134.84s wall, 639.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

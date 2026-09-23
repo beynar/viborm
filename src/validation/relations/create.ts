@@ -3,6 +3,7 @@
 import type { AnyModel } from "@schema/model";
 import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import { type V, v } from "../primitives/v";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
 import {
@@ -169,7 +170,7 @@ export const toManyCreateFactory = <
       data: () => v.array(getCreateSchema()),
       skipDuplicates: v.boolean({ optional: true }),
     },
-    { atLeast: ["data"] }
+    { atLeast: ["data"], refuse: refuseDefaultOnlySkipDuplicates }
   );
 
   return v.object(

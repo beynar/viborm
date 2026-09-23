@@ -134,6 +134,24 @@ export function runOrderingArrayCreateBehavior({
       ]);
     });
 
+    // The limiting control for the cell above: an ordered page states a bound
+    // so its order survives the aggregate that reads it, and this proves that
+    // bound is not a window of its own — a requested `take` still decides
+    // which rows come back, and which end of the order they come from.
+    test("to-many include honors descending orderBy under a take", async () => {
+      await seedBooks();
+
+      const result = await requireClient(client).author.findUnique({
+        where: { id: "author-1" },
+        include: { books: { orderBy: { pages: "desc" }, take: 2 } },
+      });
+
+      expect(result?.books.map((entry) => entry.title)).toEqual([
+        "Epsilon",
+        "Delta",
+      ]);
+    });
+
     test("to-many include honors orderBy with skip and no take", async () => {
       await seedBooks();
 

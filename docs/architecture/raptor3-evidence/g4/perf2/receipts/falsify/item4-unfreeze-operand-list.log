@@ -1,0 +1,45 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts (5 tests | 1 failed) 8ms
+   ✓ G4 perf pass 2 item 2 — one default projection per (adapter, model) > answers the same projection for every operation that names no selection 3ms
+   ✓ G4 perf pass 2 item 2 — one default projection per (adapter, model) > never hands the shared projection to an operation that names a selection 1ms
+   ✓ G4 perf pass 2 item 2 — one default projection per (adapter, model) > refuses the shared projection to an omit, because admission desugared it 1ms
+   ✓ G4 perf pass 2 item 2 — one default projection per (adapter, model) > keys the store by the adapter, and one leaf per (adapter, model, field) 0ms
+   × G4 perf pass 2 item 4 — one freeze per predicate, not per member > freezes the predicate and its operand list, and binds every member once 3ms
+     → Expected values to be strictly equal:
+
+false !== true
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts > G4 perf pass 2 item 4 — one freeze per predicate, not per member > freezes the predicate and its operand list, and binds every member once
+AssertionError: Expected values to be strictly equal:
+
+false !== true
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts:237:12
+    235|     assert.equal(Object.isFrozen(operation), true);
+    236|     assert.ok(operation.operands);
+    237|     assert.equal(Object.isFrozen(operation.operands), true);
+       |            ^
+    238|     assert.deepEqual(
+    239|       operation.operands.map((operand) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  17:36:45
+   Duration  872ms (transform 377ms, setup 8ms, collect 560ms, tests 8ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 3.11s wall, 500.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,52 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 496ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 319ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 638ms
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (3 tests | 1 failed) 541ms
+   ✓ G2 live pg singular-junction races: commands > g2-junction-held-capture-race 177ms
+   ✓ G2 live pg singular-junction races: commands > g2-junction-empty-capture-race 170ms
+   × G2 live pg singular-junction races: commands > g2-junction-captured-owner-replaced 155ms
+     → A captured held owner cannot be transferred successfully twice
+
+2 !== 1
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 125ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts (2 tests) 260ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts > G2 live pg singular-junction races: commands > g2-junction-captured-owner-replaced
+AssertionError: A captured held owner cannot be transferred successfully twice
+
+2 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ Object.assert tests/raptor3/transitions/junction-races-live.ts:362:16
+    360|       );
+    361|       if (planned && !empty)
+    362|         assert.equal(
+       |                ^
+    363|           winners.length,
+    364|           1,
+ ❯ runJunctionRaceScenario tests/raptor3/transitions/junction-races-live.ts:458:11
+ ❯ tests/raptor3/transitions/junction-races-live-commands.test.ts:17:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  1 failed | 17 passed (18)
+   Start at  20:48:50
+   Duration  6.73s (transform 2.03s, setup 35ms, collect 3.86s, tests 2.38s, environment 0ms, prepare 80ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-wRKLnW/vitest.json
+Vitest resources: 9.91s wall, 565.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-wRKLnW

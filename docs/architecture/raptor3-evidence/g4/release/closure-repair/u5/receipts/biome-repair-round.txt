@@ -1,0 +1,8 @@
+--- npx biome check scripts/closure-final-index.mjs
+Checked 1 file in 37ms. No fixes applied.
+--- npx biome check scripts/closure-final-inventory.mjs
+Checked 1 file in 11ms. No fixes applied.
+--- npx biome check scripts/query-engine-test-manifest.mjs
+Checked 1 file in 4ms. No fixes applied.
+--- npx biome check tests/contracts/architecture/gate-inventory-census.core.test.ts
+Checked 1 file in 5ms. No fixes applied.

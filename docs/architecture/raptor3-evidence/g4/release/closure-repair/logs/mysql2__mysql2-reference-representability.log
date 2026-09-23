@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-reference-representability.test.ts (5 tests) 162ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  22:03:08
+   Duration  1.58s (transform 891ms, setup 9ms, collect 1.28s, tests 162ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 3.34s wall, 467.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

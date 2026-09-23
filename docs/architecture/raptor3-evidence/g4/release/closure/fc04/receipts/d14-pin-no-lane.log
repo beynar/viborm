@@ -1,0 +1,15 @@
+# D-14 pin lane check — `node scripts/run-vitest-safe.mjs run tests/raptor3/g4/review/cutover/d14-publication.review.test.ts`
+
+Exit 1. Head of the raw output; the project-glob dump that follows is 66 KB of
+include lists and is elided — `project-membership.txt` states the same fact
+from the manifests themselves.
+
+
+ RUN  v3.1.4 /private/tmp/viborm-fc04
+
+No test files found, exiting with code 1
+
+filter: tests/raptor3/g4/review/cutover/d14-publication.review.test.ts
+[… every project's include/exclude list elided …]
+
+Vitest resources: 1.85s wall, 296.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

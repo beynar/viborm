@@ -1,0 +1,18 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+O2RCF mysql recognised-key | WITH-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "count": the value is absent. | NO-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "count": the value is absent. | same=true
+O2RCF mysql recognised-key exist | WITH-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "exist": the value is absent. | NO-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "exist": the value is absent. | same=true
+O2RCF mysql produced-key | WITH-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "count": the value is absent. | NO-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "count": the value is absent. | same=true
+O2RCF mysql live alias | WITH-LEG RESOLVED 2 | NO-LEG RESOLVED 2 | same=true
+O2RCF pg live alias (integer text) | WITH-LEG RESOLVED 2 | NO-LEG RESOLVED 2 | same=true
+O2RCF pg bigint carrier | WITH-LEG RESOLVED 2 | NO-LEG RESOLVED 2 | same=true
+O2RCF pg unsafe bigint | WITH-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "count": the integer is outside the safe range. | NO-LEG REJECTED QueryEngineError Driver "scripted" returned a malformed int scalar for operation "count": the integer is outside the safe range. | same=true
+ ✓ |layer-adapters| tests/contracts/adapters/o2r-counterfactual.core.test.ts (1 test) 11ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:16:03
+   Duration  1.41s (transform 817ms, setup 10ms, collect 1.24s, tests 11ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.30s wall, 452.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

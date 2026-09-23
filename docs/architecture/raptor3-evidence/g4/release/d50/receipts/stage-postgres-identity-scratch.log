@@ -1,0 +1,17 @@
+
+> viborm@0.1.0 test:all /Users/arnaud/code/viborm
+> node scripts/run-credential-free-tests.mjs --only postgres-identity-scratch
+
+
+[test:all] raptor3-provider: tests/raptor3/g4/parity/postgres-identity-scratch.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts (2 tests) 721ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:57:28
+   Duration  2.23s (transform 864ms, setup 9ms, collect 1.31s, tests 721ms, environment 0ms, prepare 27ms)
+
+[test:all] raptor3-provider: tests/raptor3/g4/parity/postgres-identity-scratch.test.ts: 3.96s wall, 1429.1 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

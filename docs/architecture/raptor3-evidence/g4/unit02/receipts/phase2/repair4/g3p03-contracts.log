@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 35ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  12:20:11
+   Duration  2.54s (transform 1.52s, setup 11ms, collect 2.26s, tests 35ms, environment 0ms, prepare 38ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UOSNjl/vitest.json
+Vitest resources: 5.63s wall, 518.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p03-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UOSNjl

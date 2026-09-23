@@ -1,0 +1,60 @@
+# FC-02A — FALSIFICATION C: the arithmetic base is removed entirely
+#   (q.fieldValue(model, field, undefined)).
+# This proves WHICH consumer reads the widened `current` row beyond the identity:
+# the batch reference scratch's arithmetic base, exercised by an EXISTING
+# registered pin — published-key.test.ts, the child-held arm on the batch-only
+# route, whose parent increments its own key while a cascade moves the child.
+# node scripts/run-vitest-safe.mjs run tests/raptor3/g4/parity/published-key.test.ts tests/raptor3/g4/parity/cascaded-current-identity.test.ts
+
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02a
+
+ ✓ |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests) 108ms
+ ❯ |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests | 1 failed) 80ms
+   ✓ N5: the published key on the live route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 25ms
+   ✓ N5: the published key on the live route > a partial compound shared edge publishes every transitioned member, not only the row's own key 6ms
+   ✓ N5: the published key on the live route > a child-held arm placed after the parent's write names the key that write published 4ms
+   ✓ N5: the published key on the live route > a correlated arm that moves nothing leaves the row at the key it was located by 4ms
+   ✓ N5: the published key on the live route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 7ms
+   ✓ N5: the published key on the live route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 4ms
+   ✓ N5: the published key on the batch-only route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 6ms
+   ✓ N5: the published key on the batch-only route > a partial compound shared edge publishes every transitioned member, not only the row's own key 4ms
+   × N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published 6ms
+     → Query execution failed
+   ✓ N5: the published key on the batch-only route > a correlated arm that moves nothing leaves the row at the key it was located by 4ms
+   ✓ N5: the published key on the batch-only route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 5ms
+   ✓ N5: the published key on the batch-only route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 4ms
+ ❯ |raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests | 1 failed) 79ms
+   ✓ N5: the published key on the live route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 24ms
+   ✓ N5: the published key on the live route > a partial compound shared edge publishes every transitioned member, not only the row's own key 5ms
+   ✓ N5: the published key on the live route > a child-held arm placed after the parent's write names the key that write published 5ms
+   ✓ N5: the published key on the live route > a correlated arm that moves nothing leaves the row at the key it was located by 4ms
+   ✓ N5: the published key on the live route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 6ms
+   ✓ N5: the published key on the live route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 4ms
+   ✓ N5: the published key on the batch-only route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 6ms
+   ✓ N5: the published key on the batch-only route > a partial compound shared edge publishes every transitioned member, not only the row's own key 4ms
+   × N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published 5ms
+     → Query execution failed
+   ✓ N5: the published key on the batch-only route > a correlated arm that moves nothing leaves the row at the key it was located by 5ms
+   ✓ N5: the published key on the batch-only route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 7ms
+   ✓ N5: the published key on the batch-only route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts > N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/published-key.test.ts > N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  2 failed | 43 passed (45)
+   Start at  22:10:36
+   Duration  4.53s (transform 2.49s, setup 22ms, collect 3.78s, tests 267ms, environment 0ms, prepare 78ms)
+
+Vitest resources: 6.36s wall, 588.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

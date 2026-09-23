@@ -1,0 +1,20 @@
+ok   scalar-find-unique/cold-prepare seam=package stmts=1 checksum=142
+ok   scalar-find-unique/prepare seam=package stmts=1 checksum=142
+ok   scalar-find-unique/execute seam=package stmts=1 checksum=63
+ok   scalar-find-unique/full seam=package stmts=1 checksum=63
+FAIL flat-scalar-update/prepare no stage function for prepare
+FAIL flat-scalar-update/execute no stage function for execute
+ok   flat-scalar-update/full seam=package stmts=1 checksum=117
+ok   fixed-collection-rowref-20/prepare seam=package stmts=1 checksum=338
+ok   fixed-collection-rowref-20/execute seam=package stmts=1 checksum=68
+ok   fixed-collection-rowref-20/full seam=package stmts=1 checksum=217
+ok   nested-conditional-found/full seam=null stmts=4 checksum=1
+ok   nested-conditional-missing/full seam=null stmts=4 checksum=1
+ok   key-transition-cascade/full seam=null stmts=3 checksum=1
+ok   bulk-update-returning-100/prepare seam=package stmts=1 checksum=513
+ok   bulk-update-returning-100/full seam=package stmts=1 checksum=100
+FAIL relation-series-2/full Query execution failed
+ok   fixed-collection-rowref-1000/prepare seam=package stmts=1 checksum=338
+ok   fixed-collection-rowref-1000/execute seam=package stmts=1 checksum=1048
+ok   fixed-collection-rowref-1000/parse seam=package stmts=1 checksum=1197
+ok   fixed-collection-rowref-1000/full seam=package stmts=1 checksum=1197

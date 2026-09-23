@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts (5 tests) 244ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  12:36:46
+   Duration  2.30s (transform 1.28s, setup 9ms, collect 1.90s, tests 244ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xReO44/vitest.json
+Vitest resources: 4.34s wall, 553.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-envelope-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xReO44
+port 65515 container viborm-raptor3-g3-mysql-20260914 d6da412eec3c exit=0 attempts=2

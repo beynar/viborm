@@ -1,0 +1,13 @@
+85	17	docs/architecture/raptor3-evidence/g4.md
+34	14	docs/architecture/raptor3-evidence/g4/release/closure-final/r2a/note.md
+7	5	docs/architecture/raptor3-evidence/g4/release/closure-final/r2b/note.md
+23	0	docs/architecture/raptor3-evidence/g4/release/closure-final/r2c/note.md
+21	10	src/migrations/AGENTS.md
+3	3	src/migrations/drivers/mysql/introspect.ts
+18	0	src/query-engine/raptor3/AGENTS.md
+19	7	src/query-engine/raptor3/commands/relation-body.ts
+7	3	src/query-engine/raptor3/shared/query.ts
+6	2	tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts
+159	1	tests/providers/docker/mysql2-concurrency-policy.test.ts
+14	8	tests/providers/docker/mysql2-schema-attestation.test.ts
+85	0	tests/providers/docker/pg-captured-set-concurrency.test.ts

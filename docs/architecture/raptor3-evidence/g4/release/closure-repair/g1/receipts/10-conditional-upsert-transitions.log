@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sfix
+
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 88ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 46ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 84ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 50ms
+
+ Test Files  4 passed (4)
+      Tests  44 passed (44)
+   Start at  21:33:13
+   Duration  3.24s (transform 1.60s, setup 16ms, collect 2.59s, tests 269ms, environment 0ms, prepare 51ms)
+
+Vitest resources: 5.03s wall, 575.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

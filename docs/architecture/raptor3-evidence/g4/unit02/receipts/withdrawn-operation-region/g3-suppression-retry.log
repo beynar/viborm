@@ -1,0 +1,62 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests | 2 failed) 39ms
+   × G3 C09 transaction-owned suppression regions > suppresses only one root subtree and lets a later array member observe the healthy suffix 31ms
+     → Transaction scope for driver "sqlite3" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+   × G3 C09 transaction-owned suppression regions > keeps a descendant unique failure fatal and rolls back an earlier array prefix 8ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+TransactionError: Transaction scope for driver "sqlite3" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts > G3 C09 transaction-owned suppression regions > suppresses only one root subtree and lets a later array member observe the healthy suffix
+TransactionError: Transaction scope for driver "sqlite3" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts > G3 C09 transaction-owned suppression regions > keeps a descendant unique failure fatal and rolls back an earlier array prefix
+AssertionError: The validation function is expected to return "true". Received false
+
+Caught error:
+
+TransactionError: Transaction scope for driver "sqlite3" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+
+[32m- Expected:[39m 
+[Function anonymous]
+
+[31m+ Received:[39m 
+TransactionError {
+  "message": "Transaction scope for driver \"sqlite3\" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.",
+  "code": "V5001",
+  "originalCause": undefined,
+  "meta": {
+    "driver": "sqlite3",
+    "method": "$transaction(callback)",
+  },
+  "timestamp": 2026-09-15T01:47:24.129Z,
+  "name": "TransactionError",
+}
+
+ ❯ tests/raptor3/g3/suppression-retry-contract.test.ts:266:7
+    264|       });
+    265| 
+    266|       await assert.rejects(
+       |       ^
+    267|         transactionArray(world.client, [series]),
+    268|         (failure) => failure instanceof UniqueConstraintError
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  03:47:22
+   Duration  1.89s (transform 1.16s, setup 9ms, collect 1.70s, tests 39ms, environment 0ms, prepare 38ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Wu63LX/vitest.json
+Vitest resources: 4.17s wall, 537.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Wu63LX
+exit=1

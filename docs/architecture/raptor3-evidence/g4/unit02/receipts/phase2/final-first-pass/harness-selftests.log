@@ -1,0 +1,607 @@
+✔ a verified G3 child corpus archives and restores byte-for-byte (20.733209ms)
+✔ a child corpus archive carries the replay command of its own lane (3.595125ms)
+✔ a failed G3 child archive leaves the raw corpus unchanged (3.005208ms)
+✔ structural measurement qualification pins the exact Node runtime (0.685459ms)
+✔ credential-free registration isolates native Raptor suites and retains local fixed suites (0.132791ms)
+✔ CS-03 extension modes bind exact ranges, identities, cells, and replays (9.386708ms)
+✔ CS-03 extension alternatives compare canonical recipes, schedules, and outcomes (16.565125ms)
+✔ G2.5 admits its fixed unfiltered checkpoint without changing G2 campaigns (0.110416ms)
+✔ G3 bulk series admits its exact fixed contract without filters (0.072417ms)
+✔ G3 suppression retry admits its exact fixed contract without filters (0.085875ms)
+✔ G3 transaction array admits its exact fixed contract without filters (0.054541ms)
+✔ G3 generated smoke admits its exact contract without filters (0.044375ms)
+✔ G3 transport smoke admits its exact contract without filters (0.030958ms)
+✔ G3 failure minimization admits its exact contract without filters (0.042417ms)
+✔ G3 depth recurrence admits its exact fixed contract without filters (0.041417ms)
+✔ G3 execution review admits its exact diagnostic contract (0.043875ms)
+✔ G3 author execution regressions admit their exact fixed contract (0.037709ms)
+✔ g3-scope-failure admits its exact local fixed contract (0.042417ms)
+✔ g3-bulk-result-boundary admits its exact local fixed contract (0.022583ms)
+✔ G3 pg scope composition admits its exact native contract (0.036416ms)
+✔ G3 mysql scope composition admits its exact native contract (0.065709ms)
+✔ SQLite: G3 generated receipts fail closed when stale, missing, or corrupt (0.8765ms)
+✔ scripted transport: G3 generated receipts fail closed when stale, missing, or corrupt (0.562833ms)
+✔ g3-seeds binds the exact G3 range and batch boundary (0.1925ms)
+✔ g3-transport-seeds binds the exact G3 range and batch boundary (0.090292ms)
+✔ SQLite: G2 admits only the frozen range and unfiltered commands (0.208625ms)
+✔ SQLite: unit receipts require every exact cell, replay and zero skips (1.45825ms)
+✔ SQLite: unit quota claims must reach twenty percent in EACH profile (0.939375ms)
+✔ scripted transport: G2 admits only the frozen range and unfiltered commands (0.208917ms)
+✔ scripted transport: unit receipts require every exact cell, replay and zero skips (1.184375ms)
+✔ scripted transport: unit quota claims must reach twenty percent in EACH profile (0.644458ms)
+✔ SQLite: G3P-06 reserves exactly one new unfiltered batch (0.288ms)
+✔ SQLite: G3P-06 receipts bind every new profile/seed cell (0.407292ms)
+✔ scripted transport: G3P-06 reserves exactly one new unfiltered batch (0.157209ms)
+✔ scripted transport: G3P-06 receipts bind every new profile/seed cell (0.325541ms)
+✔ G4 suites stay outside credential-free discovery while they are red (0.069083ms)
+✔ G4 fixed modes admit their exact contract without filters (0.415459ms)
+✔ G4 write lanes reuse the G3 campaign on fresh disjoint ranges (1.075875ms)
+✔ G4 campaign modes bind the frozen disjoint ranges and their subjects (0.946292ms)
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-MnOtBF
+✔ the same replay command accepts saved fixed, cut/fault and clock corpora (12488.522792ms)
+✔ the command refuses filtering, missing required cases and profiles (8557.235292ms)
+✔ saved evidence with a stale identity, empty corpus or malformed wire fails (12307.869833ms)
+✔ the outer watchdog terminates an operation that actually reached its wait (120316.763041ms)
+✔ the outer watchdog terminates a public call awaiting a queued provider reply (10285.538792ms)
+✔ completed G2 progress survives watchdog termination without becoming qualifying evidence (30298.832375ms)
+✔ the command refuses a filtered G4 mode and an off-boundary G4 child (270.335208ms)
+✔ the G4 write lanes own their own range and take no subject (242.62475ms)
+✔ a G4 campaign subject comes from the command, never from the shell (10660.704625ms)
+✖ test:all cannot replace the required lane through inherited specimen variables (13034.61775ms)
+ℹ tests 49
+ℹ suites 0
+ℹ pass 48
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 223955.818
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:300:1
+✖ test:all cannot replace the required lane through inherited specimen variables (13034.61775ms)
+  AssertionError [ERR_ASSERTION]: 
+  [test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison
+  
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 75ms
+   ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 25ms
+   ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 20ms
+   ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 9ms
+   ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 38ms
+   ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 30ms
+   ✓ |raptor3| tests/raptor3/gate.test.ts (8 tests) 93ms
+   ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 65ms
+   ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 17ms
+   ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 11ms
+   ✓ |raptor3| tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts (5 tests) 4ms
+   ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 12ms
+   ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 41ms
+   ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 14ms
+   ✓ |raptor3| tests/raptor3/ownership/commands.test.ts (6 tests) 5ms
+   ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 5ms
+   ❯ |raptor3| tests/raptor3/transport.test.ts (44 tests | 6 failed) 494ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays create 8ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-found 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > executes and exactly replays coc-missing 3ms
+     × G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected and its healthy new-call suffix 2ms
+       → actor-1: durable and uncertain progress must remain distinct
+  + actual - expected
+  
+  + undefined
+  - {
+  -   atomicity: 'segment',
+  -   committedSegments: 0,
+  -   committedWriteMembers: 0,
+  -   completedMembers: 0,
+  -   mayHaveCommittedSegment: true,
+  -   phase: 'member'
+  - }
+  
+     × G1 explicit transport replies: scripted-returning-weak > preserves create producer-empty and its healthy new-call suffix 1ms
+       → Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'TypeError'
+  - 'QueryEngineError'
+  
+     × G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected-after-commit and its healthy new-call suffix 1ms
+       → actor-1: durable and uncertain progress must remain distinct
+  + actual - expected
+  
+  + undefined
+  - {
+  -   atomicity: 'segment',
+  -   committedSegments: 0,
+  -   committedWriteMembers: 0,
+  -   completedMembers: 0,
+  -   mayHaveCommittedSegment: true,
+  -   phase: 'member'
+  - }
+  
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-rejected-after-commit and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves create consumer-malformed and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-empty and its healthy new-call suffix 8ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 6ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > preserves coc-missing consumer-malformed and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > queues two creates before release and explores both first actors with exact replay 94ms
+     × G1 explicit transport replies: scripted-returning-weak > records two failed calls and a healthy third call on one reusable engine 3ms
+       → actor-1: durable and uncertain progress must remain distinct
+  + actual - expected
+  
+  + undefined
+  - {
+  -   atomicity: 'segment',
+  -   committedSegments: 0,
+  -   committedWriteMembers: 0,
+  -   completedMembers: 0,
+  -   mayHaveCommittedSegment: true,
+  -   phase: 'member'
+  - }
+  
+     ✓ G1 explicit transport replies: scripted-returning-weak > rejects wrong-publication, saves its full trace, and repeats the same failure three times 31ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > rejects lost-progress, saves its full trace, and repeats the same failure three times 43ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > rejects corrupted failure attribution without changing transport progress 7ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > keeps an unknown response sticky when the caller swallows the second public call's failure 3ms
+     ✓ G1 explicit transport replies: scripted-returning-weak > rejects omitted provider work even when the caller returns the expected public row 2ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays create 8ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-found 5ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > executes and exactly replays coc-missing 6ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected and its healthy new-call suffix 6ms
+     × G1 explicit transport replies: scripted-returning-ack > preserves create producer-empty and its healthy new-call suffix 1ms
+       → Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'TypeError'
+  - 'QueryEngineError'
+  
+     × G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected-after-commit and its healthy new-call suffix 1ms
+       → actor-1: durable and uncertain progress must remain distinct
+  + actual - expected
+  
+  + undefined
+  - {
+  -   atomicity: 'segment',
+  -   committedSegments: 1,
+  -   committedWriteMembers: 1,
+  -   completedMembers: 0,
+  -   phase: 'result'
+  - }
+  
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-rejected-after-commit and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves create consumer-malformed and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-empty and its healthy new-call suffix 4ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing producer-rejected-after-commit and its healthy new-call suffix 10ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-rejected-after-commit and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > preserves coc-missing consumer-malformed and its healthy new-call suffix 5ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > queues two creates before release and explores both first actors with exact replay 84ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > records two failed calls and a healthy third call on one reusable engine 29ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > rejects wrong-publication, saves its full trace, and repeats the same failure three times 27ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > rejects lost-progress, saves its full trace, and repeats the same failure three times 29ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > rejects corrupted failure attribution without changing transport progress 1ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > keeps an unknown response sticky when the caller swallows the second public call's failure 1ms
+     ✓ G1 explicit transport replies: scripted-returning-ack > rejects omitted provider work even when the caller returns the expected public row 0ms
+   ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 5ms
+   ✓ |raptor3| tests/raptor3/g3/scope-failure-contract.test.ts (2 tests) 7ms
+   ✓ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests) 16ms
+   ✓ |raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 9ms
+   ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms
+   ✓ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests) 14ms
+   ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 16ms
+   ✓ |raptor3| tests/raptor3/g3/bulk-series-contract.test.ts (6 tests) 9ms
+   ✓ |raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts (5 tests) 9ms
+   ✓ |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests) 12ms
+   ✓ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 4ms
+   ✓ |raptor3| tests/raptor3/g3/generation/generated-smoke.test.ts (6 tests) 122ms
+   ✓ |raptor3| tests/raptor3/g3/depth-recurrence-contract.test.ts (6 tests) 18ms
+   ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts (5 tests) 14ms
+   ✓ |raptor3| tests/raptor3/core-structure/extension-b.contract.test.ts (4 tests) 8ms
+   ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 35ms
+   ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 18ms
+   ✓ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 9ms
+   ✓ |raptor3| tests/raptor3/cleanup-failure.test.ts (2 tests) 27ms
+   ✓ |raptor3| tests/raptor3/candidate.test.ts (48 tests) 250ms
+   ❯ |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts (1 test | 1 failed) 75ms
+     × executes and exactly replays the representative C08-C11 transport matrix 75ms
+       → g3-transport:script-shape; Unscripted statement: g3-c11-8027-0:recurrence-0; actual=INSERT; expected=INSERT,SELECT
+  
+  1 !== 2
+  
+   ✓ |raptor3| tests/raptor3/generated-gate.test.ts (3 tests) 34ms
+   ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (8 tests) 8ms
+   ✓ |raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms
+   ✓ |raptor3| tests/raptor3/expanded/lifetime-commands.test.ts (16 tests) 47ms
+   ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (4 tests) 21ms
+   ❯ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests | 10 failed) 172ms
+     ✓ records and exactly replays CS-03 A seed 7103 under 'sqlite-interactive' 13ms
+     ✓ records and exactly replays CS-03 A seed 7103 under 'sqlite-atomic-batch' 10ms
+     ✓ records and exactly replays CS-03 A seed 7112 under 'sqlite-interactive' 5ms
+     ✓ records and exactly replays CS-03 A seed 7112 under 'sqlite-atomic-batch' 7ms
+     ✓ records and exactly replays CS-03 A seed 7117 under 'sqlite-interactive' 7ms
+     ✓ records and exactly replays CS-03 A seed 7117 under 'sqlite-atomic-batch' 13ms
+     ✓ records and exactly replays CS-03 A seed 7128 under 'sqlite-interactive' 5ms
+     ✓ records and exactly replays CS-03 A seed 7128 under 'sqlite-atomic-batch' 8ms
+     × records and exactly replays CS-03 A seed 7133 under 'sqlite-interactive' 2ms
+       → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"id":1,"label":"root-written"},{"id":2,"label":"root-written"}]}
+     × records and exactly replays CS-03 A seed 7133 under 'sqlite-atomic-batch' 2ms
+       → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"id":1,"label":"root-written"},{"id":2,"label":"root-written"}]}
+     × records and exactly replays CS-03 A seed 7144 under 'sqlite-interactive' 2ms
+       → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+     × records and exactly replays CS-03 A seed 7144 under 'sqlite-atomic-batch' 1ms
+       → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+     ✓ records and exactly replays CS-03 A seed 7149 under 'sqlite-interactive' 5ms
+     ✓ records and exactly replays CS-03 A seed 7149 under 'sqlite-atomic-batch' 7ms
+     × records and exactly replays CS-03 A seed 7160 under 'sqlite-interactive' 1ms
+       → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+     × records and exactly replays CS-03 A seed 7160 under 'sqlite-atomic-batch' 1ms
+       → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+     ✓ records and exactly replays CS-03 A seed 7109 under 'sqlite-interactive' 6ms
+     ✓ records and exactly replays CS-03 A seed 7109 under 'sqlite-atomic-batch' 7ms
+     ✓ records and exactly replays CS-03 A seed 7119 under 'sqlite-interactive' 9ms
+     ✓ records and exactly replays CS-03 A seed 7119 under 'sqlite-atomic-batch' 15ms
+     ✓ records and exactly replays CS-03 B seed 7200 under 'sqlite-interactive' 3ms
+     ✓ records and exactly replays CS-03 B seed 7200 under 'sqlite-atomic-batch' 1ms
+     ✓ records and exactly replays CS-03 B seed 7201 under 'sqlite-interactive' 1ms
+     ✓ records and exactly replays CS-03 B seed 7201 under 'sqlite-atomic-batch' 1ms
+     ✓ records and exactly replays CS-03 B seed 7202 under 'sqlite-interactive' 1ms
+     ✓ records and exactly replays CS-03 B seed 7202 under 'sqlite-atomic-batch' 1ms
+     ✓ records and exactly replays CS-03 B seed 7203 under 'sqlite-interactive' 1ms
+     ✓ records and exactly replays CS-03 B seed 7203 under 'sqlite-atomic-batch' 1ms
+     ✓ records and exactly replays CS-03 B seed 7204 under 'sqlite-interactive' 2ms
+     ✓ records and exactly replays CS-03 B seed 7204 under 'sqlite-atomic-batch' 1ms
+     ✓ records and exactly replays CS-03 B seed 7205 under 'sqlite-interactive' 3ms
+     ✓ records and exactly replays CS-03 B seed 7205 under 'sqlite-atomic-batch' 2ms
+     ✓ records and exactly replays CS-03 B seed 7214 under 'sqlite-interactive' 2ms
+     ✓ records and exactly replays CS-03 B seed 7214 under 'sqlite-atomic-batch' 3ms
+     ✓ records and exactly replays CS-03 composition seed 7300 under 'sqlite-interactive' 4ms
+     ✓ records and exactly replays CS-03 composition seed 7300 under 'sqlite-atomic-batch' 2ms
+     × records and exactly replays CS-03 composition seed 7305 under 'sqlite-interactive' 2ms
+       → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"}]}
+     × records and exactly replays CS-03 composition seed 7305 under 'sqlite-atomic-batch' 2ms
+       → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"}]}
+     ✓ records and exactly replays CS-03 composition seed 7310 under 'sqlite-interactive' 3ms
+     ✓ records and exactly replays CS-03 composition seed 7310 under 'sqlite-atomic-batch' 2ms
+     × records and exactly replays CS-03 composition seed 7313 under 'sqlite-interactive' 3ms
+       → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"},{"label":"terminal"}]}
+     × records and exactly replays CS-03 composition seed 7313 under 'sqlite-atomic-batch' 3ms
+       → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"},{"label":"terminal"}]}
+   ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 59ms
+   ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 188ms
+   ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 35ms
+   ✓ |raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 25ms
+   ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 40ms
+   ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 69ms
+   ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 61ms
+   ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 60ms
+   ✓ |raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 22ms
+   ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 91ms
+   ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 191ms
+   ✓ |raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 72ms
+   ✓ |raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 65ms
+   ✓ |raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 37ms
+   ✓ |raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 71ms
+   ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 88ms
+   ✓ |raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 1ms
+   ✓ |raptor3| tests/raptor3/expanded/commands.test.ts (82 tests) 148ms
+   ✓ |raptor3| tests/raptor3/expanded/variant-identity-commands.test.ts (42 tests) 92ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 31ms
+   ✓ |raptor3| tests/raptor3/generated-smoke.test.ts (32 tests) 163ms
+  
+   Test Files  3 failed | 62 passed (65)
+        Tests  17 failed | 741 passed (758)
+     Start at  05:43:42
+     Duration  10.38s (transform 1.59s, setup 44ms, collect 6.51s, tests 3.53s, environment 0ms, prepare 27ms)
+  
+  
+  
+  ⎯⎯⎯⎯⎯⎯ Failed Tests 17 ⎯⎯⎯⎯⎯⎯⎯
+  
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected and its healthy new-call suffix
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > preserves create producer-rejected-after-commit and its healthy new-call suffix
+  AssertionError: actor-1: durable and uncertain progress must remain distinct
+  + actual - expected
+  
+  + undefined
+  - {
+  -   atomicity: 'segment',
+  -   committedSegments: 0,
+  -   committedWriteMembers: 0,
+  -   completedMembers: 0,
+  -   mayHaveCommittedSegment: true,
+  -   phase: 'member'
+  - }
+  
+  
+  simple
+  
+   ❯ assertActorOutcome tests/raptor3/transport/world.ts:462:10
+      460|     return;
+      461|   }
+      462|   assert.deepEqual(
+         |          ^
+      463|     meta.recordSeriesProgress,
+      464|     {
+   ❯ tests/raptor3/transport/world.ts:773:11
+   ❯ Object.assert tests/raptor3/transport/world.ts:772:16
+   ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+   ❯ tests/raptor3/transport.test.ts:88:9
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > preserves create producer-empty and its healthy new-call suffix
+  AssertionError: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'TypeError'
+  - 'QueryEngineError'
+  
+  
+  Expected: [32m"[7mQueryEngin[27meError"[39m
+  Received: [31m"[7mTyp[27meError"[39m
+  
+   ❯ assertActorOutcome tests/raptor3/transport/world.ts:370:10
+      368|     (ordinary ||
+      369|       (candidate === "commands" && actor.fault === "consumer-malformed…
+      370|   assert.equal(
+         |          ^
+      371|     outcome.failure.name,
+      372|     malformed ? "QueryEngineError" : "QueryError"
+   ❯ tests/raptor3/transport/world.ts:773:11
+   ❯ Object.assert tests/raptor3/transport/world.ts:772:16
+   ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+   ❯ tests/raptor3/transport.test.ts:88:9
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-weak > records two failed calls and a healthy third call on one reusable engine
+  AssertionError: actor-1: durable and uncertain progress must remain distinct
+  + actual - expected
+  
+  + undefined
+  - {
+  -   atomicity: 'segment',
+  -   committedSegments: 0,
+  -   committedWriteMembers: 0,
+  -   completedMembers: 0,
+  -   mayHaveCommittedSegment: true,
+  -   phase: 'member'
+  - }
+  
+  
+  simple
+  
+   ❯ assertActorOutcome tests/raptor3/transport/world.ts:462:10
+      460|     return;
+      461|   }
+      462|   assert.deepEqual(
+         |          ^
+      463|     meta.recordSeriesProgress,
+      464|     {
+   ❯ tests/raptor3/transport/world.ts:773:11
+   ❯ Object.assert tests/raptor3/transport/world.ts:772:16
+   ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+   ❯ tests/raptor3/transport.test.ts:124:19
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > preserves create producer-empty and its healthy new-call suffix
+  AssertionError: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'TypeError'
+  - 'QueryEngineError'
+  
+  
+  Expected: [32m"[7mQueryEngin[27meError"[39m
+  Received: [31m"[7mTyp[27meError"[39m
+  
+   ❯ assertActorOutcome tests/raptor3/transport/world.ts:370:10
+      368|     (ordinary ||
+      369|       (candidate === "commands" && actor.fault === "consumer-malformed…
+      370|   assert.equal(
+         |          ^
+      371|     outcome.failure.name,
+      372|     malformed ? "QueryEngineError" : "QueryError"
+   ❯ tests/raptor3/transport/world.ts:773:11
+   ❯ Object.assert tests/raptor3/transport/world.ts:772:16
+   ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+   ❯ tests/raptor3/transport.test.ts:88:9
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/transport.test.ts > G1 explicit transport replies: scripted-returning-ack > preserves create producer-rejected-after-commit and its healthy new-call suffix
+  AssertionError: actor-1: durable and uncertain progress must remain distinct
+  + actual - expected
+  
+  + undefined
+  - {
+  -   atomicity: 'segment',
+  -   committedSegments: 1,
+  -   committedWriteMembers: 1,
+  -   completedMembers: 0,
+  -   phase: 'result'
+  - }
+  
+  
+  simple
+  
+   ❯ assertActorOutcome tests/raptor3/transport/world.ts:462:10
+      460|     return;
+      461|   }
+      462|   assert.deepEqual(
+         |          ^
+      463|     meta.recordSeriesProgress,
+      464|     {
+   ❯ tests/raptor3/transport/world.ts:773:11
+   ❯ Object.assert tests/raptor3/transport/world.ts:772:16
+   ❯ checkedWorld tests/raptor3/transport.test.ts:67:17
+   ❯ tests/raptor3/transport.test.ts:88:9
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7133 under 'sqlite-interactive'
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7133 under 'sqlite-atomic-batch'
+  AssertionError: Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"id":1,"label":"root-written"},{"id":2,"label":"root-written"}]}
+  
+  [32m- Expected[39m
+  [31m+ Received[39m
+  
+  [32m- true[39m
+  [31m+ false[39m
+  
+   ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+      415|           // Same-engine replay enters this same assertion owner.
+      416|           for (const cut of fixture.requiredCuts)
+      417|             assert(
+         |             ^
+      418|               observation.reachedCuts.includes(cut),
+      419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+   ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+   ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:28:20
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7144 under 'sqlite-interactive'
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7144 under 'sqlite-atomic-batch'
+  AssertionError: Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+  
+  [32m- Expected[39m
+  [31m+ Received[39m
+  
+  [32m- true[39m
+  [31m+ false[39m
+  
+   ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+      415|           // Same-engine replay enters this same assertion owner.
+      416|           for (const cut of fixture.requiredCuts)
+      417|             assert(
+         |             ^
+      418|               observation.reachedCuts.includes(cut),
+      419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+   ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+   ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:28:20
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7160 under 'sqlite-interactive'
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7160 under 'sqlite-atomic-batch'
+  AssertionError: Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+  
+  [32m- Expected[39m
+  [31m+ Received[39m
+  
+  [32m- true[39m
+  [31m+ false[39m
+  
+   ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+      415|           // Same-engine replay enters this same assertion owner.
+      416|           for (const cut of fixture.requiredCuts)
+      417|             assert(
+         |             ^
+      418|               observation.reachedCuts.includes(cut),
+      419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+   ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+   ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:28:20
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7305 under 'sqlite-interactive'
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7305 under 'sqlite-atomic-batch'
+  AssertionError: Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"}]}
+  
+  [32m- Expected[39m
+  [31m+ Received[39m
+  
+  [32m- true[39m
+  [31m+ false[39m
+  
+   ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+      415|           // Same-engine replay enters this same assertion owner.
+      416|           for (const cut of fixture.requiredCuts)
+      417|             assert(
+         |             ^
+      418|               observation.reachedCuts.includes(cut),
+      419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+   ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+   ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:52:20
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7313 under 'sqlite-interactive'
+   FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7313 under 'sqlite-atomic-batch'
+  AssertionError: Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"},{"label":"terminal"}]}
+  
+  [32m- Expected[39m
+  [31m+ Received[39m
+  
+  [32m- true[39m
+  [31m+ false[39m
+  
+   ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+      415|           // Same-engine replay enters this same assertion owner.
+      416|           for (const cut of fixture.requiredCuts)
+      417|             assert(
+         |             ^
+      418|               observation.reachedCuts.includes(cut),
+      419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+   ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+   ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:52:20
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/17]⎯
+  
+   FAIL  |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts > executes and exactly replays the representative C08-C11 transport matrix
+  AssertionError: g3-transport:script-shape; Unscripted statement: g3-c11-8027-0:recurrence-0; actual=INSERT; expected=INSERT,SELECT
+  
+  1 !== 2
+  
+  
+  [32m- Expected[39m
+  [31m+ Received[39m
+  
+  [32m- 2[39m
+  [31m+ 1[39m
+  
+   ❯ ScriptedTransport.answer tests/raptor3/transport/driver.ts:166:14
+      164|         `g3-transport:transport-form; Wrong transport form: ${reply.na…
+      165|       );
+      166|       assert.equal(
+         |              ^
+      167|         queries.length,
+      168|         reply.statements.length,
+   ❯ ScriptedTransport.executeBatch tests/raptor3/transport/driver.ts:117:17
+   ❯ executeProvider src/drivers/driver-transaction-base.ts:841:40
+   ❯ ScriptedTransport.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:20
+   ❯ executeNativeBatch src/drivers/driver-transaction-base.ts:890:18
+   ❯ OperationContext.submit src/query-engine/raptor3/shared/operation-context.ts:650:25
+   ❯ OperationContext.setMutations src/query-engine/raptor3/shared/operation-context.ts:982:23
+   ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:451:27
+  
+  ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/17]⎯
+  
+  Vitest resources: 12.53s wall, 878.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  [test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 12.82s wall, 61.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:310:3)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

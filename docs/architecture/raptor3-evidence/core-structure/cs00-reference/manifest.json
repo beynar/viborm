@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "status": "accepted-cs00-reference",
+  "baseCommit": "f7b77d51b0b3baac506b89a884aba95450320e29",
+  "patch": {
+    "file": "qualified-source.patch",
+    "sha256": "aae886e5cd1e5265352f0a19174a8d98e044297c255830ca93463430aa5d9017"
+  },
+  "identity": {
+    "production": "2fa782174626ac1d27b31ecae3beb6fdf97f49450b86ceeb94230f90ba579e11",
+    "harness": "e0da0fd939ab2ba5fde32c094bb407d3648421bc40ab8f539372203c501b87ff",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "worktrees": {
+    "reference": "/tmp/viborm-cs00-reference.FtGrx0",
+    "candidate": "/tmp/viborm-cs00-candidate.V7lUlt",
+    "mode": "detached at baseCommit; identical patch applied; existing workspace node_modules linked without copying"
+  },
+  "files": [
+    "benchmarks/baseline.json",
+    "scripts/credential-free-test-manifest.mjs",
+    "scripts/raptor3-campaign-receipts.test.mjs",
+    "scripts/raptor3-manifest.mjs",
+    "scripts/run-raptor3.mjs",
+    "src/query-engine/raptor3/commands/commands.ts",
+    "src/query-engine/raptor3/commands/execution.ts",
+    "src/query-engine/raptor3/shared/operation-context.ts",
+    "tests/raptor3/candidate-ordering.test.ts",
+    "tests/raptor3/candidate.test.ts",
+    "tests/raptor3/g2-transport.test.ts",
+    "tests/raptor3/post-prep/g29-dependency-boundaries.test.ts",
+    "tests/raptor3/post-prep/g29-dependency-choices.test.ts",
+    "tests/raptor3/post-prep/g29-member-dependency.test.ts",
+    "tests/raptor3/post-prep/g29-result-progress-pglite.test.ts",
+    "tests/raptor3/post-prep/g29-result-progress.test.ts",
+    "tests/raptor3/post-prep/native-g29-member-dependency.test.ts",
+    "tests/raptor3/scenarios/contracts/instances.ts",
+    "tests/raptor3/transport-campaign.test.ts",
+    "tests/raptor3/transport/world.ts",
+    "vitest.workspace.ts"
+  ],
+  "excluded": [
+    "CONTEXT.md",
+    "memory.md",
+    "tests/pattern/pack/program-dump.ts",
+    "unrelated evidence archives and root corpora",
+    "node_modules contents"
+  ],
+  "claims": [
+    "Both detached worktrees reproduce the accepted production and harness identities.",
+    "No commit, branch, stash, public route, second interpreter, or CS-02 production change was created."
+  ]
+}

@@ -1,0 +1,13 @@
+ ❯ |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts (56 tests | 10 failed) 1988ms
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite transaction parent-held to-one lookup (E1 U1/U2) > a located target whose referenced NULLABLE unique is NULL re
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite atomic batch parent-held to-one lookup (E1 U1/U2) > a located target whose referenced NULLABLE unique is NULL r
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite transaction before-root target subtree (E1 U3) > a null referenced field in the target's create data stays refu
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite atomic batch before-root target subtree (E1 U3) > a null referenced field in the target's create data stays ref
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite transaction parent-held upsert arm relations (E1 U4) > a same-update FK rebind makes the arm correlate on the F
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite atomic batch parent-held upsert arm relations (E1 U4) > a same-update FK rebind makes the arm correlate on the 
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U1 — the lookup fold's provenance > the written key comes from the LOOKUP, not from the probe row
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U1 — the lookup fold's provenance > a probe row whose required referenced column reads NULL fails typed parsing
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U1 — the guard→UPDATE vanish window > a target deleted between planning and the batch aborts typed, writing not
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U4 — the delegated upsert arm's staleness window > a target that vanishes before the batch aborts with the upsert
+ Test Files  1 failed (1)
+      Tests  10 failed | 46 passed (56)

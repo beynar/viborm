@@ -1,0 +1,26 @@
+#!/bin/bash
+set -u
+export PATH=/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin:$PATH
+REPO=/Users/arnaud/code/viborm
+T=/private/tmp/viborm-rq-option-b
+M=$T/biome-before
+OUT=${1:-$T}
+read -r -a FILES < "$T/touched-files.txt"
+(cd "$M" && PATH="$REPO/node_modules/.bin:$PATH" pnpm dlx ultracite check --max-diagnostics=10000 "${FILES[@]}") > "$OUT/ultracite-before.txt" 2>&1
+echo "before exit=$?" >> "$OUT/ultracite-before.txt"
+(cd "$REPO" && PATH="$REPO/node_modules/.bin:$PATH" pnpm dlx ultracite check --max-diagnostics=10000 "${FILES[@]}") > "$OUT/ultracite-after.txt" 2>&1
+echo "after exit=$?" >> "$OUT/ultracite-after.txt"
+python3 - "$OUT/ultracite-before.txt" "$OUT/ultracite-after.txt" <<'PY'
+import re, sys, collections
+def counts(path):
+    c = collections.Counter()
+    for line in open(path, encoding="utf8", errors="replace"):
+        m = re.match(r'^(\S+?)(?::\d+:\d+)? (lint/\S+|assist/\S+|format)\b', line)
+        if m: c[(m.group(1), m.group(2))] += 1
+    return c
+h, a = counts(sys.argv[1]), counts(sys.argv[2])
+for k in sorted(set(h) | set(a)):
+    hv, av = h[k], a[k]
+    flag = "" if hv == av else ("  <-- MORE" if av > hv else "  (fewer)")
+    print(f"{k[0]} {k[1]}: before={hv} after={av}{flag}")
+PY

@@ -1,0 +1,10 @@
+== query-engine-structure (engine token lines) ==
+queryEngine.tokenLines = 16182
+
+== per-file token lines, the census's own function ==
+src/migrations/drivers/mysql/introspect.ts: 385 -> 408 (+23)
+src/migrations/drivers/type-mapping.ts: 220 -> 219 (-1)
+total: 605 -> 627 (+22)
+
+== raptor3-refusal-census ==
+exit=0

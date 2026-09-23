@@ -1,0 +1,177 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests | 10 failed) 222ms
+   ✓ records and exactly replays CS-03 A seed 7103 under 'sqlite-interactive' 30ms
+   ✓ records and exactly replays CS-03 A seed 7103 under 'sqlite-atomic-batch' 13ms
+   ✓ records and exactly replays CS-03 A seed 7112 under 'sqlite-interactive' 7ms
+   ✓ records and exactly replays CS-03 A seed 7112 under 'sqlite-atomic-batch' 7ms
+   ✓ records and exactly replays CS-03 A seed 7117 under 'sqlite-interactive' 9ms
+   ✓ records and exactly replays CS-03 A seed 7117 under 'sqlite-atomic-batch' 11ms
+   ✓ records and exactly replays CS-03 A seed 7128 under 'sqlite-interactive' 6ms
+   ✓ records and exactly replays CS-03 A seed 7128 under 'sqlite-atomic-batch' 8ms
+   × records and exactly replays CS-03 A seed 7133 under 'sqlite-interactive' 5ms
+     → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"id":1,"label":"root-written"},{"id":2,"label":"root-written"}]}
+   × records and exactly replays CS-03 A seed 7133 under 'sqlite-atomic-batch' 2ms
+     → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"id":1,"label":"root-written"},{"id":2,"label":"root-written"}]}
+   × records and exactly replays CS-03 A seed 7144 under 'sqlite-interactive' 2ms
+     → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+   × records and exactly replays CS-03 A seed 7144 under 'sqlite-atomic-batch' 2ms
+     → Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+   ✓ records and exactly replays CS-03 A seed 7149 under 'sqlite-interactive' 8ms
+   ✓ records and exactly replays CS-03 A seed 7149 under 'sqlite-atomic-batch' 13ms
+   × records and exactly replays CS-03 A seed 7160 under 'sqlite-interactive' 2ms
+     → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+   × records and exactly replays CS-03 A seed 7160 under 'sqlite-atomic-batch' 2ms
+     → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+   ✓ records and exactly replays CS-03 A seed 7109 under 'sqlite-interactive' 6ms
+   ✓ records and exactly replays CS-03 A seed 7109 under 'sqlite-atomic-batch' 9ms
+   ✓ records and exactly replays CS-03 A seed 7119 under 'sqlite-interactive' 11ms
+   ✓ records and exactly replays CS-03 A seed 7119 under 'sqlite-atomic-batch' 14ms
+   ✓ records and exactly replays CS-03 B seed 7200 under 'sqlite-interactive' 2ms
+   ✓ records and exactly replays CS-03 B seed 7200 under 'sqlite-atomic-batch' 1ms
+   ✓ records and exactly replays CS-03 B seed 7201 under 'sqlite-interactive' 1ms
+   ✓ records and exactly replays CS-03 B seed 7201 under 'sqlite-atomic-batch' 1ms
+   ✓ records and exactly replays CS-03 B seed 7202 under 'sqlite-interactive' 2ms
+   ✓ records and exactly replays CS-03 B seed 7202 under 'sqlite-atomic-batch' 2ms
+   ✓ records and exactly replays CS-03 B seed 7203 under 'sqlite-interactive' 2ms
+   ✓ records and exactly replays CS-03 B seed 7203 under 'sqlite-atomic-batch' 1ms
+   ✓ records and exactly replays CS-03 B seed 7204 under 'sqlite-interactive' 1ms
+   ✓ records and exactly replays CS-03 B seed 7204 under 'sqlite-atomic-batch' 1ms
+   ✓ records and exactly replays CS-03 B seed 7205 under 'sqlite-interactive' 3ms
+   ✓ records and exactly replays CS-03 B seed 7205 under 'sqlite-atomic-batch' 3ms
+   ✓ records and exactly replays CS-03 B seed 7214 under 'sqlite-interactive' 2ms
+   ✓ records and exactly replays CS-03 B seed 7214 under 'sqlite-atomic-batch' 9ms
+   ✓ records and exactly replays CS-03 composition seed 7300 under 'sqlite-interactive' 4ms
+   ✓ records and exactly replays CS-03 composition seed 7300 under 'sqlite-atomic-batch' 3ms
+   × records and exactly replays CS-03 composition seed 7305 under 'sqlite-interactive' 2ms
+     → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"}]}
+   × records and exactly replays CS-03 composition seed 7305 under 'sqlite-atomic-batch' 2ms
+     → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"}]}
+   ✓ records and exactly replays CS-03 composition seed 7310 under 'sqlite-interactive' 3ms
+   ✓ records and exactly replays CS-03 composition seed 7310 under 'sqlite-atomic-batch' 2ms
+   × records and exactly replays CS-03 composition seed 7313 under 'sqlite-interactive' 2ms
+     → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"},{"label":"terminal"}]}
+   × records and exactly replays CS-03 composition seed 7313 under 'sqlite-atomic-batch' 4ms
+     → Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"},{"label":"terminal"}]}
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7133 under 'sqlite-interactive'
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7133 under 'sqlite-atomic-batch'
+AssertionError: Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"id":1,"label":"root-written"},{"id":2,"label":"root-written"}]}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+    415|           // Same-engine replay enters this same assertion owner.
+    416|           for (const cut of fixture.requiredCuts)
+    417|             assert(
+       |             ^
+    418|               observation.reachedCuts.includes(cut),
+    419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+ ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+ ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:28:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7144 under 'sqlite-interactive'
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7144 under 'sqlite-atomic-batch'
+AssertionError: Missing semantic cut choice:found/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+    415|           // Same-engine replay enters this same assertion owner.
+    416|           for (const cut of fixture.requiredCuts)
+    417|             assert(
+       |             ^
+    418|               observation.reachedCuts.includes(cut),
+    419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+ ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+ ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:28:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7160 under 'sqlite-interactive'
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 A seed 7160 under 'sqlite-atomic-batch'
+AssertionError: Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"root-written"}]}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+    415|           // Same-engine replay enters this same assertion owner.
+    416|           for (const cut of fixture.requiredCuts)
+    417|             assert(
+       |             ^
+    418|               observation.reachedCuts.includes(cut),
+    419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+ ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+ ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:28:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7305 under 'sqlite-interactive'
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7305 under 'sqlite-atomic-batch'
+AssertionError: Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"}]}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+    415|           // Same-engine replay enters this same assertion owner.
+    416|           for (const cut of fixture.requiredCuts)
+    417|             assert(
+       |             ^
+    418|               observation.reachedCuts.includes(cut),
+    419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+ ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+ ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:52:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7313 under 'sqlite-interactive'
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts > records and exactly replays CS-03 composition seed 7313 under 'sqlite-atomic-batch'
+AssertionError: Missing semantic cut choice:missing/root-member/0; observed outcome: {"kind":"success","value":[{"label":"terminal"},{"label":"terminal"}]}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+    415|           // Same-engine replay enters this same assertion owner.
+    416|           for (const cut of fixture.requiredCuts)
+    417|             assert(
+       |             ^
+    418|               observation.reachedCuts.includes(cut),
+    419|               `Missing semantic cut ${cut}; observed outcome: ${JSON.s…
+ ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+ ❯ tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts:52:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 32 passed (42)
+   Start at  03:10:57
+   Duration  2.29s (transform 1.19s, setup 9ms, collect 1.75s, tests 222ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.56s wall, 597.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

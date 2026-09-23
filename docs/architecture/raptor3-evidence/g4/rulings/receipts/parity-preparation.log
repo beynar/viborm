@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-preparation.core.test.ts (36 tests) 19ms
+
+ Test Files  1 passed (1)
+      Tests  36 passed (36)
+   Start at  20:22:08
+   Duration  1.11s (transform 629ms, setup 9ms, collect 953ms, tests 19ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.00s wall, 449.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,29 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/unit02/key-arithmetic.test.ts (20 tests) 471ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests) 379ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 26ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests) 95ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 37ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 39ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 49ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 31ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 22ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 37ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 26ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 12ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 8ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 31ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 3ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 14ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 8ms
+
+ Test Files  17 passed (17)
+      Tests  110 passed (110)
+   Start at  21:24:47
+   Duration  13.33s (transform 3.42s, setup 60ms, collect 10.96s, tests 1.29s, environment 0ms, prepare 103ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DCj3KU/vitest.json
+Vitest resources: 17.85s wall, 709.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit02-author contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DCj3KU

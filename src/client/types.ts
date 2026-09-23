@@ -21,6 +21,10 @@ import type {
   ModelOperationInput,
   ModelOperationOutput,
 } from "@validation/model";
+import type {
+  ForeignKeyRecurse,
+  GraphRecurse,
+} from "@validation/relations/recurrence";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
 import type { CacheInvalidationOptions } from "../cache/schema";
 import type { VibORMConfig } from "./client";
@@ -631,6 +635,9 @@ type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
  * `tests/client/contextual-typing-gate.test.ts`, so the boundary is a measured
  * fact rather than an assumption, and a future TypeScript that can carry more
  * turns those pins red.
+ * The finite `recurse` option bag is the one exception that reaches every
+ * depth: `RecursiveProjectionRootGuard` walks the literal the caller wrote, not
+ * the model, so it never resolves a target mid-inference (see there).
  */
 type ClauseGuard<Arg, Payload, K extends string> = K extends keyof Arg
   ? K extends keyof Payload
@@ -735,6 +742,114 @@ type DirectPolymorphicProjectionGuard<
         }
       : unknown
   : unknown;
+
+/**
+ * The only keys a `recurse` option bag may spell, on every topology, read from
+ * the admission owner's own bag types. A foreign-key bag refuses
+ * `preventCycles` through its own payload type, so the typo seal below needs
+ * no relation membership and resolves no target model.
+ */
+type RecurrenceOptionKey = keyof Exclude<
+  ForeignKeyRecurse | GraphRecurse,
+  true
+>;
+
+/** The keys a caller spelled beside the real recurrence options. */
+type MisspelledRecurrenceKeys<Bag> = Exclude<
+  SpelledClauseKeys<Exclude<Bag, boolean | null | undefined>>,
+  RecurrenceOptionKey
+>;
+
+/**
+ * Each misspelled option key, refused. A bag with none adds no constraint at
+ * all (`unknown`, never `{}`), so the payload type's own refusals keep their
+ * messages.
+ */
+type RecurrenceBagGuard<Bag> = [MisspelledRecurrenceKeys<Bag>] extends [never]
+  ? unknown
+  : Record<MisspelledRecurrenceKeys<Bag>, never>;
+
+/**
+ * The clauses a relation node spells for itself. Any other key a node spells
+ * is a to-one variant arm, which is itself a node.
+ */
+type RelationNodeClauseKey =
+  | "where"
+  | "orderBy"
+  | "take"
+  | "skip"
+  | "cursor"
+  | "distinct"
+  | "select"
+  | "include"
+  | "omit"
+  | "recurse"
+  | "only"
+  | "variants";
+
+/**
+ * The `recurse` option bags of an operation, sealed at every depth the caller
+ * spelled. The walk follows the LITERAL — a node's `select`, `include`,
+ * collection `variants` and to-one variant arms — never the model, so it costs
+ * what the argument contains, never resolves a target getter, and never
+ * enters `where`, `orderBy`, `cursor` or write data, whose keys are fields.
+ */
+type RecursiveProjectionRootGuard<Arg> = RecursiveRootClause<Arg, "select"> &
+  RecursiveRootClause<Arg, "include">;
+
+/** A clause the argument spelled; the guard names no key the caller did not. */
+type RecursiveRootClause<
+  Arg,
+  Clause extends "select" | "include",
+> = Clause extends keyof Arg
+  ? { [Key in Clause]?: RecursiveRootMembers<Arg[Key]> }
+  : unknown;
+
+/**
+ * The operation's own projection. Its members meet the node guard directly,
+ * so a misspelling one relation deep is reported on the key itself.
+ */
+type RecursiveRootMembers<Clause> = {
+  [Key in SpelledClauseKeys<NonNullable<Clause>>]?: RecursiveNodeGuard<
+    ValueAt<NonNullable<Clause>, Key>
+  >;
+};
+
+/**
+ * Only an object is a node to walk. A leaf, or a payload type wide enough to
+ * admit one, states nothing: the guard is for what a caller spelled, and TS
+ * falls back to the payload type itself when an argument fails it.
+ */
+type RecursiveNodeGuard<Node> = [Exclude<Node, null | undefined>] extends [
+  object,
+]
+  ? RecursiveNodeObjectGuard<Exclude<Node, null | undefined>>
+  : unknown;
+
+type RecursiveNodeObjectGuard<Node> = ("recurse" extends keyof Node
+  ? { recurse?: RecurrenceBagGuard<Node["recurse"]> }
+  : unknown) &
+  ("select" extends keyof Node
+    ? { select?: RecursiveProjectionGuard<Node["select"]> }
+    : unknown) &
+  ("include" extends keyof Node
+    ? { include?: RecursiveProjectionGuard<Node["include"]> }
+    : unknown) &
+  ("variants" extends keyof Node
+    ? { variants?: RecursiveProjectionGuard<Node["variants"]> }
+    : unknown) &
+  RecursiveProjectionGuard<Node, RelationNodeClauseKey>;
+
+/**
+ * A nested projection map. Its members are boolean leaves or nodes; naming
+ * the leaf keeps a generic node assignable when its constraint spells scalar
+ * leaves, because TypeScript cannot resolve the walk through a type parameter.
+ */
+type RecursiveProjectionGuard<Clause, Skipped extends PropertyKey = never> = {
+  [Key in Exclude<SpelledClauseKeys<NonNullable<Clause>>, Skipped>]?:
+    | boolean
+    | RecursiveNodeGuard<ValueAt<NonNullable<Clause>, Key>>;
+};
 
 type DecimalStateOf<Field> = Field extends {
   readonly "~": {
@@ -1006,6 +1121,7 @@ type NoExtraOperationKeys<
   ClauseGuard<Arg, Payload, "cache"> &
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
   DirectPolymorphicProjectionGuard<Arg, M, "include"> &
+  RecursiveProjectionRootGuard<Arg> &
   DirectDecimalUpdateGuard<O, Arg, M> &
   DirectGeoPointGuard<O, Arg, M>;
 

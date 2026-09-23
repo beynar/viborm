@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc05
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 19ms
+ ✓ |coverage-extensions| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/generated-key-reach.test.ts (7 tests) 38ms
+ ✓ |raptor3| tests/raptor3/g4/parity/generated-key-reach.test.ts (7 tests) 46ms
+
+ Test Files  4 passed (4)
+      Tests  68 passed (68)
+   Start at  23:14:01
+   Duration  6.09s (transform 3.36s, setup 32ms, collect 5.20s, tests 123ms, environment 0ms, prepare 115ms)
+
+Vitest resources: 8.42s wall, 580.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 79ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  20:21:43
+   Duration  7.51s (transform 2.24s, setup 16ms, collect 3.35s, tests 79ms, environment 0ms, prepare 68ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-V7J7d4/vitest.json
+Vitest resources: 18.24s wall, 526.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-recursive-fit contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-V7J7d4

@@ -1,0 +1,9 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts (12 tests) 80ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts (3 tests) 9ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (43 tests) 519ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 0ms
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 3.85s wall, 1589.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

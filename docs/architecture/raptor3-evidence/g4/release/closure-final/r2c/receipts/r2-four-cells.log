@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (92 tests | 88 skipped) 404ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 88 skipped (92)
+   Start at  11:17:33
+   Duration  1.79s (transform 839ms, setup 9ms, collect 1.25s, tests 404ms, environment 0ms, prepare 23ms)
+
+Vitest resources: 3.43s wall, 536.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

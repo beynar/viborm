@@ -1,0 +1,109 @@
+{
+  "measuredAt": "2026-09-15T09:42:40.232Z",
+  "baseCommit": "0cc61e61",
+  "definition": "Repair 3 recheck. countTokenLines copied verbatim from scripts/query-engine-structure.mjs. `reviewedTree` = the `after` figures in ../followup/unit-cost.json (the tree the G4-03b review measured); `afterRepair3` = this working tree. Repair 3 changed only tests and evidence, so every delta must be zero.",
+  "rows": [
+    {
+      "file": "src/query-engine/raptor3/route/client-route.ts",
+      "reviewedTree": {
+        "bytes": 9170,
+        "physicalLines": 234,
+        "tokenLines": 144
+      },
+      "afterRepair3": {
+        "bytes": 9170,
+        "physicalLines": 234,
+        "tokenLines": 144
+      },
+      "repair3Delta": {
+        "bytes": 0,
+        "physicalLines": 0,
+        "tokenLines": 0
+      },
+      "unitDelta": {
+        "bytes": 9170,
+        "physicalLines": 234,
+        "tokenLines": 144
+      }
+    },
+    {
+      "file": "src/query-engine/query-engine.ts",
+      "reviewedTree": {
+        "bytes": 7594,
+        "physicalLines": 237,
+        "tokenLines": 180
+      },
+      "afterRepair3": {
+        "bytes": 7594,
+        "physicalLines": 237,
+        "tokenLines": 180
+      },
+      "repair3Delta": {
+        "bytes": 0,
+        "physicalLines": 0,
+        "tokenLines": 0
+      },
+      "unitDelta": {
+        "bytes": 430,
+        "physicalLines": 10,
+        "tokenLines": 5
+      }
+    },
+    {
+      "file": "src/query-engine/pending-operation.ts",
+      "reviewedTree": {
+        "bytes": 35202,
+        "physicalLines": 983,
+        "tokenLines": 830
+      },
+      "afterRepair3": {
+        "bytes": 35202,
+        "physicalLines": 983,
+        "tokenLines": 830
+      },
+      "repair3Delta": {
+        "bytes": 0,
+        "physicalLines": 0,
+        "tokenLines": 0
+      },
+      "unitDelta": {
+        "bytes": 4313,
+        "physicalLines": 109,
+        "tokenLines": 70
+      }
+    },
+    {
+      "file": "src/client/client.ts",
+      "reviewedTree": {
+        "bytes": 46549,
+        "physicalLines": 1335,
+        "tokenLines": 1043
+      },
+      "afterRepair3": {
+        "bytes": 46549,
+        "physicalLines": 1335,
+        "tokenLines": 1043
+      },
+      "repair3Delta": {
+        "bytes": 0,
+        "physicalLines": 0,
+        "tokenLines": 0
+      },
+      "unitDelta": {
+        "bytes": 740,
+        "physicalLines": 27,
+        "tokenLines": 23
+      }
+    }
+  ],
+  "repair3Total": {
+    "bytes": 0,
+    "physicalLines": 0,
+    "tokenLines": 0
+  },
+  "unitTotalSinceHead": {
+    "bytes": 14653,
+    "physicalLines": 380,
+    "tokenLines": 242
+  }
+}

@@ -1,0 +1,34 @@
+# Biome, per changed file, base (git show HEAD:<file>, restored by cp) vs after
+
+## src/query-engine/raptor3/commands/commands.ts
+after:
+   1 lint/style/noParameterAssign
+   1 lint/style/noParameterProperties
+base:
+   1 lint/style/noParameterAssign
+   1 lint/style/noParameterProperties
+
+## src/query-engine/raptor3/commands/execution.ts
+after:
+   1 assist/source/organizeImports
+   1 lint/complexity/noCommaOperator
+   1 lint/style/noParameterProperties
+   1 lint/style/useDefaultSwitchClause
+base:
+   1 assist/source/organizeImports
+   1 lint/complexity/noCommaOperator
+   1 lint/style/noParameterProperties
+   1 lint/style/useDefaultSwitchClause
+
+## src/query-engine/raptor3/shared/operation-context.ts
+after:
+   1 assist/source/organizeImports
+   4 lint/style/noParameterProperties
+base:
+   1 assist/source/organizeImports
+   4 lint/style/noParameterProperties
+
+## tests/raptor3/g4/parity/fresh-member-placement.test.ts
+after:
+base: (new file, no base copy)
+

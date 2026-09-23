@@ -1,0 +1,12 @@
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  411ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 91ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 114ms
+
+ Test Files  3 passed (3)
+      Tests  17 passed (17)
+   Start at  11:00:49
+   Duration  3.20s (transform 1.20s, setup 10ms, collect 1.89s, tests 1.17s, environment 0ms, prepare 33ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hP9FIQ/vitest.json
+Vitest resources: 5.25s wall, 693.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit02-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hP9FIQ

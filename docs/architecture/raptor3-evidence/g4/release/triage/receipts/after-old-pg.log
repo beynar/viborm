@@ -1,0 +1,477 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-triage
+
+(node:11940) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg.test.ts (227 tests | 15 failed | 7 skipped) 54615ms
+   × pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections 233ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds 102ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions 152ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs 208ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh 216ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions 147ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical 186ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering 160ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases 124ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes 166ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset 249ms
+     → promise rejected "MigrationError: PostGIS GeoPoint prefligh… { …(4) }" instead of resolving
+   × pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates 125ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude 94ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression 99ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   × pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate 139ms
+     → PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+   ✓ pg Driver > Driver Creation > creates driver with connection string 159ms
+   ✓ pg Driver > Driver Creation > creates driver with options 132ms
+   ✓ pg Driver > attributes a sequential atomic-batch failure to its exact statement  373ms
+   ✓ pg Driver > Raw SQL Execution > executes INSERT and returns row count  382ms
+   ✓ pg Driver > Raw SQL Execution > executes SELECT and returns rows  361ms
+   ✓ pg Driver > Raw SQL Execution > executes UPDATE and returns affected count  399ms
+   ✓ pg Driver > Raw SQL Execution > executes DELETE and returns affected count  382ms
+   ✓ pg Driver > Transactions > commits transaction on success  615ms
+   ✓ pg Driver > Transactions > rolls back transaction on error  412ms
+   ✓ pg Driver > Transactions > supports nested transactions with savepoints  565ms
+   ✓ pg Driver > Transactions > rejects removed isolation before opening a transaction  379ms
+   ✓ pg Driver > VibORM Client Integration > creates client with schema 164ms
+   ✓ pg Driver > VibORM Client Integration > performs CRUD operations via client  448ms
+   ✓ pg Driver > VibORM Client Integration > performs transactions via client  526ms
+   ✓ pg Driver > VibORM Client Integration > rejects removed isolation at the client boundary  347ms
+   ✓ pg Driver > pg list/json filter and update behavior > list round-trip > create returns real arrays with typed elements  1020ms
+   ✓ pg Driver > pg list/json filter and update behavior > list round-trip > empty and null lists round-trip  433ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches the exact list  348ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals is order-sensitive  329ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches empty lists  353ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals matches int lists 255ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > equals null matches null lists only 238ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > not excludes the matching list and null lists 274ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has matches string elements 212ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has matches int elements 225ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has with no match returns empty 201ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > has null is rejected consistently 257ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > hasEvery requires all elements 240ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > hasSome requires any element 257ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list 235ms
+   ✓ pg Driver > pg list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect 261ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > set replaces the whole list 229ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push appends a single value 242ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push expands an array value element-wise 237ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push appends int elements 234ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push onto an empty list 212ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > push onto a null list creates the list 196ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > unshift prepends a single value 217ms
+   ✓ pg Driver > pg list/json filter and update behavior > list updates > unshift expands an array value element-wise 281ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals matches the exact document 263ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals does not match a partial document  305ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > equals null matches null json only 245ms
+   ✓ pg Driver > pg list/json filter and update behavior > json filters > not equals excludes the matching document and nulls 227ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches the scoped value 202ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a nested path 202ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches numbers 217ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents 208ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals at a missing path matches nothing 224ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys 228ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > integer path segments address array elements 218ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > path segments with dots stay literal  306ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution 298ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_contains at a path  310ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND 280ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode 277ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots  317ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains requires every candidate element 257ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate 249ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_contains without a path matches array roots only 242ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_starts_with matches the first element 226ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > array_ends_with matches the last element 219ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > not at a path inherits the path 196ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators 180ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract 243ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded  412ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold  415ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode  427ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode  380ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too  426ms
+   ✓ pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored  315ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form 229ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements 202ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root 188ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form 208ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form 203ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution  331ms
+   ✓ pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal 272ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only 258ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types 236ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point  357ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation  379ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross  340ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error 224ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object 212ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices 276ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root  387ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows 208ms
+   ✓ pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution 269ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only 272ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only 177ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > equals AnyNull matches both 185ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not DbNull matches every row that holds a document 237ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs 186ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > not AnyNull matches only real documents 213ms
+   ✓ pg Driver > pg json null sentinel behavior > the truth table > the three equals predicates partition the table 185ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > DbNull and JsonNull are different stored values 179ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > update moves a row between the two nulls 204ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > upsert stores a sentinel on either arm 185ms
+   ✓ pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column 185ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a bare null in write position is refused, not guessed 200ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > AnyNull is filter-only 201ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column 242ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a sentinel nested inside a document is refused 247ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > a sentinel under a path is refused before execution 228ms
+   ✓ pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused 228ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root  409ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL  312ms
+   ✓ pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there 233ms
+   ✓ pg Driver > pg field references > gt compares two columns of the same row 277ms
+   ✓ pg Driver > pg field references > lt compares two columns of the same row 212ms
+   ✓ pg Driver > pg field references > gte and lte include the equal row 214ms
+   ✓ pg Driver > pg field references > equals and not compare two columns of the same row 227ms
+   ✓ pg Driver > pg field references > a bare reference is the equals shorthand  310ms
+   ✓ pg Driver > pg field references > a reference resolves through .map()ed column names 225ms
+   ✓ pg Driver > pg field references > string prefix/suffix/substring predicates accept a reference 229ms
+   ✓ pg Driver > pg field references > a callback is refused where only the token is accepted 234ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation 216ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column 222ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive contains folds the referenced column 246ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive startsWith folds the referenced column 236ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive endsWith folds the referenced column 214ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive `not` complements the folded comparison 220ms
+   ✓ pg Driver > pg field references > case folding against a referenced column > insensitive mode folds ASCII only 215ms
+   ✓ pg Driver > pg field references > enum references > equals compares two enum columns of the same row 227ms
+   ✓ pg Driver > pg field references > enum references > not complements it 209ms
+   ✓ pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand 244ms
+   ✓ pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name 258ms
+   ✓ pg Driver > pg field references > enum references > lt on an enum is refused with the portability reason 231ms
+   ✓ pg Driver > pg field references > enum references > lte on an enum is refused with the portability reason 250ms
+   ✓ pg Driver > pg field references > enum references > gt on an enum is refused with the portability reason  312ms
+   ✓ pg Driver > pg field references > enum references > gte on an enum is refused with the portability reason  306ms
+   ✓ pg Driver > pg field references > enum references > literal enum filters are untouched 231ms
+   ✓ pg Driver > pg field references > a reference mixes with literal operands in one filter object 271ms
+   ✓ pg Driver > pg field references > a reference works inside a nested relation where 240ms
+   ✓ pg Driver > pg field references > the nested scope's own model is the one a reference must name 212ms
+   ✓ pg Driver > pg field references > a reference drives updateMany and deleteMany 215ms
+   ✓ pg Driver > pg field references > two decimals of the SAME domain compare exactly 209ms
+   ✓ pg Driver > pg field references > two decimals of DIFFERENT domains are refused before any I/O 209ms
+   ✓ pg Driver > pg field references > a cross-model reference is refused before any I/O 205ms
+   ✓ pg Driver > pg field references > a reference of the wrong scalar type is refused  316ms
+   ✓ pg Driver > pg field references > a reference is refused in in/notIn 282ms
+   ✓ pg Driver > pg field references > a reference is refused in `having`, however deeply nested 212ms
+   ✓ pg Driver > pg field references > a reference is refused in JSON filters and JSON write data 222ms
+   ✓ pg Driver > pg field references > SQL fragment operands > an arithmetic expression compares against the row 200ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table 204ms
+   ✓ pg Driver > pg field references > SQL fragment operands > an interpolated value rides as a bound parameter 216ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter 224ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment drives updateMany and deleteMany 196ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment survives both execution substrates 203ms
+   ✓ pg Driver > pg field references > SQL fragment operands > a fragment is refused where a reference is 191ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime round-trips exactly through create and findMany 224ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime filters match the stored instant 211ms
+   ✓ pg Driver > pg scalar round-trip behavior > datetime update round-trips exactly 182ms
+   ✓ pg Driver > pg scalar round-trip behavior > decimal reads back as its exact canonical value 193ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST round-trips member by member 191ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST filters by containment on its logical members 200ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary 224ms
+   ✓ pg Driver > pg scalar round-trip behavior > a decimal LIST survives a grouped projection 207ms
+   ✓ pg Driver > pg scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly 186ms
+   ✓ pg Driver > pg scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly 197ms
+   ✓ pg Driver > pg decimal exactness > round-trips every value in the domain exactly 199ms
+   ✓ pg Driver > pg decimal exactness > callback transactions materialize fresh Decimal scalar and list results 213ms
+   ✓ pg Driver > pg decimal exactness > array transactions materialize fresh Decimal scalar and list results 262ms
+   ✓ pg Driver > pg decimal exactness > a nullable decimal stores and reads NULL, not zero 216ms
+   ✓ pg Driver > pg decimal exactness > equals matches on value, not on spelling 237ms
+   ✓ pg Driver > pg decimal exactness > equals distinguishes the two values a double cannot 226ms
+   ✓ pg Driver > pg decimal exactness > in / notIn compare numerically 213ms
+   ✓ pg Driver > pg decimal exactness > gt/lt compare numerically, not lexicographically 237ms
+   ✓ pg Driver > pg decimal exactness > orderBy sorts numerically, windowed and not 289ms
+   ✓ pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision 204ms
+   ✓ pg Driver > pg decimal exactness > _avg of an all-null column is NULL, not zero and not an error 190ms
+   ✓ pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs 216ms
+   ✓ pg Driver > pg decimal exactness > groupBy orders groups and filters them on exact aggregates 208ms
+   ✓ pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision 189ms
+   ✓ pg Driver > pg decimal exactness > increment and decrement are exact and never round 243ms
+   ✓ pg Driver > pg decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact 255ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour 236ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd 225ms
+   ✓ pg Driver > pg decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour 210ms
+   ✓ pg Driver > pg decimal exactness > a rounded tie CARRIES across the whole value 214ms
+   ✓ pg Driver > pg decimal exactness > divide rounds by the same rule, in both signs 228ms
+   ✓ pg Driver > pg decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign 299ms
+   ✓ pg Driver > pg decimal exactness > arithmetic on a NULL column stays NULL 281ms
+   ✓ pg Driver > pg decimal exactness > division by zero fails BEFORE any statement is issued 283ms
+   ✓ pg Driver > pg decimal exactness > a result past the field's precision fails and leaves the row alone 267ms
+   ✓ pg Driver > pg decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float 266ms
+   ✓ pg Driver > pg decimal exactness > an operand finer than the field's scale is refused, never rounded 186ms
+   ✓ pg Driver > pg blob in/notIn filters > in matches exactly the listed byte arrays 210ms
+   ✓ pg Driver > pg blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out 193ms
+   ✓ pg Driver > pg blob in/notIn filters > in with no matching member returns nothing 226ms
+   ✓ pg Driver > pg blob in/notIn filters > empty in matches nothing (Prisma semantics) 180ms
+   ✓ pg Driver > pg blob in/notIn filters > notIn excludes exactly the listed byte arrays 174ms
+   ✓ pg Driver > pg blob in/notIn filters > empty notIn matches everything (Prisma semantics) 182ms
+   ✓ pg Driver > pg blob in/notIn filters > notIn on a nullable column excludes NULL rows 176ms
+   ✓ pg Driver > pg blob in/notIn filters > in on a nullable column excludes NULL rows 177ms
+   ✓ pg Driver > pg blob in/notIn filters > empty notIn on a nullable column keeps the NULL row 189ms
+   ✓ pg Driver > pg blob in/notIn filters > Buffer members are accepted alongside Uint8Array 187ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with not 181ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with arbitrarily nested not 201ms
+   ✓ pg Driver > pg blob in/notIn filters > in composes with the boolean wrappers 263ms
+   ✓ pg Driver > pg blob in/notIn filters > in drives deleteMany, not just reads 214ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly top-level 219ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include 229ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types 250ms
+   ✓ pg Driver > pg full scalar-type round-trip behavior > aggregates are scalar-aware 224ms
+   ↓ pg vector distance ordering > orders nearest-first by l2 distance and honors take
+   ↓ pg vector distance ordering > orders farthest-first by l2 distance when distance sort is desc
+   ↓ pg vector distance ordering > orders nearest-first by cosine distance and honors take
+   ↓ pg vector distance ordering > selects l2 distance scores as numbers
+   ↓ pg vector distance ordering > orders by distance and returns matching selected scores
+   ↓ pg vector distance ordering > orders included docs nearest-first by vector distance and honors take
+   ↓ pg vector distance ordering > throws on vector dimension mismatch before execution
+ ❯ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts (95 tests | 5 failed) 20859ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert creates the row when missing 226ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert updates the row when present 222ms
+   ✓ pg Driver > pg upsert atomicity behavior > does not take the update branch for a conflict outside the requested target 236ms
+   ✓ pg Driver > pg upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces 254ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert returns the row when the update is a no-op  368ms
+   ✓ pg Driver > pg upsert atomicity behavior > plain upsert create branch resolves auto-increment ids  493ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert update branch may rewrite the unique where field 269ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert supports select on both branches  311ms
+   ✓ pg Driver > pg upsert atomicity behavior > upsert with include returns the relation payload on both branches 254ms
+   ✓ pg Driver > pg upsert atomicity behavior > delete with include returns the relation payload  333ms
+   ✓ pg Driver > pg upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed  407ms
+   ✓ pg Driver > pg upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed  410ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)  367ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx) 294ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (batch) 286ms
+   ✓ pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (batch) 258ms
+   ✓ pg Driver > pg nested-write concurrency behavior > planned-path create-branch race loser surfaces a UniqueConstraintError, then the retry converges 232ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx) 218ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx) 205ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (batch) 209ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (batch) 221ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > an adopter whose captured owner was replaced aborts, re-plans once, and converges  300ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that captured the SAME old owner produce exactly one winner 242ms
+   ✓ pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that both observed the slot EMPTY produce exactly one winner 188ms
+   ✓ pg Driver > pg filtered m2m deleteMany staleness > a member added after the plan-time read aborts the guard, then the retry converges 275ms
+   ✓ pg Driver > pg nested write behavior > declares an atomic strategy for nested writes 212ms
+   ✓ pg Driver > pg nested write behavior > rejects default-only createMany duplicate skipping before writing 194ms
+   ✓ pg Driver > pg nested write behavior > rejects nested default-only duplicate skipping before the parent write 191ms
+   ✓ pg Driver > pg nested write behavior > create derives to-one and to-many foreign keys 204ms
+   ✓ pg Driver > pg nested write behavior > create connects and connect-or-creates nullable children 223ms
+   ✓ pg Driver > pg nested write behavior > update creates, createManys, and connects children 206ms
+   ✓ pg Driver > pg nested write behavior > update disconnects and sets nullable children 213ms
+   ✓ pg Driver > pg nested write behavior > update and updateMany keep child mutations parent-correlated 206ms
+   ✓ pg Driver > pg nested write behavior > delete and deleteMany keep child mutations parent-correlated 216ms
+   ✓ pg Driver > pg nested write behavior > to-many upsert creates and updates the current parent's child 214ms
+   ✓ pg Driver > pg nested write behavior > to-one upsert creates and updates the current target 209ms
+   ✓ pg Driver > pg nested write behavior > to-one nested update modifies the connected author 191ms
+   ✓ pg Driver > pg nested write behavior > to-one disconnect true nulls the foreign key, both rows survive 218ms
+   ✓ pg Driver > pg nested write behavior > to-one delete true deletes the related row 238ms
+   ✓ pg Driver > pg nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author 204ms
+   ✓ pg Driver > pg nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives 205ms
+   ✓ pg Driver > pg nested write behavior > explicit join rows work as a practical many-to-many case 215ms
+   ✓ pg Driver > pg nested write behavior > unsupported nested create keys reject before parent mutation 192ms
+   ✓ pg Driver > pg nested write behavior > nested child failures roll back parent and prior children 208ms
+   ✓ pg Driver > pg nested write behavior > to-many updates cannot target another parent's child 199ms
+   ✓ pg Driver > pg nested write behavior > non-nullable child foreign keys reject disconnect atomically 197ms
+   ✓ pg Driver > pg nested write behavior > nested create propagates foreign keys through mapped columns 200ms
+   ✓ pg Driver > pg nested write behavior > nested create derives mapped foreign keys for createMany and connect 199ms
+   ✓ pg Driver > pg nested write behavior > set keeping all required-FK children is a no-op and succeeds 205ms
+   ✓ pg Driver > pg nested write behavior > set on required-FK children rejects only when rows would be orphaned 200ms
+   ✓ pg Driver > pg nested write behavior > set disconnects only nullable-FK children leaving the set 196ms
+   ✓ pg Driver > pg nested write behavior > connect with a list of targets reparents every one of them 206ms
+   ✓ pg Driver > pg nested write behavior > a connect list with one absent target writes nothing 209ms
+   ✓ pg Driver > pg nested write behavior > disconnect with a list nulls every one of them 194ms
+   ✓ pg Driver > pg nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing 211ms
+   ✓ pg Driver > pg nested write behavior > a create tree's connect list reparents every one of them 218ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone 207ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone 209ms
+   ✓ pg Driver > pg nested write behavior > delete with a relation projection > the `include` spelling is unaffected 201ms
+   ✓ pg Driver > pg advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes 192ms
+   ✓ pg Driver > pg advanced nested write behavior > top-level upsert guards gate nested update branch 216ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip 183ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order 156ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment 154ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params 157ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path 154ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement 155ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError 165ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError 158ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found 161ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches 173ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found 168ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist 163ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > exist > returns true when a matching row exists 167ms
+   ✓ pg Driver > pg client raw/orThrow/exist behavior > exist > returns false when no row matches 161ms
+   ✓ pg Driver > raw/model array transactions (Docker PostgreSQL) > execute in declared order and return each public result 162ms
+   ✓ pg Driver > raw/model array transactions (Docker PostgreSQL) > a later raw failure rolls model and raw writes back 155ms
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK 179ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs 199ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK 296ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches 228ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create 204ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it 204ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it 226ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it 213ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it 198ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it 242ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it 195ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create 199ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > failure after generated refs rolls back parent and children 189ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > unsupported compound primary-key dataflow rejects before parent mutation 184ms
+   ✓ pg Driver > pg batch-only batch primary-key dataflow > unsafe PK update shape rejects before parent mutation 197ms
+   ✓ pg Driver > pg createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order 205ms
+   ✓ pg Driver > pg createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order 217ms
+   ✓ pg Driver > pg createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted 192ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts (60 tests) 13792ms
+   ✓ pg Driver > pg foreign-key index > a wider declared index over the FK columns replaces it in one push  383ms
+   ✓ pg Driver > pg foreign-key index > a compound unique over the FK columns replaces it in one push  412ms
+   ✓ pg Driver > pg partial index predicate churn > re-pushing the same declaration is not an index change  311ms
+   ✓ pg Driver > pg polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table  423ms
+   ✓ pg Driver > pg polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote  348ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts (76 tests) 15629ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit equal to the matching count removes all of them  304ms
+   ✓ pg Driver > pg bulk-write limit > deleteMany limit 0 removes nothing and reports count 0  332ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 20 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2235:17
+    2233|           adapter.capabilities.supportsCteWithMutations
+    2234|         )
+    2235|           throw new Error(
+       |                 ^
+    2236|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2237|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:863:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:695:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2235:17
+    2233|           adapter.capabilities.supportsCteWithMutations
+    2234|         )
+    2235|           throw new Error(
+       |                 ^
+    2236|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2237|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:300:45
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:863:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:695:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior.ts:127:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset
+AssertionError: promise rejected "MigrationError: PostGIS GeoPoint prefligh… { …(4) }" instead of resolving
+ ❯ tests/contracts/drivers/behaviors/geopoint-migration-lifecycle-behavior.ts:51:40
+     49|       try {
+     50|         await migrations.generate({ name: "geopoint-init" });
+     51|         await expect(migrations.apply()).resolves.toMatchObject({
+       |                                        ^
+     52|           outcome: "applied",
+     53|         });
+
+Caused by: MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V11009', meta: { dialect: 'postgresql', feature: 'GeoPoint' }, timestamp: '2026-09-17T23:19:16.555Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/20]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate
+MigrationError: PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/20]⎯
+
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  20 failed | 431 passed | 7 skipped (458)
+   Start at  01:19:11
+   Duration  109.37s (transform 2.20s, setup 15ms, collect 3.85s, tests 104.89s, environment 0ms, prepare 33ms)
+
+Vitest resources: 112.66s wall, 436.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

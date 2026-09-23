@@ -1,0 +1,109 @@
+# FC-02A — FALSIFICATION A: the base's behavior restored in a backup copy.
+# The readback identity is taken from the ORIGINAL capture again
+#   (CommandExecution passes attempt.rows.get(command.located);
+#    OperationContext.update splits it back out as `captured` and uses it in updatedIdentity).
+# This is the shape the base tree has, and the shape the closure review executed.
+# node scripts/run-vitest-safe.mjs run tests/raptor3/g4/parity/cascaded-current-identity.test.ts
+
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02a
+
+ ❯ |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests | 5 failed) 119ms
+   ✓ FC-02A: the cascaded current identity on the live RETURNING route > reads the holder back at the identity the cascade left it at 24ms
+   ✓ FC-02A: the cascaded current identity on the live RETURNING route > names every member of a compound cascade at the readback 6ms
+   ✓ FC-02A: the cascaded current identity on the live RETURNING route > computes the holder's arithmetic from the value the row holds, beside the cascade 6ms
+   ✓ FC-02A: the cascaded current identity on the live RETURNING route > binds a descendant under the moved holder to the new key 6ms
+   ✓ FC-02A: the cascaded current identity on the live RETURNING route > re-addresses a NESTED holder the same way, and its descendant with it 6ms
+   ✓ FC-02A: the cascaded current identity on the live RETURNING route > leaves the row where it was located when the choice took its MISSING arm 4ms
+   ✓ FC-02A: the cascaded current identity on the live RETURNING route > takes the FOUND arm's published key when the choice found its target 3ms
+   × FC-02A: the cascaded current identity on the live non-RETURNING route > reads the holder back at the identity the cascade left it at 9ms
+     → UPDATE did not produce the required record
+   × FC-02A: the cascaded current identity on the live non-RETURNING route > names every member of a compound cascade at the readback 5ms
+     → UPDATE did not produce the required record
+   × FC-02A: the cascaded current identity on the live non-RETURNING route > computes the holder's arithmetic from the value the row holds, beside the cascade 7ms
+     → UPDATE did not produce the required record
+   × FC-02A: the cascaded current identity on the live non-RETURNING route > binds a descendant under the moved holder to the new key 4ms
+     → UPDATE did not produce the required record
+   × FC-02A: the cascaded current identity on the live non-RETURNING route > re-addresses a NESTED holder the same way, and its descendant with it 4ms
+     → UPDATE did not produce the required record
+   ✓ FC-02A: the cascaded current identity on the live non-RETURNING route > leaves the row where it was located when the choice took its MISSING arm 3ms
+   ✓ FC-02A: the cascaded current identity on the live non-RETURNING route > takes the FOUND arm's published key when the choice found its target 3ms
+   ✓ FC-02A: the cascaded current identity on the batch-only route > reads the holder back at the identity the cascade left it at 4ms
+   ✓ FC-02A: the cascaded current identity on the batch-only route > names every member of a compound cascade at the readback 4ms
+   ✓ FC-02A: the cascaded current identity on the batch-only route > computes the holder's arithmetic from the value the row holds, beside the cascade 3ms
+   ✓ FC-02A: the cascaded current identity on the batch-only route > binds a descendant under the moved holder to the new key 8ms
+   ✓ FC-02A: the cascaded current identity on the batch-only route > re-addresses a NESTED holder the same way, and its descendant with it 3ms
+   ✓ FC-02A: the cascaded current identity on the batch-only route > leaves the row where it was located when the choice took its MISSING arm 3ms
+   ✓ FC-02A: the cascaded current identity on the batch-only route > takes the FOUND arm's published key when the choice found its target 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts > FC-02A: the cascaded current identity on the live non-RETURNING route > reads the holder back at the identity the cascade left it at
+ FAIL  |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts > FC-02A: the cascaded current identity on the live non-RETURNING route > names every member of a compound cascade at the readback
+ FAIL  |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts > FC-02A: the cascaded current identity on the live non-RETURNING route > binds a descendant under the moved holder to the new key
+TypeError: UPDATE did not produce the required record
+ ❯ OperationContext.update src/query-engine/raptor3/shared/operation-context.ts:3036:17
+    3034|         );
+    3035|         if (!rows[0])
+    3036|           throw new TypeError("UPDATE did not produce the required rec…
+       |                 ^
+    3037|         return { ...published, ...rows[0] };
+    3038|       }
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:459:15
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:338:9
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:741:18
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ runTransaction src/drivers/driver-transaction-base.ts:385:16
+ ❯ RecordingSQLiteDriver.runConnectionTransactionLease src/drivers/driver-transaction-base.ts:94:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts > FC-02A: the cascaded current identity on the live non-RETURNING route > computes the holder's arithmetic from the value the row holds, beside the cascade
+TypeError: UPDATE did not produce the required record
+ ❯ OperationContext.update src/query-engine/raptor3/shared/operation-context.ts:3036:17
+    3034|         );
+    3035|         if (!rows[0])
+    3036|           throw new TypeError("UPDATE did not produce the required rec…
+       |                 ^
+    3037|         return { ...published, ...rows[0] };
+    3038|       }
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:459:15
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:644:20
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:338:9
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:741:18
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ runTransaction src/drivers/driver-transaction-base.ts:385:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/cascaded-current-identity.test.ts > FC-02A: the cascaded current identity on the live non-RETURNING route > re-addresses a NESTED holder the same way, and its descendant with it
+TypeError: UPDATE did not produce the required record
+ ❯ OperationContext.update src/query-engine/raptor3/shared/operation-context.ts:3036:17
+    3034|         );
+    3035|         if (!rows[0])
+    3036|           throw new TypeError("UPDATE did not produce the required rec…
+       |                 ^
+    3037|         return { ...published, ...rows[0] };
+    3038|       }
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:459:15
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:644:20
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:504:44
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:338:9
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:741:18
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 16 passed (21)
+   Start at  22:10:05
+   Duration  1.71s (transform 919ms, setup 11ms, collect 1.37s, tests 119ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.59s wall, 523.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

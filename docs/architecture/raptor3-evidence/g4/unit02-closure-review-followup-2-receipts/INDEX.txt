@@ -1,0 +1,44 @@
+# G4-02 closure repair round 3 — independent review follow-up 2 receipts
+# reviewer: independent; source /Users/arnaud/code/viborm @ 0cc61e61 (branch pattern-engine), nothing committed/staged/repaired
+# baseline control worktree: /private/tmp/viborm-g4-perf-baseline @ 0cc61e61, clean before and after every use
+# containers: viborm-raptor3-g3-mysql-20260914 d6da412eec3c 127.0.0.1:65515 / viborm-raptor3-g3-pg-20260914 7dfda37e8eea 127.0.0.1:65504
+# node v24.21.0, vitest 3.1.4
+
+af2d29eda7242843  author-estate-mysql.log
+5343ca85d5d2428f  author-estate-sqlite.log
+3f191c2703824c66  classify-baseline-0cc61e61-reviewer-probe.log
+c3ece302f50805ce  classify-rd4-baseline-0cc61e61.log
+f3626c82915c7639  classify-root-parent-held-baseline-0cc61e61.log
+c99eebbad019411d  cost-recheck.txt
+457971c989096343  g1-contracts.log
+afff527a93c5950b  g2-contracts.log
+ef04ad06950850e7  g2-mysql-baseline.log
+330ad018469a4270  g2-mysql-contracts-closing.log
+7e3b6e269172d7cb  g2-mysql-contracts.log
+9aea1a04795256d9  g2-pg-baseline.log
+d932f4502ae997ba  g2-pg-contracts.log
+44b4d7cb2eb627da  g29-result-progress.log
+79b00a8732166ec0  g3-bulk-series.log
+c8eeb2ca60e0fc49  g3-execution-review.log
+9dd243220d83cdad  g3-generated-transport-smoke.log
+e846d2a867eb5071  g3-suppression-retry.log
+1df7e360c6907083  g3-transaction-array.log
+6dc7a8050933c932  g4-lifecycle-admission.log
+c4354df6eaf67dc1  g4-lifecycle-events.log
+b4726f9eca959ba9  g4-read-contracts.log
+20c19ba226266637  g4-route-admission.log
+7a7817b1cac2aa4e  g4-route-cache.log
+78d8c1931d155aa1  g4-route-lifecycle.log
+1760ea61cea0a487  g4-route-transactions.log
+8f6703aa4daff94a  identities-review-end.txt
+8f6703aa4daff94a  identities-review-start.txt
+b7774cd084118732  patch-integrity.txt
+9b3ebefb6f20ac0e  probe-junction-upsert-scope.log
+d18b82be72900bb2  probe-mysql-discriminator-scope.log
+ce95e9701ac2183c  probe-mysql-scope-boundaries-closing.log
+50e994a5256a2039  probe-mysql-scope-boundaries.log
+0b771cff9f5fdc02  probe-root-and-parent-held-scope.log
+275aa0ad76147ed3  probe-route-cache-codec.log
+8a08535a037d5ec9  probe-transition-owner-boundaries.log
+5f1e9f09ffb5571f  probe-upsert-transition-scope.log
+add492175a402bcf  typecheck.log

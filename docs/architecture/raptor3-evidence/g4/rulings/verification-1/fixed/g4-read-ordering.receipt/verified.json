@@ -1,0 +1,19 @@
+{
+  "mode": "g4-read-ordering",
+  "identity": {
+    "production": "8b6c4c63795945119530a322fdae905c35555d3ed3bbad1ea719749e73607bab",
+    "harness": "6aced4aa5ded8baa53de428cdb2143b30728e3f121d0e3fbc35dcd93a61c8f6e",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

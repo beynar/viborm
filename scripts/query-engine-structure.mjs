@@ -6,7 +6,6 @@ const ROOT = process.env.QUERY_ENGINE_CENSUS_ROOT
   ? resolve(process.env.QUERY_ENGINE_CENSUS_ROOT)
   : resolve(import.meta.dirname, "..");
 const QUERY_ENGINE = join(ROOT, "src/query-engine");
-const WRITE_ENGINE = join(QUERY_ENGINE, "write-engine");
 
 function listTypeScriptFiles(directory) {
   if (!existsSync(directory)) return [];
@@ -271,8 +270,11 @@ const report = {
     tokenLines:
       "Physical lines on which at least one parser-owned TypeScript token starts; comments and blank lines are excluded.",
   },
+  // ONE measured directory. The separate `writeEngine` key measured
+  // `query-engine/write-engine/`, which follow-ups F-2 and F-6 emptied and
+  // deleted; `queryEngine` already covers everything that remains, `raptor3/`
+  // included, so a second key would have reported a measurement of nothing.
   queryEngine: measure(QUERY_ENGINE),
-  writeEngine: measure(WRITE_ENGINE),
 };
 
 console.log(JSON.stringify(report, null, 2));

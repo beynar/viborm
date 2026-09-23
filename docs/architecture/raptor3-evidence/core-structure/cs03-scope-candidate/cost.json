@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "status": "candidate-scope-qualified-pending-shared-review",
+  "method": {
+    "codeBearingLines": "The existing parser-owned token-line census from scripts/query-engine-structure.mjs; JSDoc, comments, blank lines, and EOF are excluded.",
+    "actualParserTokens": "The same parser-owned leaf traversal, counting every token leaf instead of unique starting lines.",
+    "sourceBytes": "Whole-file byte count.",
+    "ownerScopes": {
+      "core": "The same 12 Raptor command and shared owners used by the accepted CS-02 candidate census.",
+      "broader": "The same 28 complete production owners used by the accepted CS-02 candidate census."
+    }
+  },
+  "acceptedCs02Candidate": {
+    "productionIdentity": "73d62320dcf47c8267f93afbf1cdff6726f942883ca92e55ce8a2c5992b8bdab",
+    "core": {
+      "files": 12,
+      "codeBearingLines": 6477,
+      "actualParserTokens": 40439,
+      "sourceBytes": 214896
+    },
+    "broader": {
+      "files": 28,
+      "codeBearingLines": 10551,
+      "actualParserTokens": 65063,
+      "sourceBytes": 447943
+    }
+  },
+  "candidateScope": {
+    "productionIdentity": "f151ae5892627324cd95a4e71655c7bf8e27f1aabecd890c920e610b219ae70d",
+    "harnessIdentity": "b964803386e94baa16fee01c4b5c678b13cc3b6d1599d290abd94632fe739742",
+    "runtime": "v24.21.0",
+    "core": {
+      "files": 12,
+      "codeBearingLines": 6489,
+      "actualParserTokens": 40505,
+      "sourceBytes": 215249
+    },
+    "broader": {
+      "files": 28,
+      "codeBearingLines": 10563,
+      "actualParserTokens": 65129,
+      "sourceBytes": 448296
+    }
+  },
+  "delta": {
+    "core": {
+      "files": 0,
+      "codeBearingLines": 12,
+      "actualParserTokens": 66,
+      "sourceBytes": 353
+    },
+    "broader": {
+      "files": 0,
+      "codeBearingLines": 12,
+      "actualParserTokens": 66,
+      "sourceBytes": 353
+    }
+  },
+  "claim": "The shared peer-member scope correction costs +12 code-bearing lines, +66 actual parser tokens, and +353 source bytes. This is a separate semantic correction, not extension A or a compression saving."
+}

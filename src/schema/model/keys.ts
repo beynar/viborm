@@ -84,10 +84,9 @@ export function getModelKeyCatalog(model: Model<any>): ModelKeyCatalog {
 /**
  * Resolve one public unique-selector key to its addressable key.
  *
- * Precedence mirrors the selector grammar exactly: a bare scalar selector wins
- * over a grouped constraint of the same name, and the compound primary key
- * wins over a compound unique of the same name — the order `addressableKeys`
- * is built in, so the first match is the answer.
+ * Definition validation guarantees that one model-local public selector name
+ * identifies at most one key. The catalog therefore resolves one exact match;
+ * it does not own a scalar/compound or primary/unique precedence policy.
  */
 export function findAddressableKey(
   model: Model<any>,
@@ -100,6 +99,36 @@ export function findAddressableKey(
     }
   }
   return undefined;
+}
+
+const LOGICAL_FILTER_NAMES = ["AND", "OR", "NOT"] as const;
+
+/**
+ * Find compound selectors that collide in the actual public unique-where
+ * namespace. Extended unique selectors merge every model field and the three
+ * logical filters with compound discriminators, so those names are occupied
+ * before compound IDs and uniques are added. The namespace is model-local and
+ * stays in TypeScript/query spelling; mapped columns and physical constraint
+ * names are separate adapter/driver facts.
+ */
+export function getAmbiguousPublicSelectorNames(
+  model: Model<any>
+): readonly string[] {
+  const state = model["~"].state;
+  const occupied = new Set<string>([
+    ...Object.keys(state.shape),
+    ...LOGICAL_FILTER_NAMES,
+  ]);
+  const ambiguous = new Set<string>();
+  const compoundNames = [
+    ...Object.keys(state.compoundId ?? {}),
+    ...Object.keys(state.compoundUniques ?? {}),
+  ];
+  for (const name of compoundNames) {
+    if (occupied.has(name)) ambiguous.add(name);
+    occupied.add(name);
+  }
+  return [...ambiguous];
 }
 
 /**

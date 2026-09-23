@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g3/depth-recurrence-contract.test.ts (6 tests) 350ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  14:51:59
+   Duration  10.12s (transform 5.24s, setup 27ms, collect 8.30s, tests 350ms, environment 0ms, prepare 111ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-e7AEzy/vitest.json
+Vitest resources: 15.80s wall, 439.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-depth-recurrence contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-e7AEzy

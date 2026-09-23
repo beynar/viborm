@@ -1,0 +1,41 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-scratch-ra
+
+ ❯ |extended-local| tests/raptor3/g4/parity/ra-r2-shortwindow-probe.test.ts (1 test | 1 failed) 19ms
+   × reviewer probe — a short terminal window > raises that window's registered refusal 18ms
+     → The input did not match the regular expression /could not read back one of the created rows/. Input:
+
+'Raptor 3 createMany final read returned inconsistent row counts.'
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/ra-r2-shortwindow-probe.test.ts > reviewer probe — a short terminal window > raises that window's registered refusal
+AssertionError: The input did not match the regular expression /could not read back one of the created rows/. Input:
+
+'Raptor 3 createMany final read returned inconsistent row counts.'
+
+
+[32m- Expected:[39m 
+/could not read back one of the created rows/
+
+[31m+ Received:[39m 
+"Raptor 3 createMany final read returned inconsistent row counts."
+
+ ❯ tests/raptor3/g4/parity/ra-r2-shortwindow-probe.test.ts:82:12
+     80|     }
+     81|     assert.equal(driver.terminalReads, 2);
+     82|     assert.match(message, /could not read back one of the created rows…
+       |            ^
+     83|   });
+     84| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  22:02:19
+   Duration  1.39s (transform 821ms, setup 9ms, collect 1.22s, tests 19ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.43s wall, 470.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,430 @@
+[
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3545"
+  ],
+  "msg": "A recursive shape requires occurrence rows",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:2739"
+  ],
+  "msg": "A recursive traversal requires at least one seed",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1561"
+  ],
+  "msg": "Cannot publish the updated value of '${model[\"~\"].names.ts!}.${field}' for operation \"${operation}\" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:800"
+  ],
+  "msg": "Command occurrence is missing from its parent",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:499"
+  ],
+  "msg": "Command occurrence is not a series capture",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1290"
+  ],
+  "msg": "deleteMany selected-row cardinality changed during its locked mutation.",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:1840"
+  ],
+  "msg": "distance ${usage}",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1327",
+   "src/query-engine/raptor3/shared/operation-context.ts:1329"
+  ],
+  "msg": "Driver '${this.driver.driverName}' cannot atomically capture selected ${this.operation} rows.",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1045",
+   "src/query-engine/raptor3/shared/operation-context.ts:1054"
+  ],
+  "msg": "Driver '${this.driver.driverName}' cannot locate one selected createMany row after insertion.",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:518",
+   "src/query-engine/raptor3/shared/operation-context.ts:528",
+   "src/query-engine/raptor3/shared/operation-context.ts:973"
+  ],
+  "msg": "Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:1071",
+   "src/query-engine/raptor3/shared/operation-context.ts:1442",
+   "src/query-engine/raptor3/shared/operation-context.ts:1454"
+  ],
+  "msg": "INSERT did not produce the required record",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1079",
+   "src/query-engine/raptor3/shared/operation-context.ts:1096"
+  ],
+  "msg": "INSERT did not produce the required record identity",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1500"
+  ],
+  "msg": "INSERT RETURNING did not produce the required record",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3561"
+  ],
+  "msg": "Invalid provider collection",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3532"
+  ],
+  "msg": "Invalid provider recursive collection",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3496"
+  ],
+  "msg": "Invalid provider recursive occurrence",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3528"
+  ],
+  "msg": "Invalid provider recursive parent occurrence",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3500"
+  ],
+  "msg": "Invalid provider recursive path",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3515"
+  ],
+  "msg": "Invalid provider recursive row",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3504"
+  ],
+  "msg": "Invalid provider recursive seed",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3569"
+  ],
+  "msg": "Invalid provider row",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/program/program.ts:397"
+  ],
+  "msg": "Nested operation '${node.intent.operation}' on relation '${node.intent.relation}' depends on an earlier '${write.origin!.operation}' target write in the same nested write. Split these operations into ",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:2688"
+  ],
+  "msg": "Raptor 3 aggregate is not implemented: ${aggregate}",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:140"
+  ],
+  "msg": "Raptor 3 atomic-array execution is not implemented.",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:869"
+  ],
+  "msg": "Raptor 3 cannot name the updated value of '${model[\"~\"].names.ts ?? \"unknown\"}.${field}' under '${update.operator}': the provider owns that operator's rounding inside its own assignment.",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3462",
+   "src/query-engine/raptor3/shared/query.ts:3464"
+  ],
+  "msg": "Raptor 3 createMany final read returned inconsistent row counts.",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:1674"
+  ],
+  "msg": "Raptor 3 filter operator is not implemented: ${operator}",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1471"
+  ],
+  "msg": "Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/index.ts:131",
+   "src/query-engine/raptor3/program/index.ts:40"
+  ],
+  "msg": "Raptor 3 G1 operation is not implemented: ${operation}",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/storage.ts:210"
+  ],
+  "msg": "Raptor 3 G1 physical field is not implemented: ${field}",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/relation-body.ts:600",
+   "src/query-engine/raptor3/program/program.ts:186"
+  ],
+  "msg": "Raptor 3 G1 relation operation is not implemented: ${verb}",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1803"
+  ],
+  "msg": "Raptor 3 G1 set requires junction storage",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/program/program.ts:238"
+  ],
+  "msg": "Raptor 3 G1 source-held update supply is not implemented",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/storage.ts:64"
+  ],
+  "msg": "Raptor 3 G1 variant carrier membership is not implemented: ${name}",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:1886"
+  ],
+  "msg": "Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1426"
+  ],
+  "msg": "Raptor 3 interactive output requires RETURNING or one generated increment field",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:1797"
+  ],
+  "msg": "Raptor 3 JSON filter operator is not implemented: ${predicate.operator}",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/program/program.ts:355"
+  ],
+  "msg": "Raptor 3 program has a cyclic produced-field dependency",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:2751"
+  ],
+  "msg": "Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:2746"
+  ],
+  "msg": "Raptor 3 recursive traversal requires one ordinary relation: ${traversal.relation}",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:256",
+   "src/query-engine/raptor3/shared/operation-context.ts:265",
+   "src/query-engine/raptor3/shared/operation-context.ts:276"
+  ],
+  "msg": "s grant names the caller",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:473"
+  ],
+  "msg": "s own — a nested locate names the nested record, exactly as the\n   * shipped executor",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:498"
+  ],
+  "msg": "s published result, live or packaged. A prepared read is one\n   * statement plus the operation",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/execution.ts:692"
+  ],
+  "msg": "Selected delete series has no mutation origin",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:944"
+  ],
+  "msg": "Selected series has no enclosing analysis",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:946"
+  ],
+  "msg": "Selected series occurrence was already expanded",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/execution.ts:598",
+   "src/query-engine/raptor3/commands/execution.ts:723",
+   "src/query-engine/raptor3/commands/execution.ts:734"
+  ],
+  "msg": "Selected series was not captured",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/execution.ts:739"
+  ],
+  "msg": "Selected update series has no location",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:501"
+  ],
+  "msg": "Series capture has no occurrence target",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:374"
+  ],
+  "msg": "Series capture target lost its occurrence kind",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/route/client-route.ts:311"
+  ],
+  "msg": "The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/route/client-route.ts:164"
+  ],
+  "msg": "The Raptor 3 route cannot encode a cached result for '${requestedOperation}' on model '${modelName}': the verb publishes no prepared read.",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/route/client-route.ts:276"
+  ],
+  "msg": "The Raptor 3 route cannot encode a cached result for '${requestedOperation}': a recursive read's published depth is not a fixed shape.",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3897",
+   "src/query-engine/raptor3/shared/query.ts:3908"
+  ],
+  "msg": "the value is not a binary value",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/query.ts:3744"
+  ],
+  "msg": "the value is not an array of finite numbers",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1619"
+  ],
+  "msg": "UPDATE did not produce the required record",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1632"
+  ],
+  "msg": "UPDATE RETURNING did not produce the required record",
+  "atBaseline": true
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/commands/commands.ts:1206"
+  ],
+  "msg": "updateHasRelations ? … : undefined",
+  "atBaseline": false
+ },
+ {
+  "sites": [
+   "src/query-engine/raptor3/shared/operation-context.ts:1209"
+  ],
+  "msg": "updateMany selected-row cardinality changed during its locked mutation.",
+  "atBaseline": true
+ }
+]

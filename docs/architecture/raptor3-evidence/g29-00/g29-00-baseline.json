@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "status": "accepted",
+  "specification": {
+    "owner": "docs/architecture/raptor3-implementation-plan.md",
+    "sourceAttachmentSha256": "d02030972c05659b388b60ca7223d3d2db5ba8aff9ab286cf9c170bbf418e9c2",
+    "originalReview": "accepted",
+    "amendmentReview": "accepted"
+  },
+  "commit": "f7b77d51b0b3baac506b89a884aba95450320e29",
+  "tree": "c440b57d46ed675a4dc669971c7c7fb95dec34cf",
+  "identity": {
+    "production": "509869f4df577a29820f26514f6bdb7750f5e5c32591722c004aab8e1d40c4c9",
+    "harness": "112e82f710c639c31d69ca3cb3395338d26d81a4a04bb2bed9b1ce947120c1e0",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin-arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "acceptedQualification": {
+    "path": "docs/architecture/raptor3-evidence/post-g3-fact-ownership/final-qualification/index.json",
+    "sha256": "18d234906863570e226ce48f760efdec96d5d9b4842f9701b0cbafafc7145a6e"
+  },
+  "matchedCost": {
+    "path": "docs/architecture/raptor3-evidence/post-g3-fact-ownership/final-qualification/cost.json",
+    "sha256": "220708fa7f7e35cc5c19a6ded3ff9814ea849463ee89e763b4de8a21669e15e0",
+    "owners": 28,
+    "parserTokenLines": 9923
+  },
+  "sourceSnapshot": [
+    {
+      "path": "src/query-engine/raptor3/commands/commands.ts",
+      "sha256": "894deef7adeb9fb5402b82fbb48304c228d3a1caa12e4abfce5244cf53c9c605"
+    },
+    {
+      "path": "src/query-engine/raptor3/commands/execution.ts",
+      "sha256": "538a2cfcd532b61932f5d9bd640317f0d973412210f3c19c294a58b886d14369"
+    },
+    {
+      "path": "src/query-engine/raptor3/commands/relation-body.ts",
+      "sha256": "6035839838eeabc928f5e25c5020115425642ee3cccfa701ae067ac73e72b3cc"
+    },
+    {
+      "path": "src/query-engine/raptor3/commands/command-attempt.ts",
+      "sha256": "2b06af73a8d632e2591fc344a2b8a10e7829f61515c06f77dc6c2b9fbc8af632"
+    },
+    {
+      "path": "src/query-engine/raptor3/shared/operation-context.ts",
+      "sha256": "103047800aa1bb7ad042055c0452ccf3065b86d5b1d691c4044d0bbebb18ca3c"
+    },
+    {
+      "path": "src/query-engine/raptor3/shared/schema.ts",
+      "sha256": "90341676ea70c610ee56204ceaaac27aad84bf24ad46458bd2b03d439b6aa771"
+    },
+    {
+      "path": "src/query-engine/raptor3/shared/transport-attempt.ts",
+      "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643"
+    },
+    {
+      "path": "src/query-engine/raptor3/AGENTS.md",
+      "sha256": "c79d4045ae96453266636596b957756e3d9f2e9ab89b71c84e24e3e61c4cb427"
+    }
+  ]
+}

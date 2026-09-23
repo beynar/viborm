@@ -1,0 +1,186 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ↓ |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/native-pool-configuration.review.test.ts (3 tests | 3 skipped)
+ ❯ |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts (5 tests | 1 failed) 5ms
+   ✓ review probe: the G4 write lanes' registration > does not let an inherited seed count shrink a write child 1ms
+   ✓ review probe: the G4 write lanes' registration > sanitises the seed-count variable in the runner, as it does the subject 1ms
+   × review probe: the G4 write lanes' registration > refuses a child that holds fewer seeds than the frozen batch 2ms
+     → Missing expected exception: a 1-seed child of a 100-seed frozen batch still qualifies
+   ✓ review probe: the G4 write lanes' registration > pins the child cell count of every registered seed-batch mode 0ms
+   ✓ review probe: the G4 write lanes' registration > keeps the write ranges disjoint from every other frozen campaign 0ms
+ ❯ |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/evidence-identity.review.test.ts (3 tests | 2 failed) 14ms
+   ✓ review probe: the follow-up's receipt identities > records an identity on every run receipt (control, expected green) 9ms
+   × review probe: the follow-up's receipt identities > was produced at the single harness identity the note names 4ms
+     → receipts span 2 harness identities: {
+ "c7a5344f": [
+  "mode-g4-unit01-author/attempt.json",
+  "mode-g4-unit01-author/verified.json"
+ ],
+ "854ad639": [
+  "native/mysql-attempt1/attempt.json",
+  "native/mysql-attempt1/verified.json",
+  "native/pg-attempt1/attempt.json",
+  "write-campaign/sqlite-75000/attempt.json",
+  "write-campaign/sqlite-75000/generated-campaign-progress.json",
+  "write-campaign/sqlite-75000/generated-campaign.json",
+  "write-campaign/sqlite-75000/verified.json",
+  "write-campaign/transport-100000/attempt.json",
+  "write-campaign/transport-100000/generated-campaign-progress.json",
+  "write-campaign/transport-100000/generated-campaign.json",
+  "write-campaign/transport-100000/verified.json"
+ ]
+}
++ actual - expected
+
+  [
++   '854ad639',
++   'c7a5344f'
+-   '72fbd01e'
+  ]
+
+   × review probe: the follow-up's receipt identities > records every red against the production identity the note names 1ms
+     → the native red was recorded at a production identity the note does not name
++ actual - expected
+
++ 'eb93c64d'
+- 'd844ae0f'
+
+ ❯ |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts (2 tests | 2 failed) 3ms
+   × review probe: the fixture's second copy of a production rule > spells a datetime exactly as the MySQL adapter's literal does 2ms
+     → mysqlDateTime is not defined
+   × review probe: what borrowing a driver-built pool attaches > leaves no unread background-failure listener on the fixture's pool 1ms
+     → the borrowed pool carries an error listener the fixture cannot read
+
+1 !== 0
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/evidence-identity.review.test.ts > review probe: the follow-up's receipt identities > was produced at the single harness identity the note names
+AssertionError: receipts span 2 harness identities: {
+ "c7a5344f": [
+  "mode-g4-unit01-author/attempt.json",
+  "mode-g4-unit01-author/verified.json"
+ ],
+ "854ad639": [
+  "native/mysql-attempt1/attempt.json",
+  "native/mysql-attempt1/verified.json",
+  "native/pg-attempt1/attempt.json",
+  "write-campaign/sqlite-75000/attempt.json",
+  "write-campaign/sqlite-75000/generated-campaign-progress.json",
+  "write-campaign/sqlite-75000/generated-campaign.json",
+  "write-campaign/sqlite-75000/verified.json",
+  "write-campaign/transport-100000/attempt.json",
+  "write-campaign/transport-100000/generated-campaign-progress.json",
+  "write-campaign/transport-100000/generated-campaign.json",
+  "write-campaign/transport-100000/verified.json"
+ ]
+}
++ actual - expected
+
+  [
++   '854ad639',
++   'c7a5344f'
+-   '72fbd01e'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "72fbd01e",[39m
+[31m+   "854ad639",[39m
+[31m+   "c7a5344f",[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/review/witness-followup/evidence-identity.review.test.ts:68:12
+     66|         receipt.path,
+     67|       ]);
+     68|     assert.deepEqual(
+       |            ^
+     69|       [...harnesses.keys()].map((hash) => hash.slice(0, 8)).sort(),
+     70|       ["72fbd01e"],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/evidence-identity.review.test.ts > review probe: the follow-up's receipt identities > records every red against the production identity the note names
+AssertionError: the native red was recorded at a production identity the note does not name
++ actual - expected
+
++ 'eb93c64d'
+- 'd844ae0f'
+
+
+Expected: [32m"d844ae0f"[39m
+Received: [31m"eb93c64d"[39m
+
+ ❯ tests/raptor3/g4/review/witness-followup/evidence-identity.review.test.ts:86:12
+     84|       readFileSync(join(FOLLOWUP, "native/pg-attempt1/attempt.json"), …
+     85|     ) as { identity: { production: string } };
+     86|     assert.equal(
+       |            ^
+     87|       attempt.identity.production.slice(0, 8),
+     88|       "d844ae0f",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts > review probe: the fixture's second copy of a production rule > spells a datetime exactly as the MySQL adapter's literal does
+ReferenceError: mysqlDateTime is not defined
+ ❯ eval tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts:36:10
+     34|   const mysqlArm = body.slice(body.indexOf(":") + 1).trim();
+     35|   // eslint-disable-next-line no-new-func
+     36|   return new Function("iso", `return ${mysqlArm.replace(/;$/, "")};`)(…
+       |          ^
+     37| }
+     38| 
+ ❯ fixtureDateTime tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts:36:69
+ ❯ tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts:50:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts > review probe: what borrowing a driver-built pool attaches > leaves no unread background-failure listener on the fixture's pool
+AssertionError: the borrowed pool carries an error listener the fixture cannot read
+
+1 !== 0
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/review/witness-followup/native-fixture-authority.review.test.ts:69:14
+     67|     }).own();
+     68|     try {
+     69|       assert.equal(
+       |              ^
+     70|         pool.listenerCount("error"),
+     71|         0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts > review probe: the G4 write lanes' registration > refuses a child that holds fewer seeds than the frozen batch
+AssertionError: Missing expected exception: a 1-seed child of a 100-seed frozen batch still qualifies
+
+simple
+
+ ❯ tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts:85:12
+     83|       skipped: 0,
+     84|     };
+     85|     assert.throws(
+       |            ^
+     86|       () =>
+     87|         assertG3GeneratedBatchReceipt(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  3 failed | 1 skipped (4)
+      Tests  5 failed | 5 passed | 3 skipped (13)
+   Start at  06:10:42
+   Duration  1.54s (transform 886ms, setup 11ms, collect 1.40s, tests 21ms, environment 0ms, prepare 24ms)
+
+Vitest resources: 1.99s wall, 445.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

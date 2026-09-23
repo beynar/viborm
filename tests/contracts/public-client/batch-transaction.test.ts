@@ -495,7 +495,13 @@ describe("$transaction with array (batch mode)", () => {
     expect(allUsers).toHaveLength(2);
   });
 
-  test("batch-only driver batches nested write operations atomically", async () => {
+  // D-46: the array route's ONE folding path for a top-level `update` declines
+  // any relation-bearing `data`, and D-46's note pins that boundary by name
+  // ("`update: {}`, a relation-bearing arm and a conditional filter keep the
+  // conditional form and, on this route, the existing unbatchable answer
+  // (pinned)"). This cell pinned the retired engine batching the nested write
+  // as an array member; it now pins the refusal and the untouched state.
+  test("batch-only driver refuses a nested write operation on the array route", async () => {
     const family = getFamily();
     const setupClient = family.client;
     // A SECOND driver over the family's database must name the schema the
@@ -514,33 +520,42 @@ describe("$transaction with array (batch mode)", () => {
         data: { id: "1", name: "Nested", email: "nested@test.com" },
       });
 
-      const [updatedUser, postCount] = await withTransactions(
-        batchOnlyClient
-      ).$transaction([
-        batchOnlyClient.user.update({
-          where: { id: "1" },
-          data: {
-            name: "Nested Updated",
-            posts: {
-              create: { id: "p1", title: "Nested post" },
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          batchOnlyClient.user.update({
+            where: { id: "1" },
+            data: {
+              name: "Nested Updated",
+              posts: {
+                create: { id: "p1", title: "Nested post" },
+              },
             },
-          },
-        }),
-        batchOnlyClient.post.count(),
+          }),
+          batchOnlyClient.post.count(),
+        ])
+      ).rejects.toMatchObject({
+        name: "TransactionError",
+        message:
+          'Driver "pglite" does not support callback transactions and this transaction contains operations that cannot be batched atomically.',
+      });
+
+      // The refusal is taken before anything is dispatched: the row keeps its
+      // name and the nested post was never created.
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "1", name: "Nested", email: "nested@test.com" },
       ]);
-
-      expect(updatedUser.name).toBe("Nested Updated");
-      expect(postCount).toBe(1);
-
-      const posts = await batchOnlyClient.post.findMany();
-      expect(posts).toHaveLength(1);
-      expect(posts[0]?.authorId).toBe("1");
+      expect(await batchOnlyClient.post.findMany()).toEqual([]);
     } finally {
       await batchOnlyClient.$disconnect();
     }
   });
 
-  test("batch-only shared parsing keeps exact partitions with insert ids", async () => {
+  // D-46: same pinned boundary as the cell above — the `update` member names a
+  // relation in its `data`, so `rootUpdate` declines and the array route has no
+  // other batching path for it. This cell pinned the retired engine's shared
+  // result partitioning with per-statement insert ids across that nested write;
+  // it now pins that the refusal is taken at preparation, ahead of it.
+  test("batch-only shared parsing never starts when a member's relation-bearing update cannot batch", async () => {
     const family = getFamily();
     const setupClient = family.client;
     const batchOnlyClient = createClient({
@@ -593,28 +608,32 @@ describe("$transaction with array (batch mode)", () => {
         },
       });
 
-      const batchResult = await withTransactions(batchOnlyClient).$transaction([
-        beforeOperation,
-        updateOperation,
-        batchOnlyClient.post.findMany({
-          orderBy: { id: "asc" },
-          select: { id: true, title: true },
-        }),
-      ]);
+      await expect(
+        withTransactions(batchOnlyClient).$transaction([
+          beforeOperation,
+          updateOperation,
+          batchOnlyClient.post.findMany({
+            orderBy: { id: "asc" },
+            select: { id: true, title: true },
+          }),
+        ])
+      ).rejects.toMatchObject({
+        name: "TransactionError",
+        message:
+          'Driver "pglite" does not support callback transactions and this transaction contains operations that cannot be batched atomically.',
+      });
 
-      expect(batchResult).toEqual([
-        { name: "Before" },
-        { name: "After" },
-        [{ id: "p1", title: "Partitioned" }],
+      // The relation-bearing member declines to prepare a batch at all, so the
+      // array is refused while it is still being prepared: no member's queries
+      // were built, no shared result was partitioned, no parser ran, and
+      // nothing was written.
+      expect(preparedQueryCount).toBe(0);
+      expect(preparedInsertIds).toBeUndefined();
+      expect(beforeParser).not.toHaveBeenCalled();
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "1", name: "Before", email: "partition@test.com" },
       ]);
-      expect(beforeParser).toHaveBeenCalledWith(
-        expect.objectContaining({ insertId: expect.any(Number) })
-      );
-      expect(preparedQueryCount).toBeGreaterThan(1);
-      expect(preparedInsertIds).toHaveLength(preparedQueryCount);
-      expect(
-        preparedInsertIds?.every((insertId) => insertId !== undefined)
-      ).toBe(true);
+      expect(await batchOnlyClient.post.findMany()).toEqual([]);
     } finally {
       await batchOnlyClient.$disconnect();
     }
@@ -1043,8 +1062,9 @@ describe("$transaction([...]) guard attribution after rollback", () => {
   test("batch-only: a premise the rollback does NOT restore is still attributed to its own guard", async () => {
     const batchOnlyClient = await bootBatchOnly();
     try {
-      // Connecting a post that never existed: the re-probe still fails after the
-      // rollback, so this path was already attributed and must stay that way.
+      // D-46: a relation-bearing `update` is not a batchable ARRAY member on
+      // this route (D-46's note pins that answer), so an array whose only
+      // member is this operation never reaches the guard at all.
       await expect(
         withTransactions(batchOnlyClient).$transaction([
           batchOnlyClient.user.update({
@@ -1053,9 +1073,29 @@ describe("$transaction([...]) guard attribution after rollback", () => {
           }),
         ])
       ).rejects.toMatchObject({
+        name: "TransactionError",
+        message:
+          'Driver "pglite" does not support callback transactions and this transaction contains operations that cannot be batched atomically.',
+      });
+
+      // The attribution fact this cell owns, on the route that reaches the
+      // guard: the SAME operation submitted on its own still batches on this
+      // batch-only driver. Connecting a post that never existed: the re-probe
+      // still fails after the rollback, so this path was already attributed and
+      // must stay that way.
+      await expect(
+        batchOnlyClient.user.update({
+          where: { id: "b" },
+          data: { posts: { connect: { id: "never-existed" } } },
+        })
+      ).rejects.toMatchObject({
         name: "NestedWriteError",
         message: expect.stringContaining("was not found"),
       });
+
+      expect(await batchOnlyClient.user.findMany()).toEqual([
+        { id: "b", name: "Bea", email: "bea@test.com" },
+      ]);
     } finally {
       await batchOnlyClient.$disconnect();
     }

@@ -1,0 +1,27 @@
+{
+  "identity": {
+    "production": "e2d5bcb2201641372941c2c1fa6e648f52429fb3ca8ce948678baa80a31b589f",
+    "harness": "838a1e1bb2080e863f5decb56ce90c5218da1e1a341532c21d5b0e04453bc6c5",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "recipe": {
+    "seed": 2122,
+    "mode": "key-move",
+    "offset": 900,
+    "value": 700,
+    "delta": 9,
+    "decoys": 3,
+    "actors": 2,
+    "following": 15,
+    "fault": "two-before-dispatch"
+  },
+  "profile": "sqlite-atomic-batch",
+  "phase": "commands",
+  "failure": "AssertionError [ERR_ASSERTION]: g2-generated-transitions changed subsequent public operation outcomes\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      failure: {\n        cause: {\n          message: 'Underlying error details redacted',\n...\n          operation: 'create',\n+         recordSeriesProgress: {\n+           atomicity: 'segment',\n+           committedSegments: 0,\n+           committedWriteMembers: 0,\n+           completedMembers: 0,\n+           mayHaveCommittedSegment: true,\n+           phase: 'member'\n+         },\n+         statementIndex: 0\n        },\n        name: 'QueryError'\n      },\n      kind: 'failure'\n    },\n\n    at assertEquivalentRunObservations (/Users/arnaud/code/viborm/benchmarks/operation-pipeline-semantics.mjs:84:18)\n    at verifyGeneratedCell (/Users/arnaud/code/viborm/tests/raptor3/generation/campaign.ts:60:7)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/arnaud/code/viborm/tests/raptor3/g2-generated.test.ts:106:20\n    at file:///Users/arnaud/code/viborm/node_modules/.pnpm/@vitest+runner@3.1.4/node_modules/@vitest/runner/dist/index.js:596:20"
+}

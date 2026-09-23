@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rint
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (92 tests) 8415ms
+
+ Test Files  1 passed (1)
+      Tests  92 passed (92)
+   Start at  12:44:58
+   Duration  9.78s (transform 834ms, setup 8ms, collect 1.23s, tests 8.42s, environment 0ms, prepare 26ms)
+
+Vitest resources: 11.43s wall, 665.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

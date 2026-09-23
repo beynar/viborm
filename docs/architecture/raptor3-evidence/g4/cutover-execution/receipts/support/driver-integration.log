@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-client| tests/contracts/public-client/official-statement-instrumentation.core.test.ts (11 tests) 43ms
+ ✓ |layer-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  21:17:48
+   Duration  1.93s (transform 959ms, setup 11ms, collect 1.71s, tests 47ms, environment 0ms, prepare 39ms)
+
+JSON report written to /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/cutover-execution/receipts/support/driver-integration.vitest.json
+Vitest resources: 4.26s wall, 490.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+EXIT=0

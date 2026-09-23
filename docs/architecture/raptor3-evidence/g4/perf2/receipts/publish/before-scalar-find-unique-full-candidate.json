@@ -1,0 +1,23 @@
+{
+ "workload": "scalar-find-unique",
+ "stage": "full",
+ "engine": "candidate",
+ "checks": [
+  63,
+  63,
+  63,
+  63
+ ],
+ "preparation": {
+  "statementCount": 1,
+  "statements": [
+   {
+    "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?",
+    "params": [
+     "user_42"
+    ]
+   }
+  ],
+  "preparationSeam": "package"
+ }
+}

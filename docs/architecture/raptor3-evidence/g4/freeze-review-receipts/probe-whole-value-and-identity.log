@@ -1,0 +1,79 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers what the deleted inline predicate answered on every admitted scalar domain
+AGREE   null: before=null now=null
+AGREE   undefined: before=undefined now=undefined
+AGREE   number: before=7 now=7
+AGREE   bigint: before=7 now=7
+AGREE   string: before=seven now=seven
+AGREE   boolean: before=true now=true
+AGREE   Uint8Array: before=Uint8Array {"0":1,"1":2,"2":3} now=Uint8Array {"0":1,"1":2,"2":3}
+AGREE   Date: before=Date "1970-01-01T00:00:00.000Z" now=Date "1970-01-01T00:00:00.000Z"
+AGREE   Decimal: before=Decimal "1.25" now=Decimal "1.25"
+AGREE   array: before=Array [1,2] now=Array [1,2]
+AGREE   array of Uint8Array: before=Array [{"0":1}] now=Array [{"0":1}]
+AGREE   Map: before=Map {} now=Map {}
+AGREE   Set: before=Set {} now=Set {}
+AGREE   Sql: before=Sql {"rawStrings":["1"],"rawValues":[]} now=Sql {"rawStrings":["1"],"rawValues":[]}
+AGREE   plain {set}: before=5 now=5
+AGREE   plain {set:null}: before=null now=null
+AGREE   plain {set:undefined}: before=undefined now=undefined
+AGREE   plain {increment}: before=Object {"increment":5} now=Object {"increment":5}
+AGREE   plain {set,increment}: before=5 now=5
+AGREE   plain {}: before=Object {} now=Object {}
+AGREE   null-prototype {set}: before=3 now=3
+AGREE   null-prototype {increment}: before=[null-proto] {"increment":3} now=[null-proto] {"increment":3}
+DIFFER  class instance with OWN set: before=7 now=OwnSet {"set":7}
+AGREE   class instance with INHERITED set: before=Inherited {} now=Inherited {}
+AGREE   function: before=() => 1 now=() => 1
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   blob update with a bare Uint8Array
+    shipped   ok:{"id":1,"name":"a","payload":{"0":9,"1":9}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[9,9]}}]
+    candidate ok:{"id":1,"name":"a","payload":{"0":9,"1":9}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[9,9]}}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   blob update with {set: Uint8Array}
+    shipped   ok:{"id":1,"name":"a","payload":{"0":8}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[8]}}]
+    candidate ok:{"id":1,"name":"a","payload":{"0":8}} | rows=[{"id":1,"name":"a","payload":{"type":"Buffer","data":[8]}}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   key update with {set}
+    shipped   ok:{"id":42,"name":"a","payload":null} | rows=[{"id":42,"name":"a","payload":null}]
+    candidate ok:{"id":42,"name":"a","payload":null} | rows=[{"id":42,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > holds a blob whole and unwraps a plain {set} through the real write path
+AGREE   key update with {increment}
+    shipped   ok:{"id":6,"name":"a","payload":null} | rows=[{"id":6,"name":"a","payload":null}]
+    candidate ok:{"id":6,"name":"a","payload":null} | rows=[{"id":6,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root update, non-key field names nothing
+    shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+    candidate ValidationError: Validation failed for update: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root upsert (relation-free), non-key field names nothing
+    shipped   ValidationError: Validation failed for upsert: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+    candidate ValidationError: Validation failed for upsert: Value did not match any union member: Expected string, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root upsert (relation-free), key names nothing
+    shipped   QueryEngineError: Unknown update operation:  | rows=[{"id":1,"name":"a","payload":null}]
+    candidate QueryEngineError: Unknown update operation:  | rows=[{"id":1,"name":"a","payload":null}]
+
+stdout | tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts > freeze review — one whole-value spelling, measured on the compiled owner > answers the shipped `Unknown update operation:` identity on the reachable empty-record shapes
+AGREE   root update, blob field names nothing
+    shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected Uint8Array, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+    candidate ValidationError: Validation failed for update: Value did not match any union member: Expected Uint8Array, Missing required field: set | rows=[{"id":1,"name":"a","payload":null}]
+
+ ✓ |g4-review-freeze| tests/raptor3/g4/review/freeze/whole-value-and-identity.review.test.ts (3 tests) 86ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  18:58:49
+   Duration  3.55s (transform 2.20s, setup 35ms, collect 3.17s, tests 86ms, environment 0ms, prepare 87ms)
+
+Vitest resources: 4.69s wall, 472.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

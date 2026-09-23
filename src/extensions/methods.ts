@@ -2,7 +2,7 @@ import type { TransactionClient, VibORMConfig } from "@client/client";
 import { RAW_METHOD_NAMES, type RawSurface } from "@client/raw";
 import type { Client, ClientRelationDefaults } from "@client/types";
 import { ClientInitializationError } from "@errors";
-import { ROUTED_OPERATIONS } from "@query-engine/write-engine/routing";
+import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type { ResolvedExtensionChain } from "./chain";
 import { extensionCause, extensionError } from "./definition";

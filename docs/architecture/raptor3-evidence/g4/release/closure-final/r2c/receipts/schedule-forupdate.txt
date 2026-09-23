@@ -1,0 +1,70 @@
+# schedule mode=FOR UPDATE (engine today) A=conn68 B=conn69
+A: START TRANSACTION
+B: START TRANSACTION
+A: probe -> 0 rows
+## locks @ after A probe
+   A  TABLE IX GRANTED idx=- data=-
+   A  RECORD X GRANTED idx=r2c_sched_tags_name_key data=supremum pseudo-record
+B: probe -> 0 rows
+## locks @ after B probe
+   A  TABLE IX GRANTED idx=- data=-
+   A  RECORD X GRANTED idx=r2c_sched_tags_name_key data=supremum pseudo-record
+   B  TABLE IX GRANTED idx=- data=-
+   B  RECORD X GRANTED idx=r2c_sched_tags_name_key data=supremum pseudo-record
+A: INSERT 'plain-race-1' -> pending
+## locks @ after A insert
+   A  TABLE IX GRANTED idx=- data=-
+   A  RECORD X GRANTED idx=r2c_sched_tags_name_key data=supremum pseudo-record
+   A  RECORD X,INSERT_INTENTION WAITING idx=r2c_sched_tags_name_key data=supremum pseudo-record
+   B  TABLE IX GRANTED idx=- data=-
+   B  RECORD X GRANTED idx=r2c_sched_tags_name_key data=supremum pseudo-record
+   WAIT: A blocked by B
+A: INSERT result -> ok
+B: INSERT 'plain-race-2' -> ER_LOCK_DEADLOCK/1213
+A: COMMIT
+B: ROLLBACK
+# final rows: [{"id":"plain-race-1","name":"plain-race","count":1}]
+## SHOW ENGINE INNODB STATUS — LATEST DETECTED DEADLOCK
+LATEST DETECTED DEADLOCK
+------------------------
+2026-09-21 08:17:25 281472854060800
+*** (1) TRANSACTION:
+TRANSACTION 2259, ACTIVE 1 sec inserting
+mysql tables in use 1, locked 1
+LOCK WAIT 3 lock struct(s), heap size 1128, 2 row lock(s), undo log entries 1
+MySQL thread id 68, OS thread handle 281472968474368, query id 476 172.17.0.1 root update
+INSERT INTO `r2c_sched_tags` (`id`, `name`, `count`) VALUES ('plain-race-1', 'plain-race', 1)
+
+*** (1) HOLDS THE LOCK(S):
+RECORD LOCKS space id 22 page no 5 n bits 72 index r2c_sched_tags_name_key of table `raptor3_g2`.`r2c_sched_tags` trx id 2259 lock_mode X
+Record lock, heap no 1 PHYSICAL RECORD: n_fields 1; compact format; info bits 0
+ 0: len 8; hex 73757072656d756d; asc supremum;;
+
+
+*** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 22 page no 5 n bits 72 index r2c_sched_tags_name_key of table `raptor3_g2`.`r2c_sched_tags` trx id 2259 lock_mode X insert intention waiting
+Record lock, heap no 1 PHYSICAL RECORD: n_fields 1; compact format; info bits 0
+ 0: len 8; hex 73757072656d756d; asc supremum;;
+
+
+*** (2) TRANSACTION:
+TRANSACTION 2260, ACTIVE 1 sec inserting
+mysql tables in use 1, locked 1
+LOCK WAIT 3 lock struct(s), heap size 1128, 2 row lock(s), undo log entries 1
+MySQL thread id 69, OS thread handle 281473300213504, query id 480 172.17.0.1 root update
+INSERT INTO `r2c_sched_tags` (`id`, `name`, `count`) VALUES ('plain-race-2', 'plain-race', 2)
+
+*** (2) HOLDS THE LOCK(S):
+RECORD LOCKS space id 22 page no 5 n bits 72 index r2c_sched_tags_name_key of table `raptor3_g2`.`r2c_sched_tags` trx id 2260 lock_mode X
+Record lock, heap no 1 PHYSICAL RECORD: n_fields 1; compact format; info bits 0
+ 0: len 8; hex 73757072656d756d; asc supremum;;
+
+
+*** (2) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 22 page no 5 n bits 72 index r2c_sched_tags_name_key of table `raptor3_g2`.`r2c_sched_tags` trx id 2260 lock_mode X insert intention waiting
+Record lock, heap no 1 PHYSICAL RECORD: n_fields 1; compact format; info bits 0
+ 0: len 8; hex 73757072656d756d; asc supremum;;
+
+*** WE ROLL BACK TRANSACTION (2)
+------------
+

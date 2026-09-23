@@ -1,0 +1,18 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 178ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 121ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 221ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (3 tests) 231ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 54ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts (2 tests) 115ms
+
+ Test Files  6 passed (6)
+      Tests  18 passed (18)
+   Start at  06:13:21
+   Duration  2.73s (transform 939ms, setup 11ms, collect 1.67s, tests 920ms, environment 0ms, prepare 33ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tCO31u/vitest.json
+Vitest resources: 4.98s wall, 709.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tCO31u

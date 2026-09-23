@@ -1,0 +1,148 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/recursive-carrier.review.test.ts (4 tests) 26ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/arithmetic-parity.review.test.ts (2 tests) 21ms
+ ❯ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts (7 tests | 2 failed) 24ms
+   ✓ G4-02 review EVIDENCE — the symbolic updated-key expression > multiplies a key on a NON-RETURNING provider the way the shipped engine does 8ms
+   ✓ G4-02 review EVIDENCE — the symbolic updated-key expression > divides a key on a NON-RETURNING provider the way the shipped engine does 3ms
+   × G4-02 review EVIDENCE — primary-key arithmetic portability > decimal key increment: the candidate answers what the shipped engine answers 6ms
+     → candidate {"answer":"ok:{\"id\":\"7\",\"label\":\"a\"}","rows":[{"id":700,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"7","label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 700,
+-       id: 600,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 review EVIDENCE — primary-key arithmetic portability > decimal key multiply: the candidate answers what the shipped engine answers 2ms
+   ✓ G4-02 review EVIDENCE — primary-key arithmetic portability > number key multiply: the candidate answers what the shipped engine answers 2ms
+   ✓ G4-02 review EVIDENCE — primary-key arithmetic portability > int key divide by zero: the candidate answers what the shipped engine answers 2ms
+   × G4-02 review EVIDENCE — primary-key arithmetic portability > a primary key carrying two update operations is refused as the shipped engine refuses it 2ms
+     → candidate {"answer":"ok:{\"id\":9,\"label\":\"a\"}","rows":[{"id":9,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    rows: [
+      {
++       id: 9,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/statement-atomic-parity.review.test.ts (5 tests) 17ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/root-create-fold.review.test.ts (4 tests) 11ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/counted-slot.review.test.ts (4 tests) 27ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/operation-region.review.test.ts (2 tests) 10ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/tagged-quantifier.review.test.ts (18 tests) 72ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/witness-defect-checks.review.test.ts (3 tests) 6ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/json-operator-keys.review.test.ts (7 tests) 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — primary-key arithmetic portability > decimal key increment: the candidate answers what the shipped engine answers
+AssertionError: candidate {"answer":"ok:{\"id\":\"7\",\"label\":\"a\"}","rows":[{"id":700,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"7","label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 700,
+-       id: 600,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":\"7\",\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 600,[39m
+[31m+       "id": 700,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:159:14
+    157|       const shipped = await update(model, table, where, data, "shipped…
+    158|       const candidate = await update(model, table, where, data, "candi…
+    159|       assert.deepEqual(
+       |              ^
+    160|         candidate,
+    161|         shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — primary-key arithmetic portability > a primary key carrying two update operations is refused as the shipped engine refuses it
+AssertionError: candidate {"answer":"ok:{\"id\":9,\"label\":\"a\"}","rows":[{"id":9,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    rows: [
+      {
++       id: 9,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",[39m
+[31m+   "answer": "ok:{\"id\":9,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 9,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:182:12
+    180|       "candidate"
+    181|     );
+    182|     assert.deepEqual(
+       |            ^
+    183|       candidate,
+    184|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 9 passed (10)
+      Tests  2 failed | 54 passed (56)
+   Start at  09:58:38
+   Duration  2.98s (transform 1.30s, setup 14ms, collect 2.58s, tests 230ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 3.55s wall, 654.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

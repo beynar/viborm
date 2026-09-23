@@ -1,0 +1,29 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (6 tests) 33ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (18 tests) 93ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests) 83ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts (14 tests) 61ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests) 9ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/correlated-membership.test.ts (5 tests) 16ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-observed-publication.test.ts (10 tests) 23ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/blind-premise-attribution.test.ts (1 test) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/combinator-named-scalar.test.ts (4 tests) 12ms
+ ✓ |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (18 tests) 91ms
+ ✓ |raptor3| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests) 83ms
+ ✓ |raptor3| tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts (14 tests) 59ms
+ ✓ |raptor3| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests) 9ms
+ ✓ |raptor3| tests/raptor3/g4/parity/correlated-membership.test.ts (5 tests) 16ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 19ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-observed-publication.test.ts (10 tests) 21ms
+ ✓ |raptor3| tests/raptor3/g4/parity/blind-premise-attribution.test.ts (1 test) 6ms
+ ✓ |raptor3| tests/raptor3/g4/parity/combinator-named-scalar.test.ts (4 tests) 11ms
+
+ Test Files  19 passed (19)
+      Tests  172 passed (172)
+   Start at  11:11:15
+   Duration  6.42s (transform 2.83s, setup 32ms, collect 5.22s, tests 668ms, environment 0ms, prepare 86ms)
+
+Vitest resources: 8.25s wall, 773.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -95,9 +95,6 @@ async function dumpMembershipDependency(
   return { containers, nodes };
 }
 
-const UPDATE_MEMBERSHIP_ERROR =
-  "depends on an earlier 'update' membership write";
-
 async function seedCrossScopeMembershipBase(
   client: SchemaClient<MembershipDependencySchema>
 ): Promise<void> {
@@ -235,11 +232,17 @@ const CROSS_SCOPE_MEMBERSHIP_DISJOINT: PersistedState = {
 
 const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
   {
-    name: "nested create membership rejects a later cross-scope to-one upsert",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+    // membership write"); now both partner writes execute in relation
+    // declaration order. `container` runs before `children`, so the cross-scope
+    // upsert observes node 1's empty partner slot and creates node 3 in it; the
+    // nested create of node 2 then claims the same unique slot, and the
+    // database's integrity answer is the operation's failure.
+    name: "nested create membership collides with the earlier cross-scope to-one upsert on the unique partner slot",
     seed: seedCrossScopeMembershipBase,
     act: (client) => runCrossScopeMembershipMutation(client, "create", 1),
     expectReject: true,
-    expectedError: "depends on an earlier 'create' membership write",
+    expectedError: "Unique constraint violation",
     expected: CROSS_SCOPE_MEMBERSHIP_BASE,
   },
   {
@@ -249,12 +252,17 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
     expected: CROSS_SCOPE_MEMBERSHIP_DISJOINT,
   },
   {
-    name: "connectOrCreate membership rejects a later cross-scope to-one upsert",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'connectOrCreate' membership write"); now the earlier cross-scope upsert
+    // creates node 3 in node 1's unique partner slot, the connectOrCreate finds
+    // node 2 and rebinds it onto that same slot, and the unique constraint is
+    // the operation's failure.
+    name: "connectOrCreate membership collides with the earlier cross-scope to-one upsert on the unique partner slot",
     seed: seedCrossScopeMembershipWithTarget,
     act: (client) =>
       runCrossScopeMembershipMutation(client, "connectOrCreate", 1),
     expectReject: true,
-    expectedError: "depends on an earlier 'connectOrCreate' membership write",
+    expectedError: "Unique constraint violation",
     expected: CROSS_SCOPE_MEMBERSHIP_WITH_TARGET,
   },
   {
@@ -265,15 +273,24 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
     expected: CROSS_SCOPE_MEMBERSHIP_DISJOINT,
   },
   {
-    name: "found connect membership rejects a later cross-scope to-one upsert",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'connect'
+    // membership write"); now the earlier cross-scope upsert creates node 3 in
+    // node 1's unique partner slot and the connect rebinds node 2 onto the same
+    // slot, so the unique constraint is the operation's failure.
+    name: "found connect membership collides with the earlier cross-scope to-one upsert on the unique partner slot",
     seed: seedCrossScopeMembershipWithTarget,
     act: (client) => runCrossScopeMembershipMutation(client, "connect", 1),
     expectReject: true,
-    expectedError: "depends on an earlier 'connect' membership write",
+    expectedError: "Unique constraint violation",
     expected: CROSS_SCOPE_MEMBERSHIP_WITH_TARGET,
   },
   {
-    name: "self to-one inverse upsert rejects a current-row FK membership move",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // membership write"); now the inverse slot is observed after node 1's own
+    // write of its partner FK — the self-held key that carries the membership —
+    // which empties the slot, so the upsert takes its create branch and node 3
+    // lands where the move vacated.
+    name: "self to-one inverse upsert creates into the slot the current-row FK membership move vacated",
     seed: async (client) => {
       await client.node.create({
         data: { id: 1, label: "one", partnerId: 1 },
@@ -293,8 +310,6 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_MEMBERSHIP_ERROR,
     expected: {
       containers: [],
       nodes: [
@@ -303,7 +318,7 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           label: "one",
           containerId: null,
           parentId: null,
-          partnerId: 1,
+          partnerId: 2,
         },
         {
           id: 2,
@@ -311,6 +326,13 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           containerId: null,
           parentId: null,
           partnerId: null,
+        },
+        {
+          id: 3,
+          label: "three",
+          containerId: null,
+          parentId: null,
+          partnerId: 1,
         },
       ],
     },
@@ -454,6 +476,11 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
     })
   ),
   {
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // membership write"); now the inverse membership is observed after node 1's
+    // own write of its parent FK, where node 1 is no longer its own child, so
+    // the relation body's own correlated refusal answers on both routes and
+    // nothing commits.
     name: "self to-many inverse update rejects the moved current row",
     seed: async (client) => {
       await client.node.create({
@@ -474,7 +501,8 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: UPDATE_MEMBERSHIP_ERROR,
+    expectedError:
+      "Cannot update relation 'children': target record was not found for this parent.",
     expected: {
       containers: [],
       nodes: [
@@ -572,6 +600,10 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
     },
   },
   {
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // membership write"); now the inverse observation is taken after the
+    // child's own write, where node 1's partner slot is vacated, so the upsert
+    // takes its create branch and node 3 fills the slot the rebind left.
     name: "nested to-many child update carries its selector into inverse membership",
     seed: async (client) => {
       await client.container.create({ data: { id: 10 } });
@@ -600,8 +632,6 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_MEMBERSHIP_ERROR,
     expected: {
       containers: [{ id: 10 }],
       nodes: [
@@ -610,7 +640,7 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           label: "one",
           containerId: 10,
           parentId: null,
-          partnerId: 1,
+          partnerId: 2,
         },
         {
           id: 2,
@@ -619,11 +649,23 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           parentId: null,
           partnerId: null,
         },
+        {
+          id: 3,
+          label: "three",
+          containerId: null,
+          parentId: null,
+          partnerId: 1,
+        },
       ],
     },
   },
   {
-    name: "same-node non-self FK rebind rejects inverse descent through the final target",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // membership write"); now the parent-held `container` choice names the
+    // container node 1 references AFTER its own write, and its subtree reads
+    // the membership that same write moves, so the whole choice runs behind the
+    // UPDATE: the descent finds node 1 in container 20 and renames it.
+    name: "same-node non-self FK rebind descends into the final target's inverse membership",
     seed: async (client) => {
       await client.container.create({ data: { id: 10 } });
       await client.container.create({ data: { id: 20 } });
@@ -645,15 +687,13 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_MEMBERSHIP_ERROR,
     expected: {
       containers: [{ id: 10 }, { id: 20 }],
       nodes: [
         {
           id: 1,
-          label: "one",
-          containerId: 10,
+          label: "after",
+          containerId: 20,
           parentId: null,
           partnerId: null,
         },
@@ -707,7 +747,11 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
     },
   },
   {
-    name: "non-self nested FK rebind rejects a later inverse read of the same holder",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // membership write"); now both members execute in relation declaration
+    // order. `container` is declared before `children`, so the inverse read
+    // observes node 1 still in container 10 and the rebind follows it.
+    name: "non-self nested FK rebind follows the inverse read of the same holder",
     seed: async (client) => {
       await client.container.create({ data: { id: 10 } });
       await client.container.create({ data: { id: 20 } });
@@ -734,15 +778,13 @@ const membershipDependencyScenarios: Scenario<MembershipDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_MEMBERSHIP_ERROR,
     expected: {
       containers: [{ id: 10 }, { id: 20 }],
       nodes: [
         {
           id: 1,
-          label: "one",
-          containerId: 10,
+          label: "after",
+          containerId: 20,
           parentId: 9,
           partnerId: null,
         },
@@ -908,7 +950,12 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
       },
     },
     {
-      name: "nested physical membership rejects a later same-edge root update",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'connect'
+      // membership write"); now the root's `friends` lookup is an ordered
+      // observation of the junction behind the link the earlier `children`
+      // subtree made on it (`children` is declared before `friends`), so it
+      // finds node 2 a member and the update renames it.
+      name: "nested physical membership carries into a later same-edge root update",
       seed: async (client) => {
         await client.node.create({
           data: { id: 1, label: "one", parentId: 1 },
@@ -930,19 +977,21 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'connect' membership write",
       expected: {
         nodes: [
           { id: 1, label: "one", parentId: 1 },
-          { id: 2, label: "two", parentId: null },
+          { id: 2, label: "after", parentId: null },
         ],
-        friends: [],
+        friends: [{ sourceId: 1, targetId: 2 }],
         allies: [],
       },
     },
     {
-      name: "nested physical membership rejects a later same-edge root upsert",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'connect'
+      // membership write"); now the root's `friends` upsert observes the
+      // junction behind the earlier `children` subtree's link on it, finds node
+      // 2 inside the membership, and takes its found branch.
+      name: "nested physical membership carries into a later same-edge root upsert",
       seed: async (client) => {
         await client.node.create({
           data: { id: 1, label: "one", parentId: 1 },
@@ -968,14 +1017,12 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'connect' membership write",
       expected: {
         nodes: [
           { id: 1, label: "one", parentId: 1 },
-          { id: 2, label: "two", parentId: null },
+          { id: 2, label: "after", parentId: null },
         ],
-        friends: [],
+        friends: [{ sourceId: 1, targetId: 2 }],
         allies: [],
       },
     },
@@ -1098,7 +1145,11 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
       },
     },
     {
-      name: "nested scalar FK rebind rejects a later inverse read of the same holder",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+      // membership write"); `children` is declared before `friends`, so the
+      // inverse read observes node 1 still under parent 10 and the friend
+      // update rebinds it afterwards.
+      name: "nested scalar FK rebind follows the inverse read of the same holder",
       seed: async (client) => {
         await client.node.create({ data: { id: 10, label: "root" } });
         await client.node.create({ data: { id: 2, label: "two" } });
@@ -1122,11 +1173,9 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'update' membership write",
       expected: {
         nodes: [
-          { id: 1, label: "one", parentId: 10 },
+          { id: 1, label: "after", parentId: 2 },
           { id: 2, label: "two", parentId: null },
           { id: 10, label: "root", parentId: null },
         ],
@@ -1135,7 +1184,11 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
       },
     },
     {
-      name: "nested scalar FK rebind rejects a later inverse upsert of the same holder",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+      // membership write"); `children` is declared before `friends`, so the
+      // upsert observes node 1 still under parent 10 and takes its found
+      // branch, and the friend update rebinds the parent afterwards.
+      name: "nested scalar FK rebind follows the inverse upsert of the same holder",
       seed: async (client) => {
         await client.node.create({ data: { id: 10, label: "root" } });
         await client.node.create({ data: { id: 2, label: "two" } });
@@ -1163,11 +1216,9 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
             },
           },
         }),
-      expectReject: true,
-      expectedError: "depends on an earlier 'update' membership write",
       expected: {
         nodes: [
-          { id: 1, label: "one", parentId: 10 },
+          { id: 1, label: "after", parentId: 2 },
           { id: 2, label: "two", parentId: null },
           { id: 10, label: "root", parentId: null },
         ],

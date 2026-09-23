@@ -1,0 +1,8 @@
+82ba9c9e8848c09ee4d29e7ac824a305c9fb3a052424005f446e2e167490b111  src/query-engine/raptor3/route/client-route.ts
+1e19986c9a751ab1b57d63e64512fabdebd22bffa276b433fe8da617a6df85ef  src/query-engine/pending-operation.ts
+764336127b1eba68195f98bb1a3a05dbc4f6c391de7d542caf7c0470d57459bf  src/client/client.ts
+bb07f7a0e52e61c086eb85d811361b2621cae950d1d396ee4908236680d5b612  src/query-engine/query-engine.ts
+8c00eba77cfd642628b4d95ae94e6ceddf24b992281e7c675fd5a27f6f081b30  tests/raptor3/g4/route-admission.test.ts
+89e7673d02aca62f0bc5d820ccd36df8424f35ecfd850f92ca63f7b6fbe91cdb  tests/raptor3/g4/route-cache.test.ts
+b7b1f940baf4fae4b52a0c37c6966e3ccddf6e438f62dcc6c39c403bb9b47f6b  tests/raptor3/g4/route-lifecycle.test.ts
+c0870bbab3667419a28f4142a9c0cf56a3b1ec8dbede989d31af72ac8d979dc3  tests/raptor3/g4/route-transactions.test.ts

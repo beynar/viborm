@@ -1,0 +1,24 @@
+{
+  "label": "viborm.test=raptor3-post-fact-ownership",
+  "postgres": {
+    "containerId": "790d6b7509be97993944348304e1cd76900438646e9b0c11c6a99adad512fef2",
+    "imageId": "sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+    "server": "16.14",
+    "loopbackPort": 60128,
+    "tests": 5,
+    "oomKilled": false,
+    "restartCount": 0,
+    "removed": true
+  },
+  "mysql": {
+    "containerId": "e271a678a9c3b03351b3848365afdfb7efb6d701199e2b1278012caaa4c27205",
+    "imageId": "sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb",
+    "server": "8.4.11",
+    "loopbackPort": 60441,
+    "tests": 5,
+    "oomKilled": false,
+    "restartCount": 0,
+    "removed": true
+  },
+  "finalLabelCensus": []
+}

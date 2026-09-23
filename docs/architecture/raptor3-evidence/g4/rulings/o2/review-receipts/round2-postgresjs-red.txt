@@ -1,0 +1,18 @@
+postgres.js Driver > postgres.js GeoPoint behavior > includes polygon boundaries and excludes holes
+postgres.js Driver > postgres.js GeoPoint behavior > keeps cached point results detached and fresh
+postgres.js Driver > postgres.js GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases
+postgres.js Driver > postgres.js GeoPoint behavior > leaves tagged and unsafe raw point results physical
+postgres.js Driver > postgres.js GeoPoint behavior > parses points in ordinary and variant relation graphs
+postgres.js Driver > postgres.js GeoPoint behavior > preserves point semantics through request and statement extensions
+postgres.js Driver > postgres.js GeoPoint behavior > preserves point values through callback and array transactions
+postgres.js Driver > postgres.js GeoPoint behavior > round-trips point writes and returning projections
+postgres.js Driver > postgres.js GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds
+postgres.js Driver > postgres.js GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering
+postgres.js Driver > postgres.js GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression
+postgres.js Driver > postgres.js GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate
+postgres.js Driver > postgres.js GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude
+postgres.js Driver > postgres.js GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates
+postgres.js Driver > postgres.js field references > enum references > a bare enum reference is the equals shorthand
+postgres.js Driver > postgres.js field references > enum references > equals compares two enum columns of the same row
+postgres.js Driver > postgres.js field references > enum references > not complements it
+postgres.js Driver > postgres.js field references > enum references > the reference resolves through the .map()ed column name

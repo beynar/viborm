@@ -1,0 +1,4 @@
+command: node scripts/measure-raptor3-baseline.mjs --bundle --output /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/cutover-execution/receipts/bundles-after.json
+cwd: /Users/arnaud/code/viborm  HEAD: 5a37bcd7f371fe393cf7cecb8ec9f82ef8bd3062 (working tree: cutover applied, uncommitted)
+started: 2026-09-16T19:02:00Z  load: load averages: 47.29 21.54 14.74
+EXIT=0

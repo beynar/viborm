@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/expanded/commands.test.ts (82 tests) 208ms
+ ✓ |raptor3| tests/raptor3/expanded/variant-identity-commands.test.ts (42 tests) 102ms
+
+ Test Files  2 passed (2)
+      Tests  124 passed (124)
+   Start at  04:00:10
+   Duration  2.30s (transform 1.14s, setup 10ms, collect 1.76s, tests 309ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 4.42s wall, 727.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

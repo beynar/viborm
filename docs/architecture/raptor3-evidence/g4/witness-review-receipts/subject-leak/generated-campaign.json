@@ -1,0 +1,2027 @@
+{
+  "formatVersion": 1,
+  "qualifying": false,
+  "status": "oracle-validation",
+  "subject": "shipped",
+  "identity": {
+    "production": "86dbac361553971b6803e90998139501c4b5cc78492f935c77246e3cc0930f0b",
+    "harness": "5767012cd638ab41911281cb28888ad93b2a76ac83bcd1bbbe10720787c190f5",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "firstSeed": 20000,
+  "seedCount": 100,
+  "profiles": [
+    "sqlite-interactive",
+    "sqlite-atomic-batch"
+  ],
+  "completed": [
+    {
+      "seed": 20000,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20000,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20001,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20001,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20002,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20002,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20003,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20003,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20004,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20004,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20005,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20005,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20006,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20006,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20007,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20007,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20008,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20008,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20009,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20009,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20010,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 0,
+      "statements": 1
+    },
+    {
+      "seed": 20010,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 0,
+      "statements": 1
+    },
+    {
+      "seed": 20011,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20011,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20012,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20012,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20013,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20013,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20014,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20014,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20015,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20015,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20016,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20016,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20017,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20017,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20018,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20018,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20019,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20019,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20020,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20020,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20021,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20021,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20022,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20022,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20023,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20023,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20024,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20024,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20025,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20025,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20026,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20026,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20027,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20027,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20028,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20028,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20029,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20029,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20030,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20030,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20031,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20031,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20032,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20032,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20033,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20033,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20034,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20034,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20035,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20035,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20036,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20036,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20037,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20037,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20038,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20038,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20039,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20039,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20040,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 0,
+      "statements": 1
+    },
+    {
+      "seed": 20040,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 0,
+      "statements": 1
+    },
+    {
+      "seed": 20041,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20041,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20042,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20042,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20043,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20043,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20044,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20044,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20045,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20045,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20046,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20046,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20047,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20047,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20048,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20048,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20049,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20049,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20050,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 0,
+      "statements": 1
+    },
+    {
+      "seed": 20050,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 0,
+      "statements": 1
+    },
+    {
+      "seed": 20051,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20051,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20052,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20052,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20053,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20053,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20054,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20054,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20055,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20055,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20056,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20056,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20057,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20057,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20058,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20058,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20059,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20059,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20060,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20060,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20061,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20061,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20062,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20062,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20063,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20063,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20064,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20064,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20065,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20065,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20066,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20066,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20067,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20067,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20068,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20068,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20069,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20069,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20070,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20070,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20071,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20071,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20072,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20072,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20073,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20073,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 6,
+      "statements": 1
+    },
+    {
+      "seed": 20074,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20074,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20075,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20075,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20076,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20076,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20077,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20077,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20078,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20078,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20079,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20079,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20080,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20080,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20081,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20081,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20082,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20082,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20083,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20083,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20084,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20084,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20085,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20085,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 4,
+      "statements": 1
+    },
+    {
+      "seed": 20086,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20086,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20087,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20087,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 1,
+      "statements": 1
+    },
+    {
+      "seed": 20088,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20088,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 8,
+      "statements": 1
+    },
+    {
+      "seed": 20089,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20089,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20090,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20090,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20091,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20091,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20092,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20092,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20093,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20093,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20094,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20094,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 2,
+      "statements": 1
+    },
+    {
+      "seed": 20095,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20095,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-W",
+      "actors": 1,
+      "faults": 0,
+      "rows": 5,
+      "statements": 1
+    },
+    {
+      "seed": 20096,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20096,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-O",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20097,
+      "profile": "sqlite-interactive",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20097,
+      "profile": "sqlite-atomic-batch",
+      "family": "compound",
+      "contract": "Q-P",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20098,
+      "profile": "sqlite-interactive",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20098,
+      "profile": "sqlite-atomic-batch",
+      "family": "relation",
+      "contract": "Q-S",
+      "actors": 1,
+      "faults": 0,
+      "rows": 7,
+      "statements": 1
+    },
+    {
+      "seed": 20099,
+      "profile": "sqlite-interactive",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    },
+    {
+      "seed": 20099,
+      "profile": "sqlite-atomic-batch",
+      "family": "codec",
+      "contract": "Q-A",
+      "actors": 1,
+      "faults": 0,
+      "rows": 3,
+      "statements": 1
+    }
+  ],
+  "replays": 600,
+  "skipped": 0
+}

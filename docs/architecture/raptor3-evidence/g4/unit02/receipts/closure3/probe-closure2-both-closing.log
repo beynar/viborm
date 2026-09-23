@@ -1,0 +1,258 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested upsert, collation-equal selector (the title is the evidence)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested upsert, exact-byte selector (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested connectOrCreate on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested update, exact-byte selector (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"u","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"u","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested update, EXTENDED selector, collation-equal halves]
+  shipped   NestedWriteError: Cannot update relation 'notes': target record was not found for this parent.
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate NestedWriteError: Cannot update relation 'notes': target record was not found for this parent.
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested delete, COMPOUND selector, collation-equal members]
+  shipped   NestedWriteError: Cannot delete relation 'parts': target record was not found for this parent.
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate NestedWriteError: Cannot delete relation 'parts': target record was not found for this parent.
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested delete, COMPOUND selector, exact bytes (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested set, COMPOUND selector, collation-equal members]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction connect on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction disconnect on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction disconnect, exact bytes (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction delete on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags []
+  candidate ForeignKeyError: Foreign key constraint violation
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction delete, exact bytes (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags []
+  candidate ForeignKeyError: Foreign key constraint violation
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction set on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction update on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"u"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"u"}]
+
+ ❯ |g4-review-unit02-closure2| tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts (1 test | 1 failed) 587ms
+   × G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does 586ms
+     → diverging call sites
++ actual - expected
+
++ [
++   'junction delete on a collation-equal key',
++   'junction delete, exact bytes (control)'
++ ]
+- []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > pins the key from an `{ equals }` selector the way shipped does (row present)
+[equals-syntax pin, row present]
+  shipped   ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > pins the key from an `{ equals }` selector the way shipped does (row ABSENT)
+[equals-syntax pin, row absent]
+  shipped   ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ValidationError: Validation failed for upsert: Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers an EMPTY relation array beside the divide the way shipped does (row present)
+[empty create array, row present]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers an EMPTY relation array beside the divide the way shipped does (row ABSENT)
+[empty create array, row absent]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a child-held DISCONNECT beside the divide the way shipped does
+[child-held disconnect beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a child-held SET beside the divide the way shipped does
+[child-held set beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a child-held UPDATE beside the divide the way shipped does
+[child-held update beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a JUNCTION relation beside the divide the way shipped does
+[junction connect beside the divide]
+  shipped   QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a relation named only in the CREATE arm the way shipped does (row present)
+[create-arm relation, row present]
+  shipped   QueryError: Query execution failed
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryError: Query execution failed
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a relation named only in the CREATE arm the way shipped does (row ABSENT)
+[create-arm relation, row absent]
+  shipped   ok:{"id":404,"code":"c404","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":404,"code":"c404","label":"fresh"}] items [{"id":2,"label":"c","holderId":404},{"id":70,"label":"i","holderId":6}] links []
+  candidate ok:{"id":404,"code":"c404","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":404,"code":"c404","label":"fresh"}] items [{"id":2,"label":"c","holderId":404},{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a NON-KEY unique locator beside the divide the way shipped does (row present)
+[non-key unique locator, row present]
+  shipped   QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a NON-KEY unique locator beside the divide the way shipped does (row ABSENT)
+[non-key unique locator, row absent]
+  shipped   ok:{"id":99,"code":"nope","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":99,"code":"nope","label":"fresh"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ok:{"id":99,"code":"nope","label":"fresh"}
+            owners [{"id":6,"code":"c6","label":"o"},{"id":99,"code":"nope","label":"fresh"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > orders the transition refusal against a malformed nested create the way shipped does
+[malformed nested create beside the divide]
+  shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected object, Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate ValidationError: Validation failed for update: Value did not match any union member: Expected object, Expected integer
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+stdout | tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts > G4-02 closure round 2 review — the transition owner's boundaries > answers a CONNECT of a missing child beside the divide the way shipped does
+[connect of a missing child beside the divide]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+  candidate QueryEngineError: Cannot divide a primary key by zero.
+            owners [{"id":6,"code":"c6","label":"o"}] items [{"id":70,"label":"i","holderId":6}] links []
+
+ ✓ |g4-review-unit02-closure2| tests/raptor3/g4/review/unit02-closure2/transition-owner-boundaries.review.test.ts (14 tests) 65ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-closure2| tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+AssertionError: diverging call sites
++ actual - expected
+
++ [
++   'junction delete on a collation-equal key',
++   'junction delete, exact bytes (control)'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "junction delete on a collation-equal key",[39m
+[31m+   "junction delete, exact bytes (control)",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/unit02-closure2/mysql-scope-boundaries.review.test.ts:434:14
+    432|         await setup.disconnect();
+    433|       }
+    434|       assert.deepEqual(divergences, [], "diverging call sites");
+       |              ^
+    435|     }, 180_000);
+    436|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 14 passed (15)
+   Start at  16:35:48
+   Duration  2.66s (transform 1.21s, setup 10ms, collect 1.87s, tests 651ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 3.21s wall, 594.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

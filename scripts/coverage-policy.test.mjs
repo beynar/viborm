@@ -298,7 +298,6 @@ test("client coverage admits the core and audited deterministic contracts", () =
 test("driver coverage isolates provider resources and admits only audited local providers", () => {
   const core = coreTests("tests/contracts/drivers");
   const providerContracts = [
-    "tests/contracts/drivers/consumable-result-rows.provider.test.ts",
     "tests/contracts/drivers/sqlite-binary-values.provider.test.ts",
     "tests/contracts/drivers/sqlite-integer-safety.provider.test.ts",
     "tests/contracts/drivers/sqlite-native-datetime.provider.test.ts",
@@ -330,8 +329,8 @@ test("driver coverage isolates provider resources and admits only audited local 
   );
   const providerHeavyCore = new Set([
     "tests/contracts/drivers/bind-parameter-capacity.core.test.ts",
+    "tests/contracts/drivers/consumable-result-proof.core.test.ts",
     "tests/contracts/drivers/driver-export-surface.core.test.ts",
-    "tests/contracts/drivers/namespace-execution-target.core.test.ts",
     "tests/contracts/drivers/namespace-options.core.test.ts",
     "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
     "tests/contracts/drivers/provider-result-contracts.core.test.ts",
@@ -392,7 +391,6 @@ test("driver coverage isolates provider resources and admits only audited local 
     );
   }
   const pgliteCoverageExclusions = [
-    "tests/contracts/drivers/consumable-result-rows-pglite.provider.test.ts",
     "tests/contracts/drivers/error-mapping.provider.test.ts",
     "tests/contracts/drivers/transaction-options-behavior.provider.test.ts",
     "tests/contracts/drivers/transaction-scope-scheduler.provider.test.ts",
@@ -490,10 +488,24 @@ test("write coverage admits the core and audited high-signal local contracts", (
       `${file} is omitted without a Docker or transitive provider-resource dependency`
     );
   }
-  assert.equal(
-    coverageSubsystems.find(({ id }) => id === "write-engine")?.heapLimitMb,
-    512
+  // Follow-up F-3 merged the `write-engine` coverage subsystem into
+  // `query-engine-core` when F-2/F-6 deleted the directory it owned. Its two
+  // vitest projects are parts of that subsystem now, so the registration this
+  // test guards is that BOTH still measure the engine — a lane dropped here
+  // would silently stop measuring the write half.
+  const queryEngine = coverageSubsystems.find(
+    ({ id }) => id === "query-engine-core"
   );
+  assert.equal(
+    coverageSubsystems.some(({ id }) => id === "write-engine"),
+    false
+  );
+  assert.deepEqual(queryEngine?.projects, [
+    "layer-query-engine",
+    "coverage-write-engine-core",
+    "coverage-write-engine",
+    "coverage-raptor3",
+  ]);
 });
 
 test("cache coverage admits every deterministic cache contract exactly once", () => {

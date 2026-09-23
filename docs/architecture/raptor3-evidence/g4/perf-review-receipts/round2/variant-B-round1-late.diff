@@ -1,0 +1,23 @@
+--- contract-round1.mjs	2026-09-16 12:18:05
++++ variant-B-round1-late.mjs	2026-09-16 12:18:55
+@@ -267,6 +267,7 @@
+   if (name === "relation-series-2") {
+     let statements = 0;
+     let admissionsBeforeFirstEffect;
++    let sawFirstEffect = false; // reviewer falsification only
+     const invocation = (world) => (cold) => {
+       const client = cold ? world.createColdClient() : world.client;
+       return client.generatedParent.updateMany({
+@@ -346,7 +347,11 @@
+             seriesAdmissions(ledger),
+             "series effects started before every member was admitted"
+           );
+-          admissionsBeforeFirstEffect = defaults.length;
++          const observedAdmissions = sawFirstEffect
++            ? defaults.length
++            : defaults.length - 1;
++          sawFirstEffect = true;
++          admissionsBeforeFirstEffect = observedAdmissions;
+           assert.deepEqual(children[0], ledger.children[0]);
+           cuts.push("first-member-visible");
+         }

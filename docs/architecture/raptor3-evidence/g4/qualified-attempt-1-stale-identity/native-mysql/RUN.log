@@ -1,0 +1,25 @@
+mysql: dropped 0 stale worlds; 239M/512M used
+pg: dropped 69 schemas; 90M/512M used
+=== 20:41:00 g27-mysql-contracts ===
+g27-mysql-contracts exit=0 Vitest resources: 16.58s wall, 526.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g27-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hPsYSI 
+=== 20:41:27 g3p02-mysql-contracts ===
+g3p02-mysql-contracts exit=0 Vitest resources: 18.32s wall, 503.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p02-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-woWIzp 
+=== 20:41:56 g3p03-mysql-contracts ===
+g3p03-mysql-contracts exit=0 Vitest resources: 20.43s wall, 482.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p03-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mYmzUq 
+=== 20:42:28 g3p04-mysql-contracts ===
+g3p04-mysql-contracts exit=0 Vitest resources: 16.60s wall, 520.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p04-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-SJjWPV 
+=== 20:42:54 g3-scope-composition-mysql ===
+g3-scope-composition-mysql exit=0 Vitest resources: 17.79s wall, 497.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-scope-composition-mysql contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-y9TrCV 
+=== 20:43:20 g29-member-dependency-mysql ===
+g29-member-dependency-mysql exit=0 Vitest resources: 20.07s wall, 479.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g29-member-dependency-mysql contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-x4f7ao 
+=== 20:43:50 post-g3-clearability-mysql-contracts ===
+post-g3-clearability-mysql-contracts exit=0 Vitest resources: 19.61s wall, 482.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-clearability-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Leg9TN 
+=== 20:44:19 g2-mysql-baseline ===
+g2-mysql-baseline exit=0 Vitest resources: 17.42s wall, 606.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-mysql-baseline contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-sVPlgl 
+=== 20:44:45 g2-mysql-contracts ===
+g2-mysql-contracts exit=0 Vitest resources: 17.64s wall, 638.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DMy57t 
+=== 20:45:11 g4-read-envelope-mysql-contracts ===
+g4-read-envelope-mysql-contracts exit=0 Vitest resources: 16.65s wall, 492.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-envelope-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-BRdPDd 
+=== 20:45:36 g4-unit02-mysql-contracts ===
+g4-unit02-mysql-contracts exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-obwOSz 
+=== 20:45:44 group native-mysql finished ===

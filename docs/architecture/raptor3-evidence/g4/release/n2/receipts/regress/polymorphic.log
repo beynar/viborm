@@ -1,0 +1,18 @@
+ ❯ |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts (88 tests | 15 failed) 3111ms
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > SINGULAR member: exact reconnect is idempotent, a
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > connectOrCreate FOUND duplicates coalesce one sin
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > connectOrCreate MISSING duplicates keep the first
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > createMany skipDuplicates joins a later same-key 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (transaction) > root updateMany refuses one singular member across two ow
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (atomicBatch) > root updateMany refuses one singular member across two ow
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (transaction) > nested updateMany refuses one singular member across two 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (atomicBatch) > nested updateMany refuses one singular member across two 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (transaction) > non-empty set and connectOrCreate reach the same root mem
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > singular collection inverse (atomicBatch) > non-empty set and connectOrCreate reach the same root mem
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > connectOrCreate FOUND duplicates coalesce one sin
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > connectOrCreate MISSING duplicates keep the first
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > createMany skipDuplicates coalesces an existing s
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > createMany skipDuplicates joins a later same-key 
+ FAIL  |extended-local| tests/contracts/engine/write/polymorphic-collection-write-family.test.ts > polymorphic collection `set` refuses before the clear on a splittable batch > a generated target afte
+ Test Files  1 failed (1)
+      Tests  15 failed | 73 passed (88)

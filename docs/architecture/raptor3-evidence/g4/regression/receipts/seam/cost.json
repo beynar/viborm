@@ -1,0 +1,29 @@
+{
+  "measure": "countTokenLines (scripts/query-engine-structure.mjs), JSDoc and EOF excluded; bytes = on-disk size; physical = newline count",
+  "files": 
+  {
+    "src/query-engine/raptor3/shared/operation-context.ts": {
+      "bytes": 73982,
+      "physical": 2022,
+      "tokenLines": 1796
+    },
+    "src/query-engine/raptor3/route/client-route.ts": {
+      "bytes": 16173,
+      "physical": 400,
+      "tokenLines": 256
+    }
+  }
+  ,"before": {
+    "src/query-engine/raptor3/shared/operation-context.ts": { "bytes": 71764, "physical": 1981, "tokenLines": 1784 },
+    "src/query-engine/raptor3/route/client-route.ts": { "bytes": 14880, "physical": 378, "tokenLines": 247 }
+  },
+  "increment": {
+    "src/query-engine/raptor3/shared/operation-context.ts": { "bytes": 2218, "physical": 41, "tokenLines": 12 },
+    "src/query-engine/raptor3/route/client-route.ts": { "bytes": 1293, "physical": 22, "tokenLines": 9 },
+    "total": { "bytes": 3511, "physical": 63, "tokenLines": 21 }
+  },
+  "core12After": { "bytes": 367632, "physical": 10403, "tokenLines": 9422 },
+  "core12Before": { "bytes": 365414, "physical": 10362, "tokenLines": 9410 },
+  "raptor3TreeAfter": { "files": 15, "bytes": 404537, "physical": 11439, "tokenLines": 10304 },
+  "raptor3TreeBefore": { "files": 15, "bytes": 401026, "physical": 11376, "tokenLines": 10283 }
+}

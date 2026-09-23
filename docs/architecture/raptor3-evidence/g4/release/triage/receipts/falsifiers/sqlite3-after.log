@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-triage
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-scalar-roundtrip.test.ts (180 tests) 421ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-returning-json.test.ts (176 tests) 291ms
+
+ Test Files  2 passed (2)
+      Tests  356 passed (356)
+   Start at  01:14:17
+   Duration  3.01s (transform 1.34s, setup 11ms, collect 2.11s, tests 711ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 5.48s wall, 672.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

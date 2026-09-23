@@ -1,0 +1,216 @@
+{
+  "language": {
+    "lines": 3241,
+    "tokenLines": 3209,
+    "tokens": 19449,
+    "bytes": 107040,
+    "perFile": [
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/assignments.ts",
+        "lines": 158,
+        "tokenLines": 153,
+        "tokens": 1031,
+        "bytes": 4831
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/command-attempt.ts",
+        "lines": 88,
+        "tokenLines": 85,
+        "tokens": 654,
+        "bytes": 2948
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/commands.ts",
+        "lines": 1131,
+        "tokenLines": 1124,
+        "tokens": 6964,
+        "bytes": 37887
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/execution.ts",
+        "lines": 750,
+        "tokenLines": 745,
+        "tokens": 4780,
+        "bytes": 25692
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/index.ts",
+        "lines": 115,
+        "tokenLines": 112,
+        "tokens": 531,
+        "bytes": 3201
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/relation-body.ts",
+        "lines": 852,
+        "tokenLines": 848,
+        "tokens": 4730,
+        "bytes": 28322
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/selection.ts",
+        "lines": 147,
+        "tokenLines": 142,
+        "tokens": 759,
+        "bytes": 4159
+      }
+    ]
+  },
+  "shared": {
+    "lines": 5510,
+    "tokenLines": 5364,
+    "tokens": 34523,
+    "bytes": 182977,
+    "perFile": [
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/operation-context.ts",
+        "lines": 1602,
+        "tokenLines": 1587,
+        "tokens": 10025,
+        "bytes": 53686
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/query.ts",
+        "lines": 3355,
+        "tokenLines": 3246,
+        "tokens": 21289,
+        "bytes": 112800
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/schema.ts",
+        "lines": 325,
+        "tokenLines": 316,
+        "tokens": 1848,
+        "bytes": 9513
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/storage.ts",
+        "lines": 210,
+        "tokenLines": 199,
+        "tokens": 1243,
+        "bytes": 6289
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/transport-attempt.ts",
+        "lines": 18,
+        "tokenLines": 16,
+        "tokens": 118,
+        "bytes": 689
+      }
+    ]
+  },
+  "program": {
+    "lines": 628,
+    "tokenLines": 622,
+    "tokens": 4232,
+    "bytes": 20437,
+    "perFile": [
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/program/index.ts",
+        "lines": 53,
+        "tokenLines": 52,
+        "tokens": 243,
+        "bytes": 1499
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/program/program.ts",
+        "lines": 575,
+        "tokenLines": 570,
+        "tokens": 3989,
+        "bytes": 18938
+      }
+    ]
+  },
+  "core": {
+    "lines": 8751,
+    "tokenLines": 8573,
+    "tokens": 53972,
+    "bytes": 290017,
+    "perFile": [
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/assignments.ts",
+        "lines": 158,
+        "tokenLines": 153,
+        "tokens": 1031,
+        "bytes": 4831
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/command-attempt.ts",
+        "lines": 88,
+        "tokenLines": 85,
+        "tokens": 654,
+        "bytes": 2948
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/commands.ts",
+        "lines": 1131,
+        "tokenLines": 1124,
+        "tokens": 6964,
+        "bytes": 37887
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/execution.ts",
+        "lines": 750,
+        "tokenLines": 745,
+        "tokens": 4780,
+        "bytes": 25692
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/index.ts",
+        "lines": 115,
+        "tokenLines": 112,
+        "tokens": 531,
+        "bytes": 3201
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/relation-body.ts",
+        "lines": 852,
+        "tokenLines": 848,
+        "tokens": 4730,
+        "bytes": 28322
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/commands/selection.ts",
+        "lines": 147,
+        "tokenLines": 142,
+        "tokens": 759,
+        "bytes": 4159
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/operation-context.ts",
+        "lines": 1602,
+        "tokenLines": 1587,
+        "tokens": 10025,
+        "bytes": 53686
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/query.ts",
+        "lines": 3355,
+        "tokenLines": 3246,
+        "tokens": 21289,
+        "bytes": 112800
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/schema.ts",
+        "lines": 325,
+        "tokenLines": 316,
+        "tokens": 1848,
+        "bytes": 9513
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/storage.ts",
+        "lines": 210,
+        "tokenLines": 199,
+        "tokens": 1243,
+        "bytes": 6289
+      },
+      {
+        "file": "/private/tmp/viborm-g4-unit01/src/query-engine/raptor3/shared/transport-attempt.ts",
+        "lines": 18,
+        "tokenLines": 16,
+        "tokens": 118,
+        "bytes": 689
+      }
+    ]
+  }
+}

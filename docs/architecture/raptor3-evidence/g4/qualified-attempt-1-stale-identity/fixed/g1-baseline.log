@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 13ms
+ ✓ |raptor3| tests/raptor3/expanded/legacy.test.ts (82 tests) 410ms
+ ✓ |raptor3| tests/raptor3/expanded/variant-identity-legacy.test.ts (42 tests) 493ms
+ ✓ |raptor3| tests/raptor3/expanded/lifetime-legacy.test.ts (16 tests) 71ms
+
+ Test Files  4 passed (4)
+      Tests  141 passed (141)
+   Start at  20:06:40
+   Duration  11.09s (transform 2.79s, setup 30ms, collect 5.40s, tests 987ms, environment 0ms, prepare 88ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ctxFm4/vitest.json
+Vitest resources: 23.88s wall, 649.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g1-baseline contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ctxFm4

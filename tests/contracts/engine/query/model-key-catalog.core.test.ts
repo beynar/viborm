@@ -347,7 +347,7 @@ describe("model-key catalog — addressableKeys", () => {
     ]);
   });
 
-  test("findAddressableKey resolves selector keys with bare-scalar precedence", () => {
+  test("findAddressableKey resolves unambiguous selector keys", () => {
     expect(findAddressableKey(fixtures.multiUnique, "email")).toEqual(
       bare("unique", "email")
     );

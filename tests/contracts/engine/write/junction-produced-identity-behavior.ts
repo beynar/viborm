@@ -336,6 +336,25 @@ export function registerProducedIdentityBehavior(
           },
         },
       });
+      if (name === "atomic batch") {
+        // G3P-04: root-conflict suppression is admitted only where the
+        // operation owns the member rollback region, and the batch route owns
+        // none (`AGENTS.md`, "G3P-04 admits root-conflict suppression only
+        // when the operation owns the member rollback region"); the refusal
+        // fires in the command analysis pass, before the enclosing root can
+        // write. The adopt shape this cell pins is measured on the
+        // interactive leg.
+        await expect(operation).rejects.toMatchObject({
+          name: "TransactionError",
+          message:
+            "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.",
+        });
+        expect(await client.post.findMany()).toEqual([]);
+        expect(
+          (await client.stamp.findMany()).map((row: any) => row.id)
+        ).toEqual([existing.id]);
+        return;
+      }
       await operation;
       const fresh = await client.stamp.findUnique({
         where: { name: "arriving" },

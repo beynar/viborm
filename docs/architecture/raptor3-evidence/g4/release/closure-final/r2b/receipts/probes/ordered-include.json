@@ -1,0 +1,113 @@
+{
+  "version": [
+    {
+      "v": "8.4.11"
+    }
+  ],
+  "descTitles": [
+    "Alpha",
+    "Beta",
+    "Gamma",
+    "Delta",
+    "Epsilon"
+  ],
+  "descSql": [
+    {
+      "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, (SELECT COALESCE(COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`title`, ?, `q2`.`pages`, ?, `q2`.`authorId`)), JSON_ARRAY()), JSON_ARRAY()) FROM (SELECT `q1`.`id` AS `id`, `q1`.`title` AS `title`, `q1`.`pages` AS `pages`, `q1`.`authorId` AS `authorId` FROM `raptor3_g2`.`r2b_books` AS `q1` WHERE `q0`.`id` = `q1`.`authorId` ORDER BY `q1`.`pages` DESC) AS `q2`) AS `books` FROM `raptor3_g2`.`r2b_authors` AS `q0` WHERE `q0`.`id` = ?",
+      "params": [
+        "id",
+        "title",
+        "pages",
+        "authorId",
+        "author-1"
+      ]
+    }
+  ],
+  "descTakeTitles": [
+    "Epsilon",
+    "Delta",
+    "Gamma"
+  ],
+  "descTakeSql": [
+    {
+      "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, (SELECT COALESCE(COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`title`, ?, `q2`.`pages`, ?, `q2`.`authorId`)), JSON_ARRAY()), JSON_ARRAY()) FROM (SELECT `q1`.`id` AS `id`, `q1`.`title` AS `title`, `q1`.`pages` AS `pages`, `q1`.`authorId` AS `authorId` FROM `raptor3_g2`.`r2b_books` AS `q1` WHERE `q0`.`id` = `q1`.`authorId` ORDER BY `q1`.`pages` DESC, `q1`.`id` ASC LIMIT 3) AS `q2`) AS `books` FROM `raptor3_g2`.`r2b_authors` AS `q0` WHERE `q0`.`id` = ?",
+      "params": [
+        "id",
+        "title",
+        "pages",
+        "authorId",
+        "author-1"
+      ]
+    }
+  ],
+  "descSkipTitles": [
+    "Delta",
+    "Gamma",
+    "Beta",
+    "Alpha"
+  ],
+  "descSkipSql": [
+    {
+      "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, (SELECT COALESCE(COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`title`, ?, `q2`.`pages`, ?, `q2`.`authorId`)), JSON_ARRAY()), JSON_ARRAY()) FROM (SELECT `q1`.`id` AS `id`, `q1`.`title` AS `title`, `q1`.`pages` AS `pages`, `q1`.`authorId` AS `authorId` FROM `raptor3_g2`.`r2b_books` AS `q1` WHERE `q0`.`id` = `q1`.`authorId` ORDER BY `q1`.`pages` DESC LIMIT 18446744073709551615 OFFSET 1) AS `q2`) AS `books` FROM `raptor3_g2`.`r2b_authors` AS `q0` WHERE `q0`.`id` = ?",
+      "params": [
+        "id",
+        "title",
+        "pages",
+        "authorId",
+        "author-1"
+      ]
+    }
+  ],
+  "rawWithoutLimit": [
+    {
+      "agg": [
+        {
+          "title": "Alpha"
+        },
+        {
+          "title": "Beta"
+        },
+        {
+          "title": "Gamma"
+        },
+        {
+          "title": "Delta"
+        },
+        {
+          "title": "Epsilon"
+        }
+      ]
+    }
+  ],
+  "rawWithLimit": [
+    {
+      "agg": [
+        {
+          "title": "Epsilon"
+        },
+        {
+          "title": "Delta"
+        },
+        {
+          "title": "Gamma"
+        },
+        {
+          "title": "Beta"
+        },
+        {
+          "title": "Alpha"
+        }
+      ]
+    }
+  ],
+  "explainWithout": [
+    {
+      "EXPLAIN": "-> Aggregate: json_arrayagg(json_object('title',b.title))  (cost=1.5 rows=1)\n    -> Index lookup on b using r2b_books_authorId_idx (authorId='author-1')  (cost=1 rows=5)\n"
+    }
+  ],
+  "explainWith": [
+    {
+      "EXPLAIN": "-> Aggregate: json_arrayagg(json_object('title',t.title))  (cost=4.56..4.56 rows=1)\n    -> Table scan on t  (cost=2.01..4.06 rows=5)\n        -> Materialize  (cost=1.5..1.5 rows=5)\n            -> Sort: b.pages DESC  (cost=1 rows=5)\n                -> Index lookup on b using r2b_books_authorId_idx (authorId='author-1')  (cost=1 rows=5)\n"
+    }
+  ]
+}

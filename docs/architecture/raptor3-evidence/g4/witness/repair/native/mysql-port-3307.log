@@ -1,0 +1,88 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts (4 tests | 4 failed) 8ms
+   × G4 native mysql read envelope > g4-native-scalar-codec-round-trip 5ms
+     → connect ECONNREFUSED 127.0.0.1:3307
+   × G4 native mysql read envelope > g4-native-string-mode-and-nulls-ordering 1ms
+     → connect ECONNREFUSED 127.0.0.1:3307
+   × G4 native mysql read envelope > g4-native-cursor-pagination-and-aggregate-shapes 0ms
+     → connect ECONNREFUSED 127.0.0.1:3307
+   × G4 native mysql read envelope > g4-native-recursive-read-fit 0ms
+     → connect ECONNREFUSED 127.0.0.1:3307
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts > G4 native mysql read envelope > g4-native-scalar-codec-round-trip
+Error: connect ECONNREFUSED 127.0.0.1:3307
+ ❯ PromisePool.query node_modules/.pnpm/mysql2@3.16.1/node_modules/mysql2/lib/promise/pool.js:36:22
+ ❯ write tests/raptor3/transitions/live-world.ts:385:23
+    383|   const write: NativeWrite = async (statement, parameters = []) => {
+    384|     if (pg) await pg.query(statement, parameters);
+    385|     else await mysql!.query(statement, parameters);
+       |                       ^
+    386|   };
+    387|   const read: NativeRead = (statement) =>
+ ❯ runLiveWorld tests/raptor3/transitions/live-world.ts:394:11
+ ❯ runCodecRoundTrip tests/raptor3/g4/native/read-envelope-native.test.ts:246:23
+ ❯ tests/raptor3/g4/native/read-envelope-native.test.ts:557:49
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts > G4 native mysql read envelope > g4-native-string-mode-and-nulls-ordering
+Error: connect ECONNREFUSED 127.0.0.1:3307
+ ❯ PromisePool.query node_modules/.pnpm/mysql2@3.16.1/node_modules/mysql2/lib/promise/pool.js:36:22
+ ❯ write tests/raptor3/transitions/live-world.ts:385:23
+    383|   const write: NativeWrite = async (statement, parameters = []) => {
+    384|     if (pg) await pg.query(statement, parameters);
+    385|     else await mysql!.query(statement, parameters);
+       |                       ^
+    386|   };
+    387|   const read: NativeRead = (statement) =>
+ ❯ runLiveWorld tests/raptor3/transitions/live-world.ts:394:11
+ ❯ runCollationAndNulls tests/raptor3/g4/native/read-envelope-native.test.ts:302:23
+ ❯ tests/raptor3/g4/native/read-envelope-native.test.ts:560:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts > G4 native mysql read envelope > g4-native-cursor-pagination-and-aggregate-shapes
+Error: connect ECONNREFUSED 127.0.0.1:3307
+ ❯ PromisePool.query node_modules/.pnpm/mysql2@3.16.1/node_modules/mysql2/lib/promise/pool.js:36:22
+ ❯ write tests/raptor3/transitions/live-world.ts:385:23
+    383|   const write: NativeWrite = async (statement, parameters = []) => {
+    384|     if (pg) await pg.query(statement, parameters);
+    385|     else await mysql!.query(statement, parameters);
+       |                       ^
+    386|   };
+    387|   const read: NativeRead = (statement) =>
+ ❯ runLiveWorld tests/raptor3/transitions/live-world.ts:394:11
+ ❯ runCursorAndAggregates tests/raptor3/g4/native/read-envelope-native.test.ts:361:23
+ ❯ tests/raptor3/g4/native/read-envelope-native.test.ts:565:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts > G4 native mysql read envelope > g4-native-recursive-read-fit
+Error: connect ECONNREFUSED 127.0.0.1:3307
+ ❯ PromisePool.query node_modules/.pnpm/mysql2@3.16.1/node_modules/mysql2/lib/promise/pool.js:36:22
+ ❯ write tests/raptor3/transitions/live-world.ts:385:23
+    383|   const write: NativeWrite = async (statement, parameters = []) => {
+    384|     if (pg) await pg.query(statement, parameters);
+    385|     else await mysql!.query(statement, parameters);
+       |                       ^
+    386|   };
+    387|   const read: NativeRead = (statement) =>
+ ❯ runLiveWorld tests/raptor3/transitions/live-world.ts:394:11
+ ❯ runRecursiveFit tests/raptor3/g4/native/read-envelope-native.test.ts:539:23
+ ❯ tests/raptor3/g4/native/read-envelope-native.test.ts:570:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  01:31:48
+   Duration  1.73s (transform 1.04s, setup 9ms, collect 1.59s, tests 8ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-CnLuBp/vitest.json
+Vitest resources: 3.79s wall, 500.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-CnLuBp

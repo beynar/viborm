@@ -3,6 +3,17 @@
 **Location:** `src/adapters/`  
 **Layer:** L7 - Database-Specific SQL (see [root AGENTS.md](../../AGENTS.md))
 
+> **Three provenance citations in this layer name V1 files that no longer exist.**
+> The pattern retirement (Arnaud's decision D-15) deleted `query-engine/builders/`
+> whole and all of `query-engine/operations/`; follow-up F-2 then moved its one
+> survivor, `groupby-fields.ts`, to `query-engine/result/` and deleted the
+> directory.
+> `database-adapter.ts:664` and `databases/mysql/mysql-adapter.ts:886` cite
+> `junctionDuplicateSkip` in `builders/many-to-many-utils.ts`, and
+> `adapter-capabilities.ts:42` cites `buildBulkLimitWhere` in
+> `operations/bulk-limit.ts`. Each records WHAT V1 did and where the seam came
+> from; read it in git history (`e8114ed9`), not on disk.
+
 ## Purpose
 
 ALL database-specific SQL generation lives here. Query engine calls adapter methods to build dialect-correct SQL.
@@ -273,6 +284,18 @@ WHERE "active" = TRUE
 -- MySQL/SQLite
 WHERE `active` = 1
 ```
+
+### Private constraint naming
+
+`getAdapterInternals(adapter).constraints` is the one private projection from a
+schema key to its physical constraint name and the exact normalized provider
+descriptor for that dialect. Query engines pass the physical table, columns,
+and the schema key's compound name or mapped scalar column; they do not
+synthesize `_pkey`, `PRIMARY`, `_key`, or SQLite's qualified-column evidence.
+Driver error normalization owns the inverse provider boundary. Candidate
+recovery compares its output exactly and fails closed; it does not reinterpret
+provider messages. This vocabulary must not appear on the public
+`DatabaseAdapter` interface.
 
 ## Coverage Gate
 

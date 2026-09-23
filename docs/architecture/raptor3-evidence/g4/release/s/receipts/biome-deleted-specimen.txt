@@ -1,0 +1,23 @@
+reporter/violations ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Some lint rules or assist actions reported some violations.
+  
+  i The following files have violations:
+  
+  - /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/s/head/program/program.ts (4 errors)
+  
+  i The following lint rules have violations:
+  
+  Rule Name                                       Diagnostics
+  
+  lint/style/useDefaultSwitchClause               2 (2 errors)
+  lint/style/noParameterProperties                1 (1 error)
+  lint/style/useImportType                        1 (1 error)
+
+Checked 2 files in 30ms. No fixes applied.
+Found 4 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

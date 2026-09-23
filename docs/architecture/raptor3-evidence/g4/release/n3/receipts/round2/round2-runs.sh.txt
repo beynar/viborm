@@ -1,0 +1,31 @@
+#!/bin/zsh
+set -u
+cd /Users/arnaud/code/viborm || exit 2
+S=/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad
+O=$S/n3/round2; mkdir -p "$O"; : > "$O/RESULTS.txt"
+export TMPDIR=/private/tmp/viborm-n3-r4-tmp; mkdir -p "$TMPDIR"
+F=src/query-engine/raptor3/shared/operation-context.ts
+cp "$F" "$O/operation-context.backup.ts"
+python3 - <<'PY'
+p="src/query-engine/raptor3/shared/operation-context.ts"; s=open(p).read()
+old="        positionBound = last;\n"; assert s.count(old)==1
+open(p,"w").write(s.replace(old,"        positionBound = rejectedIndex; // FALSIFICATION: unbounded\n"))
+PY
+node scripts/run-vitest-safe.mjs tests/raptor3/g4/parity/lax-to-one.test.ts > "$O/falsify-unbounded.log" 2>&1
+echo "falsify-unbounded exit=$? $(grep -E '^\s*Tests ' "$O/falsify-unbounded.log" | tr -s ' ')" >> "$O/RESULTS.txt"
+grep -E '×|FAIL|batches:' "$O/falsify-unbounded.log" | head -8 | cut -c1-160 >> "$O/RESULTS.txt"
+cp "$O/operation-context.backup.ts" "$F"
+cmp -s "$F" "$O/operation-context.backup.ts" && echo "restored: identical" >> "$O/RESULTS.txt" || echo "RESTORE FAILED" >> "$O/RESULTS.txt"
+run() { local name=$1; shift; "$@" > "$O/$name.log" 2>&1; echo "$name exit=$? $(grep -E '^\s*Tests ' "$O/$name.log" | tr -s ' ' | tr '\n' ';')" >> "$O/RESULTS.txt"; }
+run pins node scripts/run-vitest-safe.mjs tests/raptor3/g4/parity/lax-to-one.test.ts
+run series node scripts/run-vitest-safe.mjs tests/raptor3/g4/parity/series-member-premise.test.ts
+run uncertain node scripts/run-vitest-safe.mjs tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
+run m8 node "$S/run-shared-family.mjs" tests/contracts/engine/query/m8-race-retry.test.ts
+run typecheck node scripts/run-typecheck.mjs
+npx biome check src/query-engine/raptor3/shared/operation-context.ts > "$O/biome-oc.log" 2>&1; echo "biome operation-context: $(grep -E 'Found|Checked' "$O/biome-oc.log" | tr '\n' ' ')" >> "$O/RESULTS.txt"
+npx biome check tests/raptor3/g4/parity/lax-to-one.test.ts > "$O/biome-lax.log" 2>&1; echo "biome lax-to-one: $(grep -E 'Found|Checked' "$O/biome-lax.log" | tr '\n' ' ')" >> "$O/RESULTS.txt"
+run fixed pnpm test:all --only "Raptor 3 fixed"
+for c in coverage:query-engine-core coverage:policy; do
+  if grep -q "\"$c\"" package.json; then pnpm run "$c" > "$O/$c.log" 2>&1; echo "$c exit=$? $(grep -E 'All files' "$O/$c.log" | head -1 | tr -s ' ')" >> "$O/RESULTS.txt"; else echo "$c: no script" >> "$O/RESULTS.txt"; fi
+done
+echo DONE >> "$O/RESULTS.txt"

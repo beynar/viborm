@@ -1,0 +1,67 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-scratch-ra
+
+ ❯ |extended-local| tests/raptor3/g4/parity/integration-staleness.test.ts (5 tests | 1 failed) 48ms
+   ✓ integration — a captured member set asserts its own complement > rides the batch with one raceable complement guard naming the captured keys 24ms
+   ✓ integration — a captured member set asserts its own complement > aborts once on a member added after the plan-time read, then converges 8ms
+   ✓ integration — a captured member set asserts its own complement > proves every premise inside the unit that carries its write 3ms
+   × integration — a captured member set asserts its own complement > reports no progress for a batch rejected at a premise, and keeps it for one rejected at a write 7ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 0,
++   committedWriteMembers: 0,
++   completedMembers: 0,
++   mayHaveCommittedSegment: true,
++   memberPath: [
++     0
++   ],
++   phase: 'member',
++   totalMembers: 1
++ }
+- undefined
+
+   ✓ integration — a captured member set asserts its own complement > spends the allowance once: a second consecutive race propagates 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/integration-staleness.test.ts > integration — a captured member set asserts its own complement > reports no progress for a batch rejected at a premise, and keeps it for one rejected at a write
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 0,
++   committedWriteMembers: 0,
++   completedMembers: 0,
++   mayHaveCommittedSegment: true,
++   memberPath: [
++     0
++   ],
++   phase: 'member',
++   totalMembers: 1
++ }
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/parity/integration-staleness.test.ts:464:14
+    462|       await premise.settle();
+    463|       assert.match(refusal.message, ADDED_MEMBER);
+    464|       assert.equal(progressOf(refusal), undefined);
+       |              ^
+    465|       assert.deepEqual(premise.cacheDriver.invalidations, []);
+    466|       // And the allowance was spendable at all because of it: an oper…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  22:01:48
+   Duration  1.45s (transform 838ms, setup 10ms, collect 1.24s, tests 48ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.41s wall, 481.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts (5 tests) 25ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  23:30:07
+   Duration  1.48s (transform 825ms, setup 8ms, collect 1.25s, tests 25ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-b34eKq/vitest.json
+Vitest resources: 3.40s wall, 473.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-bulk-result-boundary contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-b34eKq

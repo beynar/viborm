@@ -1,0 +1,4 @@
+four files phase-2: {"files":4,"bytes":255888,"physical":7276,"tokenLines":6687}
+four files phase-1: {"files":4,"bytes":236563,"physical":6864,"tokenLines":6461}
+core 12 files:      {"files":12,"bytes":339972,"physical":9875,"tokenLines":9227}
+tree 15 files:      {"files":15,"bytes":369238,"physical":10733,"tokenLines":9996}

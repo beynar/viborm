@@ -1,0 +1,12 @@
+# independent recomputation, countTokenLines census of scripts/query-engine-structure.mjs (same method as the round-6 review)
+selection+relation-body: files=2 bytes=34609 physical=1045 tokenLines=1009
+selection.ts alone: files=1 bytes=6035 physical=186 tokenLines=154
+relation-body.ts alone: files=1 bytes=28574 physical=859 tokenLines=855
+schema.ts: files=1 bytes=17464 physical=485 tokenLines=387
+client-route.ts: files=1 bytes=14880 physical=378 tokenLines=247
+raptor3 tree (15): files=15 bytes=391458 physical=11205 tokenLines=10230
+candidate core (12): files=12 bytes=355846 physical=10191 tokenLines=9357
+
+# candidate core (12) = the 15-file raptor3 tree minus route/client-route.ts, program/program.ts, program/index.ts
+# round-2 figures measured by the round-6 review: core 355351 / 10171 / 9342; tree 390963 / 11185 / 10215
+# increments: core +495 bytes / +20 physical / +15 token-lines; tree the same

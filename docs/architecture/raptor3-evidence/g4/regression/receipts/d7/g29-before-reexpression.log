@@ -1,0 +1,36 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests | 1 failed) 18ms
+   ✓ G2.9 result progress [commands] (sqlite-interactive) > preserves malformed-result translation with truthful progress 14ms
+   × G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress 4ms
+     → {
+  "profile": "sqlite-atomic-batch",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "acknowledgedInsertBatches": 0,
+  "corrupted": false,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "value": {
+    "id": 1,
+    "label": "written"
+  },
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ {
++   id: 1,
++   label: 'written'
++ }
+- undefined
+
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 6.40s wall, 1561.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

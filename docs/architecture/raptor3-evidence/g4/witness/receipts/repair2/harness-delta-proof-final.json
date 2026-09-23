@@ -1,0 +1,18 @@
+{
+  "files": 430,
+  "excluded": [
+    "tests/raptor3/g4/review/unit02-phase2/arithmetic-parity.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/counted-slot.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/operation-region.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/recursive-carrier.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/review.workspace.ts",
+    "tests/raptor3/g4/review/unit02-phase2/root-create-fold.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/statement-atomic-parity.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/tagged-quantifier.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/witness-defect-checks.review.test.ts"
+  ],
+  "keptFiles": 420,
+  "harnessWithAll": "5ef4ad2b62a625cf72c69df7e9e526ca9d688fc5a83d3f0aa5cab3a94100a73b",
+  "harnessWithoutExcluded": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc"
+}

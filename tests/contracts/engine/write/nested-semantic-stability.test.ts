@@ -1,16 +1,23 @@
+import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
- * X1 semantic-stability witnesses. THE DEPTH LIFT lifts DEPTH-ONLY refusals; a
- * SEMANTIC refusal (own-write independence, validation, and the new create-context
- * narrower boundaries) must fire byte-IDENTICALLY at every depth. The own-write
- * preflight and validation run on the whole payload TREE before any Part is built
- * (UpdateOperation runs `OwnWritePreflight.assertUpdate` before `interpretRelation`),
- * so lifting the create leaf cannot let an illegal interplay through at depth. These
- * witnesses embed a depth-1-illegal shape deep inside a lifted create-context chain
- * and assert the SAME typed message a depth-1 shape produces.
+ * X1 semantic-stability witnesses. THE DEPTH LIFT lifts DEPTH-ONLY refusals; what a
+ * payload MEANS must not depend on how deep it sits. These witnesses embed one shape
+ * at depth 1 and the same shape at the bottom of a lifted create-context chain, and
+ * assert both answer IDENTICALLY.
+ *
+ * D-51 changed one of the two answers, not the charter. The own-write pair below
+ * (`create` + `connectOrCreate` naming one key on one to-many relation) used to be
+ * vetoed before execution by the retired design's uniform own-write preflight
+ * (`engine-unification/DESIGN.md:876-921`), which D-51 reverses by name: any nesting
+ * of nested writes EXECUTES. The relation body runs its canonical verb order —
+ * `connectOrCreate` before `create` — so `connectOrCreate` finds no `z1`, creates it,
+ * and the later `create` of the same key collides. The answer is now the database's
+ * own integrity fact, and integrity facts are the operation's failure with nothing
+ * committed. Validation, the other witness here, still answers before execution.
  */
 
 const tree = (() => {
@@ -35,13 +42,17 @@ async function withClient(fn: (c: any) => Promise<void>) {
   await fn(getTreeFamily().client);
 }
 
-async function messageOf(fn: () => Promise<unknown>): Promise<string> {
+async function failureOf(fn: () => Promise<unknown>): Promise<unknown> {
   try {
     await fn();
   } catch (e) {
-    return (e as Error).message;
+    return e;
   }
   throw new Error("expected a rejection, got success");
+}
+
+async function messageOf(fn: () => Promise<unknown>): Promise<string> {
+  return ((await failureOf(fn)) as Error).message;
 }
 
 // A create-context chain that BOTTOMS OUT in an arbitrary leaf payload on `children`.
@@ -56,10 +67,13 @@ function chainInto(ids: readonly string[], leaf: any, index = 0): any {
   return data;
 }
 
-describe("X1 semantic stability — own-write 'split these operations' at depth", () => {
-  // A create + connectOrCreate for the SAME key on one to-many relation is an
-  // own-write dependency (the connectOrCreate's decision read overlaps the create's
-  // target write). Illegal at depth-1; must stay illegal, same message, at depth.
+describe("X1 semantic stability — the own-write pair at depth", () => {
+  // A create + connectOrCreate for the SAME key on one to-many relation. The
+  // retired design vetoed this before execution as an own-write dependency; D-51
+  // reverses that veto by name, so it now EXECUTES in the relation body's canonical
+  // verb order — `connectOrCreate` (which finds no `z1` and creates it) before
+  // `create` (which collides on the primary key). Answered at depth-1; must be
+  // answered the same way, by the same fact, at depth.
   const ownWriteLeaf = {
     create: { id: "z1", name: "z1" },
     connectOrCreate: {
@@ -68,39 +82,85 @@ describe("X1 semantic stability — own-write 'split these operations' at depth"
     },
   };
 
-  test("depth-1 root create rejects with the own-write message", async () => {
-    await withClient(async (c) => {
-      const msg = await messageOf(() =>
-        c.node.create({ data: { id: "r", name: "r", children: ownWriteLeaf } })
+  /** The one answer both depths must give, spelled from the failure itself. */
+  function violation(failure: unknown): Record<string, unknown> {
+    if (!(failure instanceof UniqueConstraintError))
+      throw new Error(
+        `Expected a UniqueConstraintError, received ${String(failure)}`
       );
-      expect(msg).toContain("Split these operations into separate queries");
-      expect(msg).toContain("depends on an earlier 'create' target write");
+    const { message } = failure;
+    const { table, constraint } = failure.meta;
+    return { constraint, message, table };
+  }
+
+  const THE_COLLISION = {
+    constraint: "x1ss_node_pkey",
+    message: "Unique constraint violation",
+    table: "x1ss_node",
+  };
+
+  // D-51: pinned the retired own-write veto ("Split these operations into separate
+  // queries" / "depends on an earlier 'create' target write"); the pair now executes
+  // and the collision the execution reaches is the answer.
+  test("depth-1 root create rejects with the collision the execution reaches", async () => {
+    await withClient(async (c) => {
+      expect(
+        violation(
+          await failureOf(() =>
+            c.node.create({
+              data: { id: "r", name: "r", children: ownWriteLeaf },
+            })
+          )
+        )
+      ).toEqual(THE_COLLISION);
+      // Nothing commits: neither the root nor the leaf the connectOrCreate made.
+      await expect(
+        c.node.findMany({ where: { id: { in: ["r", "z1"] } } })
+      ).resolves.toEqual([]);
     });
   });
 
-  test("depth-4 lifted create-context chain rejects with the SAME own-write message", async () => {
+  // D-51: same former veto, same new answer — that identity is this file's charter.
+  test("depth-4 lifted create-context chain rejects with the SAME violation", async () => {
     await withClient(async (c) => {
       await c.node.create({ data: { id: "c0", name: "c0" } });
       await c.node.create({ data: { id: "c1", name: "c1", parentId: "c0" } });
-      const msg = await messageOf(() =>
-        c.node.update({
-          where: { id: "c0" },
-          data: {
-            children: {
-              update: {
-                where: { id: "c1" },
-                data: {
-                  children: {
-                    create: chainInto(["g1", "g2", "g3"], ownWriteLeaf),
+      const depth4 = violation(
+        await failureOf(() =>
+          c.node.update({
+            where: { id: "c0" },
+            data: {
+              children: {
+                update: {
+                  where: { id: "c1" },
+                  data: {
+                    children: {
+                      create: chainInto(["g1", "g2", "g3"], ownWriteLeaf),
+                    },
                   },
                 },
               },
             },
-          },
-        })
+          })
+        )
       );
-      expect(msg).toContain("Split these operations into separate queries");
-      expect(msg).toContain("depends on an earlier 'create' target write");
+      // The SAME answer as depth-1, spelled from the same three values, and the
+      // whole lifted chain rolled back with it.
+      const depth1 = violation(
+        await failureOf(() =>
+          c.node.create({
+            data: { id: "r", name: "r", children: ownWriteLeaf },
+          })
+        )
+      );
+      expect(depth4).toEqual(THE_COLLISION);
+      expect(depth4).toEqual(depth1);
+      await expect(
+        c.node.findMany({
+          orderBy: { id: "asc" },
+          where: { id: { in: ["g1", "g2", "g3", "z1", "r"] } },
+        })
+      ).resolves.toEqual([]);
     });
   });
 });
@@ -153,6 +213,7 @@ describe("X1 semantic stability — validation error at depth", () => {
 // fresh create at depth to the create-ROOT machinery (mechanisms 1, 2, 4), so they
 // now EXECUTE natively at any depth. Their positive fixed-expectation oracles (with
 // multi-parent + wrong-row witnesses) live in `fresh-create-subtree.test.ts`.
-// The SEMANTIC refusals above (own-write "Split these operations", validation) are
-// unchanged and still fire byte-identically at depth — that is this file's charter.
+// The own-write pair above is no longer a refusal at all (D-51), and validation still
+// answers before execution: both give the SAME answer at depth-1 and at depth-4, which
+// is what this file's charter has always been about.
 //

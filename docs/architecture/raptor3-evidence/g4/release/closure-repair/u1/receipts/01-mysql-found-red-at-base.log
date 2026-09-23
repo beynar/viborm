@@ -1,0 +1,87 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ❯ |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts (14 tests | 3 failed | 11 skipped) 1165ms
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > the CONDITION probe of a conditioned upsert locks no absence either
+   ↓ MySQL2 concurrency policy > a native deadlock > the victim fails visibly, replays nothing, and leaves the survivor's state
+   ↓ MySQL2 concurrency policy > a native deadlock > the same two row locks in the SAME order both succeed
+   ↓ MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle
+   ↓ MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed
+   ↓ MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a row deleted before the update arm fails visibly and commits nothing
+   ↓ MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a CHILD-HELD connectOrCreate whose found target moves out from under it connects nothing, visibly
+   ↓ MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a nested to-ONE upsert whose found target is deleted before the update arm loses nothing silently
+   × MySQL2 concurrency policy > review: a found reference cannot silently connect another target after rekey 652ms
+     → expected 'b2' to be 'b1' // Object.is equality
+   × MySQL2 concurrency policy > review: a found conditioned upsert cannot write after its condition stops matching 292ms
+     → expected 42 to be 8 // Object.is equality
+   × MySQL2 concurrency policy > review: a found nested to-one upsert cannot write a reparented record 219ms
+     → expected { id: 'pr1', …(2) } to match object { ownerId: 'o2', bio: 'original' }
+(1 matching property omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > review: a found reference cannot silently connect another target after rekey
+AssertionError: expected 'b2' to be 'b1' // Object.is equality
+
+Expected: [32m"b[7m1[27m"[39m
+Received: [31m"b[7m2[27m"[39m
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:1015:31
+    983|     });
+    984|   });
+    985| });
+       |    ^
+    986| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > review: a found conditioned upsert cannot write after its condition stops matching
+AssertionError: expected 42 to be 8 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 8[39m
+[31m+ 42[39m
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:1040:27
+    983|     });
+    984|   });
+    985| });
+       |    ^
+    986| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > review: a found nested to-one upsert cannot write a reparented record
+AssertionError: expected { id: 'pr1', …(2) } to match object { ownerId: 'o2', bio: 'original' }
+(1 matching property omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "bio": "original",[39m
+[31m+   "bio": "written-by-o1",[39m
+[2m    "ownerId": "o2",[22m
+[2m  }[22m
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:1065:20
+    983|     });
+    984|   });
+    985| });
+       |    ^
+    986| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 11 skipped (14)
+   Start at  16:34:42
+   Duration  4.41s (transform 1.76s, setup 25ms, collect 2.63s, tests 1.16s, environment 0ms, prepare 95ms)
+
+Vitest resources: 9.36s wall, 472.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

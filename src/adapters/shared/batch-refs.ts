@@ -9,6 +9,8 @@ interface OnConflictBatchRefsConfig {
   createTable: Sql;
   castValue: (valueSql: Sql) => Sql;
   lastInsertId?: () => Sql;
+  /** The dialect's data-modifying CTE around an INSERT, storing its RETURNING. */
+  storeReturning?: BatchReferenceSqlAdapter["storeReturning"];
 }
 
 interface MySqlBatchRefsConfig extends OnConflictBatchRefsConfig {
@@ -45,8 +47,22 @@ function createBatchRefs(
   }
 ): BatchReferenceSqlAdapter {
   const lastInsertId = config.lastInsertId;
+  const storeReturning = config.storeReturning;
   const deleteBatch = (batchId: string): Sql =>
     sql`DELETE FROM ${config.table} WHERE ${config.batchIdColumn} = ${batchId}`;
+  // One owner of "how a generated increment key is stored": the CTE store is
+  // the INSERT itself; the last insert id is a second statement after it.
+  const storeInsertedKey: BatchReferenceSqlAdapter["storeInsertedKey"] =
+    storeReturning
+      ? (batchId, key, insert, column) => [
+          storeReturning(batchId, key, insert, column),
+        ]
+      : lastInsertId
+        ? (batchId, key, insert) => [
+            insert,
+            config.store(batchId, key, lastInsertId()),
+          ]
+        : undefined;
 
   return {
     setup: (_batchId) => [config.createTable],
@@ -61,5 +77,7 @@ function createBatchRefs(
             config.store(batchId, key, lastInsertId()),
         }
       : {}),
+    ...(storeReturning ? { storeReturning } : {}),
+    ...(storeInsertedKey ? { storeInsertedKey } : {}),
   };
 }

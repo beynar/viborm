@@ -13,7 +13,11 @@ import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import type { QueryParts } from "../../adapter-query-parts";
-import type { AdapterResultParser } from "../../adapter-result-parser";
+import {
+  type AdapterResultParser,
+  passThroughParseResult,
+} from "../../adapter-result-parser";
+import { sqliteConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
   type GeoPointSql,
@@ -249,6 +253,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     installGeoPointSql(this, this.geoPoint);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
+      constraints: sqliteConstraintIdentities,
       select: this.#assemble.select,
     });
   }
@@ -405,6 +410,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`MAX(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`MIN(${sql.join(exprs, ", ")})`,
 
+    // The expression form of `set.divide`'s integer arm, and for the same
+    // reason: SQLite drivers bind JS numbers as REAL, so `x / ?` would run real
+    // division. Casting the divisor to INTEGER makes it native INT/INT
+    // division, truncating toward zero.
+    integerDivide: (left: Sql, right: Sql): Sql =>
+      sql`(${left} / CAST(${right} AS INTEGER))`,
+
     // A deferred SQLite decimal is already a captured coefficient. The
     // descriptor still travels through the common contract so no caller can
     // select this physical cast without naming the destination domain.
@@ -420,6 +432,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     cast: createCastExpression({
       text: "TEXT",
       integer: "INTEGER",
+      bigint: "INTEGER",
       boolean: "INTEGER",
       numeric: "NUMERIC",
     }),
@@ -877,11 +890,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     idRepresentation: (domain, nativeType) =>
       idStorageOf(domain, nativeType, "sqlite")?.representation ?? "text",
 
-    parseResult: (
-      _raw: unknown,
-      _operation: import("../../../query-engine/types").Operation,
-      next: (value?: unknown) => unknown
-    ): unknown => next(),
+    parseResult: passThroughParseResult,
 
     parseRelation: (
       _value: unknown,

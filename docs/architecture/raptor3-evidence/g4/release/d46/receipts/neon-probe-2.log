@@ -1,0 +1,40 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46
+
+stderr | tests/contracts/engine/write/neon-committed-segments-capability.test.ts > H2 — Neon HTTP declares no ordered committed segments > generated scalar create and upsert return from one native Neon request
+D46PROBE dispatch statements=1 terminal=false performed=1
+at OperationContext.answer (/private/tmp/viborm-d46/src/query-engine/raptor3/shared/operation-context.ts:918:17)
+at OperationContext.read (/private/tmp/viborm-d46/src/query-engine/raptor3/shared/operation-context.ts:902:33)
+at CommandExecution.runSelection (/private/tmp/viborm-d46/src/query-engine/raptor3/commands/execution.ts:250:37)
+at CommandExecution.run (/private/tmp/viborm-d46/src/query-engine/raptor3/commands/execution.ts:410:22)
+at CommandExecution.complete (/private/tmp/viborm-d46/src/query-engine/raptor3/commands/execution.ts:218:20)
+
+ ❯ |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts (12 tests | 1 failed | 11 skipped) 14ms
+   ↓ H2 — Neon HTTP declares no ordered committed segments > typed direct execution requests object-row full results
+   ↓ H2 — Neon HTTP declares no ordered committed segments > raw direct execution retains named provider rows
+   ↓ H2 — Neon HTTP declares no ordered committed segments > the capability is false, beside the two that are true
+   ↓ H2 — Neon HTTP declares no ordered committed segments > raw and model operations share one native Neon array transaction
+   × H2 — Neon HTTP declares no ordered committed segments > generated scalar create and upsert return from one native Neon request 13ms
+     → Query execution failed
+   ↓ H2 — Neon HTTP declares no ordered committed segments > a ROOT relation-bearing createMany awaits batch execution while the capability is false
+   ↓ H2 — Neon HTTP declares no ordered committed segments > an ordinary write on the same driver DOES reach the provider
+   ↓ H2 — Neon HTTP declares no ordered committed segments > the native batch acknowledges commit after transaction resolution and before returning
+   ↓ H2 — Neon HTTP declares no ordered committed segments > a committed callback precedes result-cardinality failure
+   ↓ H2 — Neon HTTP declares no ordered committed segments > a committed callback precedes statement-result parsing failure
+   ↓ H2 — Neon HTTP declares no ordered committed segments > a rejected native transaction never acknowledges a commit
+   ↓ H2 — Neon HTTP declares no ordered committed segments > attributes a one-statement provider rejection and keeps an opaque multi-statement rejection at batch scope
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts > H2 — Neon HTTP declares no ordered committed segments > generated scalar create and upsert return from one native Neon request
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 skipped (12)
+   Start at  18:23:59
+   Duration  791ms (transform 570ms, setup 7ms, collect 695ms, tests 14ms, environment 0ms, prepare 24ms)
+
+Vitest resources: 2.45s wall, 383.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

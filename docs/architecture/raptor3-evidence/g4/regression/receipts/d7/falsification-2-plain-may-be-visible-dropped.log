@@ -1,0 +1,73 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (7 tests | 2 failed) 48ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 19ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 5ms
+   × G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 8ms
+     → the candidate must too, from the transport that learned it: {"candidate":{"invalidations":0,"outcome":"QueryError"},"shipped":{"invalidations":1,"outcome":"QueryError"}}
+
+0 !== 1
+
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 6ms
+   × G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+     → {"candidate":{"invalidations":0,"outcome":"QueryError"},"shipped":{"invalidations":1,"outcome":"raw:Query execution and write-outcome publication both failed.","primary":"QueryError"}}
+
+0 !== 1
+
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes
+AssertionError: the candidate must too, from the transport that learned it: {"candidate":{"invalidations":0,"outcome":"QueryError"},"shipped":{"invalidations":1,"outcome":"QueryError"}}
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:342:12
+    340|       `the shipped engine invalidates for an outcome it cannot prove r…
+    341|     );
+    342|     assert.equal(
+       |            ^
+    343|       candidate.invalidations,
+    344|       1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure
+AssertionError: {"candidate":{"invalidations":0,"outcome":"QueryError"},"shipped":{"invalidations":1,"outcome":"raw:Query execution and write-outcome publication both failed.","primary":"QueryError"}}
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:394:12
+    392|     const candidate = await observeInvalidation("candidate", "rejected…
+    393|     assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped })…
+    394|     assert.equal(candidate.invalidations, 1, JSON.stringify({ candidat…
+       |            ^
+    395|     assert.equal(
+    396|       shipped.outcome,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  23:15:43
+   Duration  1.98s (transform 1.16s, setup 9ms, collect 1.70s, tests 48ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 4.14s wall, 604.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

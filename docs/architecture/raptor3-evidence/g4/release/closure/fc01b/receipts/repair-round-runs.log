@@ -1,0 +1,31 @@
+# FC01B repair round (2026-09-21) — re-run of the affected files after the two comment/prose corrections
+
+$ node scripts/run-vitest-safe.mjs run tests/raptor3/fixed.test.ts tests/raptor3/candidate.test.ts -t "s2-changed-dependency"
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01b
+
+ ✓ |coverage-raptor3| tests/raptor3/candidate.test.ts (24 tests | 22 skipped) 71ms
+ ✓ |coverage-raptor3| tests/raptor3/fixed.test.ts (24 tests | 22 skipped) 9ms
+ ✓ |raptor3| tests/raptor3/candidate.test.ts (24 tests | 22 skipped) 58ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests | 22 skipped) 9ms
+
+ Test Files  4 passed (4)
+      Tests  8 passed | 88 skipped (96)
+   Start at  23:37:22
+   Duration  3.59s (transform 1.84s, setup 18ms, collect 2.99s, tests 148ms, environment 0ms, prepare 65ms)
+
+Vitest resources: 5.69s wall, 559.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+$ node scripts/run-vitest-safe.mjs run tests/raptor3/candidate-ordering.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01b
+
+ ✓ |coverage-raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests) 40ms
+ ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests) 41ms
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  23:37:27
+   Duration  2.99s (transform 1.64s, setup 16ms, collect 2.52s, tests 81ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 4.82s wall, 539.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

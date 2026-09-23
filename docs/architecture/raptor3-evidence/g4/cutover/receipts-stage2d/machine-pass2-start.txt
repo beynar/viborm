@@ -1,0 +1,24 @@
+# Stage 2d — machine state at the START of pass 2 (the one permitted repeat)
+
+captured: 2026-09-16 20:18:26 CEST
+reason for the repeat: 7 cells inconclusive on pass 1 (protocol.md §5 / plan §7)
+
+20:18  up 16 days, 19:58, 2 users, load averages: 8.27 9.58 10.61
+1-minute load: 8.27  (gate: start only while <= 20)
+
+## top CPU processes (command truncated to 110 chars)
+arnaud           97416 100.0  0.2 470259456  89408   ??  Rs    2:53PM 295:35.26 /Users/arnaud/.vite-plus/js_ru
+_windowserver      421  56.1  0.3 438255536 141696   ??  Us   31Aug26 11598:58.12 /System/Library/PrivateFrame
+arnaud           22117  38.3  0.2 486972656  79296   ??  S    10:02AM 103:28.78 /Applications/Claude.app/Conte
+arnaud           21828  25.9  4.1 1949554768 2048848   ??  S    10:02AM 128:05.14 /Applications/ChatGPT.app/Co
+arnaud           21774  14.5  0.2 487333776 106032   ??  S    10:02AM  64:36.92 /Applications/ChatGPT.app/Cont
+arnaud           22190  12.1  1.7 1965222800 861360   ??  S    10:02AM  53:18.67 /Applications/Claude.app/Cont
+arnaud           36353  10.6  0.7 441019856 376832   ??  S    10:31AM   8:27.83 /Users/arnaud/Library/Applicat
+arnaud           84452   7.6  0.3 493254528 155904   ??  S     3:50PM  31:20.29 /Applications/Dia.app/Contents
+arnaud           24143   7.2  0.7 441016048 369648   ??  S    10:02AM  11:04.88 /Users/arnaud/Library/Applicat
+root             80763   5.4  0.0 435354016   4064   ??  Ss    3:44PM   4:29.88 /usr/libexec/sysmond
+
+## benchmark/vitest/raptor3 processes
+
+## lock files
+(none)

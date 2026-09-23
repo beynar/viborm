@@ -1,0 +1,20 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 101ms
+ ✓ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 81ms
+ ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 14ms
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 54ms
+ ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 33ms
+ ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 27ms
+ ✓ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 26ms
+ ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 29ms
+
+ Test Files  8 passed (8)
+      Tests  62 passed (62)
+   Start at  15:34:18
+   Duration  2.60s (transform 1.01s, setup 25ms, collect 1.98s, tests 365ms, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ROVFOA/vitest.json
+Vitest resources: 4.76s wall, 640.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ROVFOA

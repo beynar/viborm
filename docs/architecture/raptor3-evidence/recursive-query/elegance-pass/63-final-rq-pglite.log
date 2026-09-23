@@ -1,0 +1,19 @@
+
+[test:all] raptor3-provider: tests/raptor3/recursive-query/provider-sql-pglite.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/recursive-query/provider-sql-pglite.test.ts (14 tests) 10647ms
+   ✓ recursive relation provider SQL on PGlite > projects the recursive placement matrix through provider SQL  578ms
+   ✓ recursive relation provider SQL on PGlite > RQ-03 FK directions and inverse one-to-one end naturally before the cutoff  382ms
+   ✓ recursive relation provider SQL on PGlite > RQ-03 depth 1, 2, 100 (the default) and 1000 cut off without an extra hop  611ms
+   ✓ recursive relation provider SQL on PGlite > RQ-03 an exhaustive acyclic chain beyond the public depth ceiling  558ms
+   ✓ recursive relation provider SQL on PGlite > RQ-03 an alternate nullable reference is not the row's primary identity  507ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  15:19:02
+   Duration  31.75s (transform 12.06s, setup 162ms, collect 19.74s, tests 10.65s, environment 0ms, prepare 337ms)
+
+[test:all] raptor3-provider: tests/raptor3/recursive-query/provider-sql-pglite.test.ts: 46.75s wall, 895.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.
+exit=0

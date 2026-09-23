@@ -1,0 +1,129 @@
+{
+  "measuredAt": "2026-09-15T08:51:19.530Z",
+  "baseCommit": "0cc61e61",
+  "definition": "countTokenLines copied verbatim from scripts/query-engine-structure.mjs (JSDoc excluded, parser-owned tokens only). `head` = HEAD 0cc61e61; `beforeFollowUp` = the r1..r4 figures in ../unit-cost.json; `after` = this working tree, Biome-formatted.",
+  "rows": [
+    {
+      "file": "src/query-engine/raptor3/route/client-route.ts",
+      "head": {
+        "bytes": 0,
+        "physicalLines": 0,
+        "tokenLines": 0
+      },
+      "beforeFollowUp": {
+        "bytes": 8534,
+        "physicalLines": 222,
+        "tokenLines": 143
+      },
+      "after": {
+        "bytes": 9170,
+        "physicalLines": 234,
+        "tokenLines": 144
+      },
+      "followUpDelta": {
+        "bytes": 636,
+        "physicalLines": 12,
+        "tokenLines": 1
+      },
+      "unitDelta": {
+        "bytes": 9170,
+        "physicalLines": 234,
+        "tokenLines": 144
+      }
+    },
+    {
+      "file": "src/query-engine/query-engine.ts",
+      "head": {
+        "bytes": 7164,
+        "physicalLines": 227,
+        "tokenLines": 175
+      },
+      "beforeFollowUp": {
+        "bytes": 7594,
+        "physicalLines": 237,
+        "tokenLines": 180
+      },
+      "after": {
+        "bytes": 7594,
+        "physicalLines": 237,
+        "tokenLines": 180
+      },
+      "followUpDelta": {
+        "bytes": 0,
+        "physicalLines": 0,
+        "tokenLines": 0
+      },
+      "unitDelta": {
+        "bytes": 430,
+        "physicalLines": 10,
+        "tokenLines": 5
+      }
+    },
+    {
+      "file": "src/query-engine/pending-operation.ts",
+      "head": {
+        "bytes": 30889,
+        "physicalLines": 874,
+        "tokenLines": 760
+      },
+      "beforeFollowUp": {
+        "bytes": 34942,
+        "physicalLines": 977,
+        "tokenLines": 828
+      },
+      "after": {
+        "bytes": 35202,
+        "physicalLines": 983,
+        "tokenLines": 830
+      },
+      "followUpDelta": {
+        "bytes": 260,
+        "physicalLines": 6,
+        "tokenLines": 2
+      },
+      "unitDelta": {
+        "bytes": 4313,
+        "physicalLines": 109,
+        "tokenLines": 70
+      }
+    },
+    {
+      "file": "src/client/client.ts",
+      "head": {
+        "bytes": 45809,
+        "physicalLines": 1308,
+        "tokenLines": 1020
+      },
+      "beforeFollowUp": {
+        "bytes": 46324,
+        "physicalLines": 1330,
+        "tokenLines": 1040
+      },
+      "after": {
+        "bytes": 46549,
+        "physicalLines": 1335,
+        "tokenLines": 1043
+      },
+      "followUpDelta": {
+        "bytes": 225,
+        "physicalLines": 5,
+        "tokenLines": 3
+      },
+      "unitDelta": {
+        "bytes": 740,
+        "physicalLines": 27,
+        "tokenLines": 23
+      }
+    }
+  ],
+  "followUpTotal": {
+    "bytes": 1121,
+    "physicalLines": 23,
+    "tokenLines": 6
+  },
+  "unitTotalSinceHead": {
+    "bytes": 14653,
+    "physicalLines": 380,
+    "tokenLines": 242
+  }
+}

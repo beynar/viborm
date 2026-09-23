@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 122ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  14:57:10
+   Duration  3.78s (transform 2.07s, setup 15ms, collect 3.16s, tests 122ms, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-WVDegf/vitest.json
+Vitest resources: 7.27s wall, 478.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-member-dependency contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-WVDegf

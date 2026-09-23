@@ -1,0 +1,31 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts [ tests/raptor3/g4/native/read-envelope-native.test.ts ]
+AssertionError: Required live provider loopback port is missing or invalid
+
+simple
+
+ ❯ tests/raptor3/transitions/live-world.ts:37:1
+     35| );
+     36| const portText = process.env.VIBORM_RAPTOR3_PROVIDER_PORT;
+     37| assert(
+       | ^
+     38|   portText && /^\d+$/.test(portText),
+     39|   "Required live provider loopback port is missing or invalid"
+ ❯ tests/raptor3/g4/native/read-envelope-native.test.ts:25:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  23:37:06
+   Duration  1.94s (transform 1.18s, setup 11ms, collect 0ms, tests 0ms, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-deA6KJ/vitest.json
+Vitest resources: 4.22s wall, 504.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-deA6KJ

@@ -37,7 +37,16 @@ interface TypeField {
   readonly name: string;
   readonly type: TypeNode;
   readonly immutable?: true;
+  readonly optional?: true;
 }
+
+/**
+ * One named alias a rendered result declares. A recursive relation is the
+ * only type TypeScript cannot spell as one anonymous expression, so each
+ * recursive slot is rendered once as a named alias whose repeated key refers
+ * to the alias itself.
+ */
+type AliasDeclaration = { readonly name: string; type: TypeNode };
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const NULL_TYPE: TypeNode = { kind: "atom", value: "null" };
@@ -96,7 +105,8 @@ function renderType(node: TypeNode, depth: number): string {
       const fieldIndentation = indentation(depth + 1);
       const fields = node.fields.map((field) => {
         const modifier = field.immutable ? "readonly " : "";
-        return `${fieldIndentation}${modifier}${renderPropertyName(field.name)}: ${renderType(field.type, depth + 1)};`;
+        const optional = field.optional ? "?" : "";
+        return `${fieldIndentation}${modifier}${renderPropertyName(field.name)}${optional}: ${renderType(field.type, depth + 1)};`;
       });
       return `{
 ${fields.join("\n")}
@@ -238,7 +248,10 @@ function aggregateType(
   return objectOf(fields);
 }
 
-function polymorphicType(expected: ExpectedPolymorphicResultShape): TypeNode {
+function polymorphicType(
+  expected: ExpectedPolymorphicResultShape,
+  declarations: AliasDeclaration[]
+): TypeNode {
   const variants: TypeNode[] = [];
   for (const [publicType, variant] of expected.variants) {
     if (expected.cardinality === "many" && variant.visible !== true) continue;
@@ -251,7 +264,7 @@ function polymorphicType(expected: ExpectedPolymorphicResultShape): TypeNode {
         },
         {
           name: "data",
-          type: rowType(variant.model, variant.shape),
+          type: rowType(variant.model, variant.shape, declarations),
           immutable: true,
         },
       ])
@@ -262,7 +275,56 @@ function polymorphicType(expected: ExpectedPolymorphicResultShape): TypeNode {
   return expected.optional ? unionOf(member, NULL_TYPE) : member;
 }
 
-function rowType(model: AnyModel, shape: ExpectedResultShape): TypeNode {
+/** A relation slot's cardinality and emptiness around one row type. */
+function relationValue(
+  expected: ExpectedRelationResultShape,
+  row: TypeNode
+): TypeNode {
+  if (expected.cardinality === "many") return arrayOf(row);
+  return expected.optional ? unionOf(row, NULL_TYPE) : row;
+}
+
+/**
+ * One recursive slot: the ordinary node row once, as a named alias whose own
+ * key repeats the slot. A numeric cutoff may leave that key absent, so it is
+ * optional; an exhaustive traversal publishes it on every occurrence.
+ */
+function recursiveRowType(
+  key: string,
+  expected: ExpectedRelationResultShape,
+  depth: number | false,
+  declarations: AliasDeclaration[]
+): TypeNode {
+  const declaration: AliasDeclaration = {
+    name: `VibORMRecursiveNode${declarations.length + 1}`,
+    type: atom("never"),
+  };
+  declarations.push(declaration);
+  const self = atom(declaration.name);
+  declaration.type = objectOf([
+    ...rowFields(expected.model, expected.shape, declarations),
+    {
+      name: key,
+      type: relationValue(expected, self),
+      ...(depth === false ? {} : { optional: true as const }),
+    },
+  ]);
+  return self;
+}
+
+function rowType(
+  model: AnyModel,
+  shape: ExpectedResultShape,
+  declarations: AliasDeclaration[]
+): TypeNode {
+  return objectOf(rowFields(model, shape, declarations));
+}
+
+function rowFields(
+  model: AnyModel,
+  shape: ExpectedResultShape,
+  declarations: AliasDeclaration[]
+): TypeField[] {
   const fields: TypeField[] = [];
   for (const rawKey of shape.rawKeys) {
     const column = classifyResultColumn(model, rawKey, shape);
@@ -284,21 +346,26 @@ function rowType(model: AnyModel, shape: ExpectedResultShape): TypeNode {
         break;
       case "relation": {
         const expected = requiredRelationShape(column.key, column.expected);
-        const relatedRow = rowType(expected.model, expected.shape);
-        const relatedValue =
-          expected.cardinality === "many"
-            ? arrayOf(relatedRow)
-            : expected.optional
-              ? unionOf(relatedRow, NULL_TYPE)
-              : relatedRow;
-        fields.push({ name: column.key, type: relatedValue });
+        const relatedRow = expected.recurrence
+          ? recursiveRowType(
+              column.key,
+              expected,
+              expected.recurrence.depth,
+              declarations
+            )
+          : rowType(expected.model, expected.shape, declarations);
+        fields.push({
+          name: column.key,
+          type: relationValue(expected, relatedRow),
+        });
         break;
       }
       case "polymorphic":
         fields.push({
           name: column.key,
           type: polymorphicType(
-            requiredPolymorphicShape(column.key, column.expected)
+            requiredPolymorphicShape(column.key, column.expected),
+            declarations
           ),
         });
         break;
@@ -335,7 +402,7 @@ function rowType(model: AnyModel, shape: ExpectedResultShape): TypeNode {
         );
     }
   }
-  return objectOf(fields);
+  return fields;
 }
 
 function countType(shape: ExpectedResultShape): TypeNode {
@@ -350,6 +417,15 @@ function countType(shape: ExpectedResultShape): TypeNode {
   );
 }
 
+/**
+ * The schema-only result type of one admitted payload, from its expected
+ * shape alone: no driver, no SQL, no client default-omit or extension.
+ *
+ * Almost every result renders as ONE type expression. A recursive relation
+ * slot cannot: its node refers to itself, and TypeScript names recursion only
+ * through a declaration (format: `renderOperationResultType`). The text names
+ * no exported helper.
+ */
 export function operationResultType(
   model: AnyModel,
   publicOperation: Operations,
@@ -373,12 +449,13 @@ export function operationResultType(
     );
   }
 
+  const declarations: AliasDeclaration[] = [];
   let value =
     shape.carrier === "existence"
       ? atom("boolean")
       : shape.carrier === "count"
         ? countType(shape)
-        : rowType(model, shape);
+        : rowType(model, shape, declarations);
 
   if (
     publicOperation === "findMany" ||
@@ -394,7 +471,10 @@ export function operationResultType(
   ) {
     value = unionOf(value, NULL_TYPE);
   }
-  return renderType(value, 0);
+  if (declarations.length === 0) return renderType(value, 0);
+  return [{ name: "VibORMOperationResult", type: value }, ...declarations]
+    .map(({ name, type }) => `type ${name} = ${renderType(type, 0)};`)
+    .join("\n");
 }
 
 function settledModel(relation: AnyRelation, variant?: string): AnyModel {

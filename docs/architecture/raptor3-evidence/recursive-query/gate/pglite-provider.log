@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/postgres-declared-type-scratch.test.ts (3 tests) 784ms
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts (2 tests) 560ms
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/transport-seam-pglite.test.ts (2 tests) 450ms
+
+ Test Files  3 passed (3)
+      Tests  7 passed (7)
+   Start at  04:33:02
+   Duration  3.58s (transform 997ms, setup 11ms, collect 1.63s, tests 1.79s, environment 0ms, prepare 28ms)
+
+Vitest resources: 5.38s wall, 1740.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

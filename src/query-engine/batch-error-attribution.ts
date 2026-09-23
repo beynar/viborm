@@ -4,10 +4,42 @@ import {
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
+  NotFoundError,
+  TransactionError,
   VibORMErrorCode,
 } from "@errors";
-import type { PreparedBatchGuard } from "./types";
-import { createFailureError } from "./write-engine/OperationFragment";
+import type { PreparedBatchGuard, PreparedGuardFailure } from "./types";
+
+/**
+ * Materialize a guard's declared {@link PreparedGuardFailure} as its typed
+ * error — the ONE failure-to-error construction. A `notFound` failure rebuilds
+ * its sentence from the model and verb, so the declared message is never
+ * user-facing for that kind; the `raceable` mark is what lets the routed retry
+ * re-plan and converge, so it survives every arm.
+ */
+function createFailureError(
+  failure: PreparedGuardFailure,
+  model: string,
+  operation: string
+): Error {
+  if (failure.kind === "nestedWrite") {
+    const error = new NestedWriteError(failure.message, failure.relation ?? "");
+    if (failure.raceable) {
+      error.meta.raceable = true;
+    }
+    return error;
+  }
+  if (failure.kind === "notFound") {
+    return new NotFoundError(model, operation);
+  }
+  const error = new TransactionError(failure.message, {
+    meta: { model, operation },
+  });
+  if (failure.raceable) {
+    error.meta.raceable = true;
+  }
+  return error;
+}
 
 /**
  * Attribute a native-batch assertion failure to the guard that raised it (P6

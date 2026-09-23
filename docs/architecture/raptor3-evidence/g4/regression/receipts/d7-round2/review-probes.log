@@ -1,0 +1,399 @@
+▲ [WARNING] Cannot find base config file "astro/tsconfigs/strict" [tsconfig.json]
+
+    docs/tsconfig.json:2:13:
+      2 │   "extends": "astro/tsconfigs/strict",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests) 64ms
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/d7-lone-statement.review.test.ts (12 tests | 1 failed) 34ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D1 root update matching no row, batch-only: same failure, same cache answer 6ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D2 root update matching no row, transaction-capable: same failure, same cache answer 2ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D3 a lone statement that fails AFTER the provider ran it 2ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D4 a lone statement rejected by a unique violation invalidates on neither engine 2ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D5 the G2.9 cut on a transaction-capable driver leaves the same state on both engines 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D6 the G2.9 cut on a batch-only driver leaves the same state on both engines 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D7 a one-statement createMany with skipDuplicates answers what shipped answers 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D8 a throwing cache listener never replaces the operation's own failure (uncertain arm) 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D9 a throwing cache listener beside a malformed committed result (committed arm) 1ms
+   × G4-02 D-7 review — the lone statement once it reaches the provider > D12 the same listener failure beside a malformed result on the BATCH transport 8ms
+     → D12 failure {
+  "candidate": {
+    "batches": 1,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "createMany",
+          "scalarType": "int",
+          "recordSeriesProgress": {
+            "atomicity": "segment",
+            "phase": "result",
+            "committedSegments": 1,
+            "completedMembers": 0,
+            "committedWriteMembers": 1
+          }
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "createMany",
+            "scalarType": "int",
+            "recordSeriesProgress": {
+              "atomicity": "segment",
+              "phase": "result",
+              "committedSegments": 1,
+              "completedMembers": 0,
+              "committedWriteMembers": 1
+            }
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "createMany"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "a"
+      },
+      {
+        "id": 3,
+        "owner_label": "b"
+      }
+    ]
+  },
+  "shipped": {
+    "batches": 1,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "createMany",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "createMany",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "createMany"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "a"
+      },
+      {
+        "id": 3,
+        "owner_label": "b"
+      }
+    ]
+  }
+}
++ actual - expected
+... Skipped lines
+
+  {
+    cause: {
+      code: 'V9001',
+      kind: 'QueryEngineError',
+      meta: {
+        driver: 'sqlite3',
+        operation: 'createMany',
++       recordSeriesProgress: {
++         atomicity: 'segment',
++         committedSegments: 1,
++         committedWriteMembers: 1,
++         completedMembers: 0,
++         phase: 'result'
++       },
+        scalarType: 'int'
+      }
+    },
+    errors: [
+      {
+...
+          operation: 'createMany',
++         recordSeriesProgress: {
++           atomicity: 'segment',
++           committedSegments: 1,
++           committedWriteMembers: 1,
++           completedMembers: 0,
++           phase: 'result'
++         },
+          scalarType: 'int'
+        }
+      },
+      {
+        code: 'V10004',
+
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D11 a multi-statement write inside its own region tells the cache nothing 3ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D10 a lone deleteMany that matches nothing still ran, on both engines 4ms
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts (8 tests) 24ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/d7-lone-statement.review.test.ts > G4-02 D-7 review — the lone statement once it reaches the provider > D12 the same listener failure beside a malformed result on the BATCH transport
+AssertionError: D12 failure {
+  "candidate": {
+    "batches": 1,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "createMany",
+          "scalarType": "int",
+          "recordSeriesProgress": {
+            "atomicity": "segment",
+            "phase": "result",
+            "committedSegments": 1,
+            "completedMembers": 0,
+            "committedWriteMembers": 1
+          }
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "createMany",
+            "scalarType": "int",
+            "recordSeriesProgress": {
+              "atomicity": "segment",
+              "phase": "result",
+              "committedSegments": 1,
+              "completedMembers": 0,
+              "committedWriteMembers": 1
+            }
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "createMany"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "a"
+      },
+      {
+        "id": 3,
+        "owner_label": "b"
+      }
+    ]
+  },
+  "shipped": {
+    "batches": 1,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "createMany",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "createMany",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "createMany"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "a"
+      },
+      {
+        "id": 3,
+        "owner_label": "b"
+      }
+    ]
+  }
+}
++ actual - expected
+... Skipped lines
+
+  {
+    cause: {
+      code: 'V9001',
+      kind: 'QueryEngineError',
+      meta: {
+        driver: 'sqlite3',
+        operation: 'createMany',
++       recordSeriesProgress: {
++         atomicity: 'segment',
++         committedSegments: 1,
++         committedWriteMembers: 1,
++         completedMembers: 0,
++         phase: 'result'
++       },
+        scalarType: 'int'
+      }
+    },
+    errors: [
+      {
+...
+          operation: 'createMany',
++         recordSeriesProgress: {
++           atomicity: 'segment',
++           committedSegments: 1,
++           committedWriteMembers: 1,
++           completedMembers: 0,
++           phase: 'result'
++         },
+          scalarType: 'int'
+        }
+      },
+      {
+        code: 'V10004',
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,20 +3,34 @@[39m
+[2m      "code": "V9001",[22m
+[2m      "kind": "QueryEngineError",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "operation": "createMany",[22m
+[31m+       "recordSeriesProgress": {[39m
+[31m+         "atomicity": "segment",[39m
+[31m+         "committedSegments": 1,[39m
+[31m+         "committedWriteMembers": 1,[39m
+[31m+         "completedMembers": 0,[39m
+[31m+         "phase": "result",[39m
+[31m+       },[39m
+[2m        "scalarType": "int",[22m
+[2m      },[22m
+[2m    },[22m
+[2m    "errors": [[22m
+[2m      {[22m
+[2m        "code": "V9001",[22m
+[2m        "kind": "QueryEngineError",[22m
+[2m        "meta": {[22m
+[2m          "driver": "sqlite3",[22m
+[2m          "operation": "createMany",[22m
+[31m+         "recordSeriesProgress": {[39m
+[31m+           "atomicity": "segment",[39m
+[31m+           "committedSegments": 1,[39m
+[31m+           "committedWriteMembers": 1,[39m
+[31m+           "completedMembers": 0,[39m
+[31m+           "phase": "result",[39m
+[31m+         },[39m
+[2m          "scalarType": "int",[22m
+[2m        },[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "code": "V10004",[22m
+
+ ❯ tests/raptor3/g4/review/regression/d7-lone-statement.review.test.ts:505:12
+    503|       true
+    504|     );
+    505|     assert.deepEqual(
+       |            ^
+    506|       candidate.failure,
+    507|       shipped.failure,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 30 passed (31)
+   Start at  00:21:46
+   Duration  2.16s (transform 1.20s, setup 0ms, collect 1.91s, tests 122ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 2.59s wall, 509.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

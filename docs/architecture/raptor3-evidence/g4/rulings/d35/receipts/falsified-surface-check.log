@@ -1,0 +1,577 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d35
+
+ ❯ |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts (6 tests | 1 failed) 7ms
+   ✓ consumable provider result proof > publishes rows only while the registered producer identity stays eligible 2ms
+   ✓ consumable provider result proof > does not activate or resolve a driver after candidate eligibility is revoked 0ms
+   ✓ consumable provider result proof > withdraws proof when the typed entry changes during execution 0ms
+   ✓ consumable provider result proof > withdraws proof when the producer changes during execution 0ms
+   × consumable provider result proof > a shipped SQLite3 driver carrying a result middleware is borrowed 4ms
+     → expected { Object (driver, executeEntry, ...) } to be undefined
+   ✓ consumable provider result proof > withdraws proof when the active transport stops being eligible 0ms
+ ❯ |coverage-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts (6 tests | 1 failed) 7ms
+   ✓ consumable provider result proof > publishes rows only while the registered producer identity stays eligible 2ms
+   ✓ consumable provider result proof > does not activate or resolve a driver after candidate eligibility is revoked 0ms
+   ✓ consumable provider result proof > withdraws proof when the typed entry changes during execution 0ms
+   ✓ consumable provider result proof > withdraws proof when the producer changes during execution 0ms
+   × consumable provider result proof > a shipped SQLite3 driver carrying a result middleware is borrowed 4ms
+     → expected { Object (driver, executeEntry, ...) } to be undefined
+   ✓ consumable provider result proof > withdraws proof when the active transport stops being eligible 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts > consumable provider result proof > a shipped SQLite3 driver carrying a result middleware is borrowed
+AssertionError: expected { Object (driver, executeEntry, ...) } to be undefined
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+{
+  "driver": SQLite3Driver {
+    "adapter": SQLiteAdapter {
+      "aggregates": {
+        "avg": [Function avg],
+        "count": [Function count],
+        "countDistinct": [Function countDistinct],
+        "decimalAvg": [Function decimalAvg],
+        "decimalSumOperandPrecision": [Function sqliteDecimalSumOperandPrecision],
+        "max": [Function max],
+        "min": [Function min],
+        "sum": [Function sum],
+      },
+      "arrays": {
+        "decimalProjection": [Function decimalProjection],
+        "enumValue": [Function sqliteJsonListValue],
+        "get": [Function get],
+        "has": [Function has],
+        "hasEvery": [Function hasEvery],
+        "hasSome": [Function hasSome],
+        "isEmpty": [Function isEmpty],
+        "length": [Function length],
+        "literal": [Function literal],
+        "push": [Function push],
+        "set": [Function set],
+        "value": [Function sqliteJsonListValue],
+      },
+      "assertions": {
+        "exists": [Function exists],
+        "notExists": [Function notExists],
+      },
+      "capabilities": {
+        "supportsCteWithMutations": false,
+        "supportsFullOuterJoin": false,
+        "supportsLateralJoins": false,
+        "supportsMutationRowLimit": false,
+        "supportsMutationTargetInSubquery": true,
+        "supportsReturning": true,
+        "supportsTargetedUpsert": true,
+        "supportsUpsertWhere": true,
+        "supportsVector": false,
+      },
+      "clauses": {
+        "from": [Function from],
+        "groupBy": [Function groupBy],
+        "having": [Function having],
+        "limit": [Function limit],
+        "offset": [Function offset],
+        "orderBy": [Function orderBy],
+        "select": [Function select],
+        "selectDistinct": [Function selectDistinct],
+        "where": [Function where],
+      },
+      "cte": {
+        "recursive": [Function recursive],
+        "with": [Function with],
+      },
+      "expressions": {
+        "add": [Function add],
+        "asciiCaseFold": [Function asciiCaseFold],
+        "blobToHex": [Function blobToHex],
+        "caseSensitiveText": [Function caseSensitiveText],
+        "caseWhen": [Function caseWhen],
+        "cast": [Function anonymous],
+        "coalesce": [Function coalesce],
+        "concat": [Function concat],
+        "decimalCast": [Function decimalCast],
+        "divide": [Function divide],
+        "greatest": [Function greatest],
+        "integerDivide": [Function integerDivide],
+        "least": [Function least],
+        "lower": [Function lower],
+        "multiply": [Function multiply],
+        "subtract": [Function subtract],
+        "upper": [Function upper],
+      },
+      "filters": {
+        "every": [Function every],
+        "is": [Function is],
+        "isNot": [Function isNot],
+        "none": [Function none],
+        "some": [Function some],
+      },
+      "geoPoint": {
+        "equals": [Function equals],
+        "latitude": [Function latitude],
+        "longitude": [Function longitude],
+        "value": [Function value],
+        "withinBounds": [Function withinBounds],
+      },
+      "identifiers": {
+        "aliased": [Function aliased],
+        "column": [Function column],
+        "escape": [Function escape],
+        "table": [Function table],
+      },
+      "joins": {
+        "cross": [Function cross],
+        "full": [Function full],
+        "inner": [Function inner],
+        "lateral": [Function lateral],
+        "lateralLeft": [Function lateralLeft],
+        "left": [Function left],
+        "right": [Function right],
+      },
+      "json": {
+        "agg": [Function agg],
+        "array": [Function array],
+        "boolean": [Function boolean],
+        "contains": [Function contains],
+        "document": [Function document],
+        "emptyArray": [Function emptyArray],
+        "extract": [Function jsonExtract],
+        "extractText": [Function jsonExtractText],
+        "lastElement": [Function lastElement],
+        "numberAtPath": [Function numberAtPath],
+        "object": [Function object],
+        "objectFromColumns": [Function objectFromColumns],
+        "stringAtPath": [Function stringAtPath],
+        "value": [Function value],
+      },
+      "lastInsertId": [Function lastInsertId],
+      "literals": {
+        "dateTime": [Function dateTime],
+        "decimal": [Function decimal],
+        "false": [Function false],
+        "json": [Function json],
+        "list": [Function list],
+        "null": [Function null],
+        "true": [Function true],
+        "value": [Function value],
+      },
+      "mutations": {
+        "delete": [Function delete],
+        "insert": [Function anonymous],
+        "insertDefault": [Function insertDefault],
+        "onConflict": [Function onConflict],
+        "onConflictUpdate": [Function onConflictUpdate],
+        "returning": [Function returning],
+        "skipDuplicates": [Function skipDuplicates],
+        "skipDuplicatesStrategy": "sql",
+        "update": [Function update],
+      },
+      "noLimitValue": Sql {
+        "projection": undefined,
+        "rawStrings": [
+          "-1",
+        ],
+        "rawValues": [],
+        "statements": undefined,
+      },
+      "operators": {
+        "and": [Function and],
+        "between": [Function between],
+        "containsText": [Function containsText],
+        "endsWithText": [Function endsWithText],
+        "eq": [Function eq],
+        "exactTextEq": [Function exactTextEq],
+        "exactTextIn": [Function exactTextIn],
+        "exists": [Function exists],
+        "gt": [Function gt],
+        "gte": [Function gte],
+        "ilike": [Function ilike],
+        "in": [Function in],
+        "isNotNull": [Function isNotNull],
+        "isNull": [Function isNull],
+        "like": [Function like],
+        "lt": [Function lt],
+        "lte": [Function lte],
+        "neq": [Function neq],
+        "not": [Function not],
+        "notBetween": [Function notBetween],
+        "notExists": [Function notExists],
+        "notIlike": [Function notIlike],
+        "notIn": [Function notIn],
+        "notLike": [Function notLike],
+        "or": [Function or],
+        "startsWithPrefix": [Function startsWithPrefix],
+        "startsWithText": [Function startsWithText],
+      },
+      "orderBy": {
+        "asc": [Function asc],
+        "desc": [Function desc],
+        "nullsFirst": [Function nullsFirst],
+        "nullsLast": [Function nullsLast],
+      },
+      "raw": [Function anonymous],
+      "result": {
+        "dateTimeRepresentation": [Function sqliteDateTimePhysicalForm],
+        "decimalListRepresentation": "coefficient",
+        "decimalRepresentation": "coefficient",
+        "parseField": [Function parseField],
+        "parseRelation": [Function parseRelation],
+        "parseResult": [Function parseResult],
+      },
+      "set": {
+        "assign": [Function assign],
+        "decrement": [Function decrement],
+        "divide": [Function divide],
+        "increment": [Function increment],
+        "multiply": [Function multiply],
+        "push": [Function push],
+        "unshift": [Function unshift],
+      },
+      "setOperations": {
+        "except": [Function except],
+        "intersect": [Function intersect],
+        "union": [Function union],
+        "unionAll": [Function unionAll],
+      },
+      "subqueries": {
+        "correlate": [Function correlate],
+        "existsCheck": [Function existsCheck],
+        "scalar": [Function scalar],
+      },
+      "vector": {
+        "cosine": [Function cosine],
+        "l2": [Function l2],
+        "literal": [Function literal],
+      },
+    },
+    "boundContext": {
+      "operation": undefined,
+    },
+    "canonicalAdapterParseResult": [Function parseResult],
+    "client": null,
+    "closeRetryClient": null,
+    "connectionQueue": SavepointQueue {
+      "head": 0,
+      "processing": false,
+      "queue": [],
+    },
+    "dialect": "sqlite",
+    "driverName": "sqlite3",
+    "driverOptions": {},
+    "inTransaction": false,
+    "initPromise": null,
+    "isConnectionTransactionActive": false,
+    "isDisconnecting": false,
+    "maxBindParametersPerStatement": 999,
+    "migrationNamespaceAttestation": undefined,
+    "result": {
+      "parseField": [Function parseField],
+      "parseResult": [Function parseResult],
+    },
+    "serializeTransactions": true,
+    "suppliedClient": undefined,
+    "supportsBatch": false,
+    "supportsOrderedCommittedSegments": false,
+    "supportsTransactions": true,
+    "transactionPoisonError": undefined,
+  },
+  "executeEntry": [Function _execute],
+  "isCandidateEligible": [Function isConsumableCandidate],
+  "isProducerEligible": [Function isConsumableProducer],
+}
+
+ ❯ tests/contracts/drivers/consumable-result-proof.core.test.ts:197:55
+    195|       value: middleware,
+    196|     });
+    197|     expect(resolveConsumableResultCandidate(wrapped)).toBeUndefined();
+       |                                                       ^
+    198|   });
+    199| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |coverage-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts > consumable provider result proof > a shipped SQLite3 driver carrying a result middleware is borrowed
+AssertionError: expected { Object (driver, executeEntry, ...) } to be undefined
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+{
+  "driver": SQLite3Driver {
+    "adapter": SQLiteAdapter {
+      "aggregates": {
+        "avg": [Function avg],
+        "count": [Function count],
+        "countDistinct": [Function countDistinct],
+        "decimalAvg": [Function decimalAvg],
+        "decimalSumOperandPrecision": [Function sqliteDecimalSumOperandPrecision],
+        "max": [Function max],
+        "min": [Function min],
+        "sum": [Function sum],
+      },
+      "arrays": {
+        "decimalProjection": [Function decimalProjection],
+        "enumValue": [Function sqliteJsonListValue],
+        "get": [Function get],
+        "has": [Function has],
+        "hasEvery": [Function hasEvery],
+        "hasSome": [Function hasSome],
+        "isEmpty": [Function isEmpty],
+        "length": [Function length],
+        "literal": [Function literal],
+        "push": [Function push],
+        "set": [Function set],
+        "value": [Function sqliteJsonListValue],
+      },
+      "assertions": {
+        "exists": [Function exists],
+        "notExists": [Function notExists],
+      },
+      "capabilities": {
+        "supportsCteWithMutations": false,
+        "supportsFullOuterJoin": false,
+        "supportsLateralJoins": false,
+        "supportsMutationRowLimit": false,
+        "supportsMutationTargetInSubquery": true,
+        "supportsReturning": true,
+        "supportsTargetedUpsert": true,
+        "supportsUpsertWhere": true,
+        "supportsVector": false,
+      },
+      "clauses": {
+        "from": [Function from],
+        "groupBy": [Function groupBy],
+        "having": [Function having],
+        "limit": [Function limit],
+        "offset": [Function offset],
+        "orderBy": [Function orderBy],
+        "select": [Function select],
+        "selectDistinct": [Function selectDistinct],
+        "where": [Function where],
+      },
+      "cte": {
+        "recursive": [Function recursive],
+        "with": [Function with],
+      },
+      "expressions": {
+        "add": [Function add],
+        "asciiCaseFold": [Function asciiCaseFold],
+        "blobToHex": [Function blobToHex],
+        "caseSensitiveText": [Function caseSensitiveText],
+        "caseWhen": [Function caseWhen],
+        "cast": [Function anonymous],
+        "coalesce": [Function coalesce],
+        "concat": [Function concat],
+        "decimalCast": [Function decimalCast],
+        "divide": [Function divide],
+        "greatest": [Function greatest],
+        "integerDivide": [Function integerDivide],
+        "least": [Function least],
+        "lower": [Function lower],
+        "multiply": [Function multiply],
+        "subtract": [Function subtract],
+        "upper": [Function upper],
+      },
+      "filters": {
+        "every": [Function every],
+        "is": [Function is],
+        "isNot": [Function isNot],
+        "none": [Function none],
+        "some": [Function some],
+      },
+      "geoPoint": {
+        "equals": [Function equals],
+        "latitude": [Function latitude],
+        "longitude": [Function longitude],
+        "value": [Function value],
+        "withinBounds": [Function withinBounds],
+      },
+      "identifiers": {
+        "aliased": [Function aliased],
+        "column": [Function column],
+        "escape": [Function escape],
+        "table": [Function table],
+      },
+      "joins": {
+        "cross": [Function cross],
+        "full": [Function full],
+        "inner": [Function inner],
+        "lateral": [Function lateral],
+        "lateralLeft": [Function lateralLeft],
+        "left": [Function left],
+        "right": [Function right],
+      },
+      "json": {
+        "agg": [Function agg],
+        "array": [Function array],
+        "boolean": [Function boolean],
+        "contains": [Function contains],
+        "document": [Function document],
+        "emptyArray": [Function emptyArray],
+        "extract": [Function jsonExtract],
+        "extractText": [Function jsonExtractText],
+        "lastElement": [Function lastElement],
+        "numberAtPath": [Function numberAtPath],
+        "object": [Function object],
+        "objectFromColumns": [Function objectFromColumns],
+        "stringAtPath": [Function stringAtPath],
+        "value": [Function value],
+      },
+      "lastInsertId": [Function lastInsertId],
+      "literals": {
+        "dateTime": [Function dateTime],
+        "decimal": [Function decimal],
+        "false": [Function false],
+        "json": [Function json],
+        "list": [Function list],
+        "null": [Function null],
+        "true": [Function true],
+        "value": [Function value],
+      },
+      "mutations": {
+        "delete": [Function delete],
+        "insert": [Function anonymous],
+        "insertDefault": [Function insertDefault],
+        "onConflict": [Function onConflict],
+        "onConflictUpdate": [Function onConflictUpdate],
+        "returning": [Function returning],
+        "skipDuplicates": [Function skipDuplicates],
+        "skipDuplicatesStrategy": "sql",
+        "update": [Function update],
+      },
+      "noLimitValue": Sql {
+        "projection": undefined,
+        "rawStrings": [
+          "-1",
+        ],
+        "rawValues": [],
+        "statements": undefined,
+      },
+      "operators": {
+        "and": [Function and],
+        "between": [Function between],
+        "containsText": [Function containsText],
+        "endsWithText": [Function endsWithText],
+        "eq": [Function eq],
+        "exactTextEq": [Function exactTextEq],
+        "exactTextIn": [Function exactTextIn],
+        "exists": [Function exists],
+        "gt": [Function gt],
+        "gte": [Function gte],
+        "ilike": [Function ilike],
+        "in": [Function in],
+        "isNotNull": [Function isNotNull],
+        "isNull": [Function isNull],
+        "like": [Function like],
+        "lt": [Function lt],
+        "lte": [Function lte],
+        "neq": [Function neq],
+        "not": [Function not],
+        "notBetween": [Function notBetween],
+        "notExists": [Function notExists],
+        "notIlike": [Function notIlike],
+        "notIn": [Function notIn],
+        "notLike": [Function notLike],
+        "or": [Function or],
+        "startsWithPrefix": [Function startsWithPrefix],
+        "startsWithText": [Function startsWithText],
+      },
+      "orderBy": {
+        "asc": [Function asc],
+        "desc": [Function desc],
+        "nullsFirst": [Function nullsFirst],
+        "nullsLast": [Function nullsLast],
+      },
+      "raw": [Function anonymous],
+      "result": {
+        "dateTimeRepresentation": [Function sqliteDateTimePhysicalForm],
+        "decimalListRepresentation": "coefficient",
+        "decimalRepresentation": "coefficient",
+        "parseField": [Function parseField],
+        "parseRelation": [Function parseRelation],
+        "parseResult": [Function parseResult],
+      },
+      "set": {
+        "assign": [Function assign],
+        "decrement": [Function decrement],
+        "divide": [Function divide],
+        "increment": [Function increment],
+        "multiply": [Function multiply],
+        "push": [Function push],
+        "unshift": [Function unshift],
+      },
+      "setOperations": {
+        "except": [Function except],
+        "intersect": [Function intersect],
+        "union": [Function union],
+        "unionAll": [Function unionAll],
+      },
+      "subqueries": {
+        "correlate": [Function correlate],
+        "existsCheck": [Function existsCheck],
+        "scalar": [Function scalar],
+      },
+      "vector": {
+        "cosine": [Function cosine],
+        "l2": [Function l2],
+        "literal": [Function literal],
+      },
+    },
+    "boundContext": {
+      "operation": undefined,
+    },
+    "canonicalAdapterParseResult": [Function parseResult],
+    "client": null,
+    "closeRetryClient": null,
+    "connectionQueue": SavepointQueue {
+      "head": 0,
+      "processing": false,
+      "queue": [],
+    },
+    "dialect": "sqlite",
+    "driverName": "sqlite3",
+    "driverOptions": {},
+    "inTransaction": false,
+    "initPromise": null,
+    "isConnectionTransactionActive": false,
+    "isDisconnecting": false,
+    "maxBindParametersPerStatement": 999,
+    "migrationNamespaceAttestation": undefined,
+    "result": {
+      "parseField": [Function parseField],
+      "parseResult": [Function parseResult],
+    },
+    "serializeTransactions": true,
+    "suppliedClient": undefined,
+    "supportsBatch": false,
+    "supportsOrderedCommittedSegments": false,
+    "supportsTransactions": true,
+    "transactionPoisonError": undefined,
+  },
+  "executeEntry": [Function _execute],
+  "isCandidateEligible": [Function isConsumableCandidate],
+  "isProducerEligible": [Function isConsumableProducer],
+}
+
+ ❯ tests/contracts/drivers/consumable-result-proof.core.test.ts:197:55
+    195|       value: middleware,
+    196|     });
+    197|     expect(resolveConsumableResultCandidate(wrapped)).toBeUndefined();
+       |                                                       ^
+    198|   });
+    199| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 10 passed (12)
+   Start at  22:31:33
+   Duration  2.30s (transform 1.26s, setup 17ms, collect 1.89s, tests 14ms, environment 0ms, prepare 59ms)
+
+Vitest resources: 4.27s wall, 496.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

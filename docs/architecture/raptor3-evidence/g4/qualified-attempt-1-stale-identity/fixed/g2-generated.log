@@ -1,0 +1,134 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests | 1 failed) 1494ms
+   ✓ pins the approved single-admission ledger against duplicate and missing entries: sqlite-interactive 55ms
+   ✓ G2 generated fixed key-move: sqlite-interactive 51ms
+   ✓ G2 generated fixed key-rollback: sqlite-interactive 34ms
+   ✓ G2 generated fixed singular-supply-modify: sqlite-interactive 37ms
+   ✓ G2 generated fixed required-retain: sqlite-interactive 29ms
+   ✓ G2 generated fixed required-depart: sqlite-interactive 30ms
+   ✓ G2 generated fixed coc-set-distinct: sqlite-interactive 43ms
+   ✓ G2 generated fixed coc-set-same: sqlite-interactive 29ms
+   ✓ G2 generated fixed delete-create: sqlite-interactive 42ms
+   ✓ G2 generated fixed delete-update: sqlite-interactive 57ms
+   ✓ G2 generated fixed junction-transfer: sqlite-interactive 38ms
+   ✓ G2 generated before-dispatch followed by healthy calls: sqlite-interactive 24ms
+   ✓ G2 generated after-key-write followed by healthy calls: sqlite-interactive 24ms
+   ✓ G2 generated two-before-dispatch followed by healthy calls: sqlite-interactive 20ms
+   ✓ G2 generated seed 2000: sqlite-interactive 18ms
+   ✓ G2 generated seed 2001: sqlite-interactive 23ms
+   ✓ G2 generated seed 2002: sqlite-interactive 17ms
+   ✓ G2 generated seed 2003: sqlite-interactive 16ms
+   ✓ G2 generated seed 2004: sqlite-interactive 16ms
+   ✓ G2 generated seed 2005: sqlite-interactive 16ms
+   ✓ G2 generated seed 2006: sqlite-interactive 10ms
+   ✓ G2 generated seed 2007: sqlite-interactive 9ms
+   ✓ G2 shrinks actual wrong-parent publication and exactly replays the same property: sqlite-interactive 55ms
+   ✓ pins the approved single-admission ledger against duplicate and missing entries: sqlite-atomic-batch 13ms
+   ✓ G2 generated fixed key-move: sqlite-atomic-batch 23ms
+   ✓ G2 generated fixed key-rollback: sqlite-atomic-batch 25ms
+   ✓ G2 generated fixed singular-supply-modify: sqlite-atomic-batch 33ms
+   ✓ G2 generated fixed required-retain: sqlite-atomic-batch 22ms
+   ✓ G2 generated fixed required-depart: sqlite-atomic-batch 24ms
+   ✓ G2 generated fixed coc-set-distinct: sqlite-atomic-batch 26ms
+   ✓ G2 generated fixed coc-set-same: sqlite-atomic-batch 20ms
+   ✓ G2 generated fixed delete-create: sqlite-atomic-batch 29ms
+   ✓ G2 generated fixed delete-update: sqlite-atomic-batch 26ms
+   ✓ G2 generated fixed junction-transfer: sqlite-atomic-batch 32ms
+   ✓ G2 generated before-dispatch followed by healthy calls: sqlite-atomic-batch 19ms
+   ✓ G2 generated after-key-write followed by healthy calls: sqlite-atomic-batch 23ms
+   × G2 generated two-before-dispatch followed by healthy calls: sqlite-atomic-batch 170ms
+     → G2 seed 2122, sqlite-atomic-batch, commands failed
+   ✓ G2 generated seed 2000: sqlite-atomic-batch 38ms
+   ✓ G2 generated seed 2001: sqlite-atomic-batch 30ms
+   ✓ G2 generated seed 2002: sqlite-atomic-batch 25ms
+   ✓ G2 generated seed 2003: sqlite-atomic-batch 20ms
+   ✓ G2 generated seed 2004: sqlite-atomic-batch 18ms
+   ✓ G2 generated seed 2005: sqlite-atomic-batch 26ms
+   ✓ G2 generated seed 2006: sqlite-atomic-batch 15ms
+   ✓ G2 generated seed 2007: sqlite-atomic-batch 9ms
+   ✓ G2 shrinks actual wrong-parent publication and exactly replays the same property: sqlite-atomic-batch 54ms
+ ✓ |raptor3| tests/raptor3/g2-harness.test.ts (6 tests) 61ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated two-before-dispatch followed by healthy calls: sqlite-atomic-batch
+Error: G2 seed 2122, sqlite-atomic-batch, commands failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: g2-generated-transitions changed subsequent public operation outcomes
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      failure: {
+        cause: {
+          message: 'Underlying error details redacted',
+...
+          operation: 'create',
++         recordSeriesProgress: {
++           atomicity: 'segment',
++           committedSegments: 0,
++           committedWriteMembers: 0,
++           completedMembers: 0,
++           mayHaveCommittedSegment: true,
++           phase: 'member'
++         },
++         statementIndex: 0
+        },
+        name: 'QueryError'
+      },
+      kind: 'failure'
+    },
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -10,10 +10,19 @@[39m
+[2m        "meta": {[22m
+[2m          "correlationId": "<diagnostic identity>",[22m
+[2m          "driver": "sqlite3",[22m
+[2m          "model": "owner",[22m
+[2m          "operation": "create",[22m
+[31m+         "recordSeriesProgress": {[39m
+[31m+           "atomicity": "segment",[39m
+[31m+           "committedSegments": 0,[39m
+[31m+           "committedWriteMembers": 0,[39m
+[31m+           "completedMembers": 0,[39m
+[31m+           "mayHaveCommittedSegment": true,[39m
+[31m+           "phase": "member",[39m
+[31m+         },[39m
+[31m+         "statementIndex": 0,[39m
+[2m        },[22m
+[2m        "name": "QueryError",[22m
+[2m      },[22m
+[2m      "kind": "failure",[22m
+[2m    },[22m
+
+ ❯ assertEquivalentRunObservations benchmarks/operation-pipeline-semantics.mjs:84:18
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:60:7
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 51 passed (52)
+   Start at  20:33:09
+   Duration  9.28s (transform 2.78s, setup 19ms, collect 4.42s, tests 1.56s, environment 0ms, prepare 65ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-TZMZg0/vitest.json
+Vitest resources: 18.36s wall, 759.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-TZMZg0

@@ -1,0 +1,8 @@
+Credential-free --only runner, 2560 MiB isolated live-PGlite ceiling:
+
+tests/raptor3/expanded/produced-legacy.test.ts: 3/3; 1490.9 MiB; teardown verified
+tests/raptor3/expanded/batch-produced-legacy.test.ts: 2/2; 1492.1 MiB; teardown verified
+tests/raptor3/expanded/produced-commands.test.ts: 3/3; 1596.9 MiB; teardown verified
+tests/raptor3/expanded/batch-produced-commands.test.ts: 2/2; 1491.9 MiB; teardown verified
+
+Total: 10 passed, 0 failed, 0 pending.

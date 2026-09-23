@@ -1,0 +1,16 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-JUooj7
+✔ the same replay command accepts saved fixed, cut/fault and clock corpora (20356.780125ms)
+✔ the command refuses filtering, missing required cases and profiles (22874.101ms)
+✔ saved evidence with a stale identity, empty corpus or malformed wire fails (18364.522041ms)
+✔ the outer watchdog terminates an operation that actually reached its wait (120315.885291ms)
+✔ the outer watchdog terminates a public call awaiting a queued provider reply (10413.088042ms)
+✔ completed G2 progress survives watchdog termination without becoming qualifying evidence (30456.30875ms)
+✔ test:all cannot replace the required lane through inherited specimen variables (25414.164125ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 257860.241167

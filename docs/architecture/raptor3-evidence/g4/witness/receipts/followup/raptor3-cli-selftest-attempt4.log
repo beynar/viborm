@@ -1,0 +1,564 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-3rN6PW
+✖ the same replay command accepts saved fixed, cut/fault and clock corpora (0.264583ms)
+✖ the command refuses filtering, missing required cases and profiles (0.028208ms)
+✖ saved evidence with a stale identity, empty corpus or malformed wire fails (0.025ms)
+✖ the outer watchdog terminates an operation that actually reached its wait (0.018875ms)
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (0.027833ms)
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (0.021333ms)
+✖ the command refuses a filtered G4 mode and an off-boundary G4 child (0.019ms)
+✖ the G4 write lanes own their own range and take no subject (0.020542ms)
+✖ a G4 campaign subject comes from the command, never from the shell (0.033709ms)
+✖ test:all cannot replace the required lane through inherited specimen variables (0.041208ms)
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (24.686791ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 0
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5841.388125
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:95:1
+✖ the same replay command accepts saved fixed, cut/fault and clock corpora (0.264583ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:114:1
+✖ the command refuses filtering, missing required cases and profiles (0.028208ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:124:1
+✖ saved evidence with a stale identity, empty corpus or malformed wire fails (0.025ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:155:1
+✖ the outer watchdog terminates an operation that actually reached its wait (0.018875ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:167:1
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (0.027833ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:179:1
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (0.021333ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:215:1
+✖ the command refuses a filtered G4 mode and an off-boundary G4 child (0.019ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:230:1
+✖ the G4 write lanes own their own range and take no subject (0.020542ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:250:1
+✖ a G4 campaign subject comes from the command, never from the shell (0.033709ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:300:1
+✖ test:all cannot replace the required lane through inherited specimen variables (0.041208ms)
+  AssertionError [ERR_ASSERTION]: 
+   RUN  v3.1.4 /Users/arnaud/code/viborm
+  
+   ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1232ms
+     ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1090ms
+   ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 41ms
+  
+   Test Files  2 passed (2)
+        Tests  33 passed (33)
+     Start at  05:05:22
+     Duration  3.32s (transform 1.16s, setup 10ms, collect 1.84s, tests 1.27s, environment 0ms, prepare 33ms)
+  
+  JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4ykbni/vitest.json
+  
+  Vitest resources: 5.38s wall, 860.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:78:1
+✖ /Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs (24.686791ms)
+  AssertionError [ERR_ASSERTION]: Stale Raptor 3 evidence: executed source or runtime changed
+  + actual - expected
+  
+    {
+  +   harness: 'bc52365c8a1d6c7956c2bf5f29a520c7c6f580f16a79bff866d2fa1641a8a7a9',
+  -   harness: '399370c8dd090a58341f077aa8be1f5ea061e9656fc81138fc75dbe94d4814bf',
+      production: '99c8d6a8a276b626adf9ba5f32d5ec9176760df59fc0aa60d742f0392ab29be7',
+      runtime: {
+        architecture: 'arm64',
+        node: 'v24.21.0',
+        platform: 'darwin',
+  
+      at assertRaptor3Identity (file:///Users/arnaud/code/viborm/scripts/raptor3-manifest.mjs:933:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:92:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.runHook (node:internal/test_runner/test:1289:20)
+      at after (node:internal/test_runner/test:1342:20)
+      at Test.run (node:internal/test_runner/test:1428:13) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [Object],
+    expected: [Object],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+Node resources: 6.06s wall, 199.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

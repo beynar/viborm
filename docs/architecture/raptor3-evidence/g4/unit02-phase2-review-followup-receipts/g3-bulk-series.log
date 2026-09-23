@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/bulk-series-contract.test.ts (6 tests) 39ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:06:42
+   Duration  2.44s (transform 1.49s, setup 10ms, collect 2.24s, tests 39ms, environment 0ms, prepare 32ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1EzrJl/vitest.json
+Vitest resources: 4.68s wall, 537.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-bulk-series contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1EzrJl

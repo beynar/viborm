@@ -1,0 +1,363 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-envelope-array.review.test.ts (5 tests | 1 failed) 67ms
+   ✓ G4-03b review — the transferred region and the array owner > after a failing MULTI-statement member the caller's transaction still commits on both routes 33ms
+   ✓ G4-03b review — the transferred region and the array owner > a failing MULTI-statement member inside a NESTED transaction keeps the outer effects on both routes 8ms
+   ✓ G4-03b review — the transferred region and the array owner > an array transaction whose member is MULTI-statement behaves the same on both routes (interactive) 8ms
+   × G4-03b review — the transferred region and the array owner > an array transaction whose member is MULTI-statement behaves the same on both routes (batch-only) 12ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    stored: {
++     authors: [
++       {
++         email: 'barr@example.test'
++       },
++       {
++         email: 'barr2@example.test'
++       }
++     ],
++     books: [
++       {
++         title: 'b-1'
++       },
++       {
++         title: 'b-2'
++       },
++       {
++         title: 'c-1'
++       },
++       {
++         title: 'c-2'
++       }
++     ]
+-     authors: [],
+-     books: []
+    },
++   withSelect: 'ok:[{"email":"barr@example.test"}]',
++   withoutSelect: 'ok:[{"id":2,"email":"barr2@example.test","name":"BArr2"}]'
+-   withSelect: 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.',
+-   withoutSelect: 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+  }
+
+   ✓ G4-03b review — the transferred region and the array owner > an array transaction mixing a read and a MULTI-statement write agrees on both routes 6ms
+ ❯ |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-seams.review.test.ts (3 tests | 1 failed) 27ms
+   ✓ G4-03b review — the re-owned client seams > the cache-key payload is identical on both routes for every read verb 9ms
+   × G4-03b review — the re-owned client seams > the interceptor payload is identical on both routes for every client verb 15ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    'create={"data":{"slug":"a","title":"t","score":0}}',
+    'createMany={"data":[{"slug":"b","title":"t","score":0},{"slug":"c","title":"t","score":4}]}',
+    'findMany={"select":{"slug":true}}',
+    'findFirst={"where":{"score":{"gte":0}}}',
+...
+    'updateMany={"where":{"slug":{"in":["b","c"]}},"data":{"score":{"increment":1}}}',
++   'upsert={"where":{"slug":"d"},"create":{"slug":"d","title":"t","score":0},"update":{"title":{"set":"x"}}}',
+-   'upsert={"where":{"slug":"d"},"create":{"slug":"d","title":"t"},"update":{"title":"x"}}',
+    'delete={"where":{"slug":"d"}}',
+    'deleteMany={"where":{"slug":{"in":["c"]}}}'
+  ]
+
+   ✓ G4-03b review — the re-owned client seams > a statement transform that rewrites SQL reaches the driver on both routes 3ms
+ ✓ |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-write-outcome.review.test.ts (4 tests) 12ms
+ ✓ |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-array-verbs.review.test.ts (3 tests) 14ms
+ ✓ |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-admission-seam.review.test.ts (5 tests) 17ms
+ ❯ |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-upsert-payload.review.test.ts (1 test | 1 failed) 8ms
+   × G4-03b review — LX-12 payload for upsert > a query interceptor on upsert sees the same input on both routes 8ms
+     → the interceptor payload for `upsert` differs between the routes
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      create: {
++       id: undefined,
++       score: 0,
+        slug: 'u',
+        title: 'created'
+      },
+      include: undefined,
+      omit: undefined,
+...
+      update: {
++       title: {
++         set: 'updated'
++       }
+-       title: 'updated'
+      },
+      where: {
+        slug: 'u'
+      }
+    },
+    {
+      create: {
++       id: undefined,
++       score: 0,
+        slug: 'u',
+        title: 'created'
+      },
+      include: undefined,
+      omit: undefined,
+...
+      update: {
++       title: {
++         set: 'updated'
++       }
+-       title: 'updated'
+      },
+      where: {
+        slug: 'u'
+      }
+    }
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-envelope-array.review.test.ts > G4-03b review — the transferred region and the array owner > an array transaction whose member is MULTI-statement behaves the same on both routes (batch-only)
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    stored: {
++     authors: [
++       {
++         email: 'barr@example.test'
++       },
++       {
++         email: 'barr2@example.test'
++       }
++     ],
++     books: [
++       {
++         title: 'b-1'
++       },
++       {
++         title: 'b-2'
++       },
++       {
++         title: 'c-1'
++       },
++       {
++         title: 'c-2'
++       }
++     ]
+-     authors: [],
+-     books: []
+    },
++   withSelect: 'ok:[{"email":"barr@example.test"}]',
++   withoutSelect: 'ok:[{"id":2,"email":"barr2@example.test","name":"BArr2"}]'
+-   withSelect: 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.',
+-   withoutSelect: 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "stored": {[22m
+[32m-     "authors": [],[39m
+[32m-     "books": [],[39m
+[31m+     "authors": [[39m
+[31m+       {[39m
+[31m+         "email": "barr@example.test",[39m
+[2m        },[22m
+[32m-   "withSelect": "TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.",[39m
+[32m-   "withoutSelect": "TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.",[39m
+[31m+       {[39m
+[31m+         "email": "barr2@example.test",[39m
+[31m+       },[39m
+[31m+     ],[39m
+[31m+     "books": [[39m
+[31m+       {[39m
+[31m+         "title": "b-1",[39m
+[31m+       },[39m
+[31m+       {[39m
+[31m+         "title": "b-2",[39m
+[31m+       },[39m
+[31m+       {[39m
+[31m+         "title": "c-1",[39m
+[31m+       },[39m
+[31m+       {[39m
+[31m+         "title": "c-2",[39m
+[31m+       },[39m
+[31m+     ],[39m
+[31m+   },[39m
+[31m+   "withSelect": "ok:[{\"email\":\"barr@example.test\"}]",[39m
+[31m+   "withoutSelect": "ok:[{\"id\":2,\"email\":\"barr2@example.test\",\"name\":\"BArr2\"}]",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit03b/route-envelope-array.review.test.ts:352:12
+    350|     }, "batch-only");
+    351| 
+    352|     assert.deepEqual(observations.candidate, observations.shipped);
+       |            ^
+    353|   });
+    354| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-seams.review.test.ts > G4-03b review — the re-owned client seams > the interceptor payload is identical on both routes for every client verb
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    'create={"data":{"slug":"a","title":"t","score":0}}',
+    'createMany={"data":[{"slug":"b","title":"t","score":0},{"slug":"c","title":"t","score":4}]}',
+    'findMany={"select":{"slug":true}}',
+    'findFirst={"where":{"score":{"gte":0}}}',
+...
+    'updateMany={"where":{"slug":{"in":["b","c"]}},"data":{"score":{"increment":1}}}',
++   'upsert={"where":{"slug":"d"},"create":{"slug":"d","title":"t","score":0},"update":{"title":{"set":"x"}}}',
+-   'upsert={"where":{"slug":"d"},"create":{"slug":"d","title":"t"},"update":{"title":"x"}}',
+    'delete={"where":{"slug":"d"}}',
+    'deleteMany={"where":{"slug":{"in":["c"]}}}'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -10,9 +10,9 @@[39m
+[2m    "aggregate={\"_sum\":{\"score\":true}}",[22m
+[2m    "groupBy={\"by\":[\"slug\"],\"orderBy\":{\"slug\":\"asc\"},\"_count\":true}",[22m
+[2m    "exist={\"where\":{\"slug\":{\"equals\":\"a\"}}}",[22m
+[2m    "update={\"where\":{\"slug\":\"a\"},\"data\":{\"score\":{\"set\":9}}}",[22m
+[2m    "updateMany={\"where\":{\"slug\":{\"in\":[\"b\",\"c\"]}},\"data\":{\"score\":{\"increment\":1}}}",[22m
+[32m-   "upsert={\"where\":{\"slug\":\"d\"},\"create\":{\"slug\":\"d\",\"title\":\"t\"},\"update\":{\"title\":\"x\"}}",[39m
+[31m+   "upsert={\"where\":{\"slug\":\"d\"},\"create\":{\"slug\":\"d\",\"title\":\"t\",\"score\":0},\"update\":{\"title\":{\"set\":\"x\"}}}",[39m
+[2m    "delete={\"where\":{\"slug\":\"d\"}}",[22m
+[2m    "deleteMany={\"where\":{\"slug\":{\"in\":[\"c\"]}}}",[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/review/unit03b/route-seams.review.test.ts:303:12
+    301|     });
+    302| 
+    303|     assert.deepEqual(observations.candidate.seen, observations.shipped…
+       |            ^
+    304|     assert.deepEqual(
+    305|       observations.candidate.outcomes,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |g4-review-unit03b| tests/raptor3/g4/review/unit03b/route-upsert-payload.review.test.ts > G4-03b review — LX-12 payload for upsert > a query interceptor on upsert sees the same input on both routes
+AssertionError: the interceptor payload for `upsert` differs between the routes
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      create: {
++       id: undefined,
++       score: 0,
+        slug: 'u',
+        title: 'created'
+      },
+      include: undefined,
+      omit: undefined,
+...
+      update: {
++       title: {
++         set: 'updated'
++       }
+-       title: 'updated'
+      },
+      where: {
+        slug: 'u'
+      }
+    },
+    {
+      create: {
++       id: undefined,
++       score: 0,
+        slug: 'u',
+        title: 'created'
+      },
+      include: undefined,
+      omit: undefined,
+...
+      update: {
++       title: {
++         set: 'updated'
++       }
+-       title: 'updated'
+      },
+      where: {
+        slug: 'u'
+      }
+    }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,35 +1,43 @@[39m
+[2m  [[22m
+[2m    {[22m
+[2m      "create": {[22m
+[31m+       "id": undefined,[39m
+[31m+       "score": 0,[39m
+[2m        "slug": "u",[22m
+[2m        "title": "created",[22m
+[2m      },[22m
+[2m      "include": undefined,[22m
+[2m      "omit": undefined,[22m
+[2m      "select": undefined,[22m
+[2m      "setWhere": undefined,[22m
+[2m      "targetWhere": undefined,[22m
+[2m      "update": {[22m
+[32m-       "title": "updated",[39m
+[31m+       "title": {[39m
+[31m+         "set": "updated",[39m
+[31m+       },[39m
+[2m      },[22m
+[2m      "where": {[22m
+[2m        "slug": "u",[22m
+[2m      },[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "create": {[22m
+[31m+       "id": undefined,[39m
+[31m+       "score": 0,[39m
+[2m        "slug": "u",[22m
+[2m        "title": "created",[22m
+[2m      },[22m
+[2m      "include": undefined,[22m
+[2m      "omit": undefined,[22m
+[2m      "select": undefined,[22m
+[2m      "setWhere": undefined,[22m
+[2m      "targetWhere": undefined,[22m
+[2m      "update": {[22m
+[32m-       "title": "updated",[39m
+[31m+       "title": {[39m
+[31m+         "set": "updated",[39m
+[31m+       },[39m
+[2m      },[22m
+[2m      "where": {[22m
+[2m        "slug": "u",[22m
+[2m      },[22m
+[2m    },[22m
+
+ ❯ tests/raptor3/g4/review/unit03b/route-upsert-payload.review.test.ts:118:12
+    116|     assert.deepEqual(candidate.updated, shipped.updated);
+    117|     // … and LX-12 claims the published payload does too.
+    118|     assert.deepEqual(
+       |            ^
+    119|       candidate.seen,
+    120|       shipped.seen,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  3 failed | 3 passed (6)
+      Tests  3 failed | 18 passed (21)
+   Start at  11:19:41
+   Duration  3.28s (transform 1.60s, setup 17ms, collect 2.91s, tests 146ms, environment 0ms, prepare 60ms)
+
+Vitest resources: 4.30s wall, 629.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

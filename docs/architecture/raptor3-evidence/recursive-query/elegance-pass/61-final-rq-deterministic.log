@@ -1,0 +1,27 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/recursive-query/composition.test.ts (12 tests) 4950ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 1. every find verb projects one recursive statement under select and include  626ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 2. create, update, both upsert arms and delete read back through their ordinary route under select and include  1706ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 4. one statement shape at every requested depth, and a 5,000-level chain  865ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 5. arrays prepare every member before one dispatch, or refuse before any  359ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 12. a result-phase refusal after acknowledged work reports that work as the ordinary route does  514ms
+ ✓ |raptor3| tests/raptor3/recursive-query/cache-codec.test.ts (10 tests) 2167ms
+   ✓ RQ-05 live recursive cache codec > parses, stores and restores an exhaustive chain of 12,000 levels  991ms
+ ✓ |raptor3| tests/raptor3/recursive-query/cache-lifecycle.test.ts (7 tests) 322ms
+ ✓ |raptor3| tests/raptor3/recursive-query/carrier-boundary.test.ts (13 tests) 174ms
+ ✓ |raptor3| tests/raptor3/recursive-query/campaign-sqlite.test.ts (7 tests) 4996ms
+   ✓ RQ-06 saved recursive cases on SQLite > singular-fk: 100 saved cases, one public read each, against the oracle  370ms
+   ✓ RQ-06 saved recursive cases on SQLite > junction: 100 saved cases, one public read each, against the oracle  4293ms
+ ✓ |raptor3| tests/raptor3/recursive-query/graph-oracle.test.ts (9 tests) 20ms
+ ✓ |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts (4 tests) 222ms
+ ✓ |raptor3| tests/raptor3/recursive-query/provider-sql-sqlite.test.ts (15 tests) 534ms
+
+ Test Files  8 passed (8)
+      Tests  77 passed (77)
+   Start at  15:16:56
+   Duration  60.83s (transform 14.76s, setup 195ms, collect 45.38s, tests 13.38s, environment 0ms, prepare 457ms)
+
+Vitest resources: 70.03s wall, 457.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

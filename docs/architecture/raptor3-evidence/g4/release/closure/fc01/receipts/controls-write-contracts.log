@@ -1,0 +1,33 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ✓ |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts (56 tests) 2292ms
+
+ Test Files  1 passed (1)
+      Tests  56 passed (56)
+   Start at  22:09:43
+   Duration  3.98s (transform 984ms, setup 10ms, collect 1.49s, tests 2.29s, environment 0ms, prepare 30ms)
+
+Vitest resources: 5.70s wall, 1661.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ✓ |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts (21 tests) 1112ms
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  22:09:49
+   Duration  2.88s (transform 1.03s, setup 10ms, collect 1.59s, tests 1.11s, environment 0ms, prepare 31ms)
+
+Vitest resources: 4.79s wall, 1508.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts (71 tests) 1906ms
+
+ Test Files  1 passed (1)
+      Tests  71 passed (71)
+   Start at  22:09:54
+   Duration  3.46s (transform 878ms, setup 8ms, collect 1.37s, tests 1.91s, environment 0ms, prepare 28ms)
+
+Vitest resources: 5.49s wall, 1600.0 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

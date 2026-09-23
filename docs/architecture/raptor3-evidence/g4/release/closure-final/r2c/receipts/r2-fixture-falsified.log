@@ -1,0 +1,79 @@
+# FALSIFICATION (backup copy restored after): the three-table DROP loop the review found, run in the gate's order after a sibling left its tables standing
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (8 tests | 8 failed) 168ms
+   × MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create 78ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+   × MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate 14ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+   × MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race 14ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+   × MySQL2 concurrency policy > a native deadlock > the victim fails visibly, replays nothing, and leaves the survivor's state 12ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+   × MySQL2 concurrency policy > a native deadlock > the same two row locks in the SAME order both succeed 17ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+   × MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle 13ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+   × MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed 10ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+   × MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a row deleted before the update arm fails visibly and commits nothing 10ms
+     → Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > a native deadlock > the victim fails visibly, replays nothing, and leaves the survivor's state
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > a native deadlock > the same two row locks in the SAME order both succeed
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a row deleted before the update arm fails visibly and commits nothing
+MigrationError: Unresolved ambiguous change: Table "l102_plan_probes" → "r2c_policy_authors" (rename or add+drop?)
+Return change.rename() or change.addAndDrop() from the resolver, or use force: true.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed (8)
+   Start at  11:26:09
+   Duration  1.77s (transform 960ms, setup 9ms, collect 1.39s, tests 168ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.62s wall, 533.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

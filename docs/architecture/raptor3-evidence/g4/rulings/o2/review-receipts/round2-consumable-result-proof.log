@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+ ✓ |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts (6 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  00:53:34
+   Duration  2.33s (transform 1.32s, setup 10ms, collect 1.98s, tests 4ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 5.70s wall, 452.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

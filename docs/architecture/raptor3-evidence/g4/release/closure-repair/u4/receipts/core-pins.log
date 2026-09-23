@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sm
+
+ ✓ |layer-migrations| tests/unit/migrations/ddl-drivers.core.test.ts (165 tests) 17ms
+ ✓ |layer-migrations| tests/unit/migrations/provider-driver-entrypoints-coverage.core.test.ts (11 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (5 tests) 2ms
+ ✓ |coverage-migrations| tests/unit/migrations/ddl-drivers.core.test.ts (165 tests) 14ms
+ ✓ |coverage-migrations| tests/unit/migrations/provider-driver-entrypoints-coverage.core.test.ts (11 tests) 4ms
+ ✓ |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (5 tests) 4ms
+
+ Test Files  6 passed (6)
+      Tests  362 passed (362)
+   Start at  16:53:02
+   Duration  2.22s (transform 1.02s, setup 19ms, collect 1.68s, tests 45ms, environment 0ms, prepare 70ms)
+
+Vitest resources: 4.23s wall, 511.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

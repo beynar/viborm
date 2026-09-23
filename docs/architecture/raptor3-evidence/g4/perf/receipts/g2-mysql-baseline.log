@@ -1,0 +1,10 @@
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-legacy.test.ts (1 test) 55ms
+
+ Test Files  4 passed (4)
+      Tests  13 passed (13)
+   Start at  11:03:23
+   Duration  2.51s (transform 995ms, setup 11ms, collect 1.70s, tests 593ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4Zp0so/vitest.json
+Vitest resources: 4.59s wall, 651.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-mysql-baseline contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4Zp0so

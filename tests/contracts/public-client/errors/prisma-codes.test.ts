@@ -30,12 +30,12 @@ import {
   TransactionError,
   toPrismaErrorCode,
   UniqueConstraintError,
+  UnsupportedOperationError,
   ValidationError,
   ValueTooLongError,
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
-import { UnsupportedOperationError } from "@src/query-engine/write-engine/shared";
 
 /**
  * The published table. Each row is a class a caller actually catches, so the test exercises

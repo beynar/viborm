@@ -1,0 +1,33 @@
+CELL: scalar-find-unique/execute modes=cpu,retained extra=
+COMMAND: cd /private/tmp/viborm-g4-perf-baseline && TMPDIR=/private/tmp/viborm-g4-cutover-tmp node --max-old-space-size=512 benchmarks/operation-pipeline-compare.mjs --baseline-dir /private/tmp/viborm-g4-perf-baseline --baseline-commit e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0 --baseline-source-commit 0cc61e61f372945026b0b564fa643de67168c08e --candidate-dir /private/tmp/viborm-g4-perf-candidate --candidate-commit 981368f6a4aad7628fe37bb5b5b38bac86b885d4 --providers sqlite3 --comparison semantic --workloads scalar-find-unique --stages execute --modes cpu,retained --output /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/g4cut/cells/pass1__scalar-find-unique__execute__cpu+retained.json
+STARTED: 2026-09-15T18:17:07Z
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/scalar-find-unique/execute/cpu replicate 1/5: baseline
+sqlite3/scalar-find-unique/execute/cpu replicate 1/5: candidate
+sqlite3/scalar-find-unique/execute/cpu replicate 2/5: candidate
+sqlite3/scalar-find-unique/execute/cpu replicate 2/5: baseline
+sqlite3/scalar-find-unique/execute/cpu replicate 3/5: baseline
+sqlite3/scalar-find-unique/execute/cpu replicate 3/5: candidate
+sqlite3/scalar-find-unique/execute/cpu replicate 4/5: candidate
+sqlite3/scalar-find-unique/execute/cpu replicate 4/5: baseline
+sqlite3/scalar-find-unique/execute/cpu replicate 5/5: baseline
+sqlite3/scalar-find-unique/execute/cpu replicate 5/5: candidate
+sqlite3/scalar-find-unique/execute/retained replicate 1/5: baseline
+sqlite3/scalar-find-unique/execute/retained replicate 1/5: candidate
+sqlite3/scalar-find-unique/execute/retained replicate 2/5: candidate
+sqlite3/scalar-find-unique/execute/retained replicate 2/5: baseline
+sqlite3/scalar-find-unique/execute/retained replicate 3/5: baseline
+sqlite3/scalar-find-unique/execute/retained replicate 3/5: candidate
+sqlite3/scalar-find-unique/execute/retained replicate 4/5: candidate
+sqlite3/scalar-find-unique/execute/retained replicate 4/5: baseline
+sqlite3/scalar-find-unique/execute/retained replicate 5/5: baseline
+sqlite3/scalar-find-unique/execute/retained replicate 5/5: candidate
+EXIT: 0
+REPORT_BYTES: 12969352
+REPORT_SHA256: dfb073861c2f965a2f7716f6974bd84b2404c96c16cdd1b2b5ea764e91996b45
+scalar-find-unique/execute/cpu seam=package/package stmts=1/1
+  cpu: B=11.8728 N=11.7786 E=1.952 budget=0.5936 d+E=1.858 STRADDLES
+  wall: B=12.3712 N=12.0395 E=2.676 budget=0.6186 d+E=2.344 STRADDLES
+scalar-find-unique/execute/retained seam=package/package stmts=1/1
+  peakRss: B=9.31430e+7 N=8.81951e+7 E=3.932e+5 budget=9.314e+6 d+E=-4.555e+6 WITHIN

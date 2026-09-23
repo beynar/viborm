@@ -1,5 +1,6 @@
 /** Read and driver-floor workload construction. */
 
+import assert from "node:assert/strict";
 import {
   benchmarkOperation,
   consumeFixedCollectionJunction,
@@ -100,7 +101,21 @@ export async function buildReadWorkload(name, fixture, fullFixture) {
       (targetClient = client) =>
         targetClient.user.findUnique({ where: { id: "user_42" } }),
       (value) => consumeScalarRows(value ? [value] : [], "age"),
-      (rows) => consumeScalarRows(rows, "age")
+      (rows) => consumeScalarRows(rows, "age"),
+      undefined,
+      ({ outcome, initial, final, defaults }) => {
+        assert.deepEqual(outcome, {
+          kind: "success",
+          value: {
+            id: "user_42",
+            name: "User 42",
+            email: "user42@example.com",
+            age: 62,
+          },
+        });
+        assert.deepEqual(final, initial);
+        assert.deepEqual(defaults, []);
+      }
     );
   }
   if (name === "scalar-find-many-20" || name === "scalar-cursor-take") {
@@ -214,6 +229,7 @@ export async function buildReadWorkload(name, fixture, fullFixture) {
       (targetClient = client) =>
         targetClient.user.findMany({
           where: { id: { startsWith: "user_" } },
+          orderBy: { id: "asc" },
           select: {
             id: true,
             posts: { select: { title: true } },
@@ -221,7 +237,23 @@ export async function buildReadWorkload(name, fixture, fullFixture) {
           take,
         }),
       consumeFixedCollectionRelation,
-      rawCarrierConsumer("Post ")
+      rawCarrierConsumer("Post "),
+      undefined,
+      ({ outcome, initial, final, defaults }) => {
+        const posts = new Map(
+          initial.bench_posts.map((post) => [post.authorId, post.title])
+        );
+        const expected = initial.bench_users
+          .filter((user) => user.id.startsWith("user_"))
+          .slice(0, take)
+          .map((user) => ({
+            id: user.id,
+            posts: [{ title: posts.get(user.id) }],
+          }));
+        assert.deepEqual(outcome, { kind: "success", value: expected });
+        assert.deepEqual(final, initial);
+        assert.deepEqual(defaults, []);
+      }
     );
   }
   if (name.startsWith("variant-singular-rowref-")) {

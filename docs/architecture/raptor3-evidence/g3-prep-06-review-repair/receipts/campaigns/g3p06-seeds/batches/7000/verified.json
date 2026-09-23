@@ -1,0 +1,19 @@
+{
+  "mode": "g3p06-seed-batch",
+  "identity": {
+    "production": "934ef37d910c99efcea7c435e2db9ce65df6080cf91868bc0704dab1f1401ecb",
+    "harness": "a33ee9da46496cb2239ee567effc54766b6ca7011f89dfee5d559f0eafb41d70",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

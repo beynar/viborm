@@ -1,0 +1,12 @@
+ ✓ |raptor3| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 1ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 6ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 4ms
+
+ Test Files  17 passed (17)
+      Tests  110 passed (110)
+   Start at  23:39:47
+   Duration  3.67s (transform 1.31s, setup 18ms, collect 3.01s, tests 390ms, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N9pC0o/vitest.json
+Vitest resources: 5.74s wall, 776.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit02-author contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N9pC0o

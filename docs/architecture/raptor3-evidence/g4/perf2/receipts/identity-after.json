@@ -1,0 +1,16 @@
+{
+  "capturedAt": "2026-09-16T16:22:02.049Z",
+  "base": "ff5e77ca",
+  "round": 2,
+  "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+  "harness": "0304ea197145bf89796a041d7996e3598befff22eafb5f08481bd27a2340f303",
+  "harnessWithoutReviewProbes": "9b4b52d12692e271a2cb629b7dffdbd95e4a4712cde7c0b6f01b49d83715f8cd",
+  "note": "harness covers tests/raptor3/**, scripts/**, benchmarks/** and the six configuration files; the reviewer's untracked probes under tests/raptor3/g4/review/perf2/ are present in the tree and are counted by `harness`, excluded from `harnessWithoutReviewProbes`.",
+  "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sqliteDriver": "12.6.0",
+    "vitest": "3.1.4"
+  }
+}

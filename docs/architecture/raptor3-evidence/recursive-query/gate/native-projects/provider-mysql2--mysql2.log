@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2.test.ts (85 tests | 1 skipped) 11980ms
+   ✓ MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates  850ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only  428ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array  303ms
+
+ Test Files  1 passed (1)
+      Tests  84 passed | 1 skipped (85)
+   Start at  11:09:44
+   Duration  13.83s (transform 1.10s, setup 9ms, collect 1.65s, tests 11.98s, environment 0ms, prepare 42ms)
+
+Vitest resources: 15.70s wall, 645.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

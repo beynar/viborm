@@ -1,0 +1,34 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+D40PROBE postgres.js route=live op=count rawShape=array(1)[{_count}] raw=[{"_count":"2"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=count rawShape=array(1)[{_count}] raw=[{"_count":"1"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=count rawShape=array(1)[{_all}] raw=[{"_all":"2"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=exist rawShape=array(1)[{_count}] raw=[{"_count":"1"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=exist rawShape=array(1)[{_count}] raw=[{"_count":"0"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=aggregate rawShape=array(1)[{_sum}] raw=[{"_sum":{"rank":8}}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=findMany rawShape=array(2)[{id,name,rank,active}|{id,name,rank,active}] raw=[{"id":1,"name":"first","rank":3,"active":true},{"id":2,"name":"second","rank":5,"active":false}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=findUnique rawShape=array(1)[{id,name,rank,active}] raw=[{"id":1,"name":"first","rank":3,"active":true}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=create rawShape=array(1)[{id,name,rank,active}] raw=[{"id":3,"name":"third","rank":7,"active":true}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=live op=update rawShape=array(1)[{id,name,rank,active}] raw=[{"id":3,"name":"third","rank":9,"active":true}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=count rawShape=array(1)[{_count}] raw=[{"_count":"3"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=count rawShape=array(1)[{_count}] raw=[{"_count":"1"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=count rawShape=array(1)[{_all}] raw=[{"_all":"3"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=exist rawShape=array(1)[{_count}] raw=[{"_count":"1"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=exist rawShape=array(1)[{_count}] raw=[{"_count":"0"}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=aggregate rawShape=array(1)[{_sum}] raw=[{"_sum":{"rank":17}}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=findMany rawShape=array(3)[{id,name,rank,active}|{id,name,rank,active}|{id,name,rank,active}] raw=[{"id":1,"name":"first","rank":3,"active":true},{"id":2,"name":"second","rank":5,"active":false},{"id":3,"name":"third","rank":9,"active":true}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=findUnique rawShape=array(1)[{id,name,rank,active}] raw=[{"id":1,"name":"first","rank":3,"active":true}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=create rawShape=array(1)[{id,name,rank,active}] raw=[{"id":4,"name":"fourth","rank":1,"active":false}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js route=prepared op=update rawShape=array(1)[{id,name,rank,active}] raw=[{"id":4,"name":"fourth","rank":11,"active":false}] leg=undefined nextCalls=1 next=next() returnedNextAnswer=true
+D40PROBE postgres.js liveAnswers={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"aggregate":{"_sum":{"rank":8}},"findMany":2,"findUnique":1,"create":3,"update":9}
+D40PROBE postgres.js preparedAnswers=[3,1,{"_all":3},true,false,{"_sum":{"rank":17}},3,1,4,11]
+D40PROBE postgres.js asks=20 operations=count,exist,aggregate,findMany,findUnique,create,update
+ ✓ |provider-postgres| tests/providers/docker/postgres-o2-leg-probe.test.ts (1 test) 129ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  23:49:21
+   Duration  1.38s (transform 771ms, setup 8ms, collect 1.13s, tests 129ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.10s wall, 490.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

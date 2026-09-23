@@ -1,0 +1,26 @@
+
+> viborm@0.1.0 size /Users/arnaud/code/viborm
+> size-limit
+
+  
+  Main (viborm)
+  Size: 1.97 kB
+  
+  Schema
+  Size: 214 B
+  
+  Driver (pg)
+  Size: 5.08 kB
+  
+  Driver (pglite)
+  Size: 3.83 kB
+  
+  Cache
+  Size: 187 B
+  
+  Migrations
+  Size: 4.46 kB
+  
+  Validation
+  Size: 283 B
+  

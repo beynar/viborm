@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-perf-baseline
+
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 257ms
+
+ Test Files  1 passed (1)
+      Tests  42 passed (42)
+   Start at  06:59:36
+   Duration  2.05s (transform 1.06s, setup 8ms, collect 1.56s, tests 257ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 5.04s wall, 615.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

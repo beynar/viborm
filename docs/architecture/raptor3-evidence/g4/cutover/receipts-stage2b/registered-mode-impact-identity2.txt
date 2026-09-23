@@ -1,0 +1,26 @@
+modes with a resolved test constant: 103 {"INTACT":95,"BROKEN-BY-CUTOVER":6,"ALREADY-MISSING-PRE-CUTOVER":2}
+BROKEN-BY-CUTOVER	g4-lifecycle-events	G4_LIFECYCLE_EVENTS_TESTS	1/1 missing	tests/raptor3/g4/lifecycle-events.test.ts
+BROKEN-BY-CUTOVER	g4-lifecycle-admission	G4_LIFECYCLE_ADMISSION_TESTS	1/1 missing	tests/raptor3/g4/lifecycle-admission.test.ts
+BROKEN-BY-CUTOVER	g4-route-lifecycle	G4_ROUTE_LIFECYCLE_TESTS	1/1 missing	tests/raptor3/g4/route-lifecycle.test.ts
+BROKEN-BY-CUTOVER	g4-route-admission	G4_ROUTE_ADMISSION_TESTS	1/1 missing	tests/raptor3/g4/route-admission.test.ts
+BROKEN-BY-CUTOVER	g4-route-cache	G4_ROUTE_CACHE_TESTS	1/1 missing	tests/raptor3/g4/route-cache.test.ts
+BROKEN-BY-CUTOVER	g4-route-transactions	G4_ROUTE_TRANSACTION_TESTS	1/1 missing	tests/raptor3/g4/route-transactions.test.ts
+ALREADY-MISSING-PRE-CUTOVER	g4-unit02-author	G4_UNIT02_AUTHOR_TESTS	4/19 missing	tests/raptor3/g4/unit02/lone-statement-transport.test.ts tests/raptor3/g4/unit02/nested-key-refusal.test.ts tests/raptor3/g4/unit02/packaged-array.test.ts tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
+ALREADY-MISSING-PRE-CUTOVER	g4-unit02-mysql-contracts	G4_UNIT02_MYSQL_TESTS	1/3 missing	tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts
+
+Per-file attribution of the two ALREADY-MISSING-PRE-CUTOVER modes
+(checked against commit cacb2827 = frozen production + prep-stage harness, and
+against /Users/arnaud/code/viborm):
+
+tests/raptor3/g4/unit02/lone-statement-transport.test.ts   pre-cutover=absent  main-tree=present  deleted-by-cutover=no
+tests/raptor3/g4/unit02/nested-key-refusal.test.ts         pre-cutover=absent  main-tree=present  deleted-by-cutover=no
+tests/raptor3/g4/unit02/packaged-array.test.ts             pre-cutover=present main-tree=present  deleted-by-cutover=YES
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts     pre-cutover=absent  main-tree=present  deleted-by-cutover=no
+tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts  pre-cutover=absent  main-tree=present  deleted-by-cutover=no
+
+So the CUTOVER's own count is 7 broken modes (the six above plus g4-unit02-author
+through packaged-array.test.ts). The four other absences are harness staleness:
+those files were added to the main tree after the prep stage copied tests/, and
+the stage-2b re-sync covers src/ plus scripts/raptor3-manifest.mjs,
+vitest.workspace.ts and benchmarks/baseline.json only. g4-unit02-mysql-contracts
+is therefore NOT a cutover casualty.

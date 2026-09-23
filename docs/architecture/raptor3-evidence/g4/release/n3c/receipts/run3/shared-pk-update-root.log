@@ -1,0 +1,19 @@
+ ❯ |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts (71 tests | 16 failed) 1855ms
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > upsert FOUND publishes the target's post-update referenced k
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > upsert FOUND publishes a relation-folded non-primary referen
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > update publishes the target's post-update key before descend
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > a partial compound shared edge publishes every transitioned 
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > fresh create publishes the complete selected compound tuple
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > update publishes a nested relation-folded non-primary refere
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > update publishes a nested relation-folded non-primary refer
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > update publishes a nested relation-folded non-primary referenced
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > update publishes the target's post-update key before descen
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > a partial compound shared edge publishes every transitioned
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > fresh create publishes the complete selected compound tuple
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > upsert FOUND publishes the target's post-update referenced key
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > upsert FOUND publishes a relation-folded non-primary referenced 
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > update publishes the target's post-update key before descendant 
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > a partial compound shared edge publishes every transitioned memb
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > fresh create publishes the complete selected compound tuple
+ Test Files  1 failed (1)
+      Tests  16 failed | 55 passed (71)

@@ -1,0 +1,75 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ❯ |provider-sqlite3| tests/providers/local/sqlite3-captured-answer-settlement.test.ts (4 tests | 2 failed) 47ms
+   × a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it 37ms
+     → expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+   × a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it 4ms
+     → expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a listener that fails beside a captured answer that SUCCEEDED is still published alone 3ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > interactive route: a captured row that stops matching before the write is answered by the cardinality sentence 2ms
+ ❯ |coverage-drivers| tests/providers/local/sqlite3-captured-answer-settlement.test.ts (4 tests | 2 failed) 32ms
+   × a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it 21ms
+     → expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+   × a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it 3ms
+     → expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+   ✓ a captured mutation's answer is settled before its listener failure is released > batch route: a listener that fails beside a captured answer that SUCCEEDED is still published alone 4ms
+   ✓ a captured mutation's answer is settled before its listener failure is released > interactive route: a captured row that stops matching before the write is answered by the cardinality sentence 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-captured-answer-settlement.test.ts > a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it
+AssertionError: expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+ ❯ tests/providers/local/sqlite3-captured-answer-settlement.test.ts:294:20
+    292|     // cardinality failure is the primary and the listener's is retain…
+    293|     // it — not the other way round, and neither is lost.
+    294|     expect(raised).toBeInstanceOf(AggregateError);
+       |                    ^
+    295|     const composed = composition(raised);
+    296|     expect(composed).toMatchObject(COMPOSITION);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-captured-answer-settlement.test.ts > a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it
+AssertionError: expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+ ❯ tests/providers/local/sqlite3-captured-answer-settlement.test.ts:331:20
+    329| 
+    330|     expect(driver?.drifted).toBe(true);
+    331|     expect(raised).toBeInstanceOf(AggregateError);
+       |                    ^
+    332|     const composed = composition(raised);
+    333|     expect(composed).toMatchObject(COMPOSITION);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-captured-answer-settlement.test.ts > a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured DELETE's cardinality answer with it
+AssertionError: expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+ ❯ tests/providers/local/sqlite3-captured-answer-settlement.test.ts:294:20
+    292|     // cardinality failure is the primary and the listener's is retain…
+    293|     // it — not the other way round, and neither is lost.
+    294|     expect(raised).toBeInstanceOf(AggregateError);
+       |                    ^
+    295|     const composed = composition(raised);
+    296|     expect(composed).toMatchObject(COMPOSITION);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-captured-answer-settlement.test.ts > a captured mutation's answer is settled before its listener failure is released > batch route: a held write-outcome listener failure does not take the captured UPDATE's cardinality answer with it
+AssertionError: expected QueryError: Extension "failing-outcome" w… { …(4) } to be an instance of AggregateError
+ ❯ tests/providers/local/sqlite3-captured-answer-settlement.test.ts:331:20
+    329| 
+    330|     expect(driver?.drifted).toBe(true);
+    331|     expect(raised).toBeInstanceOf(AggregateError);
+       |                    ^
+    332|     const composed = composition(raised);
+    333|     expect(composed).toMatchObject(COMPOSITION);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  4 failed | 4 passed (8)
+   Start at  19:41:11
+   Duration  2.70s (transform 1.52s, setup 14ms, collect 2.26s, tests 79ms, environment 0ms, prepare 48ms)
+
+Vitest resources: 4.45s wall, 538.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

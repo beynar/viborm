@@ -1,0 +1,599 @@
+====================================================================================================
+ FAIL  |layer-drivers| tests/contracts/drivers/sqlite-integer-safety.core.test.ts > Bun SQLite integer safety > tagged and verbatim raw keep their integer modes in a fallback batch
+Error: Expected one prepared statement
+ ❯ prepareOperation tests/contracts/drivers/sqlite-integer-safety.core.test.ts:109:11
+    107|   const prepared = capability.prepare(driver);
+    108|   if (!prepared) {
+    109|     throw new Error("Expected one prepared statement");
+       |           ^
+    110|   }
+    111|   return prepared;
+ ❯ tests/contracts/drivers/sqlite-integer-safety.core.test.ts:200:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/534]⎯
+
+====================================================================================================
+ FAIL  |layer-cache| tests/unit/cache/operand-callback-keys.core.test.ts > batch preparation sees the resolved payload > the raw payload keeps the function; the compiled statement does not
+AssertionError: expected '' to contain '"likes"'
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- "likes"[39m
+
+ ❯ tests/unit/cache/operand-callback-keys.core.test.ts:93:23
+     91|     // …and what compiles is the resolved column comparison.
+     92|     const statement = pending.buildStatement()?.toStatement("$n") ?? "…
+     93|     expect(statement).toContain(`"likes"`);
+       |                       ^
+     94|     expect(statement).toContain(`"views"`);
+     95|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/534]⎯
+
+====================================================================================================
+ FAIL  |layer-write-engine| tests/contracts/engine/write/architecture-gates.core.test.ts > write engine structural gates (PLAN P0) > (f) gives child-held membership one lowering owner
+Error: ENOENT: no such file or directory, open '/Users/arnaud/code/viborm/src/query-engine/write-engine/CreateOperation.ts'
+ ❯ tests/contracts/engine/write/architecture-gates.core.test.ts:240:22
+    238|   it("(f) gives child-held membership one lowering owner", () => {
+    239|     const compilerSource = ["CreateOperation.ts", "RecordUpdateCompile…
+    240|       .map((name) => readFileSync(join(WRITE_ENGINE_ROOT, name), "utf8…
+       |                      ^
+    241|       .join("\n");
+    242|     expect(compilerSource).not.toMatch(LEGACY_MEMBERSHIP_INPUTS);
+ ❯ tests/contracts/engine/write/architecture-gates.core.test.ts:240:8
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/534]⎯
+
+====================================================================================================
+ FAIL  |layer-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts > write engine parse-boundary gate (X2 — one home for validation) > (2) create/update/delete validate their whole args through the boundary
+Error: ENOENT: no such file or directory, open '/Users/arnaud/code/viborm/src/query-engine/write-engine/CreateOperation.ts'
+ ❯ read tests/contracts/engine/write/parse-boundary-gate.core.test.ts:58:10
+     56| 
+     57| function read(file: string): string {
+     58|   return readFileSync(join(ENGINE, file), "utf8");
+       |          ^
+     59| }
+     60| 
+ ❯ tests/contracts/engine/write/parse-boundary-gate.core.test.ts:161:35
+ ❯ tests/contracts/engine/write/parse-boundary-gate.core.test.ts:157:42
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/534]⎯
+
+====================================================================================================
+ FAIL  |layer-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts > write engine parse-boundary gate (X2 — one home for validation) > (5) the upsert envelope is a schema at the boundary, wired at the one construction path
+Error: ENOENT: no such file or directory, open '/Users/arnaud/code/viborm/src/query-engine/write-engine/routing.ts'
+ ❯ read tests/contracts/engine/write/parse-boundary-gate.core.test.ts:58:10
+     56| 
+     57| function read(file: string): string {
+     58|   return readFileSync(join(ENGINE, file), "utf8");
+       |          ^
+     59| }
+     60| 
+ ❯ tests/contracts/engine/write/parse-boundary-gate.core.test.ts:183:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/534]⎯
+
+====================================================================================================
+ FAIL  |layer-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts > write engine parse-boundary gate (X2 — one home for validation) > (ratchet self-check) the current counts equal the pinned ceilings
+AssertionError: expected 2 to be 6 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 6[39m
+[31m+ 2[39m
+
+ ❯ tests/contracts/engine/write/parse-boundary-gate.core.test.ts:201:43
+    199|     // If a change legitimately reduces the surface, drop the ceiling …
+    200|     // ratchet keeps biting at the new floor. This equality tripwire f…
+    201|     expect(countAll(PAYLOAD_RECORD_CAST)).toBe(MAX_PAYLOAD_RECORD_CAST…
+       |                                           ^
+    202|     expect(countAll(SHAPE_THROW_MESSAGE)).toBe(MAX_SHAPE_THROW_MESSAGE…
+    203|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/array-transaction-closure.core.test.ts > native array closures > keeps an already-applied observation settled when a later parse fails
+AssertionError: promise resolved "[ [], [] ]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[
+  [],
+  [],
+]
+
+ ❯ tests/contracts/public-client/array-transaction-closure.core.test.ts:271:5
+    269|       // transaction-operation owner, so the seam admits what the type…
+    270|       client.$transaction([client.record.findMany(), failingParse])
+    271|     ).rejects.toThrow();
+       |     ^
+    272|     await flushObservations();
+    273|     expect(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/official-cache-swr.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+AssertionError: expected +0 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/public-client/official-cache-swr.core.test.ts:550:48
+    548|       expect(state.scheduled).toEqual([]);
+    549|       if (scenario === "snapshot") {
+    550|         expect(hostileJsonReadsAtCoreBoundary).toBe(1);
+       |                                                ^
+    551|         expect(hostileJsonGetterReads).toBe(hostileJsonReadsAtCoreBoun…
+    552|         publishHostileJson = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/one-resolution-identity.core.test.ts > one resolution, one index > the same composition answers a relation-bearing query
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ ❯ tests/contracts/public-client/one-resolution-identity.core.test.ts:115:17
+    113|       .buildStatement()
+    114|       ?.toStatement("$n");
+    115|     expect(sql).toContain("secret");
+       |                 ^
+    116| 
+    117|     // And the client DEFAULT reached the settled target through that …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts > native array query execution > orders provider, committed outcomes, parsing, and handler post-work
+AssertionError: expected "spy" to be called once, but got 0 times
+ ❯ tests/contracts/public-client/query-interceptors-array.core.test.ts:1089:19
+    1087|     await runUnsafeArrayTransaction(client, [parsing]);
+    1088| 
+    1089|     expect(parse).toHaveBeenCalledOnce();
+       |                   ^
+    1090|     expect(timeline).toEqual(["provider", "outcome", "parse", "post-wo…
+    1091|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts > native array query execution > keeps the native child primary across ordered post-work and commit failures
+AssertionError: expected [ …(3) ] to have a length of 5 but got 3
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 5[39m
+[31m+ 3[39m
+
+ ❯ tests/contracts/public-client/query-interceptors-array.core.test.ts:1242:28
+    1240|     expect(failure).toBeInstanceOf(AggregateError);
+    1241|     if (!(failure instanceof AggregateError)) throw failure;
+    1242|     expect(failure.errors).toHaveLength(5);
+       |                            ^
+    1243|     expect(failure.errors[0]).toBe(failure.cause);
+    1244|     expect(failure.errors[0]).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts > public array lifecycle observers > orders native statement onions before transforms and submits nothing on failure
+AssertionError: expected [ 'provider' ] to deeply equal []
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "provider",[39m
+[31m+ ][39m
+
+ ❯ tests/contracts/public-client/query-interceptors-array.core.test.ts:2035:27
+    2033|     );
+    2034|     await Promise.resolve();
+    2035|     expect(driver.events).toEqual([]);
+       |                           ^
+    2036|     expect(timeline.slice(0, 4)).toEqual([
+    2037|       "statement:in:findMany",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts > public array lifecycle observers > keeps observe-only native admission private and reports exact commit facts
+Error: Expected the array transaction to fail
+ ❯ captureFailure tests/contracts/public-client/query-interceptors-array.core.test.ts:277:9
+    275|     return error;
+    276|   }
+    277|   throw new Error("Expected the array transaction to fail");
+       |         ^
+    278| }
+    279| 
+ ❯ tests/contracts/public-client/query-interceptors-array.core.test.ts:2249:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts > public query-interceptor integration > reports commit ambiguity for a direct composed write transaction
+AssertionError: expected [] to deeply equal [ 'may-have-committed' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "may-have-committed",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/public-client/query-interceptors-integration.core.test.ts:1383:25
+    1381|     expect(driver.events).toContain("COMMIT");
+    1382|     expect(driver.events).toContain("ROLLBACK");
+    1383|     expect(certainties).toEqual(["may-have-committed"]);
+       |                         ^
+    1384|     expect(failure).toBeInstanceOf(QueryError);
+    1385|     expect(failure).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts > public query-interceptor integration > reports committed certainty when direct transaction cleanup fails after commit
+AssertionError: expected [] to deeply equal [ 'committed' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "committed",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/public-client/query-interceptors-integration.core.test.ts:1427:25
+    1425|     expect(driver.events).toContain("BEGIN");
+    1426|     expect(driver.events.at(-1)).toBe("COMMIT");
+    1427|     expect(certainties).toEqual(["committed"]);
+       |                         ^
+    1428|     expect(failure).toBeInstanceOf(QueryError);
+    1429|     expect(failure).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/request-transforms.core.test.ts > public request-transform integration > runs before the unique guard and the existing validation owner
+AssertionError: expected function to throw an error, but it didn't
+ ❯ tests/contracts/public-client/request-transforms.core.test.ts:814:59
+    812| 
+    813|     const invalid = client.entry.findMany();
+    814|     expect(() => transactionOperation(invalid).prepare()).toThrow(
+       |                                                           ^
+    815|       ValidationError
+    816|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/request-transforms.core.test.ts > public request-transform integration > lets the unique guard refuse a patched empty selector before validation
+AssertionError: expected [Function] to throw an error
+
+[32m- Expected:[39m 
+null
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ tests/contracts/public-client/request-transforms.core.test.ts:828:61
+    826|     const operation = client.entry.findUnique({ where: { id: "caller" …
+    827| 
+    828|     expect(() => transactionOperation(operation).prepare()).toThrow(
+       |                                                             ^
+    829|       "whereUnique requires at least one unique discriminator"
+    830|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/request-transforms.core.test.ts > public request-transform integration > leaves unknown patched keys to core operation validation
+AssertionError: expected function to throw an error, but it didn't
+ ❯ tests/contracts/public-client/request-transforms.core.test.ts:842:61
+    840|     const operation = client.entry.findMany();
+    841| 
+    842|     expect(() => transactionOperation(operation).prepare()).toThrow(
+       |                                                             ^
+    843|       ValidationError
+    844|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/request-transforms.core.test.ts > public request-transform integration > applies client default omit after request preparation
+AssertionError: expected undefined to be defined
+ ❯ tests/contracts/public-client/request-transforms.core.test.ts:862:26
+    860| 
+    861|     const statement = transactionOperation(client.entry.findMany()).pr…
+    862|     expect(handlerInput).toBeDefined();
+       |                          ^
+    863|     expect(Object.hasOwn(handlerInput ?? {}, "omit")).toBe(false);
+    864|     expect(statement?.sql).not.toContain('"secret"');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/534]⎯
+
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/request-transforms.core.test.ts > public request-transform integration > protects every result-shape family through the public client
+AssertionError: expected Set{} to deeply equal Set{ 'findMany', 'findFirst', …(8) }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Set {[39m
+[32m-   "aggregate",[39m
+[32m-   "count",[39m
+[32m-   "create",[39m
+[32m-   "createMany",[39m
+[32m-   "deleteMany",[39m
+[32m-   "findFirst",[39m
+[32m-   "findMany",[39m
+[32m-   "findUnique",[39m
+[32m-   "groupBy",[39m
+[32m-   "updateMany",[39m
+[32m- }[39m
+[31m+ Set {}[39m
+
+ ❯ tests/contracts/public-client/request-transforms.core.test.ts:972:18
+    970|       expect(() => transactionOperation(operation).prepare()).not.toTh…
+    971|     }
+    972|     expect(seen).toEqual(new Set(protectedKeys.keys()));
+       |                  ^
+    973|   });
+====================================================================================================
+ FAIL  |layer-client| tests/contracts/public-client/request-transforms.core.test.ts > public request-transform integration > memoizes a request failure across wrapped lifecycle entry points
+AssertionError: expected AssertionError: expected not to be reached { …(3) } to be an instance of QueryError
+ ❯ tests/contracts/public-client/request-transforms.core.test.ts:1026:26
+    1024|       firstFailure = error;
+    1025|     }
+    1026|     expect(firstFailure).toBeInstanceOf(QueryError);
+       |                          ^
+    1027|     if (!(firstFailure instanceof QueryError)) throw firstFailure;
+    1028|     expect(calls).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts > contract and provider matrix > matches matrix run decisions to provider registrations
+AssertionError: libsql:drivers.batch-primary-key-dataflow: expected '/**\n * LibSQL index DDL and read pla…' to contain 'batchPrimaryKeyDataflowContract.regis…'
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- batchPrimaryKeyDataflowContract.register([39m
+[31m+ /**[39m
+[31m+  * LibSQL index DDL and read planning: foreign-key and partial indexes, forward FK ordering, window aggregates, and cursor and nested pagination.[39m
+[31m+  *[39m
+[31m+  * One file of the LibSQL provider suite, which is split across sibling[39m
+[31m+  * `libsql-*.test.ts` files. Every registered contract instantiates the[39m
+[31m+  * client's generic surface over its own multi-model schema, and the 1280 MB[39m
+[31m+  * TypeScript shard heap holds only a handful of those instantiations per[39m
+[31m+  * program, so the suite is partitioned by schema group rather than by size.[39m
+[31m+  * The forced-batch driver the batch contracts need lives in[39m
+[31m+  * `./libsql-fixtures`, which Vitest does not collect.[39m
+[31m+  */[39m
+[31m+[39m
+[31m+ import { countAggregateWindowContract } from "@tests/contracts/drivers/behaviors/count-aggregate-window-behavior";[39m
+[31m+ import { cursorPaginationContract } from "@tests/contracts/drivers/behaviors/cursor-pagination-behavior";[39m
+[31m+ import { distinctSkipWindowContract } from "@tests/contracts/drivers/behaviors/distinct-skip-window-behavior";[39m
+[31m+ import {[39m
+[31m+   fkIndexContract,[39m
+[31m+   fkIndexUpgradeContract,[39m
+[31m+ } from "@tests/contracts/drivers/behaviors/fk-index-behavior";[39m
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts > contract and provider matrix > gives every layer one runtime core owner and one type core
+AssertionError: query-engine type core: expected 0 to be greater than 0
+ ❯ tests/contracts/architecture/contract-matrix.core.test.ts:192:59
+    190|         0
+    191|       );
+    192|       expect(typeCounts.get(layer), `${layer} type core`).toBeGreaterT…
+       |                                                           ^
+    193|     }
+    194|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts > contract and provider matrix > inventories every executable test by owner and boundary
+AssertionError: tests/raptor3/candidate-handoff.test.ts: expected undefined to be defined
+ ❯ tests/contracts/architecture/contract-matrix.core.test.ts:208:31
+    206|     for (const file of testFiles) {
+    207|       const inventory = classifyTestFile(file);
+    208|       expect(inventory, file).toBeDefined();
+       |                               ^
+    209|       expect(inventory?.file).toBe(file);
+    210|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/bulk-create-plan.core.test.ts > bulk create planning > fails closed on a short provider result window
+TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+    458|     if (shared) return shared;
+    459|     if (this.#routedInstance) return this.#routedInstance;
+    460|     const routed = this.#route.operation(
+       |                                ^
+    461|       this.#model,
+    462|       String(this.#options.originalOperation),
+ ❯ Object.prepareBatch src/query-engine/pending-operation.ts:343:19
+ ❯ TestTransactionOperationView.prepareBatch tests/fixtures/transaction-operation.ts:74:24
+ ❯ tests/contracts/engine/query/bulk-create-plan.core.test.ts:415:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts > bulk insert row-shape planning > empty createMany rejects during batch preparation
+AssertionError: promise resolved "[ { count: +0 } ]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[
+  {
+    "count": 0,
+  },
+]
+
+ ❯ tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts:26:5
+     24|     await expect(
+     25|       client.$transaction([client.batchRow.createMany({ data: [] })])
+     26|     ).rejects.toThrow("No data to insert");
+       |     ^
+     27|   });
+     28| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/operation-program-read-contracts.core.test.ts > read result and lifecycle contracts > preserves public result shapes on the direct runtime path
+AssertionError: promise rejected "TypeError: Cannot read properties of unde…" instead of resolving
+ ❯ tests/contracts/engine/query/operation-program-read-contracts.core.test.ts:75:5
+     73|     await expect(
+     74|       engine.prepare(user, "findMany", { take: -2 })
+     75|     ).resolves.toEqual([...driver.rows].reverse());
+       |     ^
+     76|     driver.rows = [{ id: "user-1", name: "Arnaud" }];
+     77|     await expect(engine.prepare(user, "findFirst", {})).resolves.toEqu…
+
+Caused by: TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+ ❯ PendingOperation.#run src/query-engine/pending-operation.ts:645:21
+ ❯ PendingOperation.#runCoreExecution src/query-engine/pending-operation.ts:630:17
+ ❯ PendingOperation.#runExecution src/query-engine/pending-operation.ts:536:19
+ ❯ src/query-engine/pending-operation.ts:489:21
+ ❯ captureExecution src/query-engine/pending-execution.ts:6:12
+ ❯ PendingExecution.executeDefault src/query-engine/pending-execution.ts:35:22
+ ❯ PendingOperation.#getPromise src/query-engine/pending-operation.ts:486:28
+ ❯ PendingOperation.then src/query-engine/pending-operation.ts:752:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[291/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/operation-program-read-contracts.core.test.ts > read result and lifecycle contracts > wraps execution in the operation span and fails validation before execution
+AssertionError: promise rejected "TypeError: Cannot read properties of unde…" instead of resolving
+ ❯ tests/contracts/engine/query/operation-program-read-contracts.core.test.ts:122:56
+    120|     try {
+    121|       driver.rows = [{ id: "user-1", name: "Arnaud" }];
+    122|       await expect(engine.prepare(user, "findMany", {})).resolves.toEq…
+       |                                                        ^
+    123|         driver.rows
+    124|       );
+
+Caused by: TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+ ❯ PendingOperation.#run src/query-engine/pending-operation.ts:645:21
+ ❯ PendingOperation.#runCoreExecution src/query-engine/pending-operation.ts:630:17
+ ❯ PendingOperation.#runExecution src/query-engine/pending-operation.ts:536:19
+ ❯ #observationCommitCertainty.commitCertainty src/query-engine/pending-operation.ts:495:20
+ ❯ startChild src/extensions/observation.ts:263:17
+ ❯ startObserver src/extensions/observation.ts:274:40
+ ❯ startNext src/extensions/observation.ts:297:11
+ ❯ observeCompletion src/instrumentation/extension.ts:135:24
+ ❯ src/instrumentation/tracer.ts:248:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[292/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/orderby-relation-depth.core.test.ts > orderBy relation-depth deterministic contracts > a 9-hop chain is rejected before provider dispatch
+AssertionError: expected [Function] to throw error matching /Unknown key: parent/ but got 'Cannot read properties of undefined (…'
+
+[32m- Expected:[39m 
+/Unknown key: parent/
+
+[31m+ Received:[39m 
+"Cannot read properties of undefined (reading 'operation')"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[293/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/orderby-relation-depth.core.test.ts > orderBy relation-depth deterministic contracts > the 9-hop rejection is a validation error
+AssertionError: expected 'TypeError' to be 'ValidationError' // Object.is equality
+
+Expected: [32m"[7mValidation[27mError"[39m
+Received: [31m"[7mType[27mError"[39m
+
+ ❯ tests/contracts/engine/query/orderby-relation-depth.core.test.ts:87:26
+     85|       throw new Error("Expected validation to reject the query.");
+     86|     }
+     87|     expect(failure.name).toBe("ValidationError");
+       |                          ^
+     88|   });
+     89| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[294/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/orderby-relation-depth.core.test.ts > orderBy relation-depth deterministic contracts > a to-many relation inside a to-one chain is rejected
+AssertionError: expected [Function] to throw error matching /cannot order through a to-many relati…/ but got 'Cannot read properties of undefined (…'
+
+[32m- Expected:[39m 
+/cannot order through a to-many relation/
+
+[31m+ Received:[39m 
+"Cannot read properties of undefined (reading 'operation')"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[295/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts > pending operation coordination boundaries > runs an unintercepted array child without provider work
+TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+    458|     if (shared) return shared;
+    459|     if (this.#routedInstance) return this.#routedInstance;
+    460|     const routed = this.#route.operation(
+       |                                ^
+    461|       this.#model,
+    462|       String(this.#options.originalOperation),
+ ❯ PendingOperation.#preparedInput src/query-engine/pending-operation.ts:477:17
+ ❯ Object.startInterception src/query-engine/pending-operation.ts:260:41
+ ❯ tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts:561:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[307/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'create' fails before dispatch
+AssertionError: expected 'Driver "no-atomic-planning" supports …' to be 'Driver \'no-atomic-planning\' support…' // Object.is equality
+
+Expected: [32m"Driver [7m'[27mno-atomic-planning[7m'[27m supports neither transactions nor atomic batch execution."[39m
+Received: [31m"Driver [7m"[27mno-atomic-planning[7m"[27m supports neither transactions nor atomic batch execution."[39m
+
+ ❯ tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts:71:30
+     69|         throw new Error("Expected a TransactionError.");
+     70|       }
+     71|       expect(thrown.message).toBe(
+       |                              ^
+     72|         `Driver '${driver.driverName}' supports neither transactions n…
+     73|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[353/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'update' fails before dispatch
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'upsert' fails before dispatch
+AssertionError: expected QueryError: Query execution failed { …(4) } to be an instance of TransactionError
+ ❯ tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts:67:22
+     65|       }
+     66| 
+     67|       expect(thrown).toBeInstanceOf(TransactionError);
+       |                      ^
+     68|       if (!(thrown instanceof TransactionError)) {
+     69|         throw new Error("Expected a TransactionError.");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[354/534]⎯
+

@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+ ✓ |coverage-raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 41ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 12ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts (7 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 35ms
+ ✓ |raptor3| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 12ms
+ ✓ |raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts (7 tests) 20ms
+
+ Test Files  6 passed (6)
+      Tests  28 passed (28)
+   Start at  11:25:45
+   Duration  3.72s (transform 1.95s, setup 17ms, collect 3.20s, tests 140ms, environment 0ms, prepare 51ms)
+
+Vitest resources: 5.60s wall, 628.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

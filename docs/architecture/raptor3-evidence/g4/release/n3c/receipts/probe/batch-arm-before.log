@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-perf
+
+EXEC INSERT INTO "suite_2"."relation_key_set_null_parents" ("id", "name") VALUES ($1, $2) RETURNING "id" AS "id", "name" AS "name" :: [1,"Parent"]
+EXEC INSERT INTO "suite_2"."relation_key_set_null_children" ("id", "label", "parentId") VALUES ($1, $2, $3) RETURNING "id" AS "id", "label" AS "label", "parentId" AS "parentId" :: [1,"Child",1]
+EXEC SELECT "q0"."id" AS "id", "q0"."name" AS "name" FROM "suite_2"."relation_key_set_null_parents" AS "q0" WHERE "q0"."id" = $1 ORDER BY "q0"."id" ASC LIMIT $2 :: [1,1]
+EXEC SELECT "q0"."id" AS "id", "q0"."label" AS "label", "q0"."parentId" AS "parentId" FROM "suite_2"."relation_key_set_null_children" AS "q0" WHERE "q0"."parentId" = (CAST((SELECT "ref_value" FROM "__viborm_batch_refs" WHERE "batch_id" = $1 AND "ref_key" = $2 LIMIT :: ["ee2ada4d-28da-4cd0-8933-e2465b651729","0",1]
+EXEC ERROR error code=42P01 msg=relation "__viborm_batch_refs" does not exist
+SURFACED QueryError code=V2001 msg=Query execution failed
+ meta={"correlationId":"da5caeea-5a3a-4fc0-be23-f19c85432cbe","driver":"pglite","model":"setNullChild","operation":"update","providerCode":"42P01"}
+ cause=none
+ ✓ |extended-local| tests/contracts/engine/query/probe-legality.test.ts (1 test) 1245ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:43:14
+   Duration  3.16s (transform 1.14s, setup 9ms, collect 1.70s, tests 1.25s, environment 0ms, prepare 34ms)
+
+Vitest resources: 5.03s wall, 1471.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

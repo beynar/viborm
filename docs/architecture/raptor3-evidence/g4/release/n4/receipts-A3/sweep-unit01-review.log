@@ -1,0 +1,30 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/repairs.test.ts (13 tests) 42ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/repair2.test.ts (22 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/repair3.test.ts (14 tests) 13ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/read-verbs.test.ts (9 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/filters.test.ts (8 tests) 9ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/order-projection.test.ts (6 tests) 7ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/codec-roundtrip.test.ts (5 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/variants.test.ts (3 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/recursive-vocabulary.test.ts (1 test) 2ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/geo-capability.test.ts (2 tests) 2ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/repairs.test.ts (13 tests) 41ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/repair2.test.ts (22 tests) 18ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/repair3.test.ts (14 tests) 14ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/read-verbs.test.ts (9 tests) 7ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/filters.test.ts (8 tests) 8ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/order-projection.test.ts (6 tests) 6ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/codec-roundtrip.test.ts (5 tests) 6ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/variants.test.ts (3 tests) 5ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/recursive-vocabulary.test.ts (1 test) 2ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/geo-capability.test.ts (2 tests) 2ms
+
+ Test Files  20 passed (20)
+      Tests  166 passed (166)
+   Start at  07:53:18
+   Duration  3.38s (transform 1.32s, setup 25ms, collect 2.74s, tests 223ms, environment 0ms, prepare 49ms)
+
+Vitest resources: 5.14s wall, 676.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

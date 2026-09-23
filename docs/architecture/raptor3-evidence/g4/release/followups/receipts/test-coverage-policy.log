@@ -1,0 +1,92 @@
+✔ every TypeScript source has exactly one coverage owner (8.305166ms)
+✔ subsystem configs derive includes and thresholds from the manifest (0.995ms)
+✔ waived sources remain owned and included (0.266291ms)
+✔ test fixtures use the workspace alias instead of root-absolute imports (240.778125ms)
+✔ migration coverage admits every credential-free local contract (3.302125ms)
+✔ migration core contracts open no database outside the named in-memory SQLite exception (16.531584ms)
+✔ client coverage admits the core and audited deterministic contracts (0.307458ms)
+✖ driver coverage isolates provider resources and admits only audited local providers (0.91525ms)
+✔ query coverage admits every core contract exactly once (4.860791ms)
+✔ write coverage admits the core and audited high-signal local contracts (3.261208ms)
+✔ cache coverage admits every deterministic cache contract exactly once (1.60675ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 10
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 286.325292
+
+✖ failing tests:
+
+test at scripts/coverage-policy.test.mjs:298:1
+✖ driver coverage isolates provider resources and admits only audited local providers (0.91525ms)
+  AssertionError [ERR_ASSERTION]: tests/contracts/drivers/consumable-result-proof.core.test.ts imports a provider resource but is not isolated
+      at TestContext.<anonymous> (file:///private/tmp/viborm-followups/scripts/coverage-policy.test.mjs:374:14)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+Node resources: 0.84s wall, 62.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+---exit=1---
+✔ fails closed where process-tree bounds cannot be verified (0.778625ms)
+✔ process-group RSS sums every member and ignores other groups (0.161958ms)
+✔ process-group teardown ignores zombie-only groups (0.076625ms)
+✔ heap replacement preserves unrelated Node options (0.090625ms)
+✔ RSS limit defaults to the project cap and is configurable (0.567083ms)
+✔ the ordinary ceiling is 1536 MiB and may only ever be lowered (0.342709ms)
+✔ no ordinary caller can reach the 2560 MiB PGlite allowance (0.271459ms)
+✔ the allowlisted typecheck ceiling reaches 8192 MiB and stops there (0.109375ms)
+✔ the allowlisted PGlite ceiling reaches 2560 MiB and stops there (0.085292ms)
+✔ the resource line names the ceiling that was applied (0.81025ms)
+✔ a bounded run reports the ceiling it enforced (515.570209ms)
+✔ heap limits may be lowered but never raised above the caller cap (0.553084ms)
+✔ Vitest arguments end with the enforced single-worker policy (0.121375ms)
+RSS limit witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ the sampled RSS ceiling terminates the complete child group (1084.433167ms)
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+RSS group teardown witness exceeded its 48 MiB sampled process-group RSS ceiling (ordinary project).
+✔ RSS teardown verifies a group whose leader and worker exit together (30646.704209ms)
+✔ normal leader exit still tears down inherited descendants (1674.865417ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 33931.492291
+Node resources: 34.52s wall, 62.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+---exit=0---
+✔ a bounded descendant inherits its ancestor's workspace lock (85.514542ms)
+✔ parses complete process rows without truncating commands (0.411875ms)
+✔ refuses malformed, duplicate, and incomplete process graphs (0.160792ms)
+✔ excludes every direct, pnpm, and coverage-wrapper ancestor (0.149417ms)
+✔ finds stale Vitest, TypeScript, tsdown, and Vitest worker processes (0.181375ms)
+✔ does not confuse a sibling path with the current workspace (0.127ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 89.588458
+Node resources: 0.83s wall, 58.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+---exit=0---

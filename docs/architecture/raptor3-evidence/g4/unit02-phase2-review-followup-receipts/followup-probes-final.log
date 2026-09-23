@@ -1,0 +1,328 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts (13 tests | 5 failed) 103ms
+   ✓ G4-02 repair round 3 — the named key, attacked > carries a DEPENDENT through a multiplied parent key (non-returning) 35ms
+   ✓ G4-02 repair round 3 — the named key, attacked > carries a DEPENDENT through a divided parent key (non-returning) 7ms
+   ✓ G4-02 repair round 3 — the named key, attacked > truncates a NEGATIVE bigint quotient the way the shipped engine does 7ms
+   ✓ G4-02 repair round 3 — the named key, attacked > multiplies a NEGATIVE bigint key the way the shipped engine does 3ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > does not fire for arithmetic on a NON-key decimal column 6ms
+   × G4-02 repair round 3 — the admission mirror, attacked > refuses a number key multiply through upsert as the shipped engine does 9ms
+     → candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through updateMany as shipped does 8ms
+   × G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through upsert as the shipped engine does 4ms
+     → candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryError: Query execution failed","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryError: Query execution failed',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers an INT key multiply through upsert the way the shipped engine does 7ms
+   × G4-02 repair round 3 — the admission mirror, attacked > answers a DECIMAL key multiply through upsert the way the shipped engine does 4ms
+     → candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":\"12\",\"label\":\"a\"}","rows":[{"id":1200,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":"12","label":"a"}',
+    rows: [
+      {
++       id: 600,
+-       id: 1200,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 repair round 3 — the admission mirror, attacked > upserts a MISSING row whose update names key arithmetic, as shipped does 4ms
+     → candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":99,\"label\":\"new\"}","rows":[{"id":6,"label":"a"},{"id":99,"label":"new"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":99,"label":"new"}',
+    rows: [
+      {
+        id: 6,
+        label: 'a'
+      },
+-     {
+-       id: 99,
+-       label: 'new'
+-     }
+    ]
+  }
+
+   × G4-02 repair round 3 — the admission mirror, attacked > answers a FLOAT key increment the way the shipped engine does 3ms
+     → candidate {"answer":"ok:{\"id\":7,\"label\":\"a\"}","rows":[{"id":7,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers a non-finite int key operand the way the shipped engine does 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > refuses a number key multiply through upsert as the shipped engine does
+AssertionError: candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":12,\"label\":\"a\"}",[39m
+[31m+   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 12,[39m
+[31m+       "id": 6,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:197:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through upsert as the shipped engine does
+AssertionError: candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryError: Query execution failed","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryError: Query execution failed',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryError: Query execution failed",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 3,[22m
+[2m        "label": "p",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:219:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > answers a DECIMAL key multiply through upsert the way the shipped engine does
+AssertionError: candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":\"12\",\"label\":\"a\"}","rows":[{"id":1200,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":"12","label":"a"}',
+    rows: [
+      {
++       id: 600,
+-       id: 1200,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":\"12\",\"label\":\"a\"}",[39m
+[31m+   "answer": "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 1200,[39m
+[31m+       "id": 600,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:245:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > upserts a MISSING row whose update names key arithmetic, as shipped does
+AssertionError: candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":99,\"label\":\"new\"}","rows":[{"id":6,"label":"a"},{"id":99,"label":"new"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":99,"label":"new"}',
+    rows: [
+      {
+        id: 6,
+        label: 'a'
+      },
+-     {
+-       id: 99,
+-       label: 'new'
+-     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":99,\"label\":\"new\"}",[39m
+[31m+   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "a",[22m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "id": 99,[39m
+[32m-       "label": "new",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:258:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > answers a FLOAT key increment the way the shipped engine does
+AssertionError: candidate {"answer":"ok:{\"id\":7,\"label\":\"a\"}","rows":[{"id":7,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":7,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 7,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:271:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 8 passed (13)
+   Start at  10:18:22
+   Duration  2.58s (transform 1.54s, setup 11ms, collect 2.29s, tests 103ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 3.23s wall, 473.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+ ✓ |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts (56 tests) 2254ms
+
+ Test Files  1 passed (1)
+      Tests  56 passed (56)
+   Start at  10:15:40
+   Duration  3.83s (transform 951ms, setup 9ms, collect 1.39s, tests 2.25s, environment 0ms, prepare 33ms)
+
+Vitest resources: 5.56s wall, 1697.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

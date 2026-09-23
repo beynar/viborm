@@ -1,0 +1,26 @@
+{
+ "reps": 300000,
+ "samples": [
+  {
+   "label": "fromEntries(filter(map))",
+   "usPerCall": 0.27730666666666665,
+   "sink": 1600000
+  },
+  {
+   "label": "one loop",
+   "usPerCall": 0.10743,
+   "sink": 1600000
+  },
+  {
+   "label": "fromEntries(filter(map)) #2",
+   "usPerCall": 0.26237,
+   "sink": 1600000
+  },
+  {
+   "label": "one loop #2",
+   "usPerCall": 0.10382333333333334,
+   "sink": 1600000
+  }
+ ],
+ "equal": true
+}

@@ -539,7 +539,7 @@ function runSingularSlotTransferRaces({
 
     if (createCapturedPlanBatchDriver) {
       test(
-        "an adopter whose captured owner was replaced fails and leaves the winner's row",
+        "an adopter whose captured owner was replaced aborts, re-plans once, and converges",
         { timeout: 30_000 },
         async () => {
           const observer = clients[0]!;
@@ -562,24 +562,27 @@ function runSingularSlotTransferRaces({
           );
 
           // The loser captured `s0`. Its atomic unit re-asserts that captured
-          // membership BEFORE writing, so it aborts — `raceable: false`, because
-          // a row that was there and is gone is a genuine replacement, not
-          // something a rerun can win.
-          await expect(adopt(loser, "s2")).rejects.toThrow();
+          // membership BEFORE writing, so it ABORTS — and under Arnaud's D-32
+          // that premise states a race, not an identity: the two rows the write
+          // connects are the ones the arguments named, and the membership row
+          // is state the plan discovered. So the operation re-plans ONCE from
+          // the admitted values, the fresh capture reads the membership the
+          // race produced, and it transfers THAT pair.
+          expect(await adopt(loser, "s2")).toMatchObject({ id: "s2" });
+
+          // THE CLAUSE, unchanged and still the thing this row measures: the
+          // first attempt aborted BEFORE writing. Without the in-batch
+          // captured-owner premise the loser would delete `s1/b1`, insert
+          // `s2/b1` and report success with NO batch error at all — the same
+          // final rows as below, reached without ever proving anything. This
+          // assertion is what tells the two apart, and it is why the row still
+          // falsifies the removal of the premise.
           expect(batchErrors.length).toBeGreaterThanOrEqual(1);
 
-          // THE CLAUSE: the winner's row was not deleted on the loser's way out.
-          //
-          // MEASURED against the unpinned adoption §9.4 forbids — the in-batch
-          // captured-owner premise removed AND the vacate's own captured-owner
-          // scoping removed: the loser then deletes `s1/b1`, inserts `s2/b1` and
-          // REPORTS SUCCESS, reddening both halves of this row at once. Removing
-          // either half ALONE leaves this row green, and that is the honest shape
-          // of the design rather than a gap: with only the premise gone the
-          // target-side UNIQUE still refuses the loser's insert, and with only the
-          // scoping gone the premise still aborts first. The captured-owner
-          // condition is what the pair states together.
-          expect(await members(observer)).toEqual(["s1/b1"]);
+          // Converged, and the slot is still singular: exactly one membership
+          // row, held by the adopter that finished last, over the one book the
+          // winner never lost.
+          expect(await members(observer)).toEqual(["s2/b1"]);
           expect(await observer.book.findMany({})).toHaveLength(1);
         }
       );

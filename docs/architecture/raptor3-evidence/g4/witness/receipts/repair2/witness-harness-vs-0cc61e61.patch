@@ -1,0 +1,2079 @@
+diff --git a/scripts/credential-free-test-manifest.mjs b/scripts/credential-free-test-manifest.mjs
+index 5d262b7c..764fd78d 100644
+--- a/scripts/credential-free-test-manifest.mjs
++++ b/scripts/credential-free-test-manifest.mjs
+@@ -28,6 +28,21 @@ import {
+   G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+   G3_GENERATED_CAMPAIGN_TESTS,
+   G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  G4_READ_TESTS,
++  G4_LIFECYCLE_EVENTS_TESTS,
++  G4_LIFECYCLE_ADMISSION_TESTS,
++  G4_ROUTE_LIFECYCLE_TESTS,
++  G4_ROUTE_ADMISSION_TESTS,
++  G4_ROUTE_CACHE_TESTS,
++  G4_ROUTE_TRANSACTION_TESTS,
++  G4_GENERATION_SELFTEST_TESTS,
++  G4_GENERATED_CAMPAIGN_TESTS,
++  G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  G4_WRITE_CAMPAIGN_TESTS,
++  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++  G4_UNIT01_AUTHOR_TESTS,
++  G4_NATIVE_PG_TESTS,
++  G4_NATIVE_MYSQL_TESTS,
+   G3_EXECUTION_REVIEW_TESTS,
+   G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+   G3_SCOPE_FAILURE_TESTS,
+@@ -99,6 +114,28 @@ const extendedLocalExclusions = new Set([
+   ...G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+   ...G3_GENERATED_CAMPAIGN_TESTS,
+   ...G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  // G4 suites are deliberately red against the frozen candidate and are
++  // reached only through their registered Raptor modes. They join the
++  // credential-free fixed stage when they go green, not because a file walk
++  // can see them.
++  ...G4_READ_TESTS,
++  ...G4_LIFECYCLE_EVENTS_TESTS,
++  ...G4_LIFECYCLE_ADMISSION_TESTS,
++  ...G4_ROUTE_LIFECYCLE_TESTS,
++  ...G4_ROUTE_ADMISSION_TESTS,
++  ...G4_ROUTE_CACHE_TESTS,
++  ...G4_ROUTE_TRANSACTION_TESTS,
++  ...G4_GENERATION_SELFTEST_TESTS,
++  ...G4_GENERATED_CAMPAIGN_TESTS,
++  ...G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  ...G4_WRITE_CAMPAIGN_TESTS,
++  ...G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++  // The G4-01 author's own checks, landed from that unit's worktree. The
++  // reviewer probes beside them live under `tests/raptor3/g4/review/`, which
++  // the walk already skips; only this directory needs naming.
++  ...G4_UNIT01_AUTHOR_TESTS,
++  ...G4_NATIVE_PG_TESTS,
++  ...G4_NATIVE_MYSQL_TESTS,
+   ...G3_EXECUTION_REVIEW_TESTS,
+   ...G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+   ...G3_SCOPE_FAILURE_TESTS,
+@@ -203,6 +240,17 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
+           file.endsWith(".core.test.ts") ||
+           file.startsWith("tests/package/") ||
+           file.startsWith("tests/providers/") ||
++          // Review- and unit-owned scratch suites under a milestone's
++          // evidence tree. They belong to no lane and to no registered Raptor
++          // mode; a file walk must not adopt them into the credential-free
++          // estate. `tests/raptor3/g4/unit01/` is NOT here: it was landed from
++          // its author's worktree, is registered as `g4-unit01-author`, and is
++          // therefore named in `extendedLocalExclusions` like every other
++          // registered G4 suite. `tests/raptor3/g4/unit02/` is still its
++          // author's, with no registered mode; promoting it is that stream's
++          // request to make.
++          file.startsWith("tests/raptor3/g4/review/") ||
++          file.startsWith("tests/raptor3/g4/unit02/") ||
+           extendedLocalExclusions.has(file)
+         )
+     )
+diff --git a/scripts/raptor3-campaign-receipts.test.mjs b/scripts/raptor3-campaign-receipts.test.mjs
+index 124b25d6..76ab1888 100644
+--- a/scripts/raptor3-campaign-receipts.test.mjs
++++ b/scripts/raptor3-campaign-receipts.test.mjs
+@@ -71,7 +71,35 @@ import {
+   CS02_REPEATED_OCCURRENCE_TESTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   G29_MEMBER_DEPENDENCY_PG_TESTS,
++  G4_READ_TESTS,
++  G4_READ_COUNTS,
++  G4_LIFECYCLE_EVENTS_TESTS,
++  G4_LIFECYCLE_ADMISSION_TESTS,
++  G4_ROUTE_LIFECYCLE_TESTS,
++  G4_ROUTE_ADMISSION_TESTS,
++  G4_ROUTE_CACHE_TESTS,
++  G4_ROUTE_TRANSACTION_TESTS,
++  G4_GENERATION_SELFTEST_TESTS,
++  G4_GENERATED_CAMPAIGN,
++  G4_GENERATED_CAMPAIGN_TESTS,
++  G4_GENERATED_TRANSPORT_CAMPAIGN,
++  G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  G4_WRITE_CAMPAIGN,
++  G4_WRITE_CAMPAIGN_TESTS,
++  G4_WRITE_TRANSPORT_CAMPAIGN,
++  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++  G4_UNIT01_AUTHOR_COUNTS,
++  G4_UNIT01_AUTHOR_TESTS,
++  G4_UNIT01_REVIEW_COUNTS,
++  G4_UNIT01_REVIEW_TESTS,
++  G4_NATIVE_PG_TESTS,
++  G4_NATIVE_MYSQL_TESTS,
++  G4_READ_CONTRACT_FAMILIES,
++  G4_TRANSPORT_MODELS,
++  assertG4GeneratedBatchReceipt,
++  assertG4OracleValidationReceipt,
+ } from "./raptor3-manifest.mjs";
++import * as manifest from "./raptor3-manifest.mjs";
+ import {
+   archiveG3GeneratedCorpus,
+   parseRaptor3Request,
+@@ -162,6 +190,53 @@ test("a verified G3 child corpus archives and restores byte-for-byte", async ()
+   }
+ });
+ 
++test("a child corpus archive carries the replay command of its own lane", async () => {
++  // The optional second parameter exists because the G0/G3 default routes a
++  // G4 read corpus into tests/raptor3/gate.test.ts, where it fails. Without
++  // this cell nothing noticed a G4 receipt that kept the G3 default.
++  const directory = mkdtempSync(join(tmpdir(), "viborm-g4-archive-selftest-"));
++  try {
++    writeFileSync(
++      join(directory, "generated-corpus.json"),
++      Buffer.from('{"records":[]}\n')
++    );
++    const g4Command =
++      'cd "/repo"; node scripts/run-raptor3.mjs g4-seed-batch 20000 --subject=candidate';
++    const archive = await archiveG3GeneratedCorpus(directory, g4Command);
++    assert.equal(archive.replayCommand, g4Command);
++    assert.deepEqual(
++      JSON.parse(
++        readFileSync(join(directory, "generated-corpus.archive.json"), "utf8")
++      ).replayCommand,
++      g4Command
++    );
++    assert.doesNotMatch(
++      archive.replayCommand,
++      /run-raptor3\.mjs replay/,
++      "a G4 lane receipt kept the G0/G3 replay default"
++    );
++  } finally {
++    rmSync(directory, { recursive: true, force: true });
++  }
++  // ...and the one-argument call still spells the G0/G3 default exactly.
++  const g3Directory = mkdtempSync(
++    join(tmpdir(), "viborm-g3-archive-default-")
++  );
++  try {
++    writeFileSync(
++      join(g3Directory, "generated-corpus.json"),
++      Buffer.from('{"records":[]}\n')
++    );
++    const archive = await archiveG3GeneratedCorpus(g3Directory);
++    assert.match(
++      archive.replayCommand,
++      /node scripts\/run-raptor3\.mjs replay "\$g3_corpus_restore_dir\/generated-corpus\.json"$/
++    );
++  } finally {
++    rmSync(g3Directory, { recursive: true, force: true });
++  }
++});
++
+ test("a failed G3 child archive leaves the raw corpus unchanged", async () => {
+   const directory = mkdtempSync(join(tmpdir(), "viborm-g3-archive-selftest-"));
+   try {
+@@ -878,3 +953,427 @@ for (const lane of prepLanes) {
+     }
+   });
+ }
++
++const G4_FIXED_SUITES = [
++  ...G4_READ_TESTS,
++  ...G4_LIFECYCLE_EVENTS_TESTS,
++  ...G4_LIFECYCLE_ADMISSION_TESTS,
++  ...G4_ROUTE_LIFECYCLE_TESTS,
++  ...G4_ROUTE_ADMISSION_TESTS,
++  ...G4_ROUTE_CACHE_TESTS,
++  ...G4_ROUTE_TRANSACTION_TESTS,
++  ...G4_GENERATION_SELFTEST_TESTS,
++  ...G4_UNIT01_AUTHOR_TESTS,
++  ...G4_UNIT01_REVIEW_TESTS,
++];
++
++test("G4 suites stay outside credential-free discovery while they are red", () => {
++  for (const file of [
++    ...G4_FIXED_SUITES,
++    ...G4_GENERATED_CAMPAIGN_TESTS,
++    ...G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++    ...G4_WRITE_CAMPAIGN_TESTS,
++    ...G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++    ...G4_NATIVE_PG_TESTS,
++    ...G4_NATIVE_MYSQL_TESTS,
++  ]) {
++    assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);
++    // Deliberately NOT in the Raptor fixed stage: these witnesses are red
++    // against the frozen candidate. They join that stage when they pass, and
++    // this assertion is what makes the promotion an explicit decision.
++    assert.equal(RAPTOR3_FIXED_LOCAL_TESTS.includes(file), false, file);
++  }
++});
++
++test("G4 fixed modes admit their exact contract without filters", () => {
++  const modes = [
++    "g4-read-contracts",
++    "g4-read-operations",
++    "g4-read-filters",
++    "g4-read-ordering",
++    "g4-read-pagination",
++    "g4-read-projection",
++    "g4-read-aggregates",
++    "g4-read-codecs",
++    "g4-read-recursive-fit",
++    "g4-lifecycle-events",
++    "g4-lifecycle-admission",
++    "g4-route-lifecycle",
++    "g4-route-admission",
++    "g4-route-cache",
++    "g4-route-transactions",
++    "g4-generation-selftests",
++    "g4-unit01-author",
++    "g4-unit01-review",
++    "g4-read-envelope-pg-contracts",
++    "g4-read-envelope-mysql-contracts",
++  ];
++  for (const mode of modes) {
++    assert.equal(parseRaptor3Request([mode]).mode, mode);
++    for (const extra of ["20000", "--testNamePattern=absent"])
++      assert.throws(
++        () => parseRaptor3Request([mode, extra]),
++        /cannot be filtered/
++      );
++  }
++  const total = Object.values(G4_READ_COUNTS).reduce(
++    (sum, count) => sum + count,
++    0
++  );
++  assert.equal(
++    total,
++    62,
++    "The fixed C01/C12 read family lost or gained a witness cell"
++  );
++  // The G4-01 evidence landed from that unit's worktree. Its two registered
++  // totals are the numbers the unit reported (83 author checks) and the number
++  // the reviewer probes actually contain, measured on the landed files.
++  const sum = (counts) =>
++    Object.values(counts).reduce((carried, count) => carried + count, 0);
++  assert.equal(
++    sum(G4_UNIT01_AUTHOR_COUNTS),
++    83,
++    "The landed G4-01 author checks lost or gained a cell"
++  );
++  assert.equal(
++    sum(G4_UNIT01_REVIEW_COUNTS),
++    200,
++    "The landed G4-01 reviewer probes lost or gained a cell"
++  );
++});
++
++/**
++ * The write lanes are the G3 write campaign on seeds no child has ever run.
++ *
++ * What this cell protects is that "data-only" is true: the two constants carry
++ * G3's batch size, replay count, completion limit and profiles, their ranges
++ * are disjoint from every other lane, and the SAME
++ * `assertG3GeneratedBatchReceipt` still re-derives the contract rotation and
++ * the actor/fault quotas from the seed. A campaign constant that widened what
++ * qualifies, or a range that overlapped an already-qualified one, fails here.
++ */
++test("G4 write lanes reuse the G3 campaign on fresh disjoint ranges", () => {
++  const lanes = [
++    {
++      mode: "g4-write-seeds",
++      batchMode: "g4-write-seed-batch",
++      campaign: G4_WRITE_CAMPAIGN,
++      inherited: G3_GENERATED_CAMPAIGN,
++      firstSeed: 75_000,
++    },
++    {
++      mode: "g4-write-transport-seeds",
++      batchMode: "g4-write-transport-seed-batch",
++      campaign: G4_WRITE_TRANSPORT_CAMPAIGN,
++      inherited: G3_GENERATED_TRANSPORT_CAMPAIGN,
++      firstSeed: 100_000,
++    },
++  ];
++  // Every frozen seed range the manifest declares, not a hand-kept list of
++  // three: a campaign constant added later must be compared too, and nothing
++  // outside the manifest decides which ranges have been run. One level of
++  // nesting is descended so the CS-03 extension slices, which live in a map
++  // keyed by mode, are compared like any other lane.
++  const ranges = (value) =>
++    value === null || typeof value !== "object"
++      ? []
++      : Number.isInteger(value.firstSeed) && Number.isInteger(value.seedCount)
++        ? [value]
++        : Object.values(value).filter(
++            (nested) =>
++              nested !== null &&
++              typeof nested === "object" &&
++              Number.isInteger(nested.firstSeed) &&
++              Number.isInteger(nested.seedCount)
++          );
++  const occupied = Object.values(manifest).flatMap(ranges);
++  assert.ok(
++    occupied.length >= 16,
++    `only ${occupied.length} frozen seed ranges were found in the manifest`
++  );
++  const identity = {
++    production: "production-source",
++    harness: "harness-source",
++    runtime: { node: "v24.21.0" },
++  };
++  for (const lane of lanes) {
++    const { campaign, inherited, firstSeed } = lane;
++    assert.equal(campaign.firstSeed, firstSeed);
++    assert.equal(campaign.seedCount, 25_000);
++    assert.equal(campaign.batchSize, inherited.batchSize);
++    assert.equal(campaign.replayCount, inherited.replayCount);
++    assert.equal(campaign.completionLimit, inherited.completionLimit);
++    assert.deepEqual(campaign.profiles, inherited.profiles);
++    // The rotation `(seed - firstSeed) % 4` the receipt re-derives has to
++    // agree with the generator's `(seed - 8000) % 4`, or every cell of every
++    // child would report the wrong contract family.
++    assert.equal(
++      (campaign.firstSeed - G3_GENERATED_CAMPAIGN.firstSeed) % 4,
++      0,
++      "A write lane's first seed must keep the G3 contract rotation"
++    );
++    for (const other of [...occupied, ...lanes.map((l) => l.campaign)]) {
++      if (other === campaign) continue;
++      assert(
++        campaign.firstSeed + campaign.seedCount <= other.firstSeed ||
++          other.firstSeed + other.seedCount <= campaign.firstSeed,
++        "A write lane overlaps an already-run range"
++      );
++    }
++
++    assert.equal(parseRaptor3Request([lane.mode]).mode, lane.mode);
++    assert.equal(
++      parseRaptor3Request([lane.batchMode, String(firstSeed)]).firstSeed,
++      firstSeed
++    );
++    const last = firstSeed + campaign.seedCount - campaign.batchSize;
++    assert.equal(
++      parseRaptor3Request([lane.batchMode, String(last)]).firstSeed,
++      last
++    );
++    for (const off of [firstSeed - 1, firstSeed + 1, last + 1, last + 100])
++      assert.throws(
++        () => parseRaptor3Request([lane.batchMode, String(off)]),
++        /exact frozen boundary/
++      );
++    // One subject, so the read campaign's flag is refused rather than ignored.
++    for (const args of [
++      [lane.mode, "--subject=shipped"],
++      [lane.batchMode, String(firstSeed), "--subject=candidate"],
++    ])
++      assert.throws(
++        () => parseRaptor3Request(args),
++        /Subject selection applies only to the G4 generated read campaign/
++      );
++    assert.throws(
++      () => parseRaptor3Request([lane.mode, "--testNamePattern=absent"]),
++      /cannot be filtered/
++    );
++
++    const completion = (seed, profile) => ({
++      seed,
++      profile,
++      contract: ["C08", "C09", "C10", "C11"][(seed - campaign.firstSeed) % 4],
++      actors: seed % 5 === 0 ? 2 : 1,
++      actorOverlap: seed % 5 === 0,
++      faults: seed % 5 === 1 ? 1 : 0,
++      operations: 3,
++      completions: 1,
++    });
++    const completed = campaign.profiles.flatMap((profile) =>
++      Array.from({ length: campaign.batchSize }, (_, offset) =>
++        completion(firstSeed + offset, profile)
++      )
++    );
++    const receipt = {
++      formatVersion: 1,
++      qualifying: true,
++      status: "complete",
++      identity,
++      firstSeed,
++      seedCount: campaign.batchSize,
++      profiles: campaign.profiles,
++      completed,
++      replays:
++        campaign.batchSize *
++        campaign.profiles.length *
++        campaign.replayCount,
++      skipped: 0,
++    };
++    assert.doesNotThrow(() =>
++      assertG3GeneratedBatchReceipt(receipt, firstSeed, campaign, identity)
++    );
++    // A child that strayed outside its own frozen range still fails, which is
++    // what stops a write lane from re-running an already-qualified G3 seed.
++    assert.throws(
++      () =>
++        assertG3GeneratedBatchReceipt(
++          receipt,
++          firstSeed,
++          G3_GENERATED_CAMPAIGN,
++          identity
++        ),
++      /outside the frozen campaign/
++    );
++    const corrupt = structuredClone(receipt);
++    for (const cell of corrupt.completed) cell.faults = 1;
++    assert.throws(
++      () =>
++        assertG3GeneratedBatchReceipt(corrupt, firstSeed, campaign, identity),
++      /legal injected failure/
++    );
++  }
++});
++
++function g4UnitReceipt(firstSeed, seedCount, campaign, subject, identity) {
++  const completed = campaign.profiles.flatMap((profile) =>
++    Array.from({ length: seedCount }, (_, offset) => {
++      const seed = firstSeed + offset;
++      const contract =
++        G4_READ_CONTRACT_FAMILIES[
++          (seed - campaign.firstSeed) % G4_READ_CONTRACT_FAMILIES.length
++        ];
++      // Q-S is the relation family; every other contract reads the codec world.
++      const family = contract === "Q-S" ? "relation" : "codec";
++      const transport = G4_TRANSPORT_MODELS[profile];
++      return {
++        seed,
++        profile,
++        contract,
++        family,
++        actors: 1,
++        faults: 0,
++        rows: 2,
++        statements: transport === "atomic-submission" ? 3 : 1,
++        transport,
++      };
++    })
++  );
++  return {
++    formatVersion: 1,
++    qualifying: subject === "candidate",
++    status: subject === "candidate" ? "complete" : "oracle-validation",
++    subject,
++    identity,
++    firstSeed,
++    seedCount,
++    profiles: [...campaign.profiles],
++    completed,
++    replays: completed.length * campaign.replayCount,
++    skipped: 0,
++  };
++}
++
++test("G4 campaign modes bind the frozen disjoint ranges and their subjects", () => {
++  const identity = { production: "reference", harness: "shared" };
++  assert.equal(G4_GENERATED_CAMPAIGN.firstSeed, 20_000);
++  assert.equal(G4_GENERATED_CAMPAIGN.seedCount, 25_000);
++  assert.equal(G4_GENERATED_TRANSPORT_CAMPAIGN.firstSeed, 50_000);
++  assert.equal(G4_GENERATED_TRANSPORT_CAMPAIGN.seedCount, 25_000);
++  assert.deepEqual(G4_GENERATED_CAMPAIGN.profiles, [
++    "sqlite-interactive",
++    "sqlite-atomic-batch",
++  ]);
++  assert.deepEqual(G4_GENERATED_TRANSPORT_CAMPAIGN.profiles, [
++    "scripted-returning-weak",
++    "scripted-returning-ack",
++  ]);
++  assert.equal(parseRaptor3Request(["g4-seeds"]).mode, "g4-seeds");
++  assert.equal(
++    parseRaptor3Request(["g4-seed-batch", "20000"]).firstSeed,
++    20_000
++  );
++  assert.throws(
++    () => parseRaptor3Request(["g4-seed-batch", "19999"]),
++    /exact frozen boundary/
++  );
++  assert.throws(
++    () => parseRaptor3Request(["g4-seed-batch", "45000"]),
++    /exact frozen boundary/
++  );
++  assert.throws(
++    () => parseRaptor3Request(["g4-transport-seed-batch", "20000"]),
++    /exact frozen boundary/
++  );
++
++  // The subject belongs to the command. The default is the claim; the
++  // oracle-validation lane has to be asked for by name, and no other mode
++  // accepts the flag at all.
++  for (const mode of [
++    "g4-seeds",
++    "g4-transport-seeds",
++    "g4-seed-batch",
++    "g4-transport-seed-batch",
++  ]) {
++    const positional = mode.endsWith("-seed-batch")
++      ? [mode, mode.includes("transport") ? "50000" : "20000"]
++      : [mode];
++    assert.equal(parseRaptor3Request(positional).subject, "candidate");
++    assert.equal(
++      parseRaptor3Request([...positional, "--subject=shipped"]).subject,
++      "shipped"
++    );
++    assert.throws(
++      () => parseRaptor3Request([...positional, "--subject=anything"]),
++      /Subject is candidate or shipped/
++    );
++    assert.throws(
++      () =>
++        parseRaptor3Request([
++          ...positional,
++          "--subject=shipped",
++          "--subject=candidate",
++        ]),
++      /Subject may be specified only once/
++    );
++  }
++  for (const mode of ["g0", "g3-seeds", "g4-read-contracts"])
++    assert.throws(
++      () => parseRaptor3Request([mode, "--subject=shipped"]),
++      /Subject selection applies only to the G4 generated read campaign/
++    );
++  assert.equal(parseRaptor3Request(["g0"]).subject, undefined);
++
++  for (const campaign of [
++    G4_GENERATED_CAMPAIGN,
++    G4_GENERATED_TRANSPORT_CAMPAIGN,
++  ]) {
++    const first = campaign.firstSeed;
++    const qualifying = g4UnitReceipt(first, 5, campaign, "candidate", identity);
++    assert.doesNotThrow(() =>
++      assertG4GeneratedBatchReceipt(qualifying, first, campaign, identity)
++    );
++    assert.throws(
++      () =>
++        assertG4GeneratedBatchReceipt(
++          { ...qualifying, identity: { production: "stale" } },
++          first,
++          campaign,
++          identity
++        ),
++      /Stale Raptor 3 evidence/
++    );
++    assert.throws(() =>
++      assertG4GeneratedBatchReceipt(
++        { ...qualifying, completed: qualifying.completed.slice(1) },
++        first,
++        campaign,
++        identity
++      )
++    );
++    assert.throws(() =>
++      assertG4GeneratedBatchReceipt(
++        { ...qualifying, skipped: 1 },
++        first,
++        campaign,
++        identity
++      )
++    );
++    assert.throws(() =>
++      assertG4GeneratedBatchReceipt(
++        {
++          ...qualifying,
++          completed: qualifying.completed.map((cell, index) =>
++            index === 0 ? { ...cell, faults: 1 } : cell
++          ),
++        },
++        first,
++        campaign,
++        identity
++      )
++    );
++    const validation = g4UnitReceipt(first, 5, campaign, "shipped", identity);
++    assert.throws(
++      () => assertG4GeneratedBatchReceipt(validation, first, campaign, identity),
++      /candidate/
++    );
++    assert.doesNotThrow(() =>
++      assertG4OracleValidationReceipt(validation, first, campaign, identity)
++    );
++    assert.throws(
++      () =>
++        assertG4OracleValidationReceipt(qualifying, first, campaign, identity),
++      /shipped/
++    );
++  }
++});
+diff --git a/scripts/raptor3-cli.test.mjs b/scripts/raptor3-cli.test.mjs
+index 4b11b5e7..0ac76a3a 100644
+--- a/scripts/raptor3-cli.test.mjs
++++ b/scripts/raptor3-cli.test.mjs
+@@ -212,6 +212,91 @@ test("completed G2 progress survives watchdog termination without becoming quali
+     assert.equal(existsSync(join(progressDirectory, file)), false);
+ });
+ 
++test("the command refuses a filtered G4 mode and an off-boundary G4 child", () => {
++  fail(
++    run(["g4-read-contracts", "--testNamePattern=absent"]),
++    /cannot be filtered/
++  );
++  fail(run(["g4-seed-batch", "19999"]), /exact frozen boundary/);
++  fail(run(["g4-transport-seed-batch", "20000"]), /exact frozen boundary/);
++  fail(run(["g4-seeds", "20000"]), /cannot be filtered/);
++  fail(
++    run(["g4-unit01-author", "--testNamePattern=absent"]),
++    /cannot be filtered/
++  );
++  fail(run(["g4-unit01-review", "83"]), /cannot be filtered/);
++});
++
++test("the G4 write lanes own their own range and take no subject", () => {
++  // The write lanes run the G3 generator on fresh seeds. Two things must hold
++  // from the command line: a child cannot start inside an already-qualified
++  // range, and the read campaign's `--subject` flag is refused here rather
++  // than silently ignored - there is one subject, the candidate.
++  fail(run(["g4-write-seed-batch", "74999"]), /exact frozen boundary/);
++  fail(run(["g4-write-seed-batch", "8000"]), /exact frozen boundary/);
++  fail(run(["g4-write-transport-seed-batch", "75000"]), /exact frozen boundary/);
++  fail(run(["g4-write-transport-seed-batch", "125000"]), /exact frozen boundary/);
++  fail(
++    run(["g4-write-seeds", "--subject=shipped"]),
++    /Subject selection applies only/
++  );
++  fail(
++    run(["g4-write-seed-batch", "75000", "--subject=candidate"]),
++    /Subject selection applies only/
++  );
++  fail(run(["g4-write-seeds", "75000"]), /cannot be filtered/);
++});
++
++test("a G4 campaign subject comes from the command, never from the shell", () => {
++  // An inherited VIBORM_RAPTOR3_G4_SUBJECT used to decide what a child ran and
++  // which receipt assertion the runner then applied, so a whole campaign could
++  // be an oracle-validation run that still printed "verified".
++  const leaked = run(["g4-seed-batch", "20000"], {
++    VIBORM_RAPTOR3_G4_SUBJECT: "shipped",
++  });
++  const diagnostics = `${leaked.stdout}\n${leaked.stderr}`.match(
++    /(?:diagnostics|Evidence): (.+)/
++  )?.[1];
++  assert(diagnostics, "the child did not report its evidence directory");
++  const attempt = JSON.parse(
++    readFileSync(join(diagnostics, "attempt.json"), "utf8")
++  );
++  assert.equal(
++    attempt.subject,
++    "candidate",
++    "an inherited subject changed what the child ran"
++  );
++  assert.equal(attempt.qualifying, true);
++  assert.doesNotMatch(leaked.stdout, /subject shipped/);
++
++  // Asked for by name, the oracle-validation lane runs and says so everywhere
++  // the runner writes: stdout, verified.json and the child receipt.
++  const asked = run(["g4-seed-batch", "20000", "--subject=shipped"], {
++    VIBORM_RAPTOR3_G4_SUBJECT: "candidate",
++  });
++  pass(asked);
++  assert.match(asked.stdout, /subject shipped, NOT qualifying — oracle validation/);
++  const evidence = asked.stdout.match(/Evidence: (.+)/)?.[1];
++  assert(evidence, "the passing command omitted its evidence directory");
++  const verified = JSON.parse(
++    readFileSync(join(evidence, "verified.json"), "utf8")
++  );
++  assert.equal(verified.subject, "shipped");
++  assert.equal(verified.qualifying, false);
++  const receipt = JSON.parse(
++    readFileSync(join(evidence, "generated-campaign.json"), "utf8")
++  );
++  assert.equal(receipt.subject, "shipped");
++  assert.equal(receipt.qualifying, false);
++  assert.equal(receipt.status, "oracle-validation");
++  assert.equal(receipt.seedCount, 100);
++  fail(
++    run(["g4-seed-batch", "20000", "--subject=oracle"]),
++    /Subject is candidate or shipped/
++  );
++  fail(run(["g0", "--subject=shipped"]), /Subject selection applies only/);
++});
++
+ test("test:all cannot replace the required lane through inherited specimen variables", () => {
+   const outcome = execute(
+     "scripts/run-credential-free-tests.mjs",
+diff --git a/scripts/raptor3-manifest.mjs b/scripts/raptor3-manifest.mjs
+index 711d7c60..7a13c895 100644
+--- a/scripts/raptor3-manifest.mjs
++++ b/scripts/raptor3-manifest.mjs
+@@ -431,6 +431,174 @@ export const G3_BULK_RESULT_BOUNDARY_COUNTS = Object.freeze({
+ export const G3_BULK_RESULT_BOUNDARY_TESTS = Object.freeze(
+   Object.keys(G3_BULK_RESULT_BOUNDARY_COUNTS)
+ );
++export const G4_READ_OPERATIONS_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-operations.test.ts": 11,
++});
++export const G4_READ_OPERATIONS_TESTS = Object.freeze(
++  Object.keys(G4_READ_OPERATIONS_COUNTS)
++);
++export const G4_READ_FILTERS_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-filters.test.ts": 13,
++});
++export const G4_READ_FILTERS_TESTS = Object.freeze(
++  Object.keys(G4_READ_FILTERS_COUNTS)
++);
++export const G4_READ_ORDERING_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-ordering.test.ts": 5,
++});
++export const G4_READ_ORDERING_TESTS = Object.freeze(
++  Object.keys(G4_READ_ORDERING_COUNTS)
++);
++export const G4_READ_PAGINATION_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-pagination.test.ts": 6,
++});
++export const G4_READ_PAGINATION_TESTS = Object.freeze(
++  Object.keys(G4_READ_PAGINATION_COUNTS)
++);
++export const G4_READ_PROJECTION_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-projection.test.ts": 7,
++});
++export const G4_READ_PROJECTION_TESTS = Object.freeze(
++  Object.keys(G4_READ_PROJECTION_COUNTS)
++);
++export const G4_READ_AGGREGATE_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-aggregates.test.ts": 5,
++});
++export const G4_READ_AGGREGATE_TESTS = Object.freeze(
++  Object.keys(G4_READ_AGGREGATE_COUNTS)
++);
++export const G4_READ_CODEC_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-codecs.test.ts": 12,
++});
++export const G4_READ_CODEC_TESTS = Object.freeze(
++  Object.keys(G4_READ_CODEC_COUNTS)
++);
++export const G4_READ_RECURSIVE_FIT_COUNTS = Object.freeze({
++  "tests/raptor3/g4/read-recursive-fit.test.ts": 3,
++});
++export const G4_READ_RECURSIVE_FIT_TESTS = Object.freeze(
++  Object.keys(G4_READ_RECURSIVE_FIT_COUNTS)
++);
++/** Every fixed C01/C12 read witness, for one whole-family run. */
++export const G4_READ_COUNTS = Object.freeze({
++  ...G4_READ_OPERATIONS_COUNTS,
++  ...G4_READ_FILTERS_COUNTS,
++  ...G4_READ_ORDERING_COUNTS,
++  ...G4_READ_PAGINATION_COUNTS,
++  ...G4_READ_PROJECTION_COUNTS,
++  ...G4_READ_AGGREGATE_COUNTS,
++  ...G4_READ_CODEC_COUNTS,
++  ...G4_READ_RECURSIVE_FIT_COUNTS,
++});
++export const G4_READ_TESTS = Object.freeze(Object.keys(G4_READ_COUNTS));
++export const G4_LIFECYCLE_EVENTS_COUNTS = Object.freeze({
++  "tests/raptor3/g4/lifecycle-events.test.ts": 3,
++});
++export const G4_LIFECYCLE_EVENTS_TESTS = Object.freeze(
++  Object.keys(G4_LIFECYCLE_EVENTS_COUNTS)
++);
++export const G4_LIFECYCLE_ADMISSION_COUNTS = Object.freeze({
++  "tests/raptor3/g4/lifecycle-admission.test.ts": 4,
++});
++export const G4_LIFECYCLE_ADMISSION_TESTS = Object.freeze(
++  Object.keys(G4_LIFECYCLE_ADMISSION_COUNTS)
++);
++// Owned by the G4-03 author; registered here because registration has one
++// writer this milestone. Counts are derived from the current files and are
++// reconciled against `g4/unit03/note.md` section "Registration requests".
++export const G4_ROUTE_LIFECYCLE_COUNTS = Object.freeze({
++  "tests/raptor3/g4/route-lifecycle.test.ts": 7,
++});
++export const G4_ROUTE_LIFECYCLE_TESTS = Object.freeze(
++  Object.keys(G4_ROUTE_LIFECYCLE_COUNTS)
++);
++export const G4_ROUTE_ADMISSION_COUNTS = Object.freeze({
++  "tests/raptor3/g4/route-admission.test.ts": 5,
++});
++export const G4_ROUTE_ADMISSION_TESTS = Object.freeze(
++  Object.keys(G4_ROUTE_ADMISSION_COUNTS)
++);
++export const G4_ROUTE_CACHE_COUNTS = Object.freeze({
++  "tests/raptor3/g4/route-cache.test.ts": 6,
++});
++export const G4_ROUTE_CACHE_TESTS = Object.freeze(
++  Object.keys(G4_ROUTE_CACHE_COUNTS)
++);
++export const G4_ROUTE_TRANSACTION_COUNTS = Object.freeze({
++  "tests/raptor3/g4/route-transactions.test.ts": 11,
++});
++export const G4_ROUTE_TRANSACTION_TESTS = Object.freeze(
++  Object.keys(G4_ROUTE_TRANSACTION_COUNTS)
++);
++// Landed from the G4-01 author's worktree `/private/tmp/viborm-g4-unit01`
++// after that unit was accepted, so its executable claims live where every
++// other stream can run them. Counts are derived from the landed files.
++export const G4_UNIT01_AUTHOR_COUNTS = Object.freeze({
++  "tests/raptor3/g4/unit01/codec-roundtrip.test.ts": 5,
++  "tests/raptor3/g4/unit01/filters.test.ts": 8,
++  "tests/raptor3/g4/unit01/geo-capability.test.ts": 2,
++  "tests/raptor3/g4/unit01/order-projection.test.ts": 6,
++  "tests/raptor3/g4/unit01/read-verbs.test.ts": 9,
++  "tests/raptor3/g4/unit01/recursive-vocabulary.test.ts": 1,
++  "tests/raptor3/g4/unit01/repair2.test.ts": 22,
++  "tests/raptor3/g4/unit01/repair3.test.ts": 14,
++  "tests/raptor3/g4/unit01/repairs.test.ts": 13,
++  "tests/raptor3/g4/unit01/variants.test.ts": 3,
++});
++export const G4_UNIT01_AUTHOR_TESTS = Object.freeze(
++  Object.keys(G4_UNIT01_AUTHOR_COUNTS)
++);
++export const G4_UNIT01_REVIEW_COUNTS = Object.freeze({
++  "tests/raptor3/g4/review/unit01/decode-strictness.test.ts": 7,
++  "tests/raptor3/g4/review/unit01/distance-projection.test.ts": 1,
++  "tests/raptor3/g4/review/unit01/having-projection.test.ts": 5,
++  "tests/raptor3/g4/review/unit01/logical-forms.test.ts": 3,
++  "tests/raptor3/g4/review/unit01/nested-window.test.ts": 3,
++  "tests/raptor3/g4/review/unit01/null-placement-parity.test.ts": 2,
++  "tests/raptor3/g4/review/unit01/order-cursor.test.ts": 6,
++  "tests/raptor3/g4/review/unit01/shipped-parity.test.ts": 8,
++  "tests/raptor3/g4/review/unit01/variant-arms.test.ts": 2,
++  "tests/raptor3/g4/review/unit01/whole-value-operands.test.ts": 7,
++  "tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts": 9,
++  "tests/raptor3/g4/review/unit01-followup/empty-arm.test.ts": 12,
++  "tests/raptor3/g4/review/unit01-followup/nested-reversal.test.ts": 5,
++  "tests/raptor3/g4/review/unit01-followup/operand-and-logic.test.ts": 9,
++  "tests/raptor3/g4/review/unit01-followup/order-oracle.test.ts": 9,
++  "tests/raptor3/g4/review/unit01-followup2/characterize.test.ts": 10,
++  "tests/raptor3/g4/review/unit01-followup2/combinator-depth.test.ts": 24,
++  "tests/raptor3/g4/review/unit01-followup2/cursor-refusal.test.ts": 2,
++  "tests/raptor3/g4/review/unit01-followup2/decimal-fieldref.test.ts": 2,
++  "tests/raptor3/g4/review/unit01-followup2/distance-depth.test.ts": 13,
++  "tests/raptor3/g4/review/unit01-followup2/distance-pins.test.ts": 4,
++  "tests/raptor3/g4/review/unit01-followup2/json-sentinel.test.ts": 3,
++  "tests/raptor3/g4/review/unit01-followup2/selector-facts.test.ts": 5,
++  "tests/raptor3/g4/review/unit01-followup3/competing-refusals.test.ts": 4,
++  "tests/raptor3/g4/review/unit01-followup3/cursor-refusal-sweep.test.ts": 11,
++  "tests/raptor3/g4/review/unit01-followup3/decimal-domains.test.ts": 17,
++  "tests/raptor3/g4/review/unit01-followup3/decimal-reach.test.ts": 5,
++  "tests/raptor3/g4/review/unit01-followup3/json-sentinel-sweep.test.ts": 9,
++  "tests/raptor3/g4/review/unit01-followup3/refusal-order-history.test.ts": 3,
++});
++export const G4_UNIT01_REVIEW_TESTS = Object.freeze(
++  Object.keys(G4_UNIT01_REVIEW_COUNTS)
++);
++export const G4_GENERATION_SELFTEST_COUNTS = Object.freeze({
++  "tests/raptor3/g4/generation/harness.selftest.test.ts": 6,
++});
++export const G4_GENERATION_SELFTEST_TESTS = Object.freeze(
++  Object.keys(G4_GENERATION_SELFTEST_COUNTS)
++);
++export const G4_NATIVE_PROVIDER_COUNTS = Object.freeze({
++  "tests/raptor3/g4/native/read-envelope-native.test.ts": 5,
++});
++export const G4_NATIVE_PG_COUNTS = G4_NATIVE_PROVIDER_COUNTS;
++export const G4_NATIVE_PG_TESTS = Object.freeze(
++  Object.keys(G4_NATIVE_PG_COUNTS)
++);
++export const G4_NATIVE_MYSQL_COUNTS = G4_NATIVE_PROVIDER_COUNTS;
++export const G4_NATIVE_MYSQL_TESTS = Object.freeze(
++  Object.keys(G4_NATIVE_MYSQL_COUNTS)
++);
+ export const G2_BASELINE_TESTS = Object.freeze(Object.keys(G2_BASELINE_COUNTS));
+ export const G2_CONTRACT_TESTS = Object.freeze(Object.keys(G2_CONTRACT_COUNTS));
+ export const G2_PROVIDER_BASELINE_COUNTS = Object.freeze({
+@@ -569,6 +737,93 @@ export const G3_GENERATED_TRANSPORT_CAMPAIGN = Object.freeze({
+ export const G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
+   "tests/raptor3/g3/generation/transport-campaign.test.ts",
+ ]);
++/**
++ * G4 generated read campaign. Frozen in `g4.md`: 25,000 new seed IDs per
++ * admitted lane profile, disjoint ranges, at most 100 seeds per child.
++ */
++export const G4_GENERATED_CAMPAIGN = Object.freeze({
++  firstSeed: 20_000,
++  seedCount: 25_000,
++  batchSize: 100,
++  replayCount: 3,
++  profiles: ["sqlite-interactive", "sqlite-atomic-batch"],
++});
++export const G4_GENERATED_CAMPAIGN_TESTS = Object.freeze([
++  "tests/raptor3/g4/generation/sqlite-campaign.test.ts",
++]);
++export const G4_GENERATED_TRANSPORT_CAMPAIGN = Object.freeze({
++  ...G4_GENERATED_CAMPAIGN,
++  firstSeed: 50_000,
++  profiles: ["scripted-returning-weak", "scripted-returning-ack"],
++});
++export const G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
++  "tests/raptor3/g4/generation/transport-campaign.test.ts",
++]);
++/**
++ * G4 write-envelope campaign — the same G3 write generator on fresh seeds.
++ *
++ * G3 qualified the write envelope over seeds 8000-17999 against the G3
++ * candidate. G4 changed what a write costs physically (the envelope rule, root
++ * `delete`, packaged reads, the prepared-operation boundary), so the same
++ * generator, the same `runG3SQLiteBatch`/`runG3TransportBatch` and the same
++ * `assertG3GeneratedBatchReceipt` are pointed at ranges no child has ever run:
++ * SQLite 75000-99999, transport 100000-124999, both disjoint from every G1/G2/
++ * G3 range and from the G4 READ campaign's 20000-74999.
++ *
++ * These constants are DATA. Batch size, replay count, completion limit,
++ * profiles, the actor/fault quotas and the contract rotation are G3's,
++ * inherited by spread, because the point is new inputs rather than a new
++ * campaign: `(seed - firstSeed) % 4` picks the same C08/C09/C10/C11 rotation
++ * here as there, both first seeds being multiples of four.
++ */
++export const G4_WRITE_CAMPAIGN = Object.freeze({
++  ...G3_GENERATED_CAMPAIGN,
++  firstSeed: 75_000,
++  seedCount: 25_000,
++});
++export const G4_WRITE_CAMPAIGN_TESTS = Object.freeze([
++  "tests/raptor3/g4/generation/write-campaign.test.ts",
++]);
++export const G4_WRITE_TRANSPORT_CAMPAIGN = Object.freeze({
++  ...G3_GENERATED_TRANSPORT_CAMPAIGN,
++  firstSeed: 100_000,
++  seedCount: 25_000,
++});
++export const G4_WRITE_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
++  "tests/raptor3/g4/generation/write-transport-campaign.test.ts",
++]);
++/**
++ * The read-transport model each campaign profile must actually exhibit.
++ *
++ * The profile names are frozen in `g4.md`; this table is what stops them from
++ * becoming four names for one behaviour. `tests/raptor3/g4/generation/world.ts`
++ * reports what its transport DID for each cell without consulting this table,
++ * and `assertG4BatchShape` compares the two. A profile that quietly collapses
++ * into another fails every child receipt.
++ *
++ * `supportsBatch`, `supportsTransactions` and `supportsOrderedCommittedSegments`
++ * — the declarations that separate these names on the write side — are not the
++ * distinction here: no read path consults one.
++ */
++export const G4_TRANSPORT_MODELS = Object.freeze({
++  "sqlite-interactive": "interactive-session",
++  "sqlite-atomic-batch": "atomic-submission",
++  "scripted-returning-weak": "detached-returning",
++  "scripted-returning-ack": "acknowledged-returning",
++});
++export const G4_READ_CONTRACT_FAMILIES = Object.freeze([
++  "Q-W",
++  "Q-O",
++  "Q-P",
++  "Q-S",
++  "Q-A",
++]);
++export const G4_READ_SCHEMA_FAMILIES = Object.freeze([
++  "codec",
++  "relation",
++  "compound",
++]);
++
+ export const G1_PROVIDER_TESTS = Object.freeze([
+   "tests/raptor3/expanded/produced-commands.test.ts",
+   "tests/raptor3/expanded/batch-produced-commands.test.ts",
+@@ -917,3 +1172,130 @@ export function assertEquivalentExtensionCampaignReceipts(
+     "CS-03 alternatives diverged in recipes, schedules, or semantic outcomes"
+   );
+ }
++
++function assertG4BatchShape(receipt, firstSeed, campaign, identity) {
++  assertRaptor3Identity(receipt.identity, identity);
++  assert.equal(receipt.formatVersion, 1);
++  assert.equal(receipt.firstSeed, firstSeed);
++  assert(
++    Number.isInteger(receipt.seedCount) &&
++      receipt.seedCount >= 1 &&
++      receipt.seedCount <= campaign.batchSize,
++    "G4 child exceeds the frozen 1-100 seed bound"
++  );
++  assert(
++    firstSeed >= campaign.firstSeed &&
++      firstSeed + receipt.seedCount <= campaign.firstSeed + campaign.seedCount,
++    "G4 child seed range is outside the frozen campaign"
++  );
++  assert.deepEqual(receipt.profiles, campaign.profiles);
++  // Every profile in a lane must denote a DIFFERENT read transport, or the
++  // lane pays for cells it cannot distinguish.
++  assert.equal(
++    new Set(campaign.profiles.map((profile) => G4_TRANSPORT_MODELS[profile]))
++      .size,
++    campaign.profiles.length,
++    "Two G4 campaign profiles denote the same read transport model"
++  );
++  assert.equal(receipt.skipped, 0, "Required G4 cells cannot be skipped");
++  assert.equal(
++    receipt.replays,
++    receipt.seedCount * campaign.profiles.length * campaign.replayCount
++  );
++  assert.equal(
++    receipt.completed.length,
++    receipt.seedCount * campaign.profiles.length
++  );
++  const expected = campaign.profiles
++    .flatMap((profile) =>
++      Array.from(
++        { length: receipt.seedCount },
++        (_, offset) => `${profile}:${firstSeed + offset}`
++      )
++    )
++    .sort();
++  assert.deepEqual(
++    receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
++    expected,
++    "Incomplete or duplicated G4 generated batch"
++  );
++  for (const cell of receipt.completed) {
++    const expectedContract =
++      G4_READ_CONTRACT_FAMILIES[
++        (cell.seed - campaign.firstSeed) % G4_READ_CONTRACT_FAMILIES.length
++      ];
++    assert.equal(cell.contract, expectedContract, "Changed G4 contract family");
++    assert(
++      G4_READ_SCHEMA_FAMILIES.includes(cell.family),
++      "Unknown G4 schema family"
++    );
++    if (cell.contract === "Q-S")
++      assert.equal(cell.family, "relation", "Q-S must use the relation family");
++    if (cell.contract === "Q-A")
++      assert.equal(cell.family, "codec", "Q-A must use the codec family");
++    // This campaign injects no peer actor and no fault: reads publish no
++    // effect for a peer to observe. The quota is therefore an exact zero,
++    // which a recipe that silently started injecting would break.
++    assert.equal(cell.actors, 1, "G4 read cells carry exactly one actor");
++    assert.equal(cell.faults, 0, "G4 read cells inject no fault");
++    assert(
++      Number.isInteger(cell.rows) && cell.rows >= 0 && cell.rows <= 64,
++      "G4 cell row count is outside the frozen campaign bound"
++    );
++    assert(
++      Number.isInteger(cell.statements) && cell.statements >= 1,
++      "A G4 read cell must reach the provider at least once"
++    );
++    assert.equal(
++      cell.transport,
++      G4_TRANSPORT_MODELS[cell.profile],
++      `G4 profile ${cell.profile} did not exhibit its transport model`
++    );
++    // An atomic submission is BEGIN + statement + COMMIT, so the physical
++    // stream of that profile is exactly three entries per submitted read.
++    if (cell.transport === "atomic-submission")
++      assert.equal(
++        cell.statements % 3,
++        0,
++        "An atomic-submission cell did not wrap every statement"
++      );
++  }
++}
++
++/** The qualifying G4 child receipt: the CANDIDATE answered every cell. */
++export function assertG4GeneratedBatchReceipt(
++  receipt,
++  firstSeed,
++  campaign,
++  identity
++) {
++  assert.equal(
++    receipt.subject,
++    "candidate",
++    "Only a candidate-subject G4 child can qualify"
++  );
++  assert.equal(receipt.qualifying, true);
++  assert.equal(receipt.status, "complete");
++  assertG4BatchShape(receipt, firstSeed, campaign, identity);
++}
++
++/**
++ * The non-qualifying companion: the same worlds, requests, oracle and replays
++ * run against the SHIPPED engine. It validates the oracle and measures a
++ * complete child's cost; it is never evidence for the candidate.
++ */
++export function assertG4OracleValidationReceipt(
++  receipt,
++  firstSeed,
++  campaign,
++  identity
++) {
++  assert.equal(
++    receipt.subject,
++    "shipped",
++    "An oracle-validation G4 child runs the shipped subject"
++  );
++  assert.equal(receipt.qualifying, false);
++  assert.equal(receipt.status, "oracle-validation");
++  assertG4BatchShape(receipt, firstSeed, campaign, identity);
++}
+diff --git a/scripts/run-raptor3.mjs b/scripts/run-raptor3.mjs
+index 022310c9..c9ccaf11 100644
+--- a/scripts/run-raptor3.mjs
++++ b/scripts/run-raptor3.mjs
+@@ -170,8 +170,58 @@ import {
+   G3_GENERATED_CAMPAIGN_TESTS,
+   G3_GENERATED_TRANSPORT_CAMPAIGN,
+   G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  G4_READ_OPERATIONS_COUNTS,
++  G4_READ_OPERATIONS_TESTS,
++  G4_READ_FILTERS_COUNTS,
++  G4_READ_FILTERS_TESTS,
++  G4_READ_ORDERING_COUNTS,
++  G4_READ_ORDERING_TESTS,
++  G4_READ_PAGINATION_COUNTS,
++  G4_READ_PAGINATION_TESTS,
++  G4_READ_PROJECTION_COUNTS,
++  G4_READ_PROJECTION_TESTS,
++  G4_READ_AGGREGATE_COUNTS,
++  G4_READ_AGGREGATE_TESTS,
++  G4_READ_CODEC_COUNTS,
++  G4_READ_CODEC_TESTS,
++  G4_READ_RECURSIVE_FIT_COUNTS,
++  G4_READ_RECURSIVE_FIT_TESTS,
++  G4_READ_COUNTS,
++  G4_READ_TESTS,
++  G4_LIFECYCLE_EVENTS_COUNTS,
++  G4_LIFECYCLE_EVENTS_TESTS,
++  G4_LIFECYCLE_ADMISSION_COUNTS,
++  G4_LIFECYCLE_ADMISSION_TESTS,
++  G4_ROUTE_LIFECYCLE_COUNTS,
++  G4_ROUTE_LIFECYCLE_TESTS,
++  G4_ROUTE_ADMISSION_COUNTS,
++  G4_ROUTE_ADMISSION_TESTS,
++  G4_ROUTE_CACHE_COUNTS,
++  G4_ROUTE_CACHE_TESTS,
++  G4_ROUTE_TRANSACTION_COUNTS,
++  G4_ROUTE_TRANSACTION_TESTS,
++  G4_GENERATION_SELFTEST_COUNTS,
++  G4_GENERATION_SELFTEST_TESTS,
++  G4_NATIVE_PG_COUNTS,
++  G4_NATIVE_PG_TESTS,
++  G4_NATIVE_MYSQL_COUNTS,
++  G4_NATIVE_MYSQL_TESTS,
++  G4_GENERATED_CAMPAIGN,
++  G4_GENERATED_CAMPAIGN_TESTS,
++  G4_GENERATED_TRANSPORT_CAMPAIGN,
++  G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  G4_WRITE_CAMPAIGN,
++  G4_WRITE_CAMPAIGN_TESTS,
++  G4_WRITE_TRANSPORT_CAMPAIGN,
++  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++  G4_UNIT01_AUTHOR_COUNTS,
++  G4_UNIT01_AUTHOR_TESTS,
++  G4_UNIT01_REVIEW_COUNTS,
++  G4_UNIT01_REVIEW_TESTS,
+   assertGeneratedBatchReceipt,
+   assertG3GeneratedBatchReceipt,
++  assertG4GeneratedBatchReceipt,
++  assertG4OracleValidationReceipt,
+   G0_RESOURCES,
+   captureRaptor3Identity,
+   assertRaptor3Identity,
+@@ -179,6 +229,35 @@ import {
+   assertG0CampaignReceipt,
+   assertExtensionCampaignReceipt,
+ } from "./raptor3-manifest.mjs";
++/** The only modes that admit `--subject=`; every other mode has one subject. */
++const G4_SUBJECT_MODES = Object.freeze([
++  "g4-seeds",
++  "g4-transport-seeds",
++  "g4-seed-batch",
++  "g4-transport-seed-batch",
++]);
++
++/**
++ * What the RUNNER asked for, written into every receipt it produces.
++ *
++ * A `shipped` child validates the oracle and measures a complete child; it can
++ * never qualify. Recording the pair here is what keeps an oracle-validation
++ * run distinguishable from a candidate run in `verified.json` and on stdout,
++ * instead of the difference living only inside the child's own receipt.
++ */
++function subjectRecord(request) {
++  if (!G4_SUBJECT_MODES.includes(request.mode)) return {};
++  const subject = request.subject ?? "candidate";
++  return { subject, qualifying: subject === "candidate" };
++}
++
++function subjectSuffix(record) {
++  if (record.subject === undefined) return "";
++  return record.qualifying
++    ? ` (subject ${record.subject}, qualifying)`
++    : ` (subject ${record.subject}, NOT qualifying — oracle validation)`;
++}
++
+ function structuralMeasurementContext(mode, instrumentedIdentity) {
+   if (mode !== "cs02-structure-measure") return undefined;
+   const baseIdentityFile = process.env.VIBORM_RAPTOR3_MEASUREMENT_BASE_IDENTITY;
+@@ -225,14 +304,24 @@ function campaignFor(mode) {
+         sqlite: G3P06_CAMPAIGN,
+         transport: G3P06_TRANSPORT_CAMPAIGN,
+       }
+-    : mode.startsWith("g3-")
++    : mode.startsWith("g4-write-")
+       ? {
+-          sqlite: G3_GENERATED_CAMPAIGN,
+-          transport: G3_GENERATED_TRANSPORT_CAMPAIGN,
++          sqlite: G4_WRITE_CAMPAIGN,
++          transport: G4_WRITE_TRANSPORT_CAMPAIGN,
+         }
+-      : mode.startsWith("g2-")
+-        ? { sqlite: G2_CAMPAIGN, transport: G2_TRANSPORT_CAMPAIGN }
+-        : { sqlite: G1_CAMPAIGN, transport: G1_TRANSPORT_CAMPAIGN };
++      : mode.startsWith("g4-")
++        ? {
++            sqlite: G4_GENERATED_CAMPAIGN,
++            transport: G4_GENERATED_TRANSPORT_CAMPAIGN,
++          }
++        : mode.startsWith("g3-")
++          ? {
++              sqlite: G3_GENERATED_CAMPAIGN,
++              transport: G3_GENERATED_TRANSPORT_CAMPAIGN,
++            }
++          : mode.startsWith("g2-")
++            ? { sqlite: G2_CAMPAIGN, transport: G2_TRANSPORT_CAMPAIGN }
++            : { sqlite: G1_CAMPAIGN, transport: G1_TRANSPORT_CAMPAIGN };
+   return campaigns[mode.includes("-transport") ? "transport" : "sqlite"];
+ }
+ 
+@@ -249,8 +338,36 @@ export function parseRaptor3Request(arguments_) {
+     Number.isSafeInteger(wallMs) && wallMs > 0 && wallMs <= G0_RESOURCES.wallMs,
+     "Wall limit can only lower the G0 ceiling"
+   );
++  /**
++   * The G4 generated read campaign's SUBJECT belongs to the command, not to
++   * the ambient environment. `candidate` is the claim; `shipped` runs the same
++   * worlds, requests, oracle and replays against the shipped engine to
++   * validate the oracle and measure a complete child, and can never qualify.
++   * Without this flag the subject was read straight out of
++   * `VIBORM_RAPTOR3_G4_SUBJECT`, so an inherited shell variable could turn a
++   * whole candidate campaign into an oracle-validation run that still printed
++   * "verified".
++   */
++  const subjectArguments = arguments_.filter((argument) =>
++    argument.startsWith("--subject=")
++  );
++  assert(subjectArguments.length <= 1, "Subject may be specified only once");
++  const subject =
++    subjectArguments.length === 0
++      ? "candidate"
++      : subjectArguments[0].slice("--subject=".length);
++  assert(
++    subject === "candidate" || subject === "shipped",
++    "Subject is candidate or shipped"
++  );
+   const positional = arguments_.filter(
+-    (argument) => !limitArguments.includes(argument)
++    (argument) =>
++      !limitArguments.includes(argument) && !subjectArguments.includes(argument)
++  );
++  assert(
++    subjectArguments.length === 0 ||
++      G4_SUBJECT_MODES.includes(positional[0]),
++    "Subject selection applies only to the G4 generated read campaign"
+   );
+   if (
+     positional.length === 1 &&
+@@ -295,6 +412,30 @@ export function parseRaptor3Request(arguments_) {
+       "g3-generated-minimization",
+       "g3-seeds",
+       "g3-transport-seeds",
++      "g4-read-contracts",
++      "g4-read-operations",
++      "g4-read-filters",
++      "g4-read-ordering",
++      "g4-read-pagination",
++      "g4-read-projection",
++      "g4-read-aggregates",
++      "g4-read-codecs",
++      "g4-read-recursive-fit",
++      "g4-lifecycle-events",
++      "g4-lifecycle-admission",
++      "g4-route-lifecycle",
++      "g4-route-admission",
++      "g4-route-cache",
++      "g4-route-transactions",
++      "g4-generation-selftests",
++      "g4-unit01-author",
++      "g4-unit01-review",
++      "g4-seeds",
++      "g4-transport-seeds",
++      "g4-write-seeds",
++      "g4-write-transport-seeds",
++      "g4-read-envelope-pg-contracts",
++      "g4-read-envelope-mysql-contracts",
+       "g3-execution-review",
+       "g3-author-execution-regressions",
+       "g3-scope-failure",
+@@ -334,7 +475,11 @@ export function parseRaptor3Request(arguments_) {
+       "g2-transport-seeds",
+     ].includes(positional[0])
+   )
+-    return { mode: positional[0], wallMs };
++    return {
++      mode: positional[0],
++      wallMs,
++      ...(G4_SUBJECT_MODES.includes(positional[0]) ? { subject } : {}),
++    };
+   if (
+     positional.length === 2 &&
+     [
+@@ -346,6 +491,10 @@ export function parseRaptor3Request(arguments_) {
+       "g3p06-transport-seed-batch",
+       "g3-seed-batch",
+       "g3-transport-seed-batch",
++      "g4-seed-batch",
++      "g4-transport-seed-batch",
++      "g4-write-seed-batch",
++      "g4-write-transport-seed-batch",
+     ].includes(positional[0])
+   ) {
+     const firstSeed = Number(positional[1]);
+@@ -358,7 +507,12 @@ export function parseRaptor3Request(arguments_) {
+         (firstSeed - campaign.firstSeed) % campaign.batchSize === 0,
+       "Generated batch must start at an exact frozen boundary"
+     );
+-    return { mode: positional[0], firstSeed, wallMs };
++    return {
++      mode: positional[0],
++      firstSeed,
++      wallMs,
++      ...(G4_SUBJECT_MODES.includes(positional[0]) ? { subject } : {}),
++    };
+   }
+   if (positional.length === 2 && positional[0] === "replay" && positional[1]) {
+     const path = resolve(positional[1]);
+@@ -366,7 +520,7 @@ export function parseRaptor3Request(arguments_) {
+     return { mode: "replay", path, wallMs };
+   }
+   throw new Error(
+-    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | g3-bulk-series | g3-suppression-retry | g3-transaction-array | g3-depth-recurrence | g3-scope-composition-pg | g3-scope-composition-mysql | g3-generated-smoke | g3-generated-transport-smoke | g3-generated-minimization | g3-seeds | g3-seed-batch <first-seed> | g3-transport-seeds | g3-transport-seed-batch <first-seed> | g3-execution-review | g3-author-execution-regressions | g3-scope-failure | g3-bulk-result-boundary | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
++    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | g3-bulk-series | g3-suppression-retry | g3-transaction-array | g3-depth-recurrence | g3-scope-composition-pg | g3-scope-composition-mysql | g3-generated-smoke | g3-generated-transport-smoke | g3-generated-minimization | g3-seeds | g3-seed-batch <first-seed> | g3-transport-seeds | g3-transport-seed-batch <first-seed> | g4-read-contracts | g4-read-operations | g4-read-filters | g4-read-ordering | g4-read-pagination | g4-read-projection | g4-read-aggregates | g4-read-codecs | g4-read-recursive-fit | g4-lifecycle-events | g4-lifecycle-admission | g4-route-lifecycle | g4-route-admission | g4-route-cache | g4-route-transactions | g4-generation-selftests | g4-unit01-author | g4-unit01-review | g4-seeds [--subject=candidate|shipped] | g4-seed-batch <first-seed> [--subject=candidate|shipped] | g4-transport-seeds [--subject=candidate|shipped] | g4-transport-seed-batch <first-seed> [--subject=candidate|shipped] | g4-write-seeds | g4-write-seed-batch <first-seed> | g4-write-transport-seeds | g4-write-transport-seed-batch <first-seed> | g4-read-envelope-pg-contracts | g4-read-envelope-mysql-contracts | g3-execution-review | g3-author-execution-regressions | g3-scope-failure | g3-bulk-result-boundary | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
+   );
+ }
+ 
+@@ -402,6 +556,7 @@ function writeAttemptReceipt(directory, request, identity) {
+         ...(request.firstSeed === undefined
+           ? {}
+           : { firstSeed: request.firstSeed }),
++        ...subjectRecord(request),
+         identity,
+         resourceBounds: { ...G0_RESOURCES, wallMs: request.wallMs },
+       },
+@@ -427,7 +582,15 @@ async function fileIdentity(path, encoding = "identity") {
+   return { bytes, sha256: hash.digest("hex") };
+ }
+ 
+-export async function archiveG3GeneratedCorpus(directory) {
++/**
++ * Compress one verified child corpus and prove it restores byte-for-byte.
++ *
++ * `replayCommand` is the exact command that reproduces the corpus. It defaults
++ * to the G0/G3 gate's `replay` entry; a G4 read child is reproduced by
++ * re-running its own seed batch instead, so that lane passes its own spelling
++ * rather than inheriting one that would not work.
++ */
++export async function archiveG3GeneratedCorpus(directory, replayCommand) {
+   const sourceName = "generated-corpus.json";
+   const archiveName = `${sourceName}.gz`;
+   const receiptName = "generated-corpus.archive.json";
+@@ -463,7 +626,9 @@ export async function archiveG3GeneratedCorpus(directory) {
+     restoreWorkingDirectory:
+       "the directory containing generated-corpus.archive.json",
+     restoreCommand: `g3_corpus_restore_dir=$(mktemp -d); gzip -dc ${JSON.stringify(archiveName)} > "$g3_corpus_restore_dir/generated-corpus.json"`,
+-    replayCommand: `cd ${JSON.stringify(RAPTOR3_ROOT)}; node scripts/run-raptor3.mjs replay "$g3_corpus_restore_dir/generated-corpus.json"`,
++    replayCommand:
++      replayCommand ??
++      `cd ${JSON.stringify(RAPTOR3_ROOT)}; node scripts/run-raptor3.mjs replay "$g3_corpus_restore_dir/generated-corpus.json"`,
+   };
+   writeFileSync(receiptTemporaryPath, JSON.stringify(archive, null, 2), {
+     flag: "wx",
+@@ -483,6 +648,7 @@ async function run(request) {
+       join(tmpdir(), `viborm-raptor3-${request.mode}-`)
+     );
+     writeAttemptReceipt(directory, request, identity);
++    const batchMode = request.mode.replace(/seeds$/, "seed-batch");
+     const batches = [];
+     for (
+       let firstSeed = campaign.firstSeed;
+@@ -491,13 +657,27 @@ async function run(request) {
+     ) {
+       assertRaptor3Identity(identity);
+       const receiptDirectory = await run({
+-        mode: request.mode.replace(/seeds$/, "seed-batch"),
++        mode: batchMode,
+         firstSeed,
+         wallMs: request.wallMs,
++        ...(request.subject === undefined ? {} : { subject: request.subject }),
+       });
+-      const corpusArchive = request.mode.startsWith("g3-")
+-        ? await archiveG3GeneratedCorpus(receiptDirectory)
+-        : undefined;
++      const corpusArchive =
++        // The write lanes emit a G3-format corpus and have one subject — the
++        // candidate — so the DEFAULT replay command applies unchanged: it
++        // feeds the restored bytes to the ordinary `replay` gate. Naming a
++        // re-run of the child instead left the restore step this receipt
++        // proves with no consumer.
++        request.mode.startsWith("g3-") || request.mode.startsWith("g4-write-")
++          ? await archiveG3GeneratedCorpus(receiptDirectory)
++          : request.mode.startsWith("g4-")
++            ? await archiveG3GeneratedCorpus(
++                receiptDirectory,
++                // The replay command names the subject the child actually ran,
++                // or replaying a shipped corpus would re-run a different one.
++                `cd ${JSON.stringify(RAPTOR3_ROOT)}; node scripts/run-raptor3.mjs ${batchMode} ${firstSeed} --subject=${request.subject ?? "candidate"}`
++              )
++            : undefined;
+       batches.push({
+         firstSeed,
+         directory: receiptDirectory,
+@@ -505,16 +685,17 @@ async function run(request) {
+       });
+     }
+     assertRaptor3Identity(identity);
++    const campaignSubject = subjectRecord(request);
+     writeFileSync(
+       join(directory, "verified.json"),
+       JSON.stringify(
+-        { mode: request.mode, identity, campaign, batches },
++        { mode: request.mode, identity, ...campaignSubject, campaign, batches },
+         null,
+         2
+       )
+     );
+     process.stdout.write(
+-      `Raptor 3 ${request.mode} campaign verified (not the full milestone). Evidence: ${directory}\n`
++      `Raptor 3 ${request.mode}${subjectSuffix(campaignSubject)} campaign verified (not the full milestone). Evidence: ${directory}\n`
+     );
+     return directory;
+   }
+@@ -564,6 +745,30 @@ async function run(request) {
+     "g3-generated-smoke": G3_GENERATED_SMOKE_TESTS,
+     "g3-generated-transport-smoke": G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+     "g3-generated-minimization": G3_GENERATED_MINIMIZATION_TESTS,
++    "g4-read-contracts": G4_READ_TESTS,
++    "g4-read-operations": G4_READ_OPERATIONS_TESTS,
++    "g4-read-filters": G4_READ_FILTERS_TESTS,
++    "g4-read-ordering": G4_READ_ORDERING_TESTS,
++    "g4-read-pagination": G4_READ_PAGINATION_TESTS,
++    "g4-read-projection": G4_READ_PROJECTION_TESTS,
++    "g4-read-aggregates": G4_READ_AGGREGATE_TESTS,
++    "g4-read-codecs": G4_READ_CODEC_TESTS,
++    "g4-read-recursive-fit": G4_READ_RECURSIVE_FIT_TESTS,
++    "g4-lifecycle-events": G4_LIFECYCLE_EVENTS_TESTS,
++    "g4-lifecycle-admission": G4_LIFECYCLE_ADMISSION_TESTS,
++    "g4-route-lifecycle": G4_ROUTE_LIFECYCLE_TESTS,
++    "g4-route-admission": G4_ROUTE_ADMISSION_TESTS,
++    "g4-route-cache": G4_ROUTE_CACHE_TESTS,
++    "g4-route-transactions": G4_ROUTE_TRANSACTION_TESTS,
++    "g4-generation-selftests": G4_GENERATION_SELFTEST_TESTS,
++    "g4-unit01-author": G4_UNIT01_AUTHOR_TESTS,
++    "g4-unit01-review": G4_UNIT01_REVIEW_TESTS,
++    "g4-seed-batch": G4_GENERATED_CAMPAIGN_TESTS,
++    "g4-transport-seed-batch": G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++    "g4-write-seed-batch": G4_WRITE_CAMPAIGN_TESTS,
++    "g4-write-transport-seed-batch": G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++    "g4-read-envelope-pg-contracts": G4_NATIVE_PG_TESTS,
++    "g4-read-envelope-mysql-contracts": G4_NATIVE_MYSQL_TESTS,
+     "g3-execution-review": G3_EXECUTION_REVIEW_TESTS,
+     "g3-author-execution-regressions": G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+     "g3-scope-failure": G3_SCOPE_FAILURE_TESTS,
+@@ -621,11 +826,23 @@ async function run(request) {
+     /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/.exec(request.mode)?.[1] ??
+     /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
+     /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
+-    /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1];
++    /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1] ??
++    /^g4-read-envelope-(pg|mysql)-contracts$/.exec(request.mode)?.[1];
+   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
+   delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
+   delete environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED;
++  // The batch size is the campaign's, never the shell's: an inherited count
++  // used to shrink a child while its receipt stayed individually truthful, so
++  // a 250-child parent could print "campaign verified" over 1% of its seeds.
++  delete environment.VIBORM_RAPTOR3_GENERATED_SEED_COUNT;
+   delete environment.VIBORM_RAPTOR3_EXTENSION_SLICE;
++  // The subject is the runner's, never the shell's: an inherited `shipped`
++  // used to turn a candidate campaign into an oracle-validation run that still
++  // printed "verified".
++  delete environment.VIBORM_RAPTOR3_G4_SUBJECT;
++  const requestedSubject = subjectRecord(request);
++  if (requestedSubject.subject !== undefined)
++    environment.VIBORM_RAPTOR3_G4_SUBJECT = requestedSubject.subject;
+   if (extensionCampaign)
+     environment.VIBORM_RAPTOR3_EXTENSION_SLICE = extensionCampaign.slice;
+   if (request.mode.endsWith("seed-batch"))
+@@ -710,6 +927,38 @@ async function run(request) {
+       "g3-generated-smoke": G3_GENERATED_SMOKE_COUNTS,
+       "g3-generated-transport-smoke": G3_GENERATED_TRANSPORT_SMOKE_COUNTS,
+       "g3-generated-minimization": G3_GENERATED_MINIMIZATION_COUNTS,
++      "g4-read-contracts": G4_READ_COUNTS,
++      "g4-read-operations": G4_READ_OPERATIONS_COUNTS,
++      "g4-read-filters": G4_READ_FILTERS_COUNTS,
++      "g4-read-ordering": G4_READ_ORDERING_COUNTS,
++      "g4-read-pagination": G4_READ_PAGINATION_COUNTS,
++      "g4-read-projection": G4_READ_PROJECTION_COUNTS,
++      "g4-read-aggregates": G4_READ_AGGREGATE_COUNTS,
++      "g4-read-codecs": G4_READ_CODEC_COUNTS,
++      "g4-read-recursive-fit": G4_READ_RECURSIVE_FIT_COUNTS,
++      "g4-lifecycle-events": G4_LIFECYCLE_EVENTS_COUNTS,
++      "g4-lifecycle-admission": G4_LIFECYCLE_ADMISSION_COUNTS,
++      "g4-route-lifecycle": G4_ROUTE_LIFECYCLE_COUNTS,
++      "g4-route-admission": G4_ROUTE_ADMISSION_COUNTS,
++      "g4-route-cache": G4_ROUTE_CACHE_COUNTS,
++      "g4-route-transactions": G4_ROUTE_TRANSACTION_COUNTS,
++      "g4-generation-selftests": G4_GENERATION_SELFTEST_COUNTS,
++      "g4-unit01-author": G4_UNIT01_AUTHOR_COUNTS,
++      "g4-unit01-review": G4_UNIT01_REVIEW_COUNTS,
++      "g4-seed-batch": {
++        "tests/raptor3/g4/generation/sqlite-campaign.test.ts": 1,
++      },
++      "g4-transport-seed-batch": {
++        "tests/raptor3/g4/generation/transport-campaign.test.ts": 1,
++      },
++      "g4-write-seed-batch": {
++        "tests/raptor3/g4/generation/write-campaign.test.ts": 1,
++      },
++      "g4-write-transport-seed-batch": {
++        "tests/raptor3/g4/generation/write-transport-campaign.test.ts": 1,
++      },
++      "g4-read-envelope-pg-contracts": G4_NATIVE_PG_COUNTS,
++      "g4-read-envelope-mysql-contracts": G4_NATIVE_MYSQL_COUNTS,
+       "g3-execution-review": G3_EXECUTION_REVIEW_COUNTS,
+       "g3-author-execution-regressions": G3_AUTHOR_EXECUTION_REGRESSION_COUNTS,
+       "g3-scope-failure": G3_SCOPE_FAILURE_COUNTS,
+@@ -766,6 +1015,13 @@ async function run(request) {
+         "tests/raptor3/g3/generation/transport-campaign.test.ts": 1,
+       },
+     }[request.mode];
++    // A child file that gained a second `it`, or lost its only one, is exactly
++    // what this map exists to catch — so a seed-batch mode registered in the
++    // files map above and forgotten here must not run silently unpinned.
++    assert(
++      expectedCounts !== undefined || !request.mode.endsWith("seed-batch"),
++      `No registered cell count for ${request.mode}`
++    );
+     if (expectedCounts) {
+       for (const [file, expected] of Object.entries(expectedCounts)) {
+         const comparison = report.testResults.find(
+@@ -814,7 +1070,25 @@ async function run(request) {
+       const receipt = JSON.parse(
+         readFileSync(join(directory, "generated-campaign.json"), "utf8")
+       );
+-      if (request.mode.startsWith("g3-"))
++      if (request.mode.startsWith("g4-write-"))
++        // The write lanes reuse G3's generator, runner and receipt with their
++        // own campaign constant; the assertion re-derives the rotation and the
++        // quotas from the seed, so the constant cannot widen what qualifies.
++        assertG3GeneratedBatchReceipt(
++          receipt,
++          request.firstSeed,
++          campaign,
++          identity
++        );
++      else if (request.mode.startsWith("g4-")) {
++        // The assertion is selected by what the RUNNER asked for, never by
++        // what the receipt says about itself: a child that self-declared
++        // `shipped` used to self-select the weaker oracle-validation check.
++        const assertReceipt = requestedSubject.qualifying
++          ? assertG4GeneratedBatchReceipt
++          : assertG4OracleValidationReceipt;
++        assertReceipt(receipt, request.firstSeed, campaign, identity);
++      } else if (request.mode.startsWith("g3-"))
+         assertG3GeneratedBatchReceipt(
+           receipt,
+           request.firstSeed,
+@@ -845,6 +1119,7 @@ async function run(request) {
+         {
+           mode: request.mode,
+           identity,
++          ...requestedSubject,
+           replayInput,
+           resourceBounds: { ...G0_RESOURCES, wallMs: request.wallMs },
+         },
+@@ -853,7 +1128,7 @@ async function run(request) {
+       )
+     );
+     process.stdout.write(
+-      `Raptor 3 ${request.mode} ${request.mode === "g2-diagnostics" ? "disputed behavior reproduced (not accepted)" : "contract gate verified"}. Evidence: ${directory}\n`
++      `Raptor 3 ${request.mode}${subjectSuffix(requestedSubject)} ${request.mode === "g2-diagnostics" ? "disputed behavior reproduced (not accepted)" : "contract gate verified"}. Evidence: ${directory}\n`
+     );
+     return directory;
+   } finally {
+diff --git a/tests/raptor3/g3/generation/recipe.ts b/tests/raptor3/g3/generation/recipe.ts
+index 17b10e02..1640c9f1 100644
+--- a/tests/raptor3/g3/generation/recipe.ts
++++ b/tests/raptor3/g3/generation/recipe.ts
+@@ -18,8 +18,24 @@ const G3_BULK_PRESENTATIONS: readonly ["count", "select", "omit"] = [
+   "omit",
+ ];
+ 
++/**
++ * The seed domain this generator admits.
++ *
++ * G3's own campaign owns 8000-17999 and NOTHING about those seeds changes
++ * here: the picker is `seed ^ 0xa4093822`, the contract rotation is
++ * `(seed - 8000) % 4` and the actor/fault rules are `seed % 5`, so every
++ * recipe in the G3 range is byte-identical before and after this widening
++ * (fingerprint receipt: `g4/witness/receipts/followup/`). The ceiling exists
++ * so that the SAME generator can be run on the fresh disjoint ranges a later
++ * milestone freezes for its own campaign; which seeds a child may hold is
++ * decided by its campaign constant, its batch runner and
++ * `assertG3GeneratedBatchReceipt`, never by this bound.
++ */
++const GENERATED_SEED_FLOOR = 8000;
++const GENERATED_SEED_CEILING = 124_999;
++
+ const commonRecipe = {
+-  seed: z.number().int().min(8000).max(17_999),
++  seed: z.number().int().min(GENERATED_SEED_FLOOR).max(GENERATED_SEED_CEILING),
+   actors: z.union([z.literal(1), z.literal(2)]),
+   operations: z.number().int().min(1).max(32),
+   fault: z.enum(["none", "legal-provider-failure"]),
+@@ -110,7 +126,11 @@ function randomPicker(seed: number) {
+ 
+ /** Public-input choices are independent of candidate commands and lowering. */
+ export function generateG3Recipe(seed: number): G3GeneratedRecipe {
+-  assert(Number.isInteger(seed) && seed >= 8000 && seed < 18_000);
++  assert(
++    Number.isInteger(seed) &&
++      seed >= GENERATED_SEED_FLOOR &&
++      seed <= GENERATED_SEED_CEILING
++  );
+   const pick = randomPicker(seed);
+   const contract = G3_GENERATED_CONTRACTS[(seed - 8000) % 4]!;
+   const actors: 1 | 2 = seed % 5 === 0 ? 2 : 1;
+diff --git a/tests/raptor3/g3/generation/sqlite-campaign.ts b/tests/raptor3/g3/generation/sqlite-campaign.ts
+index 012605a0..a0ecfa97 100644
+--- a/tests/raptor3/g3/generation/sqlite-campaign.ts
++++ b/tests/raptor3/g3/generation/sqlite-campaign.ts
+@@ -38,7 +38,8 @@ function sqliteFault(recipe: G3GeneratedRecipe): ControlledFault | undefined {
+ export async function verifyG3SQLiteCell(
+   recipe: G3GeneratedRecipe,
+   profile: ProfileId,
+-  captureRecord?: (record: G0ReplayRecord) => void
++  captureRecord?: (record: G0ReplayRecord) => void,
++  campaign: typeof G3_GENERATED_CAMPAIGN = G3_GENERATED_CAMPAIGN
+ ) {
+   const world = await runSQLiteWorld(
+     generatedSQLiteScenario(recipe),
+@@ -52,7 +53,7 @@ export async function verifyG3SQLiteCell(
+   );
+   captureRecord?.(world.record);
+   world.fixture.assert(world.observation);
+-  for (let replay = 0; replay < G3_GENERATED_CAMPAIGN.replayCount; replay++)
++  for (let replay = 0; replay < campaign.replayCount; replay++)
+     await replayG0Run(world.record);
+   const actorOverlap = world.record.tape.events.some(
+     (event) => event.kind === "cut" && event.name.endsWith("actors-overlapped")
+@@ -92,17 +93,30 @@ async function replaceJson(path: string, value: unknown) {
+   await rename(`${path}.tmp`, path);
+ }
+ 
+-/** One child owns one bounded contiguous ID slice on both SQLite profiles. */
+-export async function runG3SQLiteBatch(firstSeed: number, seedCount = 100) {
++/**
++ * One child owns one bounded contiguous ID slice on both SQLite profiles.
++ *
++ * `campaign` names which frozen campaign that slice belongs to.
++ *
++ * Defaults to G3's own, so every existing G3 receipt and self-test is
++ * unchanged. A later milestone that runs THIS generator and THIS runner on its
++ * own frozen disjoint range passes its campaign constant instead; the range
++ * guard, the profile list, the replay count and the receipt then all come from
++ * one place rather than from four.
++ */
++export async function runG3SQLiteBatch(
++  firstSeed: number,
++  seedCount = 100,
++  campaign: typeof G3_GENERATED_CAMPAIGN = G3_GENERATED_CAMPAIGN
++) {
+   assert(
+     Number.isInteger(firstSeed) &&
+       Number.isInteger(seedCount) &&
+       seedCount >= 1 &&
+-      seedCount <= G3_GENERATED_CAMPAIGN.batchSize &&
+-      firstSeed >= G3_GENERATED_CAMPAIGN.firstSeed &&
+-      firstSeed + seedCount <=
+-        G3_GENERATED_CAMPAIGN.firstSeed + G3_GENERATED_CAMPAIGN.seedCount,
+-    "G3 SQLite child must contain 1–100 contiguous IDs within 8000–17999"
++      seedCount <= campaign.batchSize &&
++      firstSeed >= campaign.firstSeed &&
++      firstSeed + seedCount <= campaign.firstSeed + campaign.seedCount,
++    `SQLite child must contain 1–${campaign.batchSize} contiguous IDs within ${campaign.firstSeed}–${campaign.firstSeed + campaign.seedCount - 1}`
+   );
+   const identity = captureRaptor3Identity();
+   const records: G0ReplayRecord[] = [];
+@@ -129,9 +143,9 @@ export async function runG3SQLiteBatch(firstSeed: number, seedCount = 100) {
+       identity,
+       firstSeed,
+       seedCount,
+-      profiles: G3_GENERATED_CAMPAIGN.profiles,
++      profiles: campaign.profiles,
+       completed,
+-      replays: completed.length * G3_GENERATED_CAMPAIGN.replayCount,
++      replays: completed.length * campaign.replayCount,
+       skipped: 0,
+     });
+   };
+@@ -139,11 +153,16 @@ export async function runG3SQLiteBatch(firstSeed: number, seedCount = 100) {
+   try {
+     for (let seed = firstSeed; seed < firstSeed + seedCount; seed++) {
+       const recipe = generateG3Recipe(seed);
+-      for (const profile of G3_GENERATED_CAMPAIGN.profiles) {
++      for (const profile of campaign.profiles) {
+         activeCell = { recipe, profile };
+-        const cell = await verifyG3SQLiteCell(recipe, profile, (record) => {
+-          activeCell = { recipe, profile, record };
+-        });
++        const cell = await verifyG3SQLiteCell(
++          recipe,
++          profile,
++          (record) => {
++            activeCell = { recipe, profile, record };
++          },
++          campaign
++        );
+         records.push(cell.record);
+         completed.push(cell.completion);
+         activeCell = undefined;
+@@ -199,11 +218,12 @@ export async function runG3SQLiteBatch(firstSeed: number, seedCount = 100) {
+             await verifyG3SQLiteCell(
+               recipe,
+               failingCell.profile,
+-              captureRecord
++              captureRecord,
++              campaign
+             );
+           },
+           replayG0Run,
+-          G3_GENERATED_CAMPAIGN.replayCount
++          campaign.replayCount
+         );
+         if ("record" in minimized && minimized.record !== undefined) {
+           const { record, ...details } = minimized;
+@@ -248,9 +268,9 @@ export async function runG3SQLiteBatch(firstSeed: number, seedCount = 100) {
+     identity,
+     firstSeed,
+     seedCount,
+-    profiles: G3_GENERATED_CAMPAIGN.profiles,
++    profiles: campaign.profiles,
+     completed,
+-    replays: completed.length * G3_GENERATED_CAMPAIGN.replayCount,
++    replays: completed.length * campaign.replayCount,
+     skipped: 0,
+   };
+   if (directory) {
+diff --git a/tests/raptor3/g3/generation/transport-campaign.ts b/tests/raptor3/g3/generation/transport-campaign.ts
+index 9a1cb81c..e1cc4fd6 100644
+--- a/tests/raptor3/g3/generation/transport-campaign.ts
++++ b/tests/raptor3/g3/generation/transport-campaign.ts
+@@ -15,16 +15,13 @@ import { runG3TransportWorld } from "./transport-scenario";
+ export async function verifyG3TransportCell(
+   recipe: G3GeneratedRecipe,
+   profile: TransportProfileId,
+-  captureRecord?: (record: TransportReplayRecord) => void
++  captureRecord?: (record: TransportReplayRecord) => void,
++  campaign: typeof G3_GENERATED_TRANSPORT_CAMPAIGN = G3_GENERATED_TRANSPORT_CAMPAIGN
+ ) {
+   const world = await runG3TransportWorld(recipe, profile);
+   captureRecord?.(world.record);
+   world.fixture.assert(world.observation);
+-  for (
+-    let replay = 0;
+-    replay < G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount;
+-    replay++
+-  )
++  for (let replay = 0; replay < campaign.replayCount; replay++)
+     await replayG0Run(world.record);
+   const actorOverlap = world.record.tape.events.some(
+     (event) => event.kind === "cut" && event.name.endsWith("actors-overlapped")
+@@ -56,18 +53,30 @@ async function replaceJson(path: string, value: unknown) {
+   await rename(`${path}.tmp`, path);
+ }
+ 
+-/** One child owns one bounded contiguous ID slice on both transport profiles. */
+-export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
++/**
++ * One child owns one bounded contiguous ID slice on both transport profiles.
++ *
++ * `campaign` names which frozen campaign that slice belongs to.
++ *
++ * Defaults to G3's own, so every existing G3 receipt and self-test is
++ * unchanged. A later milestone that runs THIS generator and THIS runner on its
++ * own frozen disjoint range passes its campaign constant instead; the range
++ * guard, the profile list, the replay count and the receipt then all come from
++ * one place rather than from four.
++ */
++export async function runG3TransportBatch(
++  firstSeed: number,
++  seedCount = 100,
++  campaign: typeof G3_GENERATED_TRANSPORT_CAMPAIGN = G3_GENERATED_TRANSPORT_CAMPAIGN
++) {
+   assert(
+     Number.isInteger(firstSeed) &&
+       Number.isInteger(seedCount) &&
+       seedCount >= 1 &&
+-      seedCount <= G3_GENERATED_TRANSPORT_CAMPAIGN.batchSize &&
+-      firstSeed >= G3_GENERATED_TRANSPORT_CAMPAIGN.firstSeed &&
+-      firstSeed + seedCount <=
+-        G3_GENERATED_TRANSPORT_CAMPAIGN.firstSeed +
+-          G3_GENERATED_TRANSPORT_CAMPAIGN.seedCount,
+-    "G3 transport child must contain 1–100 contiguous IDs within 8000–17999"
++      seedCount <= campaign.batchSize &&
++      firstSeed >= campaign.firstSeed &&
++      firstSeed + seedCount <= campaign.firstSeed + campaign.seedCount,
++    `Transport child must contain 1–${campaign.batchSize} contiguous IDs within ${campaign.firstSeed}–${campaign.firstSeed + campaign.seedCount - 1}`
+   );
+   const identity = captureRaptor3Identity();
+   const records: TransportReplayRecord[] = [];
+@@ -94,9 +103,9 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
+       identity,
+       firstSeed,
+       seedCount,
+-      profiles: G3_GENERATED_TRANSPORT_CAMPAIGN.profiles,
++      profiles: campaign.profiles,
+       completed,
+-      replays: completed.length * G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount,
++      replays: completed.length * campaign.replayCount,
+       skipped: 0,
+     });
+   };
+@@ -104,11 +113,16 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
+   try {
+     for (let seed = firstSeed; seed < firstSeed + seedCount; seed++) {
+       const recipe = generateG3Recipe(seed);
+-      for (const profile of G3_GENERATED_TRANSPORT_CAMPAIGN.profiles) {
++      for (const profile of campaign.profiles) {
+         activeCell = { recipe, profile };
+-        const cell = await verifyG3TransportCell(recipe, profile, (record) => {
+-          activeCell = { recipe, profile, record };
+-        });
++        const cell = await verifyG3TransportCell(
++          recipe,
++          profile,
++          (record) => {
++            activeCell = { recipe, profile, record };
++          },
++          campaign
++        );
+         records.push(cell.record);
+         completed.push(cell.completion);
+         activeCell = undefined;
+@@ -164,11 +178,12 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
+             await verifyG3TransportCell(
+               recipe,
+               failingCell.profile,
+-              captureRecord
++              captureRecord,
++              campaign
+             );
+           },
+           replayG0Run,
+-          G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount
++          campaign.replayCount
+         );
+         if ("record" in minimized && minimized.record !== undefined) {
+           const { record, ...details } = minimized;
+@@ -213,9 +228,9 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
+     identity,
+     firstSeed,
+     seedCount,
+-    profiles: G3_GENERATED_TRANSPORT_CAMPAIGN.profiles,
++    profiles: campaign.profiles,
+     completed,
+-    replays: completed.length * G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount,
++    replays: completed.length * campaign.replayCount,
+     skipped: 0,
+   };
+   if (directory) {
+diff --git a/tests/raptor3/transitions/live-world.ts b/tests/raptor3/transitions/live-world.ts
+index 1a2d07c6..4b702c67 100644
+--- a/tests/raptor3/transitions/live-world.ts
++++ b/tests/raptor3/transitions/live-world.ts
+@@ -15,7 +15,6 @@ import {
+ } from "@src/sql/identifiers";
+ import { Pool as PgPool, type PoolClient } from "pg";
+ import {
+-  createPool,
+   type Pool as MySQLPool,
+   type PoolConnection,
+   type RowDataPacket,
+@@ -114,6 +113,7 @@ class LiveObservation implements LiveNames {
+   }[] = [];
+   readonly rollbacks: { failure?: unknown }[] = [];
+   private failure: { cause: unknown } | undefined;
++  backgroundTransportFailure: { cause: unknown } | undefined;
+   readonly quote = createIdentifierQuoter(provider === "pg" ? '"' : "`");
+   readonly table;
+   peer?: LivePeer;
+@@ -196,6 +196,19 @@ class LiveObservation implements LiveNames {
+   assertHealthy() {
+     if (this.failure) throw this.failure.cause;
+   }
++  /**
++   * A background transport failure is the RUN's failure.
++   *
++   * It is filed where a body failure is filed, so every existing
++   * `assertHealthy()` call site surfaces it with no new concept; `runLiveWorld`
++   * additionally rethrows it at teardown when nothing else failed, because a
++   * borrowed pool that died after the last assertion must not leave a green
++   * cell behind. See `watchPool` below for why the fixture subscribes at all.
++   */
++  transportFailed(cause: unknown) {
++    this.failure ??= { cause };
++    this.backgroundTransportFailure ??= { cause };
++  }
+   async rolledBack() {
+     const event: { failure?: unknown } = {};
+     this.rollbacks.push(event);
+@@ -331,6 +344,56 @@ class AtomicMySQLDriver extends ObservedMySQLDriver {
+   }
+ }
+ 
++/**
++ * The pool the SHIPPED DRIVER itself would build for these options.
++ *
++ * `new PgPool(options)` and `createPool(options)` here used to bypass the
++ * driver's own pool configuration: PostgreSQL's DATE/TIMESTAMP text parsers
++ * (`utcSafeTypes`, `src/drivers/pg/index.ts`) and MySQL's `timezone: "Z"`,
++ * `supportBigNumbers` and `dateStrings: ["DATE"]`
++ * (`src/drivers/mysql2/index.ts`). A temporal or wide-numeric column therefore
++ * decoded under this fixture the way it decodes nowhere in production — for
++ * the shipped engine and the candidate alike, which is why the difference only
++ * ever surfaced as a codec failure with no engine to blame. The pool now comes
++ * from the driver's own factory and the fixture borrows the same transport for
++ * its raw SQL, so seeding, inspection and both engines see one configuration.
++ *
++ * No `namespace` is passed to the factory: the per-run namespace does not exist
++ * when the pool is built, and on MySQL the namespace IS the connection
++ * database. The observed drivers above still carry it, so every statement the
++ * ORM issues is still qualified by the per-run namespace.
++ */
++class PgPoolFactory extends PgDriver {
++  ownPool(): Promise<PgPool> {
++    return this.getClient() as Promise<PgPool>;
++  }
++}
++class MySQLPoolFactory extends MySQL2Driver {
++  ownPool(): Promise<MySQLPool> {
++    return this.getClient() as Promise<MySQLPool>;
++  }
++}
++
++/**
++ * Subscribe the FIXTURE to the PostgreSQL pool it borrowed.
++ *
++ * `PgDriver.initClient()` retains the background failures of a pool it built
++ * in a WeakMap keyed on that driver, and the factory instance above is
++ * discarded the moment the pool is taken — so the retained failure became
++ * unreadable and a run could pass over a dead transport. Under the pre-repair
++ * bare `new PgPool(options)` there was no listener at all and Node failed the
++ * run loudly; this restores that, through the observation instead of through
++ * an uncaught exception.
++ *
++ * PostgreSQL only, because the defect is: `MySQL2Driver.initClient()`
++ * subscribes to nothing, so a borrowed mysql2 pool behaves exactly as the
++ * fixture-built one did.
++ */
++function watchPgPool(observation: LiveObservation, pool: PgPool): PgPool {
++  pool.on("error", (failure) => observation.transportFailed(failure));
++  return pool;
++}
++
+ /** One fresh namespace per invocation; only the test-owned server removes it. */
+ export async function runLiveWorld(
+   fixture: LiveFixture,
+@@ -360,8 +423,17 @@ export async function runLiveWorld(
+     connectionLimit: 1,
+     connectTimeout: 10_000,
+   };
+-  const pg = provider === "pg" ? new PgPool(pgOptions) : undefined;
+-  const mysql = provider === "mysql" ? createPool(mysqlOptions) : undefined;
++  const pg =
++    provider === "pg"
++      ? watchPgPool(
++          observation,
++          await new PgPoolFactory({ options: pgOptions }).ownPool()
++        )
++      : undefined;
++  const mysql =
++    provider === "mysql"
++      ? await new MySQLPoolFactory({ options: mysqlOptions }).ownPool()
++      : undefined;
+   if (fixture.afterRollback) {
+     assert(pg, "Native post-rollback injection is admitted on PostgreSQL only");
+     pg.on("connect", (client) => {
+@@ -414,8 +486,15 @@ export async function runLiveWorld(
+       }
+     }
+     if (barrier) {
+-      const peerPg = pg ? new PgPool(pgOptions) : undefined;
+-      const peerMySQL = mysql ? createPool(mysqlOptions) : undefined;
++      const peerPg = pg
++        ? watchPgPool(
++            observation,
++            await new PgPoolFactory({ options: pgOptions }).ownPool()
++          )
++        : undefined;
++      const peerMySQL = mysql
++        ? await new MySQLPoolFactory({ options: mysqlOptions }).ownPool()
++        : undefined;
+       pools.push(peerPg ?? peerMySQL!);
+       const peerRead: NativeRead = (statement) =>
+         peerPg
+@@ -570,5 +649,9 @@ export async function runLiveWorld(
+         throw withSuppressedFailure(terminalFailure, closeFailure);
+       throw closeFailure;
+     }
++    // Nothing else failed, so a background transport failure has no other way
++    // out: the last `assertHealthy()` may have run before the pool died.
++    if (!bodyFailed && observation.backgroundTransportFailure)
++      throw observation.backgroundTransportFailure.cause;
+   }
+ }
+diff --git a/vitest.workspace.ts b/vitest.workspace.ts
+index 650ac454..6cbfc941 100644
+--- a/vitest.workspace.ts
++++ b/vitest.workspace.ts
+@@ -34,6 +34,22 @@ import {
+   G3_GENERATED_MINIMIZATION_TESTS,
+   G3_GENERATED_CAMPAIGN_TESTS,
+   G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  G4_READ_TESTS,
++  G4_LIFECYCLE_EVENTS_TESTS,
++  G4_LIFECYCLE_ADMISSION_TESTS,
++  G4_ROUTE_LIFECYCLE_TESTS,
++  G4_ROUTE_ADMISSION_TESTS,
++  G4_ROUTE_CACHE_TESTS,
++  G4_ROUTE_TRANSACTION_TESTS,
++  G4_GENERATION_SELFTEST_TESTS,
++  G4_GENERATED_CAMPAIGN_TESTS,
++  G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++  G4_WRITE_CAMPAIGN_TESTS,
++  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++  G4_UNIT01_AUTHOR_TESTS,
++  G4_UNIT01_REVIEW_TESTS,
++  G4_NATIVE_PG_TESTS,
++  G4_NATIVE_MYSQL_TESTS,
+   G3_EXECUTION_REVIEW_TESTS,
+   G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+   G3_SCOPE_FAILURE_TESTS,
+@@ -135,6 +151,20 @@ export default defineWorkspace([
+         ...G3_GENERATED_SMOKE_TESTS,
+         ...G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+         ...G3_GENERATED_MINIMIZATION_TESTS,
++        ...G4_READ_TESTS,
++        ...G4_LIFECYCLE_EVENTS_TESTS,
++        ...G4_LIFECYCLE_ADMISSION_TESTS,
++        ...G4_ROUTE_LIFECYCLE_TESTS,
++        ...G4_ROUTE_ADMISSION_TESTS,
++        ...G4_ROUTE_CACHE_TESTS,
++        ...G4_ROUTE_TRANSACTION_TESTS,
++        ...G4_GENERATION_SELFTEST_TESTS,
++        ...G4_GENERATED_CAMPAIGN_TESTS,
++        ...G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
++        ...G4_WRITE_CAMPAIGN_TESTS,
++        ...G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
++        ...G4_UNIT01_AUTHOR_TESTS,
++        ...G4_UNIT01_REVIEW_TESTS,
+         ...G3_EXECUTION_REVIEW_TESTS,
+         ...G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+         ...G3_SCOPE_FAILURE_TESTS,
+@@ -195,6 +225,8 @@ export default defineWorkspace([
+         ...POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+         ...G29_MEMBER_DEPENDENCY_PG_TESTS,
+         ...G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
++        ...G4_NATIVE_PG_TESTS,
++        ...G4_NATIVE_MYSQL_TESTS,
+       ],
+     },
+   },

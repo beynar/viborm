@@ -1,0 +1,3 @@
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-to-one.test.ts (19 tests) 1106ms
+ Test Files  1 passed (1)
+      Tests  19 passed (19)

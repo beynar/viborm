@@ -1,0 +1,94 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/recursive-query/cache-codec.test.ts (10 tests | 1 failed) 758ms
+   ✓ RQ-05 live recursive cache codec > answers a hit deep-equal to the miss with no shared object at any level 86ms
+   ✓ RQ-05 live recursive cache codec > keeps a caller's mutation of a hit or of the miss out of the next hit 26ms
+   ✓ RQ-05 live recursive cache codec > round-trips the cutoff key's absence and the natural end's presence 17ms
+   ✓ RQ-05 live recursive cache codec > round-trips a singular slot's null at the outer slot and at a natural end 55ms
+   × RQ-05 live recursive cache codec > refuses a malformed value or snapshot at its own boundary 125ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'accepted'
+- 'refused by snapshot of findMany'
+
+   ✓ RQ-05 live recursive cache codec > refuses a cyclic value or a cyclic snapshot promptly 78ms
+   ✓ RQ-05 live recursive cache codec > refuses with its own failure class, never a stack overflow (owner) 1ms
+   ✓ RQ-05 live recursive cache codec > restores one object reached at two places as two occurrences (owner) 0ms
+   ✓ RQ-05 live recursive cache codec > parses, stores and restores a chain at the 1,000-level depth ceiling 90ms
+   ✓ RQ-05 live recursive cache codec > parses, stores and restores an exhaustive chain of 12,000 levels 279ms
+ ❯ |raptor3| tests/raptor3/recursive-query/carrier-boundary.test.ts (13 tests | 1 failed) 86ms
+   ✓ recursive carrier boundary > rejects wrong-width and sparse identity tuples 1ms
+   ✓ recursive carrier boundary > rejects duplicate nodes and nodes without an identity 0ms
+   ✓ recursive carrier boundary > rejects dangling, unreachable, and duplicate edge facts 0ms
+   ✓ recursive carrier boundary > requires bounded depth facts and forbids them on exhaustive carriers 0ms
+   ✓ recursive carrier boundary > applies cycle policy to a direct root self-loop 1ms
+   ✓ recursive carrier boundary > rejects bounded edge facts attributed to the wrong traversal level 0ms
+   ✓ recursive carrier boundary > refuses a bounded carrier that omits a hop's children at one level a parent is reached 0ms
+   × recursive carrier boundary > rejects sparse node and edge containers and a cyclic JavaScript carrier 2ms
+     → The input did not match the regular expression /Invalid provider recursive row/. Input:
+
+"TypeError: Cannot set properties of null (setting 'children')"
+
+   ✓ recursive carrier boundary > answers an empty singular carrier with null and rejects multiple successors 0ms
+   ✓ recursive carrier boundary > keeps public fields that collide with every private carrier name 0ms
+   ✓ recursive carrier boundary > materializes fresh diamond occurrences and mutable JSON leaves 0ms
+   ✓ recursive carrier boundary > decodes a synthetic exhaustive chain beyond the public depth ceiling 6ms
+   ✓ recursive carrier boundary > decodes a synthetic chain far beyond a copied ancestry 74ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/cache-codec.test.ts > RQ-05 live recursive cache codec > refuses a malformed value or snapshot at its own boundary
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'accepted'
+- 'refused by snapshot of findMany'
+
+
+Expected: [32m"refused by snapshot of findMany"[39m
+Received: [31m"accepted"[39m
+
+ ❯ tests/raptor3/recursive-query/cache-codec.test.ts:535:12
+    533|     assert(cutoffNode);
+    534|     cutoffNode.children = [];
+    535|     assert.equal(
+       |            ^
+    536|       outcome(() => boundedCodec.snapshot(keyPastCutoff)),
+    537|       SNAPSHOT_REFUSAL
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/carrier-boundary.test.ts > recursive carrier boundary > rejects sparse node and edge containers and a cyclic JavaScript carrier
+AssertionError: The input did not match the regular expression /Invalid provider recursive row/. Input:
+
+"TypeError: Cannot set properties of null (setting 'children')"
+
+
+[32m- Expected:[39m 
+/Invalid provider recursive row/
+
+[31m+ Received:[39m 
+TypeError {
+  "message": "Cannot set properties of null (setting 'children')",
+}
+
+ ❯ tests/raptor3/recursive-query/carrier-boundary.test.ts:420:12
+    418|     );
+    419| 
+    420|     assert.throws(
+       |            ^
+    421|       () =>
+    422|         decode(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 21 passed (23)
+   Start at  15:08:45
+   Duration  7.23s (transform 3.61s, setup 33ms, collect 5.97s, tests 844ms, environment 0ms, prepare 105ms)
+
+Vitest resources: 13.05s wall, 590.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/root-create-fold.review.test.ts (4 tests) 38ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  08:46:33
+   Duration  2.06s (transform 1.26s, setup 9ms, collect 1.82s, tests 38ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 2.54s wall, 454.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

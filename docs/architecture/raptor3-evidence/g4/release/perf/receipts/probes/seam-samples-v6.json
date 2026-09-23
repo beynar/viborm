@@ -1,0 +1,642 @@
+[
+ {
+  "side": "baseline",
+  "pair": 0,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 41.092,
+    "wallUsPerOp": 20.729249999999993,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 59.79,
+    "wallUsPerOp": 25.483250000000012,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 60.017,
+    "wallUsPerOp": 26.080957999999995,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 45.84,
+    "wallUsPerOp": 23.46041700000001,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 42.641,
+    "wallUsPerOp": 20.861499999999992,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 56.039,
+    "wallUsPerOp": 24.873290999999995,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 56.752,
+    "wallUsPerOp": 24.598583000000005,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 42.389,
+    "wallUsPerOp": 20.462041999999997,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 41.413,
+    "wallUsPerOp": 20.32216600000001,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "statement",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 60.037,
+    "wallUsPerOp": 25.840083000000007,
+    "checksum": 631200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 0,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 44.1,
+    "wallUsPerOp": 22.952375000000004,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 59.025,
+    "wallUsPerOp": 26.47104200000001,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 58.848,
+    "wallUsPerOp": 26.211167000000003,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 44.858,
+    "wallUsPerOp": 23.155667000000008,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 45.034,
+    "wallUsPerOp": 23.482,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 59.107,
+    "wallUsPerOp": 26.49229100000001,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 58.169,
+    "wallUsPerOp": 26.14095900000001,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "sideOrder": "candidate>baseline",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 44.546,
+    "wallUsPerOp": 22.979208,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 43.452,
+    "wallUsPerOp": 22.424750000000003,
+    "checksum": 511200
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "sideOrder": "baseline>candidate",
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "bulk-update-returning-100",
+  "seam": "package",
+  "stageKind": "async",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 63.68,
+    "wallUsPerOp": 28.084249999999997,
+    "checksum": 511200
+   }
+  ]
+ }
+]

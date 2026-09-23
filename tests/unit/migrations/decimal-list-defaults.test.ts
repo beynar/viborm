@@ -9,7 +9,7 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { introspect } from "@migrations/push";
+import { introspect } from "@migrations/push/planner";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";

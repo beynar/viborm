@@ -1,0 +1,57 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AGREE  nested upsert, target ABSENT, int key set+increment
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AGREE  nested upsert, target ABSENT, number key increment
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1},{"id":999,"name":"fresh","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate at the nested upsert's create arm
+AGREE  nested upsert, target PRESENT, int key set+increment (control)
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+AGREE  nested updateMany, where matches NOTHING, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+AGREE  nested update, target ABSENT, int key set+increment
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > is not wider than the shipped predicate for an unmatched nested updateMany or a missing nested update target
+AGREE  nested updateMany, where matches NOTHING, number key increment
+    shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, relation-free update, int key set+increment
+    shipped   {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, relation-free update, number key increment
+    shipped   {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"ForeignKeyError: Foreign key constraint violation","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+stdout | tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts > freeze review — nested key refusal SCOPE > measures whether `set` still wins beside an operator at a RELATION-FREE root upsert
+AGREE  root upsert, update NAMES a relation, int key set+increment
+    shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+    candidate {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+
+ ✓ |g4-review-freeze| tests/raptor3/g4/review/freeze/nested-refusal-scope.review.test.ts (3 tests) 161ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  19:40:22
+   Duration  4.27s (transform 2.58s, setup 16ms, collect 3.86s, tests 161ms, environment 0ms, prepare 63ms)
+
+Vitest resources: 5.35s wall, 471.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

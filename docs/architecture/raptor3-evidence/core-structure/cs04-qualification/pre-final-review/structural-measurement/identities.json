@@ -1,0 +1,23 @@
+{
+  "candidate": {
+    "alternative": "shared-occurrence-candidate",
+    "baseProduction": "d7f14cc5973eb25e8ab80678bd55dfcb424e2a837907ce1f4c3728b1bbf66922",
+    "baseHarness": "4b4783d8926b943a07066dc741106ea9caeeabc9ca35c58042f1d3cca2c2c18f",
+    "instrumentedProduction": "50e50c5e92b140b215143fd8c8f21abe4195408ff41c2030e6c6e1870fa84343",
+    "instrumentedHarness": "4b4783d8926b943a07066dc741106ea9caeeabc9ca35c58042f1d3cca2c2c18f"
+  },
+  "reference": {
+    "alternative": "flat-history-reference",
+    "baseProduction": "5502c7cf9e1ea16c6c00d3548f8eb8f030e921df1cb0b6710de3c58458f79a3e",
+    "baseHarness": "af14a1c9b611f07cb76545f035261f9f5ee236972df8793c282f6603e037dd2e",
+    "instrumentedProduction": "f0811391cd84bfce364c1cf04535f27b90357abbf6dff82051839296f3eb3a67",
+    "instrumentedHarness": "af14a1c9b611f07cb76545f035261f9f5ee236972df8793c282f6603e037dd2e"
+  },
+  "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sqliteDriver": "12.6.0",
+    "vitest": "3.1.4"
+  }
+}

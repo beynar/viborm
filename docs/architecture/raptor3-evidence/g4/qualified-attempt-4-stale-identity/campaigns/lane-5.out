@@ -1,0 +1,13 @@
+=== 12:31:31 g3-seeds (/private/tmp/viborm-g4-lane-5) ===
+g3-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-eOEyHW
+=== 12:31:37 g2-seeds (/private/tmp/viborm-g4-lane-5) ===
+g2-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-x5CN9c
+=== 12:31:44 g1-seeds (/private/tmp/viborm-g4-lane-5) ===
+g1-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-jzYhFk
+=== 12:31:50 g0 (/private/tmp/viborm-g4-lane-5) ===
+g0 exit=0 Raptor 3 g0 contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-wcwK41
+=== 12:31:58 g3p06-seeds (/private/tmp/viborm-g4-lane-5) ===
+g3p06-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-7Y9dzw
+=== 12:32:04 cs03-extension-a-seeds (/private/tmp/viborm-g4-lane-5) ===
+cs03-extension-a-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-yahy7m
+=== 12:32:10 lane done ===

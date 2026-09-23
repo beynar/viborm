@@ -1,0 +1,78 @@
+{
+  "reachedFiles": 192,
+  "reachedEngineOwnersNotInG3Perimeter": [
+    {
+      "file": "src/client/client.ts",
+      "classification": "charged-integration",
+      "g3TokenLines": 1020
+    },
+    {
+      "file": "src/query-engine/result/cache-json-codec.ts",
+      "classification": "charged-engine",
+      "g3TokenLines": 124
+    },
+    {
+      "file": "src/query-engine/result/cache-snapshot-structure.ts",
+      "classification": "charged-engine",
+      "g3TokenLines": 114
+    },
+    {
+      "file": "src/query-engine/result/cache-value-codecs.ts",
+      "classification": "charged-engine",
+      "g3TokenLines": 457
+    }
+  ],
+  "reachedExcludedBoundaries": 165,
+  "g3ChargedFilesNoLongerReached": [
+    {
+      "file": "src/adapters/adapter-core-types.ts",
+      "classification": "charged-adapter-integration",
+      "g3TokenLines": 15
+    },
+    {
+      "file": "src/adapters/constraint-identity.ts",
+      "classification": "charged-g3-prep-shared",
+      "g3TokenLines": 47
+    },
+    {
+      "file": "src/adapters/databases/mysql/mysql-adapter.ts",
+      "classification": "charged-g3-prep-shared",
+      "g3TokenLines": 557
+    },
+    {
+      "file": "src/adapters/databases/postgres/postgres-adapter.ts",
+      "classification": "charged-g3-prep-shared",
+      "g3TokenLines": 371
+    },
+    {
+      "file": "src/adapters/databases/sqlite/sqlite-adapter.ts",
+      "classification": "charged-g3-prep-shared",
+      "g3TokenLines": 445
+    },
+    {
+      "file": "src/adapters/shared/batch-refs.ts",
+      "classification": "charged-adapter-integration",
+      "g3TokenLines": 59
+    },
+    {
+      "file": "src/drivers/driver-instrumentation.ts",
+      "classification": "charged-g3-prep-shared",
+      "g3TokenLines": 801
+    },
+    {
+      "file": "src/query-engine/JunctionStatements.ts",
+      "classification": "charged-g3-prep-shared",
+      "g3TokenLines": 493
+    },
+    {
+      "file": "src/query-engine/types.ts",
+      "classification": "charged-engine",
+      "g3TokenLines": 289
+    },
+    {
+      "file": "src/query-engine/unique-conflict-target.ts",
+      "classification": "charged-g3-prep-shared",
+      "g3TokenLines": 43
+    }
+  ]
+}

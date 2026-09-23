@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts (293 tests) 24281ms
+   ✓ MySQL2 Driver > MySQL2 field references > enum references > gt on an enum is refused with the portability reason  358ms
+
+ Test Files  1 passed (1)
+      Tests  293 passed (293)
+   Start at  22:03:39
+   Duration  25.92s (transform 1.01s, setup 9ms, collect 1.49s, tests 24.28s, environment 0ms, prepare 36ms)
+
+Vitest resources: 27.69s wall, 685.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

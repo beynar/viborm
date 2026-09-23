@@ -1,0 +1,47 @@
+// SCRATCH (outside the repository): R3 — the campaign judge stays total over a
+// malformed published value. Each value below was a mismatch verdict at HEAD
+// (the walker only cast members); after round 1's shared walker the first two
+// threw an AssertionError out of `judgeOutcome` / `judgeCase`.
+import assert from "node:assert/strict";
+import {
+  judgeCase,
+  judgeOutcome,
+} from "@tests/raptor3/recursive-query/campaign-harness";
+import { RQ06_FIXED_CASES } from "@tests/raptor3/recursive-query/fixed-cases";
+import { evaluateRecursiveCase } from "@tests/raptor3/recursive-query/graph-oracle";
+import { it } from "vitest";
+
+const testCase = RQ06_FIXED_CASES.find(
+  (entry) =>
+    entry.profile === "collection-fk" &&
+    evaluateRecursiveCase(entry).kind === "rows"
+)!;
+
+const malformed: Record<string, unknown> = {
+  "a primitive row": [5],
+  "a primitive member": [{ [testCase.relation]: [7] }],
+  "a null row": [null],
+};
+
+for (const [label, value] of Object.entries(malformed))
+  it(`R3: ${label} is a mismatch verdict with its owner, not an exception`, () => {
+    const verdict = judgeOutcome(testCase, { kind: "value", value });
+    assert.ok(verdict.mismatch, "a mismatch");
+    assert.ok(verdict.owner, "an owner");
+    const full = judgeCase(testCase, { kind: "value", value }, [
+      "WITH RECURSIVE x AS (SELECT 1) SELECT 1",
+    ]);
+    assert.equal(full.match, false);
+  });
+
+it("R3: a matched value still carries its occurrence count and digest", () => {
+  const oracle = evaluateRecursiveCase(testCase);
+  assert.equal(oracle.kind, "rows");
+  if (oracle.kind !== "rows") return;
+  const value = structuredClone([...oracle.rows]);
+  const verdict = judgeOutcome(testCase, { kind: "value", value });
+  assert.equal(verdict.mismatch, undefined);
+  assert.equal(typeof verdict.published.occurrences, "number");
+  assert.equal(typeof verdict.published.digest, "string");
+  assert.deepEqual(Object.keys(verdict.published), ["occurrences", "digest"]);
+});

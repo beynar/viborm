@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 159ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  20:21:14
+   Duration  7.42s (transform 2.60s, setup 22ms, collect 3.93s, tests 159ms, environment 0ms, prepare 63ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HfN0Dw/vitest.json
+Vitest resources: 16.19s wall, 519.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-codecs contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HfN0Dw

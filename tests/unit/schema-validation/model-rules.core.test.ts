@@ -7,6 +7,7 @@ const DUPLICATE_KEY_MEMBER = /cannot repeat a field/i;
 const DENSE_STRING_MEMBERS = /fields must be a dense array of strings/i;
 const DUPLICATE_COMPOUND_NAME =
   /name '.*' is already used by another compound key/i;
+const AMBIGUOUS_PUBLIC_SELECTOR = "I006";
 
 function changingMemberIterator() {
   const fields: ("a" | "b")[] = ["a", "b"];
@@ -108,7 +109,7 @@ describe("model definition rules", () => {
     expect(() => model.unique(["a", "b_c"])).toThrow(DUPLICATE_COMPOUND_NAME);
   });
 
-  it("refuses an explicit compound name already used by another tuple", () => {
+  it("refuses a same-kind compound name before it overwrites a tuple", () => {
     const model = s
       .model({ a: s.string(), b: s.string(), c: s.string() })
       .unique(["a", "b"], { name: "lookup" });
@@ -116,8 +117,147 @@ describe("model definition rules", () => {
     expect(() => model.unique(["b", "c"], { name: "lookup" })).toThrow(
       DUPLICATE_COMPOUND_NAME
     );
-    expect(() => model.id(["b", "c"], { name: "lookup" })).toThrow(
-      DUPLICATE_COMPOUND_NAME
+  });
+
+  it.each([
+    [
+      "scalar unique",
+      () =>
+        s
+          .model({
+            id: s.string().id(),
+            lookup: s.string().unique(),
+            tenant: s.string(),
+            code: s.string(),
+          })
+          .unique(["tenant", "code"], { name: "lookup" }),
+    ],
+    [
+      "scalar ID",
+      () =>
+        s
+          .model({
+            id: s.string().id(),
+            tenant: s.string(),
+            code: s.string(),
+          })
+          .unique(["tenant", "code"], { name: "id" }),
+    ],
+    [
+      "ordinary scalar filter",
+      () =>
+        s
+          .model({
+            id: s.string().id(),
+            lookup: s.string(),
+            tenant: s.string(),
+            code: s.string(),
+          })
+          .unique(["tenant", "code"], { name: "lookup" }),
+    ],
+  ])("refuses a compound selector that reuses a %s name", (_kind, build) => {
+    expect(errorCodes({ record: build() })).toContain(
+      AMBIGUOUS_PUBLIC_SELECTOR
+    );
+  });
+
+  it("refuses a compound selector that overwrites a relation filter", () => {
+    const account = s.model({
+      id: s.string().id(),
+      records: s.toMany(() => record),
+    });
+    const record = s
+      .model({
+        id: s.string().id(),
+        accountId: s.string(),
+        code: s.string(),
+        lookup: s
+          .toOne(() => account)
+          .fields("accountId")
+          .references("id"),
+      })
+      .unique(["accountId", "code"], { name: "lookup" });
+
+    expect(errorCodes({ account, record })).toContain(
+      AMBIGUOUS_PUBLIC_SELECTOR
+    );
+  });
+
+  it("refuses a compound selector that overwrites a variant relation filter", () => {
+    const post = s.model({ id: s.string().id() });
+    const note = s.model({ id: s.string().id() });
+    const comment = s
+      .model({
+        id: s.string().id(),
+        tenant: s.string(),
+        code: s.string(),
+        subject: s.toOne({ post: () => post, note: () => note }),
+      })
+      .unique(["tenant", "code"], { name: "subject" });
+
+    expect(errorCodes({ post, note, comment })).toEqual([
+      AMBIGUOUS_PUBLIC_SELECTOR,
+    ]);
+  });
+
+  it.each([
+    "AND",
+    "OR",
+    "NOT",
+  ])("refuses a compound selector that overwrites the %s logical filter", (name) => {
+    const base = s.model({
+      id: s.string().id(),
+      tenant: s.string(),
+      code: s.string(),
+    });
+    const record = Reflect.apply(base.unique, base, [
+      ["tenant", "code"],
+      { name },
+    ]);
+
+    expect(errorCodes({ record })).toContain(AMBIGUOUS_PUBLIC_SELECTOR);
+  });
+
+  it("refuses a compound unique that reuses a compound ID selector", () => {
+    const withId = s
+      .model({
+        tenant: s.string(),
+        code: s.string(),
+        region: s.string(),
+        serial: s.string(),
+      })
+      .id(["tenant", "code"], { name: "lookup" });
+
+    expect(() =>
+      withId.unique(["region", "serial"], { name: "lookup" })
+    ).not.toThrow();
+    expect(
+      errorCodes({
+        record: withId.unique(["region", "serial"], { name: "lookup" }),
+      })
+    ).toContain(AMBIGUOUS_PUBLIC_SELECTOR);
+  });
+
+  it("accepts distinct selector names and model-local reuse", () => {
+    const first = s
+      .model({
+        id: s.string().id(),
+        lookup: s.string().unique(),
+        tenant: s.string(),
+        code: s.string(),
+      })
+      .unique(["tenant", "code"], { name: "tenantCode" });
+    const second = s
+      .model({
+        id: s.string().id(),
+        lookup: s.string().unique(),
+        region: s.string(),
+        code: s.string(),
+      })
+      .unique(["region", "code"], { name: "tenantCode" });
+
+    expect(errorCodes({ first, second })).not.toContain(
+      AMBIGUOUS_PUBLIC_SELECTOR
     );
   });
 

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc03
+
+ ✓ |extended-local| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (8 tests) 57ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  22:04:35
+   Duration  1.58s (transform 896ms, setup 8ms, collect 1.31s, tests 57ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 3.44s wall, 524.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

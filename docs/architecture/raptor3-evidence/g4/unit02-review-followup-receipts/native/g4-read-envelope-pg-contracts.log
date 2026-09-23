@@ -1,0 +1,33 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts (4 tests | 2 failed) 88ms
+   × G4 native pg read envelope > g4-native-scalar-codec-round-trip 34ms
+     → Driver "pg" returned a malformed date scalar for operation "findMany": the Date is invalid or not UTC midnight.
+   ✓ G4 native pg read envelope > g4-native-string-mode-and-nulls-ordering 14ms
+   ✓ G4 native pg read envelope > g4-native-cursor-pagination-and-aggregate-shapes 16ms
+   × G4 native pg read envelope > g4-native-recursive-read-fit 24ms
+     → Query execution failed
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts > G4 native pg read envelope > g4-native-scalar-codec-round-trip
+QueryEngineError: Driver "pg" returned a malformed date scalar for operation "findMany": the Date is invalid or not UTC midnight.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts > G4 native pg read envelope > g4-native-recursive-read-fit
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  04:30:39
+   Duration  1.84s (transform 1.01s, setup 9ms, collect 1.53s, tests 88ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kJnLmr/vitest.json
+Vitest resources: 3.95s wall, 528.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kJnLmr

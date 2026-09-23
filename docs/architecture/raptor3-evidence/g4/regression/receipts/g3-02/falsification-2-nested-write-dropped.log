@@ -1,0 +1,93 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 1 failed) 45ms
+   × G3-02 author execution regressions > reports a malformed result on the transport its plan uses, with the progress that transport has 27ms
+     → {
+  "half": "real batch",
+  "statements": [
+    "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?) RETURNING \"id\" AS \"id\", \"label\" AS \"label\""
+  ],
+  "batchCalls": 0,
+  "batches": [],
+  "corrupted": true,
+  "rows": [
+    {
+      "id": 1,
+      "label": "batched"
+    }
+  ],
+  "children": [],
+  "failure": {
+    "name": "QueryEngineError",
+    "code": "V9001",
+    "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer.",
+    "meta": {
+      "driver": "sqlite3",
+      "operation": "createMany",
+      "scalarType": "int"
+    }
+  }
+}
+
+0 !== 2
+
+   ✓ G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking 10ms
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > reports a malformed result on the transport its plan uses, with the progress that transport has
+AssertionError: {
+  "half": "real batch",
+  "statements": [
+    "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?) RETURNING \"id\" AS \"id\", \"label\" AS \"label\""
+  ],
+  "batchCalls": 0,
+  "batches": [],
+  "corrupted": true,
+  "rows": [
+    {
+      "id": 1,
+      "label": "batched"
+    }
+  ],
+  "children": [],
+  "failure": {
+    "name": "QueryEngineError",
+    "code": "V9001",
+    "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer.",
+    "meta": {
+      "driver": "sqlite3",
+      "operation": "createMany",
+      "scalarType": "int"
+    }
+  }
+}
+
+0 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g3/author-execution-regressions.test.ts:347:14
+    345|       // prologue, parent insert, generated-key capture, child insert)…
+    346|       // terminal window (the read-back and the scratch release).
+    347|       assert.equal(batchDriver.batchCalls, 2, batchDiagnostic);
+       |              ^
+    348|       const writeWindow = batchDriver.batches.find((queries) =>
+    349|         queries.some(({ sql }) => PARENT_INSERT.test(sql))
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  01:28:43
+   Duration  2.05s (transform 1.22s, setup 9ms, collect 1.76s, tests 45ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 4.21s wall, 572.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

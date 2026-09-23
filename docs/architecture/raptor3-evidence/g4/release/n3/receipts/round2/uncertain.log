@@ -1,0 +1,4 @@
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (8 tests) 37ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (8 tests) 33ms
+ Test Files  2 passed (2)
+      Tests  16 passed (16)

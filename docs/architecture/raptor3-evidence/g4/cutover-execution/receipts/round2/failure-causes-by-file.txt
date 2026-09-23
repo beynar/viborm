@@ -1,0 +1,215 @@
+### tests/contracts/engine/query/namespace-qualification.core.test.ts  (1 failing)
+       1  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+    first: <suite collection>
+
+### tests/contracts/drivers/namespace-execution-target.core.test.ts  (5 failing)
+       5  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+    first: two drivers over one supplied pool address different namespaces > MySQL2 drivers sharing a pool never name each other's 
+
+### tests/contracts/drivers/provider-result-contracts.core.test.ts  (1 failing)
+       1  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+    first: provider row-count normalization > PlanetScale preview sends GeoPoint SQL through its SDK formatter
+
+### tests/contracts/drivers/sqlite-integer-safety.core.test.ts  (1 failing)
+       1  Error: Expected one prepared statement
+    first: Bun SQLite integer safety > tagged and verbatim raw keep their integer modes in a fallback batch
+
+### tests/unit/cache/operand-callback-keys.core.test.ts  (1 failing)
+       1  AssertionError: expected 'X' to contain 'X'
+    first: batch preparation sees the resolved payload > the raw payload keeps the function; the compiled statement does not
+
+### tests/contracts/engine/write/architecture-gates.core.test.ts  (1 failing)
+       1  Error: ENOENT: no such file or directory, open 'X'
+    first: write engine structural gates (PLAN P0) > (f) gives child-held membership one lowering owner
+
+### tests/contracts/engine/write/parse-boundary-gate.core.test.ts  (3 failing)
+       2  Error: ENOENT: no such file or directory, open 'X'
+       1  AssertionError: expected N to be N // Object.is equality
+    first: write engine parse-boundary gate (X2 — one home for validation) > (2) create/update/delete validate their whole args thr
+
+### tests/contracts/public-client/array-transaction-closure.core.test.ts  (1 failing)
+       1  AssertionError: promise resolved "[ [], [] ]" instead of rejecting
+    first: native array closures > keeps an already-applied observation settled when a later parse fails
+
+### tests/contracts/public-client/official-cache-swr.core.test.ts  (1 failing)
+       1  AssertionError: expected +N to be N // Object.is equality
+    first: official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+
+### tests/contracts/public-client/one-resolution-identity.core.test.ts  (1 failing)
+       1  AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set
+    first: one resolution, one index > the same composition answers a relation-bearing query
+
+### tests/contracts/public-client/query-interceptors-array.core.test.ts  (4 failing)
+       1  AssertionError: expected "spy" to be called once, but got N times
+       1  AssertionError: expected [ …(N) ] to have a length of N but got N
+       1  AssertionError: expected [ 'X' ] to deeply equal []
+       1  Error: Expected the array transaction to fail
+    first: native array query execution > orders provider, committed outcomes, parsing, and handler post-work
+
+### tests/contracts/public-client/query-interceptors-integration.core.test.ts  (2 failing)
+       2  AssertionError: expected [] to deeply equal [ 'X' ]
+    first: public query-interceptor integration > reports commit ambiguity for a direct composed write transaction
+
+### tests/contracts/public-client/request-transforms.core.test.ts  (6 failing)
+       2  AssertionError: expected function to throw an error, but it didn't
+       1  AssertionError: expected [Function] to throw an error
+       1  AssertionError: expected undefined to be defined
+       1  AssertionError: expected Set{} to deeply equal Set{ 'X', 'X', …(N) }
+       1  AssertionError: expected AssertionError: expected not to be reached { …(N) } to be an instance of QueryError
+    first: public request-transform integration > runs before the unique guard and the existing validation owner
+
+### tests/contracts/architecture/contract-matrix.core.test.ts  (3 failing)
+       1  AssertionError: libsql:drivers.batch-primary-key-dataflow: expected 'X' to contain 'X'
+       1  AssertionError: query-engine type core: expected N to be greater than N
+       1  AssertionError: tests/raptorN/candidate-handoff.test.ts: expected undefined to be defined
+    first: contract and provider matrix > matches matrix run decisions to provider registrations
+
+### tests/contracts/engine/query/batch-attribution-hazard-signature.core.test.ts  (12 failing)
+      12  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+    first: 'PostgreSQL' batch attribution hazard signature > the adapter spells both hazard shapes the way the table expects
+
+### tests/contracts/engine/query/bulk-create-plan.core.test.ts  (1 failing)
+       1  TypeError: Cannot read properties of undefined (reading 'X')
+    first: bulk create planning > fails closed on a short provider result window
+
+### tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts  (1 failing)
+       1  AssertionError: promise resolved "[ { count: +N } ]" instead of rejecting
+    first: bulk insert row-shape planning > empty createMany rejects during batch preparation
+
+### tests/contracts/engine/query/cursor-pagination-sql.core.test.ts  (42 failing)
+      36  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/cursor-pagination-sql.core.test.ts > 'X' cursor SQL > relation cursor ordering fails explicitl
+       2  AssertionError: expected [Function] to throw error including 'X' but got 'X'findMany\'X'
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/cursor-pagination-sql.core.test.ts > 'X' cursor SQL > vector-distance cursor ordering fails ex
+    first: 'PostgreSQL' cursor SQL > one normalized order drives ORDER BY and one derived cursor row
+
+### tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts  (48 failing)
+      41  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+       4  AssertionError: expected [Function] to throw error matching /outside this provider'X'Operation \'X' does not compil…'
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts > 'X' decimal having operands > a _sum operand finer t
+       1  AssertionError: expected [Function] to throw error matching /fractional digit/ but got 'X'groupBy\'X'
+    first: SQLite widened decimal sum operand range > admits every pinned in-range 19-digit coefficient
+
+### tests/contracts/engine/query/field-reference-sql.core.test.ts  (83 failing)
+      46  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+      10  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > surfaces that stay closed to field references > groupBy hav
+       6  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > JSON operands stay closed to field references > a JSON filt
+       3  AssertionError: expected [Function] to throw error matching /is not supported in 'X'/ but got 'X'groupBy\'X'
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > 'X' field-reference SQL > a cross-model reference is refuse
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > 'X' field-reference SQL > a reference to a scalar of anothe
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > 'X' field-reference SQL > a list-scalar reference is refuse
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > JSON operands stay closed to field references > JSON update
+       1  AssertionError: expected [Function] to throw error matching /Field reference 'X' cannot b…/ but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error matching /is of type 'X', but a 'X' oper…/ but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error matching /is a list field/ but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to not throw an error but 'X'groupBy…' was thrown
+       1  AssertionError: expected [Function] to not throw an error but 'X'create\…' was thrown
+       1  AssertionError: expected [Function] to throw error matching /Field reference 'X' is not …/ but got 'X'findMany\'X'
+       1  FAIL  |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts > JSON operands stay closed to field references > JSON write 
+       1  AssertionError: expected [Function] to throw error matching /Field reference 'X' is not …/ but got 'X'create\'X'
+       1  AssertionError: expected [Function] to throw error matching /Field reference 'X' is not …/ but got 'X'update\'X'
+       1  AssertionError: expected [Function] to not throw an error but 'X'findMan…' was thrown
+    first: 'PostgreSQL' field-reference SQL > a reference becomes a qualified column, not a bound parameter
+
+### tests/contracts/engine/query/geopoint-sql.core.test.ts  (10 failing)
+       9  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+       1  AssertionError: expected error to be instance of FeatureNotSupportedError
+    first: GeoPoint query lowering > lowers point values for writes on 'PostgreSQL'
+
+### tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts  (24 failing)
+      21  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts > 'X' json null sentinel SQL > a sentinel under a path is 
+       1  AssertionError: expected [Function] to throw error matching /cannot combine 'X' with the DbNull…/ but got 'X'findMany\'X'
+    first: 'PostgreSQL' json null sentinel SQL > equals DbNull is IS NULL and binds nothing
+
+### tests/contracts/engine/query/lateral-joins.core.test.ts  (9 failing)
+       9  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+    first: Lateral Joins > SQL Generation > PostgreSQL (lateral joins enabled) > to-many include uses lateral join
+
+### tests/contracts/engine/query/operand-callback-sql.core.test.ts  (67 failing)
+      40  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+      11  AssertionError: expected 'X' to be 'X' // Object.is equality
+       6  FAIL  |layer-query-engine| tests/contracts/engine/query/operand-callback-sql.core.test.ts > an unknown key is refused the same way beside every operan
+       5  AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/operand-callback-sql.core.test.ts > 'X' operand callbacks > a nested `ctx.fields` cannot reach
+       1  AssertionError: expected 'X'findMany\'X' to contain 'X'
+       1  AssertionError: expected [Function] to not throw an error but 'X'updateM…' was thrown
+       1  AssertionError: expected [Function] to not throw an error but 'X'findMan…' was thrown
+    first: 'PostgreSQL' operand callbacks > the callback form and the token form compile identically
+
+### tests/contracts/engine/query/operation-equivalence-oracles.core.test.ts  (3 failing)
+       3  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+    first: operation SQL and parameter equivalence oracles > freezes representative postgresql read SQL
+
+### tests/contracts/engine/query/operation-program-read-contracts.core.test.ts  (2 failing)
+       2  AssertionError: promise rejected "TypeError: Cannot read properties of unde…" instead of resolving
+    first: read result and lifecycle contracts > preserves public result shapes on the direct runtime path
+
+### tests/contracts/engine/query/orderby-relation-depth.core.test.ts  (3 failing)
+       1  AssertionError: expected [Function] to throw error matching /Unknown key: parent/ but got 'X'
+       1  AssertionError: expected 'X' to be 'X' // Object.is equality
+       1  AssertionError: expected [Function] to throw error matching /cannot order through a to-many relati…/ but got 'X'
+    first: orderBy relation-depth deterministic contracts > a 9-hop chain is rejected before provider dispatch
+
+### tests/contracts/engine/query/pending-operation-contracts.core.test.ts  (11 failing)
+       4  TypeError: Cannot read properties of undefined (reading 'X')
+       1  AssertionError: expected function to throw an error, but it didn't
+       1  AssertionError: expected undefined to match object { sql: Any<String>, …(N) }
+       1  QueryEngineError: Operation 'X' on model 'X' publishes no single driver result to parse.
+       1  AssertionError: promise rejected "TypeError: Cannot read properties of unde…" instead of resolving
+       1  AssertionError: expected TypeError: Cannot read properties of unde… to be Error: mutation failed // Object.is equality
+       1  AssertionError: expected TypeError: Cannot read properties of unde… to be an instance of CacheConfigurationError
+       1  AssertionError: expected [Function] to throw an error
+    first: PendingOperation frozen public contract > defers validation and execution until an execution or preparation method is us
+
+### tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts  (1 failing)
+       1  TypeError: Cannot read properties of undefined (reading 'X')
+    first: pending operation coordination boundaries > runs an unintercepted array child without provider work
+
+### tests/contracts/engine/query/read-traversal-byte-pins.core.test.ts  (32 failing)
+      32  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+    first: self-relation many-to-many read SQL > PostgreSQL include of the forward side (follows)
+
+### tests/contracts/engine/query/request-result-shape-contracts.core.test.ts  (16 failing)
+       5  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+       2  QueryEngineError: Operation 'X' on model 'X' publishes no single driver result to parse.
+       2  FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > rejects inherited 
+       1  AssertionError: expected TypeError: Cannot read properties of unde… to be an instance of QueryEngineError
+       1  AssertionError: expected [Function] to throw error including 'X'_count\'X' but got 'X'groupBy\'X'
+       1  FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > rejects duplicate 
+       1  AssertionError: expected [Function] to throw error matching /duplicate/i but got 'X'groupBy\'X'grou…'
+       1  AssertionError: expected function to throw an error, but it didn't
+       1  AssertionError: expected [Function] to throw error including 'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error matching /nullable vector/i but got 'X'findMany\'X'
+    first: request-aware result shapes > enforces the requested projection on direct execution
+
+### tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts  (3 failing)
+       1  AssertionError: expected 'X' to be 'X'no-atomic-planning\'X' // Object.is equality
+       1  FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > op
+       1  AssertionError: expected QueryError: Query execution failed { …(N) } to be an instance of TransactionError
+    first: operation executor atomic-capability refusal > operation 'create' fails before dispatch
+
+### tests/contracts/engine/query/sql-generation.core.test.ts  (108 failing)
+      90  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+       3  AssertionError: expected error to be instance of ValidationError
+       3  AssertionError: expected [Function] to throw error including 'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error including 'X'metadata\'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error including 'X'$\'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error including 'X'[\'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error including 'X's\'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error matching /requires a portable JSON path/ but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error including 'X'name\'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error including 'X'posts\'X' but got 'X'findMany\'X'
+       1  AssertionError: expected [Function] to throw error including 'X' but got 'X'findUnique\'X'
+       1  AssertionError: expected [Function] to throw error including 'X' but got 'X'update\'X'
+       1  AssertionError: expected [Function] to throw error including 'X' but got 'X'delete\'X'
+       1  AssertionError: expected [Function] to throw error including 'X' but got 'X'upsert\'X'
+       1  AssertionError: expected [Function] to throw error including 'X'by\'X' but got 'X'groupBy\'X'
+    first: Basic CRUD Operations > findFirst > simple query
+
+### tests/contracts/engine/query/starts-with-prefix-sql.core.test.ts  (27 failing)
+      21  QueryEngineError: Operation 'X' does not compile to one SQL statement. Execute the operation instead.
+       4  FAIL  |layer-query-engine| tests/contracts/engine/query/starts-with-prefix-sql.core.test.ts > 'X' startsWith SQL > the parse boundary refuses startsWi
+       2  AssertionError: expected [Function] to throw error matching /Unknown key: startsWith|did not match…/ but got 'X'findMany\'X'
+    first: 'PostgreSQL' startsWith SQL > a plain-string startsWith emits the index-usable prefix predicate
+

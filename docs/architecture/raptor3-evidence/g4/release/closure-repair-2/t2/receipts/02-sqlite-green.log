@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts (10 tests) 66ms
+ ✓ |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts (10 tests) 67ms
+
+ Test Files  2 passed (2)
+      Tests  20 passed (20)
+   Start at  00:25:43
+   Duration  4.24s (transform 2.36s, setup 16ms, collect 3.67s, tests 133ms, environment 0ms, prepare 64ms)
+
+Vitest resources: 6.30s wall, 498.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

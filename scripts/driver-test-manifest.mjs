@@ -13,7 +13,6 @@ export const DRIVER_CORE_TESTS = Object.freeze(
 );
 
 const localProviderContracts = Object.freeze([
-  "tests/contracts/drivers/consumable-result-rows.provider.test.ts",
   "tests/contracts/drivers/sqlite-binary-values.provider.test.ts",
   "tests/contracts/drivers/sqlite-integer-safety.provider.test.ts",
   "tests/contracts/drivers/sqlite-native-datetime.provider.test.ts",
@@ -46,8 +45,8 @@ const DRIVER_CORE_COVERAGE_CHUNK_SIZE = 8;
 
 const providerHeavyCoreContracts = new Set([
   "tests/contracts/drivers/bind-parameter-capacity.core.test.ts",
+  "tests/contracts/drivers/consumable-result-proof.core.test.ts",
   "tests/contracts/drivers/driver-export-surface.core.test.ts",
-  "tests/contracts/drivers/namespace-execution-target.core.test.ts",
   "tests/contracts/drivers/namespace-options.core.test.ts",
   "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
   "tests/contracts/drivers/provider-result-contracts.core.test.ts",

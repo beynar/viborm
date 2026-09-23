@@ -16,7 +16,9 @@
  */
 
 import { PgDriver } from "@drivers/pg";
+import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
+import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
 import { m2mDeleteManyStalenessContract } from "@tests/contracts/drivers/behaviors/m2m-deletemany-staleness-behavior";
 import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
 import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
@@ -104,6 +106,20 @@ describeIf("pg Driver", () => {
 
   rawArrayTransactionContract.register({
     name: "Docker PostgreSQL",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  // Both lived in `pg-write-update.test.ts` and `pg-write-upsert.test.ts`,
+  // which C-01 deleted because every other suite in them addressed the engine
+  // that is gone. The two provider contracts outlived it and stay registered.
+  batchPrimaryKeyDataflowContract.register({
+    driverName: "pg batch-only",
+    createDriver: () =>
+      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+
+  createManyReturnFoldContract.register({
+    driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
 });

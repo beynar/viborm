@@ -1,0 +1,246 @@
+# What v6 changes against v5 (review finding F2). v5 is untouched.
+# diff -u seam-probe-v5.mjs seam-probe-v6.mjs
+
+--- seam-probe-v5.mjs	2026-09-20 18:47:18
++++ seam-probe-v6.mjs	2026-09-20 19:20:56
+@@ -1,31 +1,41 @@
+ /**
+- * Seam probe v3 — the same question as v2, with the SERIES' OWN SETUP.
++ * Seam probe v6 — v5 with ONE added workload, for review finding F2.
+  *
+- * v2 built a bare fixture of its own; v3 built the world exactly as the series
+- * does (`createWorkloadHarness`). Neither reproduced the series' statement-seam
+- * ratio (v2 1.394, v3 1.353 against the series' 1.711 on scalar-find-unique).
+- * The cause is in the LOOP, not the setup: the catalog declares `prepare` a
+- * SYNC stage, and `operation-pipeline-worker.mjs` therefore runs it through
+- * `runIterationsSync` with no await per iteration, while v2/v3 awaited every
+- * iteration in both arms. One microtask tick per iteration is a constant added
+- * to BOTH sides, which compresses exactly the ratio under test.
++ * F2: §4.3's second table carried the "most of this is the bracket" argument
++ * for three cells while the first table listed four over budget, and the cell
++ * it omitted — `bulk-update-returning-100/prepare` at 1.556 — is one of the
++ * three D-9 named. v5's `OPERATIONS` map builds only the three reads and
++ * throws for anything else. v6 adds the bulk write, exactly as
++ * `operation-pipeline-batch-workloads.mjs` builds it, and changes nothing else
++ * about v5's method.
+  *
+- * v4 ran each arm the way the worker runs its stage kind — statement arm
+- * synchronous, package arm awaited — and still read 1.414 against the series'
+- * 1.711. The last difference was the forced collection v2-v4 inherited from
+- * `ab-stage.mjs`: `operation-pipeline-worker.mjs` runs its warmup and then goes
+- * straight into `measureCpu` with NO gc() in between. Measured, one run per
+- * side, scalar-find-unique/statement: baseline 9.89 -> 9.13 without the forced
+- * gc, candidate 14.00 -> 16.02. The candidate's preparation path is far more
+- * GC-sensitive than the shipped engine's, so a forced collection before the
+- * measured loop flatters it by ~14 %.
++ * Two mechanical differences from v5, both forced by the added cell:
+  *
+- * v5 therefore drops the forced collection as well. Its statement arm should
+- * reproduce the 20-cell series' ratio, which is what makes its package arm
+- * evidence about the BRACKET rather than about the instrument. v2, v3 and v4
+- * receipts are all kept.
++ *  1. The STATEMENT-ARM LOOP KIND is read from the catalog instead of being
++ *     hardcoded sync. v5's finding (v3 -> v4) is that each arm must run the way
++ *     `operation-pipeline-worker.mjs` runs its stage kind, because one await
++ *     per iteration is a constant added to both sides that compresses exactly
++ *     the ratio under test. The catalog owns that fact: the three reads declare
++ *     `prepare` sync, and `bulk-update-returning-100` declares it async
++ *     (`asyncStages: ["cold-prepare", "prepare"]`). For the three read cells
++ *     `stageKinds.prepare === "sync"`, so v6 runs them exactly as v5 did.
++ *  2. Its runner alternates which SIDE goes first per pair (the reviewer's §3
++ *     caveat: v5 always ran baseline before candidate within a pair, where the
++ *     comparator alternates between replicates).
+  *
+- * usage: node seam-probe-v5.mjs <root> <workload> <seam:statement|package> <iterations> <warmup>
++ * v5 and its receipts are untouched: this file is a copy, not an edit, so
++ * `seam-samples-v5.json` / `seam-summary-v5.json` keep their provenance.
++ *
++ * What each arm brackets is unchanged from v5:
++ *   statement seam = `capability.prepare()`   package seam = `capability.prepareBatch(driver)`.
++ * For the bulk cell the series brackets `prepareOperationPlan(op, driver)`,
++ * which RETURNS `capability.prepare()` whenever that seam answers and only
++ * falls through to `prepareBatch` when it does not, plus a witness checksum.
++ * The `published` block of every sample records which seam each side answered,
++ * so the fidelity check (does the statement arm reproduce the series?) can be
++ * read against the right bracket.
++ *
++ * usage: node seam-probe-v6.mjs <root> <workload> <seam:statement|package> <iterations> <warmup>
+  */
+ import { performance } from "node:perf_hooks";
+ import { pathToFileURL } from "node:url";
+@@ -39,7 +49,13 @@
+ const url = (p) => pathToFileURL(resolve(root, p)).href;
+ const { createWorkloadHarness } = await import(url("benchmarks/operation-pipeline-workloads.mjs"));
+ const { benchmarkOperation } = await import(url("benchmarks/operation-pipeline-harness.mjs"));
++const { WORKLOADS } = await import(url("benchmarks/operation-pipeline-catalog.mjs"));
+ 
++const stageKind = WORKLOADS[workload]?.stageKinds?.prepare;
++if (stageKind !== "sync" && stageKind !== "async") {
++  throw new Error(`${workload} declares no prepare stage kind`);
++}
++
+ const { fixture } = await createWorkloadHarness(
+   workload, "prepare", iterations + warmup, "sqlite3", root, "unextended"
+ );
+@@ -52,10 +68,18 @@
+     select: { id: true, posts: { select: { title: true } } },
+     take,
+   });
++// Verbatim from operation-pipeline-batch-workloads.mjs's bulk-update-returning-100.
++const bulkIds = Array.from({ length: 100 }, (_, index) => `user_${index}`);
+ const OPERATIONS = {
+   "scalar-find-unique": () => client.user.findUnique({ where: { id: "user_42" } }),
+   "fixed-collection-rowref-20": () => rowref(20),
+   "fixed-collection-rowref-1000": () => rowref(1000),
++  "bulk-update-returning-100": () =>
++    client.user.updateMany({
++      where: { id: { in: bulkIds } },
++      data: { age: { increment: 1 } },
++      select: { id: true, age: true },
++    }),
+ };
+ const makeOperation = OPERATIONS[workload];
+ if (!makeOperation) throw new Error(`seam-probe does not build ${workload}`);
+@@ -74,6 +98,7 @@
+   const q = benchmarkOperation(makeOperation()).prepare();
+   return q.sql.length + (q.params?.length ?? 0);
+ };
++const runStatementAsync = async () => runSync();
+ const runAsync = async () => {
+   const plan = await benchmarkOperation(makeOperation()).prepareBatch(driver);
+   return plan.queries.length + plan.queries[0].sql.length;
+@@ -84,7 +109,7 @@
+ let wallBefore;
+ let wall;
+ let cpu;
+-if (seam === "statement") {
++if (seam === "statement" && stageKind === "sync") {
+   // worker.mjs: runIterationsSync for a sync stage kind — no await per iteration.
+   for (let i = 0; i < warmup; i++) checksum += runSync();
+   // worker.mjs runs warmup then measureCpu with no forced collection between.
+@@ -94,17 +119,20 @@
+   wall = performance.now() - wallBefore;
+   cpu = process.cpuUsage(cpuBefore);
+ } else {
+-  for (let i = 0; i < warmup; i++) checksum += await runAsync();
+-  // worker.mjs runs warmup then measureCpu with no forced collection between.
++  // worker.mjs: runIterationsAsync — one await per iteration. The package arm is
++  // awaited on every cell (prepareBatch is async); the statement arm is awaited
++  // only where the catalog declares `prepare` an async stage.
++  const runOne = seam === "statement" ? runStatementAsync : runAsync;
++  for (let i = 0; i < warmup; i++) checksum += await runOne();
+   cpuBefore = process.cpuUsage();
+   wallBefore = performance.now();
+-  for (let i = 0; i < iterations; i++) checksum += await runAsync();
++  for (let i = 0; i < iterations; i++) checksum += await runOne();
+   wall = performance.now() - wallBefore;
+   cpu = process.cpuUsage(cpuBefore);
+ }
+ 
+ process.stdout.write(`${JSON.stringify({
+-  root, workload, seam, iterations, warmup, published,
++  root, workload, seam, stageKind, iterations, warmup, published,
+   results: [{
+     label: `${seam}-seam`,
+     cpuUsPerOp: (cpu.user + cpu.system) / iterations,
+
+# diff -u seam-run-v5.mjs seam-run-v6.mjs
+
+--- seam-run-v5.mjs	2026-09-20 18:47:18
++++ seam-run-v6.mjs	2026-09-20 19:21:36
+@@ -1,5 +1,11 @@
+-/** v2: five alternating fresh-process pairs per (workload, seam, side); medians.
+- * ONE seam per process; the frozen protocol's own iteration counts per cell. */
++/** v6 runner — the ONE cell review finding F2 asks for, with v5's method.
++ *
++ * Five fresh-process pairs per (seam, side), medians; ONE seam per process; the
++ * frozen protocol's own counts for this cell (1,000 iterations / 200 warmup, the
++ * counts the series ran it at). One difference from `seam-run-v5.mjs`: the SIDE
++ * ORDER alternates per pair (the reviewer's §3 caveat), where v5 always ran
++ * baseline first. v5's receipts are untouched; this writes its own.
++ */
+ import { execFileSync } from "node:child_process";
+ import { writeFileSync } from "node:fs";
+ 
+@@ -7,21 +13,20 @@
+   baseline: "/private/tmp/viborm-perf-baseline",
+   candidate: "/private/tmp/viborm-perf-cand",
+ };
+-const CELLS = [
+-  ["scalar-find-unique", 5000, 1000],
+-  ["fixed-collection-rowref-20", 5000, 1000],
+-  ["fixed-collection-rowref-1000", 1000, 200],
+-];
++const CELLS = [["bulk-update-returning-100", 1000, 200]];
+ const SEAMS = ["statement", "package"];
+ const PROBE =
+-  "/private/tmp/viborm-perf/docs/architecture/raptor3-evidence/g4/release/perf/receipts/probes/seam-probe-v5.mjs";
++  "/private/tmp/viborm-perf/docs/architecture/raptor3-evidence/g4/release/perf/receipts/probes/seam-probe-v6.mjs";
++const OUT =
++  "/private/tmp/viborm-perf/docs/architecture/raptor3-evidence/g4/release/perf/receipts/probes";
+ const median = (xs) => { const s=[...xs].sort((a,b)=>a-b); const n=s.length; return n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2; };
+ 
+ const samples = [];
+ for (const [workload, iterations, warmup] of CELLS) {
+  for (const seam of SEAMS) {
+   for (let pair = 0; pair < 5; pair++) {
+-    for (const side of ["baseline", "candidate"]) {
++    const order = pair % 2 === 0 ? ["baseline", "candidate"] : ["candidate", "baseline"];
++    for (const side of order) {
+       const out = execFileSync(
+         process.execPath,
+         ["--expose-gc", PROBE, SIDES[side], workload, seam, String(iterations), String(warmup)],
+@@ -29,8 +34,8 @@
+           env: { ...process.env, TMPDIR: "/private/tmp/viborm-perf-tmp/run" } }
+       );
+       const parsed = JSON.parse(out);
+-      samples.push({ side, pair, ...parsed });
+-      process.stdout.write(`${workload} ${seam} ${side} pair${pair} cpu=${parsed.results[0].cpuUsPerOp.toFixed(2)}\n`);
++      samples.push({ side, pair, sideOrder: order.join(">"), ...parsed });
++      process.stdout.write(`${workload} ${seam} ${side} pair${pair} (${order.join(">")}) cpu=${parsed.results[0].cpuUsPerOp.toFixed(2)}\n`);
+     }
+   }
+  }
+@@ -39,7 +44,7 @@
+ const summary = [];
+ for (const [workload] of CELLS) {
+   const row = { workload, published: {}, seams: {} };
+-  for (const seam of ["statement", "package"]) {
++  for (const seam of SEAMS) {
+     const value = (side, metric) =>
+       samples.filter((s) => s.workload === workload && s.side === side && s.seam === seam)
+         .map((s) => s.results[0]?.[metric])
+@@ -56,22 +61,26 @@
+   for (const side of ["baseline", "candidate"]) {
+     row.published[side] = samples.find((s) => s.workload === workload && s.side === side)?.published;
+   }
++  row.stageKind = samples.find((s) => s.workload === workload)?.stageKind;
+   summary.push(row);
+ }
+ 
++writeFileSync(`${OUT}/seam-samples-v6.json`, `${JSON.stringify(samples, null, 1)}\n`);
+ writeFileSync(
+-  "/private/tmp/viborm-perf/docs/architecture/raptor3-evidence/g4/release/perf/receipts/probes/seam-samples-v5.json",
+-  `${JSON.stringify(samples, null, 1)}\n`
+-);
+-writeFileSync(
+-  "/private/tmp/viborm-perf/docs/architecture/raptor3-evidence/g4/release/perf/receipts/probes/seam-summary-v5.json",
++  `${OUT}/seam-summary-v6.json`,
+   `${JSON.stringify({
+-    method: "v5 (the worker method exactly: series setup, per-stage-kind loop, NO forced collection between warmup and the measured loop): 5 alternating fresh-process pairs per (workload, seam, side), medians; ONE seam per process; the frozen protocol own iteration counts per cell (5000/1000; rowref-1000 1000/200); sqlite3 :memory:, Node v24.21.0, darwin/arm64.",
++    method: "v6 (v5's method, one added workload: series setup, the catalog's stage kind for the statement-arm loop, NO forced collection between warmup and the measured loop): 5 fresh-process pairs per (seam, side) with the SIDE ORDER ALTERNATED per pair, medians; ONE seam per process; the counts the series ran this cell at (1000/200); sqlite3 :memory:, Node v24.21.0, darwin/arm64.",
++    seriesComparison: {
++      cell: "bulk-update-returning-100/prepare",
++      seriesCpuRatioPass1: 1.5558,
++      seriesCpuRatioPass2: 1.4316,
++      note: "the series brackets prepareOperationPlan(op, driver) + witness checksum, which returns capability.prepare() when that seam answers; both sides answer it here (see published)",
++    },
+     trees: SIDES, cells: summary,
+   }, null, 1)}\n`
+ );
+ for (const row of summary) {
+   for (const [seam, m] of Object.entries(row.seams)) {
+-    console.log(`${row.workload.padEnd(30)} ${seam.padEnd(40)} cpu ${m.baselineCpuMedian.toFixed(2)} -> ${m.candidateCpuMedian.toFixed(2)} = ${m.cpuRatio.toFixed(3)}  wall ratio ${m.wallRatio.toFixed(3)}`);
++    console.log(`${row.workload.padEnd(30)} ${seam.padEnd(12)} cpu ${m.baselineCpuMedian.toFixed(2)} -> ${m.candidateCpuMedian.toFixed(2)} = ${m.cpuRatio.toFixed(3)}  wall ratio ${m.wallRatio.toFixed(3)}`);
+   }
+ }

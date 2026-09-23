@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sm
+
+ ✓ |extended-local| tests/contracts/architecture/decimal-language-census.test.ts (42 tests) 92ms
+ ✓ |extended-local| tests/contracts/architecture/migration-v1-census.test.ts (4 tests) 9ms
+
+ Test Files  2 passed (2)
+      Tests  46 passed (46)
+   Start at  16:50:01
+   Duration  6.95s (transform 483ms, setup 10ms, collect 6.61s, tests 101ms, environment 0ms, prepare 39ms)
+
+Vitest resources: 8.94s wall, 517.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

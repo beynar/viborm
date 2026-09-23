@@ -1,0 +1,865 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-migrations| tests/unit/migrations/ddl-drivers.core.test.ts (165 tests) 14ms
+ ✓ |layer-migrations| tests/unit/migrations/serializer.core.test.ts (57 tests) 19ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-operators.core.test.ts (40 tests) 86ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-sequential-program.core.test.ts (35 tests) 26ms
+ ✓ |layer-migrations| tests/unit/migrations/differ.core.test.ts (49 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/postgres-namespace.core.test.ts (35 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/polymorphic-serializer.core.test.ts (21 tests) 9ms
+ ✓ |layer-migrations| tests/unit/migrations/reset-replay-closure.core.test.ts (21 tests) 12ms
+ ✓ |layer-migrations| tests/unit/migrations/operators-command-closure.core.test.ts (26 tests) 15ms
+ ✓ |layer-migrations| tests/unit/migrations/ddl.core.test.ts (45 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-parse.core.test.ts (14 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/sqlite-driver-boundaries.core.test.ts (34 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/operators-mysql-branch-closure.core.test.ts (9 tests) 10ms
+ ✓ |layer-migrations| tests/unit/migrations/estate-target.core.test.ts (34 tests) 24ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-catalog-namespace.core.test.ts (23 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-descriptor-carriers.core.test.ts (37 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-generate.core.test.ts (26 tests) 10ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-apply.core.test.ts (14 tests) 20ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-graph.core.test.ts (19 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/control-bootstrap.core.test.ts (24 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/input-boundaries.core.test.ts (31 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/operator-control-boundaries.core.test.ts (11 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/resolver.core.test.ts (28 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/sqlite-recreation-indexes.core.test.ts (9 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/graph-command-boundaries.core.test.ts (10 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/deep-command-orchestration.core.test.ts (6 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-namespace-ddl.core.test.ts (59 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/provider-driver-entrypoints-coverage.core.test.ts (11 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/parse-state-manifest.core.test.ts (28 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/control-authentication.core.test.ts (13 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/push-resolution-planning.core.test.ts (9 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-identity.core.test.ts (15 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/execution-framing-contracts.core.test.ts (23 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-compile.core.test.ts (14 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/operator-arrival-path-closure.core.test.ts (9 tests) 8ms
+ ✓ |layer-migrations| tests/unit/migrations/planning-boundaries.core.test.ts (10 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/planning-helper-contracts.core.test.ts (8 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/misc-branch-view-and-compile.core.test.ts (11 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/push-branch-fingerprint-and-interlock.core.test.ts (8 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/format-and-type-mapping.core.test.ts (51 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/execution-control-contracts.core.test.ts (12 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/forward-fk-ordering.core.test.ts (17 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-list-defaults.core.test.ts (7 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/constraint-identity.core.test.ts (12 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/rename-resolution-closure.core.test.ts (5 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/postgres-provider-free-catalog.core.test.ts (3 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/rename-resolution-edge-contracts.core.test.ts (9 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/push-consent-enum-closure.core.test.ts (9 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/relation-ddl-preservation.core.test.ts (64 tests) 23ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-scale.core.test.ts (4 tests) 685ms
+   ✓ migration v1 scale gates > 10,000 linear states load without quadratic refusal  573ms
+ ✓ |layer-migrations| tests/unit/migrations/utility-surface.core.test.ts (28 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-crash-fs.core.test.ts (7 tests) 95ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-decimal-conversion-recovery.core.test.ts (11 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-graph-merge.core.test.ts (6 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-checks.core.test.ts (10 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-provider-limits.core.test.ts (14 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-sql-framing.core.test.ts (12 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/geopoint-ddl.core.test.ts (10 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-descriptor-ddl.core.test.ts (13 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/sqlite-destination-freeze.core.test.ts (45 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/sqlite-planner-enum-defaults.core.test.ts (13 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/superseded-index-ordering.core.test.ts (9 tests) 0ms
+ ✓ |layer-migrations| tests/unit/migrations/apply-branch-closure.core.test.ts (2 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-recovery-and-session-coverage.core.test.ts (25 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/fs-estate-publication.core.test.ts (11 tests) 61ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-push.core.test.ts (12 tests) 12ms
+ ✓ |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (4 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-parser-edge-contracts.core.test.ts (17 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/number-scalar-physical-continuity.core.test.ts (3 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/enum-removals.core.test.ts (8 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/catalog-probe-lifetimes.core.test.ts (9 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/push-plan-resolution-arms.core.test.ts (6 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-provider-admission.core.test.ts (14 tests) 35ms
+ ✓ |layer-migrations| tests/unit/migrations/parse-branch-hostile-values.core.test.ts (11 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/apply-drift-boundaries.core.test.ts (9 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/pinned-migration-session.core.test.ts (12 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/statement-safety.core.test.ts (59 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/filesystem-storage-coverage.core.test.ts (8 tests) 45ms
+ ✓ |layer-migrations| tests/unit/migrations/sqlite-planner-domain-recreation.core.test.ts (9 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-descriptor-transitions.core.test.ts (4 tests) 5ms
+ ✓ |layer-migrations| tests/unit/migrations/push-plan-helper-contracts.core.test.ts (5 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/generate-input-edge-contracts.core.test.ts (17 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/pinned-session-boundaries.core.test.ts (6 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/migration-client-surface.core.test.ts (4 tests) 4ms
+ ✓ |layer-migrations| tests/unit/migrations/differ-branch-identity.core.test.ts (4 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/safety-branch-rename-and-blob.core.test.ts (6 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/storage-boundaries.core.test.ts (12 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-admission.core.test.ts (8 tests) 8ms
+ ✓ |layer-migrations| tests/unit/migrations/push-column-resolution-planning.core.test.ts (3 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/control-branch-authentication-failures.core.test.ts (3 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/control-cas-closure.core.test.ts (3 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/differ-remaining-contracts.core.test.ts (5 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/decimal-list-storage-agreement.core.test.ts (4 tests) 0ms
+ ✓ |layer-migrations| tests/unit/migrations/graph-route-boundaries.core.test.ts (3 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/composite-fk-order.core.test.ts (4 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/graph-generated-merge.core.test.ts (3 tests) 6ms
+ ✓ |layer-migrations| tests/unit/migrations/statement-safety-lexer.core.test.ts (22 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/resolver-branch-defaults.core.test.ts (3 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/push-planner.core.test.ts (2 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/blank-manual-dispatches.core.test.ts (8 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/read-only-command-view.core.test.ts (3 tests) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/generate-branch-merge-ancestry.core.test.ts (1 test) 3ms
+ ✓ |layer-migrations| tests/unit/migrations/read-only-tracking.core.test.ts (3 tests) 7ms
+ ✓ |layer-migrations| tests/unit/migrations/postgres-index-predicate-canonicalization.core.test.ts (3 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/reset-destination-proof-closure.core.test.ts (1 test) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-storage.core.test.ts (4 tests) 21ms
+ ✓ |layer-migrations| tests/unit/migrations/v1-object-store.core.test.ts (4 tests) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/sqlite-recreation-foreign-key-parent.core.test.ts (4 tests) 0ms
+ ✓ |layer-migrations| tests/unit/migrations/migration-client-writer-boundary.core.test.ts (1 test) 1ms
+ ✓ |layer-migrations| tests/unit/migrations/sqlite-definition-parser-remaining.core.test.ts (2 tests) 0ms
+error: option '--steps <n>' argument 'nope' is invalid. must be a positive safe integer
+error: option '--steps <n>' argument '0' is invalid. must be a positive safe integer
+error: option '--steps <n>' argument '-1' is invalid. must be a positive safe integer
+error: option '--steps <n>' argument '1.5' is invalid. must be a positive safe integer
+error: option '--steps <n>' argument 'Infinity' is invalid. must be a positive safe integer
+ ✓ |layer-migrations| tests/unit/migrations/v1-cli-input.core.test.ts (5 tests) 2ms
+ ✓ |layer-migrations| tests/unit/migrations/serializer-table-name-coverage.core.test.ts (1 test) 0ms
+ ❯ |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts (54 tests | 3 failed) 58ms
+   ✓ array query admission > creates no rejecting observation mirror when observe is absent 8ms
+   ✓ array query admission > starts every chain before releasing any provider effect 1ms
+   ✓ array query admission > prepares every member before running any handler or provider effect 1ms
+   ✓ array query admission > admits every request-only write before fallback transaction effects 2ms
+   ✓ array query admission > keeps request preparation inside an operation observer lifecycle 0ms
+   ✓ array query admission > requires proceed for array reads, mutations, and every raw family 1ms
+   ✓ array query admission > aborts caught double before provider release 0ms
+   ✓ array query admission > aborts proceed then throw before provider release 0ms
+   ✓ array query admission > retains a final handler failure after caught double-proceed and child rejection 1ms
+   ✓ array query admission > uses the exact child result and error after a handler returns a fabricated value 1ms
+   ✓ array query admission > closes a detached late proceed without releasing the provider 0ms
+   ✓ fallback array query execution > detaches a nested raw Date graph before the driver fallback queue 2ms
+   ✓ fallback array query execution > normalizes a foreign array before later prototype mutation 1ms
+   ✓ fallback array query execution > refuses a nested raw Date introduced by a fallback statement transform 1ms
+   ✓ fallback array query execution > waits for member post-work before the next SQL and rolls back on failure 1ms
+   ✓ fallback array query execution > keeps the first core child primary before first and later post-work 1ms
+   ✓ fallback array query execution > promotes a released savepoint and discards a rolled-back one 3ms
+   ✓ raw write-outcome classification > keeps raw classification, outcomes, and context behind private state 1ms
+   ✓ raw write-outcome classification > publishes only execute families in direct and fallback modes 1ms
+   ✓ raw write-outcome classification > publishes only execute families for native success and dispatch failure 2ms
+   ✓ native array query execution > refuses a nested raw Date introduced by a native statement transform 0ms
+   ✓ native array query execution > refuses a raw Date invalidated before proceed before native preparation 0ms
+   ✓ native array query execution > refuses a raw Date invalidated after proceed before native preparation 0ms
+   ✓ native array query execution > refuses a raw Date invalidated by a native statement transform 'without' observers 0ms
+   ✓ native array query execution > refuses a raw Date invalidated by a native statement transform 'with' observers 1ms
+   × native array query execution > orders provider, committed outcomes, parsing, and handler post-work 4ms
+     → expected "spy" to be called once, but got 0 times
+   ✓ native array query execution > attempts every cache invalidation before listeners and keeps commit failure primary 2ms
+   ✓ native array query execution > keeps child post-work primary over cache and listener commit failures 1ms
+   × native array query execution > keeps the native child primary across ordered post-work and commit failures 3ms
+     → expected [ …(3) ] to have a length of 5 but got 3
+   ✓ native array query execution > labels post-commit handler and cardinality failures without extra parsing 1ms
+   ✓ native array query execution > does every late preparation before one native submission 1ms
+   ✓ native array query execution > publishes may-have-committed and attempts cache plus every listener on provider failure 1ms
+   ✓ native array query execution > preserves single, multi-statement, guard, and raw result windows 2ms
+   ✓ array ownership and zero-handler path > refuses forged array members without inspecting or starting them 0ms
+   ✓ array ownership and zero-handler path > uses the entry snapshot after the caller replaces a member 0ms
+   ✓ array ownership and zero-handler path > uses the entry snapshot when a batch observer replaces a member 0ms
+   ✓ array ownership and zero-handler path > keeps captured authority immutable from public program properties 1ms
+   ✓ array ownership and zero-handler path > keeps foreign operation identity private and immutable 1ms
+   ✓ array ownership and zero-handler path > keeps handler controls inactive without publishing a friend member 1ms
+   ✓ array ownership and zero-handler path > makes a genuine member prototype immutable 0ms
+   ✓ array ownership and zero-handler path > cannot mint model or raw authority through reflected constructors 0ms
+   ✓ array ownership and zero-handler path > refuses duplicate, awaited, foreign-client, and foreign-scope members 1ms
+   ✓ public array lifecycle observers > wraps ownership refusal in the outer batch lifecycle 0ms
+   ✓ public array lifecycle observers > reports a hostile snapshot read through the outer batch lifecycle 0ms
+   ✓ public array lifecycle observers > rejects a hostile non-number length after one observed read 0ms
+   ✓ public array lifecycle observers > contains a rejected private operation-observer application 1ms
+   ✓ public array lifecycle observers > starts fallback statement observers before transforms and contains transform failure 1ms
+   × public array lifecycle observers > orders native statement onions before transforms and submits nothing on failure 1ms
+     → expected [ 'provider' ] to deeply equal []
+   ✓ public array lifecycle observers > keeps prepared Sql provenance private from copied and hostile batch queries 0ms
+   ✓ public array lifecycle observers > uses the legacy fallback path with one batch, member, and physical-statement unit 1ms
+   ✓ public array lifecycle observers > keeps observe-only native admission private and reports exact commit facts 1ms
+   ✓ public array lifecycle observers > reports committed after native query post-work fails 1ms
+   ✓ public array lifecycle observers > contains hostile observers without duplicating fallback effects 1ms
+   ✓ public array lifecycle observers > does not claim a durable commit for a nested savepoint batch 0ms
+ ❯ |layer-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts (48 tests | 2 failed) 26ms
+   ✓ public query-interceptor integration > preserves the zero-query-handler argument and promise path 1ms
+   ✓ public query-interceptor integration > keeps empty query maps off the callback transaction machinery 0ms
+   ✓ public query-interceptor integration > stays lazy, validates first, snapshots input, and runs once in application order 1ms
+   ✓ public query-interceptor integration > permits direct and callback reads to short-circuit after preparation 1ms
+   ✓ public query-interceptor integration > requires proceed for mutations and raw operations after raw validation 1ms
+   ✓ public query-interceptor integration > detaches every mutable safe-raw inspection surface from provider input 1ms
+   ✓ public query-interceptor integration > owns a prebuilt Sql projection before async query inspection 0ms
+   ✓ public query-interceptor integration > refuses a prebuilt Sql string accessor without invoking it 0ms
+   ✓ public query-interceptor integration > refuses a Date invalidated after raw preparation and before proceed 1ms
+   ✓ public query-interceptor integration > isolates direct provider input from a Date invalidated after execution starts 0ms
+   ✓ public query-interceptor integration > snapshots nested Date graphs without losing aliases or cycles 0ms
+   ✓ public query-interceptor integration > submits one stable descriptor view of a raw Proxy 0ms
+   ✓ public query-interceptor integration > preserves a root array cycle until the final parameter snapshot 0ms
+   ✓ public query-interceptor integration > does not read a root array accessor during operation construction 0ms
+   ✓ public query-interceptor integration > refuses inherited toJSON without changing its receiver 1ms
+   ✓ public query-interceptor integration > refuses inherited array index behavior without invoking it 1ms
+   ✓ public query-interceptor integration > does not admit a structurally forged Object prototype 0ms
+   ✓ public query-interceptor integration > keeps non-raw provider parameters on the shallow identity path 0ms
+   ✓ public query-interceptor integration > refuses a Date injected by a direct statement transform 'without' observers 0ms
+   ✓ public query-interceptor integration > refuses a Date injected by a direct statement transform 'with' observers 0ms
+   ✓ public query-interceptor integration > refuses custom array behavior introduced by a statement transform 0ms
+   ✓ public query-interceptor integration > detaches a valid Date returned by a direct statement transform 0ms
+   ✓ public query-interceptor integration > isolates provider input from a Date invalidated after proceed starts 0ms
+   ✓ public query-interceptor integration > keeps valid Dates in all four intercepted raw call shapes 0ms
+   ✓ public query-interceptor integration > reads array parameters by index when a caller iterator hides an invalid Date 0ms
+   ✓ public query-interceptor integration > refuses an invalid Date inside a cyclic JSON parameter graph 0ms
+   ✓ public query-interceptor integration > reads sparse array parameters by index without calling a poisoned map 0ms
+   ✓ public query-interceptor integration > discloses accessors, callables, and hostile prototypes opaquely 0ms
+   ✓ public query-interceptor integration > inspects the operation-owned payload without re-reading caller accessors 0ms
+   ✓ public query-interceptor integration > detaches model Sql operands before query inspection 0ms
+   ✓ public query-interceptor integration > runs query outside cache invalidation and publishes direct outcomes in order 1ms
+   ✓ public query-interceptor integration > keeps provider failure primary when may-have-committed listeners fail 1ms
+   ✓ public query-interceptor integration > labels direct write post-work as committed but not reads or rolled-back callbacks 1ms
+   ✓ public query-interceptor integration > retains undefined cache and listener failures from one commit callback 1ms
+   ✓ public query-interceptor integration > promotes nested savepoint outcomes and discards rolled-back outcomes 1ms
+   ✓ public query-interceptor integration > attempts every callback listener after commit in registration order 0ms
+   ✓ public query-interceptor integration > contains a hostile Error proxy at the committed write-outcome boundary 0ms
+   ✓ public query-interceptor integration > discards outcomes when a tracked operation fails before the commit boundary 1ms
+   ✓ public query-interceptor integration > publishes may-have-committed after callback body success and commit failure 1ms
+   × public query-interceptor integration > reports commit ambiguity for a direct composed write transaction 4ms
+     → expected [] to deeply equal [ 'may-have-committed' ]
+   × public query-interceptor integration > reports committed certainty when direct transaction cleanup fails after commit 1ms
+     → expected [] to deeply equal [ 'committed' ]
+   ✓ public query-interceptor integration > publishes committed after a custom transaction fulfills without private phases 1ms
+   ✓ public protected operation and statement observers > starts the operation observer before requestless lazy preparation fails 0ms
+   ✓ public protected operation and statement observers > spans request through query post-work and observes the transformed statement 1ms
+   ✓ public protected operation and statement observers > reports a synchronous transform failure through the statement observer 0ms
+   ✓ public protected operation and statement observers > observes safe and unsafe raw statements without exposing their payload 0ms
+   ✓ public protected operation and statement observers > keeps OrThrow caller spelling and publishes only sanitized failure metadata 0ms
+   ✓ public protected operation and statement observers > contains hostile observers and keeps callback writes pre-commit 0ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 6ms
+ ✓ |layer-client| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 12ms
+ ✓ |layer-client| tests/contracts/public-client/official-statement-instrumentation.core.test.ts (11 tests) 27ms
+ ✓ |layer-client| tests/contracts/public-client/official-cache-instrumentation.core.test.ts (8 tests) 16ms
+ ✓ |layer-client| tests/contracts/public-client/errors/diagnostics.core.test.ts (25 tests) 4ms
+ ✓ |layer-client| tests/contracts/public-client/official-driver-lifecycle-instrumentation.core.test.ts (9 tests) 21ms
+ ✓ |layer-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 8ms
+ ✓ |layer-client| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 6ms
+ ❯ |layer-client| tests/contracts/public-client/official-cache-swr.core.test.ts (7 tests | 1 failed) 6ms
+   ✓ official cache stale-while-revalidate > returns a detached stale value and replays only the inner core executor 2ms
+   ✓ official cache stale-while-revalidate > keeps true and numeric stale windows and the exact chain scheduler 1ms
+   ✓ official cache stale-while-revalidate > hands claim acquisition to waitUntil before the stale response settles 0ms
+   ✓ official cache stale-while-revalidate > suppresses a later stale replay after the shared marker is acquired 0ms
+   × official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures 1ms
+     → expected +0 to be 1 // Object.is equality
+   ✓ official cache stale-while-revalidate > retains combined worker and cleanup failure for protected observation 1ms
+   ✓ official cache stale-while-revalidate > keeps array and statement-transform executions outside official SWR 1ms
+ ✓ |layer-client| tests/contracts/public-client/official-instrumentation-extension.core.test.ts (12 tests) 11ms
+ ✓ |layer-client| tests/contracts/public-client/implicit-returning-types.core.test.ts (28 tests) 1ms
+ ✓ |layer-client| tests/contracts/public-client/protected-cache-observers.core.test.ts (7 tests) 6ms
+ ✓ |layer-client| tests/contracts/public-client/polymorphic-collection-client.core.test.ts (24 tests) 11ms
+ ✓ |layer-client| tests/contracts/public-client/client-coverage.core.test.ts (11 tests) 6ms
+ ✓ |layer-client| tests/contracts/public-client/polymorphic-client-omit.core.test.ts (11 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-closure.core.test.ts (8 tests) 11ms
+ ✓ |layer-client| tests/contracts/public-client/official-cache-extension.core.test.ts (10 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/errors/public-helpers.core.test.ts (10 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/default-omit-extension.core.test.ts (8 tests) 4ms
+ ✓ |layer-client| tests/contracts/public-client/omit-result-types.core.test.ts (21 tests) 1ms
+ ✓ |layer-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 10ms
+ ✓ |layer-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-observed-legacy-coverage.core.test.ts (4 tests) 4ms
+ ✓ |layer-client| tests/contracts/public-client/client-omit-closure.core.test.ts (9 tests) 1ms
+ ✓ |layer-client| tests/contracts/public-client/client-configuration-boundaries.core.test.ts (16 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/client-surface-closure.core.test.ts (4 tests) 1ms
+ ✓ |layer-client| tests/contracts/public-client/extensions/array-admission.core.test.ts (9 tests) 1ms
+ ✓ |layer-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/one-resolution-identity.core.test.ts (3 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/client-initialization-errors.core.test.ts (4 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/raw-observation-closure.core.test.ts (1 test) 3ms
+ ✓ |layer-client| tests/contracts/public-client/typescript-renderer-nullability.core.test.ts (3 tests) 5ms
+ ✓ |layer-client| tests/contracts/public-client/client-lifecycle-boundaries.core.test.ts (1 test) 1ms
+ ✓ |layer-client| tests/contracts/public-client/typescript-renderer-closure.core.test.ts (5 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/typescript-renderer-boundaries.core.test.ts (4 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/public-runtime-surface.core.test.ts (1 test) 1ms
+ ✓ |layer-client| tests/contracts/public-client/default-omit-bulk-projection.core.test.ts (5 tests) 0ms
+ ✓ |layer-client| tests/contracts/public-client/config-subpath.core.test.ts (1 test) 0ms
+ ✓ |layer-scalars| tests/unit/scalars/number-scalar-schemas.core.test.ts (158 tests) 13ms
+ ✓ |layer-scalars| tests/unit/scalars/string-scalar-schemas.core.test.ts (106 tests) 9ms
+ ✓ |layer-scalars| tests/unit/scalars/datetime-scalar-schemas.core.test.ts (96 tests) 6ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-descriptor.core.test.ts (67 tests) 7ms
+ ✓ |layer-scalars| tests/unit/scalars/bigint-scalar-schemas.core.test.ts (87 tests) 4ms
+ ✓ |layer-scalars| tests/unit/scalars/json-scalar-schemas.core.test.ts (66 tests) 3ms
+ ✓ |layer-scalars| tests/unit/scalars/enum-scalar-schemas.core.test.ts (74 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/boolean-scalar-schemas.core.test.ts (71 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/blob-scalar-schemas.core.test.ts (53 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/vector-scalar-schemas.core.test.ts (46 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/modifier-contracts.core.test.ts (60 tests) 5ms
+ ✓ |layer-scalars| tests/unit/scalars/point-scalar-schemas.core.test.ts (11 tests) 3ms
+ ✓ |layer-scalars| tests/unit/scalars/shared-scalar.core.test.ts (11 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-list-exclusions.core.test.ts (7 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/native-types.core.test.ts (26 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/exports.core.test.ts (16 tests) 33ms
+ ✓ |layer-scalars| tests/unit/scalars/field-ref.core.test.ts (5 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-provider-limits.core.test.ts (4 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/json-null-sentinel.core.test.ts (3 tests) 0ms
+ ✓ |layer-schema-json| tests/unit/schema-json/hostile.core.test.ts (141 tests) 46ms
+ ✓ |layer-schema-json| tests/unit/schema-json/serialize.core.test.ts (35 tests) 9ms
+ ✓ |layer-schema-json| tests/unit/schema-json/format.core.test.ts (13 tests) 10ms
+ ✓ |layer-schema-json| tests/unit/schema-json/default-codec.core.test.ts (34 tests) 7ms
+ ✓ |layer-schema-json| tests/unit/schema-json/client.core.test.ts (16 tests) 7ms
+ ✓ |layer-schema-json| tests/unit/schema-json/docs-corpus.core.test.ts (127 tests) 28ms
+ ✓ |layer-validation| tests/unit/validation/decimal.core.test.ts (65 tests) 11ms
+ ✓ |layer-validation| tests/unit/validation/json-schema.core.test.ts (78 tests) 15ms
+ ✓ |layer-validation| tests/unit/validation/object.core.test.ts (74 tests) 5ms
+ ✓ |layer-validation| tests/unit/validation/fromObject.core.test.ts (25 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/iso.core.test.ts (36 tests) 5ms
+ ✓ |layer-validation| tests/unit/validation/blob.core.test.ts (28 tests) 12ms
+ ✓ |layer-validation| tests/unit/validation/geo-area.core.test.ts (32 tests) 7ms
+ ✓ |layer-validation| tests/unit/validation/number.core.test.ts (43 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/string.core.test.ts (34 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/array.core.test.ts (21 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/modifier-combinations.core.test.ts (16 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/optional.core.test.ts (21 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/json.core.test.ts (36 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/nullable.core.test.ts (18 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/boolean.core.test.ts (24 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/date.core.test.ts (21 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/operand.core.test.ts (10 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/bigint.core.test.ts (21 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/json-null-sentinels.core.test.ts (10 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/field-ref.core.test.ts (16 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/datetime-physical-codec.core.test.ts (11 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/fromKeys.core.test.ts (13 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/intern.core.test.ts (6 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/point.core.test.ts (24 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/literal.core.test.ts (17 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/circular.core.test.ts (7 tests) 0ms
+ ✓ |layer-validation| tests/unit/validation/union.core.test.ts (12 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/value-guards.core.test.ts (17 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/record.core.test.ts (12 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/pipe.core.test.ts (10 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/transform.core.test.ts (10 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/enum.core.test.ts (13 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/refused.core.test.ts (8 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/vector.core.test.ts (11 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/raw-record.core.test.ts (8 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/lazy.core.test.ts (2 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/update.core.test.ts (90 tests) 17ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/nested-args.core.test.ts (71 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic.core.test.ts (18 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/select-include.core.test.ts (54 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/create/relation-create.core.test.ts (53 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/find-args.core.test.ts (66 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/mutation-args.core.test.ts (58 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/create.core.test.ts (41 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-many.core.test.ts (64 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/filter.core.test.ts (45 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/aggregate-args.core.test.ts (64 tests) 3ms
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > simple model schema creation
+  Simple Model: avg=0.001ms, p95=0.000ms, min=0.000ms, max=0.077ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > medium model schema creation
+  Medium Model: avg=0.001ms, p95=0.000ms, min=0.000ms, max=0.049ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > complex model with relations schema creation
+  Complex Model (Author): avg=0.001ms, p95=0.000ms, min=0.000ms, max=0.039ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > model with deep relations schema creation
+  Deep Relations (Post): avg=0.000ms, p95=0.000ms, min=0.000ms, max=0.024ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Simple Queries > findUnique - simple ID lookup
+  findUnique (simple): avg=0.005ms, p95=0.010ms, min=0.001ms, max=0.296ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Simple Queries > findFirst - with simple filter
+  findFirst (simple filter): avg=0.003ms, p95=0.006ms, min=0.001ms, max=0.111ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Filtered Queries > findMany - with complex where
+  findMany (complex where): avg=0.021ms, p95=0.115ms, min=0.004ms, max=0.353ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Filtered Queries > findMany - with OR/AND filters
+  findMany (OR/AND): avg=0.007ms, p95=0.013ms, min=0.003ms, max=0.144ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 1-level include
+  Include (1-level): avg=0.005ms, p95=0.005ms, min=0.002ms, max=0.233ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 2-level include
+  Include (2-level): avg=0.006ms, p95=0.009ms, min=0.002ms, max=0.169ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 3-level include with filters
+  Include (3-level + filters): avg=0.008ms, p95=0.013ms, min=0.005ms, max=0.097ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Create Operations > simple create
+  Create (simple): avg=0.002ms, p95=0.002ms, min=0.001ms, max=0.109ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Create Operations > create with nested relation
+  Create (nested): avg=0.004ms, p95=0.009ms, min=0.002ms, max=0.118ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Update Operations > simple update
+  Update (simple): avg=0.002ms, p95=0.007ms, min=0.001ms, max=0.085ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Update Operations > update with nested operations
+  Update (nested): avg=0.004ms, p95=0.008ms, min=0.002ms, max=0.065ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findUnique - full request
+  findUnique (full): avg=0.001ms, p95=0.003ms, min=0.001ms, max=0.014ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findMany with filters - full request
+  findMany filtered (full): avg=0.003ms, p95=0.004ms, min=0.002ms, max=0.074ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findMany with nested include - full request
+  findMany + include (full): avg=0.006ms, p95=0.013ms, min=0.004ms, max=0.045ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > create with nested - full request
+  create nested (full): avg=0.003ms, p95=0.004ms, min=0.002ms, max=0.026ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > update with complex operations - full request
+  update complex (full): avg=0.003ms, p95=0.006ms, min=0.001ms, max=0.016ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Post Model (Deep Relations) > findMany with 3-level include - full request
+  Post findMany 3-level (full): avg=0.006ms, p95=0.010ms, min=0.004ms, max=0.156ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Performance Summary > generate summary report
+
+=== PERFORMANCE SUMMARY ===
+
+Schema Creation:
+  Schema: Simple: avg=0.000ms, p95=0.001ms, min=0.000ms, max=0.004ms
+  Schema: Complex: avg=0.000ms, p95=0.000ms, min=0.000ms, max=0.003ms
+
+Validation (pre-built schema):
+  Validate: Simple Query: avg=0.001ms, p95=0.002ms, min=0.000ms, max=0.009ms
+  Validate: Complex Query: avg=0.003ms, p95=0.004ms, min=0.002ms, max=0.018ms
+
+Full Serverless Request (schema + validation):
+  Full Request: Simple: avg=0.001ms, p95=0.002ms, min=0.001ms, max=0.007ms
+  Full Request: Complex: avg=0.003ms, p95=0.005ms, min=0.002ms, max=0.010ms
+
+=== END SUMMARY ===
+
+
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/speed.core.test.ts (22 tests) 13ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-mutation.core.test.ts (16 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/decimal-update-union.core.test.ts (49 tests) 8ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one.core.test.ts (40 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-selection.core.test.ts (19 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one-composition-lattice.core.test.ts (33 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-omission.core.test.ts (11 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/update/relation-update.core.test.ts (36 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/omit-validation.core.test.ts (19 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-having-operands.core.test.ts (25 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/orderby.core.test.ts (22 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/nested-data-projection.core.test.ts (8 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/wrapper-delegation.core.test.ts (6 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/scalar-filter.core.test.ts (21 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/geopoint-known-negatives.core.test.ts (28 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/include.core.test.ts (20 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/select.core.test.ts (18 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/polymorphic-create-many.core.test.ts (7 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-filter.core.test.ts (19 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/update.core.test.ts (18 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/where.core.test.ts (20 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/compound-constraint-filter.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/prisma-parity-validation.core.test.ts (12 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/vector-orderby.core.test.ts (13 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-list-known-negatives.core.test.ts (54 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/where-unique.core.test.ts (17 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/orderby.core.test.ts (14 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/unique-filter.core.test.ts (13 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/vector-select.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/create.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/update/scalar-update.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/relation-filter.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/create/scalar-create.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/compound-id-filter.core.test.ts (8 tests) 0ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one-update-form.core.test.ts (6 tests) 0ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-list-orderby.core.test.ts (4 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/error-mapping.core.test.ts (52 tests) 19ms
+ ✓ |layer-drivers| tests/contracts/drivers/supplied-pool-ownership.core.test.ts (56 tests) 16ms
+ ✓ |layer-drivers| tests/contracts/drivers/namespace-options.core.test.ts (113 tests) 16ms
+ ✓ |layer-drivers| tests/contracts/drivers/provider-result-contracts.core.test.ts (114 tests) 36ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-lifecycle.core.test.ts (22 tests) 8ms
+ ✓ |layer-drivers| tests/contracts/drivers/protected-observers.core.test.ts (24 tests) 8ms
+ ✓ |layer-drivers| tests/contracts/drivers/savepoint-queue.core.test.ts (17 tests) 77ms
+ ✓ |layer-drivers| tests/contracts/drivers/instrumentation-observed-statements.core.test.ts (15 tests) 12ms
+ ✓ |layer-drivers| tests/contracts/drivers/pinned-session-condemned.core.test.ts (12 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-portability.core.test.ts (100 tests) 18ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-base-orchestration.core.test.ts (14 tests) 8ms
+ ✓ |layer-drivers| tests/contracts/drivers/suppressed-failure.core.test.ts (14 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-base-observed-lifecycle.core.test.ts (8 tests) 8ms
+ ✓ |layer-drivers| tests/contracts/drivers/error-mapping-hostile-shapes.core.test.ts (27 tests) 4ms
+ ✓ |layer-drivers| tests/contracts/drivers/statement-transforms.core.test.ts (13 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-base-pinned-session.core.test.ts (12 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/d1-null-result-contracts.core.test.ts (43 tests) 7ms
+ ✓ |layer-drivers| tests/contracts/drivers/neon-http-transport-coverage.core.test.ts (9 tests) 10ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-internal-state.core.test.ts (10 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-base-raw-parameters.core.test.ts (20 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/sqlite-statement-execution.core.test.ts (38 tests) 12ms
+ ✓ |layer-drivers| tests/contracts/drivers/provider-managed-transaction.core.test.ts (11 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/provider-parameter-boundary.core.test.ts (11 tests) 5ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-scope-scheduler.core.test.ts (5 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-scheduler.core.test.ts (9 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/sqlite-integer-safety.core.test.ts (5 tests) 6ms
+ ✓ |layer-drivers| tests/contracts/drivers/shared-driver-boundaries.core.test.ts (39 tests) 4ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-failure-union.core.test.ts (14 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/async-dispose.core.test.ts (11 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/sqlite-binary-values.core.test.ts (3 tests) 6ms
+ ✓ |layer-drivers| tests/contracts/drivers/normalized-result-and-lifecycle.core.test.ts (35 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts (5 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/json-parameter-carrier.core.test.ts (12 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/postgres-transport-coverage.core.test.ts (3 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-option-timers.core.test.ts (6 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/statement-classification.core.test.ts (38 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-export-surface.core.test.ts (6 tests) 5ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-options-behavior.core.test.ts (3 tests) 12ms
+ ✓ |layer-drivers| tests/contracts/drivers/error-cause.core.test.ts (4 tests) 0ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-instrumentation-boundaries.core.test.ts (2 tests) 0ms
+ ✓ |layer-drivers| tests/contracts/drivers/bun-sql-array-parameters.core.test.ts (2 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts (1 test) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/bind-parameter-capacity.core.test.ts (12 tests) 1ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/polymorphic-rules.core.test.ts (34 tests) 19ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/validate.core.test.ts (36 tests) 6ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/model-rules.core.test.ts (35 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/variant-topology-matrix.core.test.ts (18 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/foreign-key-rules.core.test.ts (15 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/validator-boundaries.core.test.ts (16 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-pairing-graph.core.test.ts (15 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/ordinary-topology-matrix.core.test.ts (12 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/junction-configuration.core.test.ts (10 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-rules.core.test.ts (16 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-topology-matrix.core.test.ts (59 tests) 10ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/model-registration-identity.core.test.ts (10 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/namespace-identifier.core.test.ts (65 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/resolved-index-shape.core.test.ts (6 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/inverse-resolution-timing.core.test.ts (19 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-list-key-positions.core.test.ts (7 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/datetime-foreign-key-domain.core.test.ts (10 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-foreign-key-domain.core.test.ts (4 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/junction-rule-skips.core.test.ts (3 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/geopoint-roles.core.test.ts (12 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-polymorphic-storage.core.test.ts (4 tests) 1ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/schema-model-runtime.core.test.ts (3 tests) 1ms
+ ✓ |layer-cache| tests/unit/cache/coverage-low-value.core.test.ts (36 tests) 25ms
+ ✓ |layer-cache| tests/unit/cache/namespace-isolation.core.test.ts (10 tests) 19ms
+ ✓ |layer-cache| tests/unit/cache/brand-token-keys.core.test.ts (12 tests) 22ms
+ ✓ |layer-cache| tests/unit/cache/namespace-scope.core.test.ts (16 tests) 1ms
+ ✓ |layer-cache| tests/unit/cache/operand-callback-keys.core.test.ts (7 tests) 4ms
+ ✓ |layer-cache| tests/unit/cache/cache.core.test.ts (1 test) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/polymorphic-read-sql.core.test.ts (30 tests) 18ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/scalar-result-contracts.core.test.ts (102 tests) 15ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/query-builder-coverage-boundaries.core.test.ts (23 tests) 8ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/result-parser-contracts.core.test.ts (74 tests) 13ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 16ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts (25 tests) 6ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/relation-mutation-program.core.test.ts (17 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/polymorphic-result-parser.core.test.ts (54 tests) 6ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/target-constraint.core.test.ts (20 tests) 5ms
+ ✓ |layer-query-engine| tests/contracts/architecture/extension-system-census.core.test.ts (8 tests) 607ms
+   ✓ extension-system source census > keeps no superseded owner or parallel runtime handler carrier  606ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/model-key-catalog.core.test.ts (22 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/junction-conflict-target.core.test.ts (9 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/query-result-coverage-boundaries.core.test.ts (17 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/polymorphic-inverse-read-sql.core.test.ts (13 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/namespace-qualification.core.test.ts (120 tests) 16ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/consumable-result-rows.core.test.ts (13 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/bulk-create-plan.core.test.ts (11 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/decimal-list-container.core.test.ts (42 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/result-identity-fast-path.core.test.ts (11 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/cache-result-codec-boundaries.core.test.ts (9 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/list-update-container.core.test.ts (14 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/starts-with-prefix-sql.core.test.ts (31 tests) 7ms
+ ✓ |layer-query-engine| tests/contracts/architecture/geopoint-language-census.core.test.ts (4 tests) 1196ms
+   ✓ GeoPoint shipped-language census > the complete shipped executable source has zero retired owners  550ms
+   ✓ GeoPoint shipped-language census > the codecs and fixed radius each have one declaration owner  645ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/junction-statements.core.test.ts (8 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/architecture/core-taxonomy-census.core.test.ts (4 tests) 179ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/decimal-capture-materialization.core.test.ts (10 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/for-update-dialects.core.test.ts (17 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/query-inspection.core.test.ts (8 tests) 1ms
+ ❯ |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts (5 tests | 1 failed) 74ms
+   ✓ contract and provider matrix > keeps one stable ContractDefinition ID per behavior registration 12ms
+   ✓ contract and provider matrix > assigns every contract to every provider exactly once 8ms
+   ✓ contract and provider matrix > matches matrix run decisions to provider registrations 12ms
+   ✓ contract and provider matrix > gives every layer one runtime core owner and one type core 23ms
+   × contract and provider matrix > inventories every executable test by owner and boundary 19ms
+     → tests/raptor3/candidate-handoff.test.ts: expected undefined to be defined
+ ✓ |layer-query-engine| tests/contracts/engine/query/vector-distance-result-parser.core.test.ts (6 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/polymorphic-collection-bind.core.test.ts (3 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/decimal-cache-identity.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/polymorphic-row-mutation-intents.core.test.ts (4 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/decimal-relation-key-write.core.test.ts (24 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/mutation-operation-boundaries.core.test.ts (6 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/cursor-order-normalization-boundaries.core.test.ts (5 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/target-predicate-footprint.core.test.ts (5 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/polymorphic-storage-grouping.core.test.ts (2 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/result-parser-architecture-gates.core.test.ts (4 tests) 58ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/count-result-carrier.core.test.ts (19 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/relation-filter-nullability-planning.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/relation-nullability-parity.core.test.ts (2 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/operation-program-read-contracts.core.test.ts (1 test) 9ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/select-builder-boundaries.core.test.ts (5 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/orderby-relation-depth.core.test.ts (4 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/blob-result-parser.core.test.ts (26 tests) 3ms
+ ❯ |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts (3 tests | 3 failed) 12ms
+   × operation executor atomic-capability refusal > operation 'create' fails before dispatch 6ms
+     → expected 'Driver "no-atomic-planning" supports …' to be 'Driver \'no-atomic-planning\' support…' // Object.is equality
+   × operation executor atomic-capability refusal > operation 'update' fails before dispatch 3ms
+     → expected QueryError: Query execution failed { …(4) } to be an instance of TransactionError
+   × operation executor atomic-capability refusal > operation 'upsert' fails before dispatch 3ms
+     → expected QueryError: Query execution failed { …(4) } to be an instance of TransactionError
+ ✓ |layer-query-engine| tests/contracts/engine/query/nested-writes.core.test.ts (1 test) 0ms
+ ✓ |layer-query-engine| tests/contracts/architecture/system-clock.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/default-insert-sql.core.test.ts (3 tests) 1ms
+ ❯ |layer-query-engine| tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts (2 tests | 1 failed) 5ms
+   × bulk insert row-shape planning > empty createMany rejects during batch preparation 4ms
+     → promise resolved "[ { count: +0 } ]" instead of rejecting
+   ✓ bulk insert row-shape planning > mixed row shapes require an atomic substrate 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/result-aliases.core.test.ts (14 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/own-write-target.core.test.ts (2 tests) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/bind-budget.core.test.ts (2 tests) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/nested-captured-target-signature.core.test.ts (1 test) 0ms
+ ✓ |layer-adapters| tests/contracts/adapters/dialect-vocabulary.core.test.ts (34 tests) 26ms
+ ✓ |layer-adapters| tests/contracts/adapters/internals-and-geo.core.test.ts (20 tests) 6ms
+ ✓ |layer-adapters| tests/contracts/adapters/namespace-table-rendering.core.test.ts (21 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/namespace-binding.core.test.ts (35 tests) 4ms
+ ✓ |layer-adapters| tests/contracts/adapters/result-parsing.core.test.ts (26 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/sql-fragments.core.test.ts (12 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/identifier-escaping.core.test.ts (15 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/json-parameter-text.core.test.ts (12 tests) 0ms
+ ✓ |layer-adapters| tests/contracts/adapters/vector-capabilities.core.test.ts (7 tests) 4ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/logger.core.test.ts (39 tests) 14ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/tracer.core.test.ts (34 tests) 11ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/context-spans.core.test.ts (20 tests) 9ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/native-batch-attribution.core.test.ts (7 tests) 20ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/official-observer.core.test.ts (9 tests) 4ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/perf-tracker.core.test.ts (22 tests) 3ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/provider-context-concurrency.core.test.ts (4 tests) 4ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/namespace-attribute.core.test.ts (18 tests) 31ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/official-observer-provider-failures.core.test.ts (4 tests) 1ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/tracer-provider-failures.core.test.ts (17 tests) 3ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/execution-context.core.test.ts (3 tests) 0ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/logged-errors.core.test.ts (3 tests) 0ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/tracer-otel-absent.core.test.ts (5 tests) 1ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/tracer-no-provider.core.test.ts (2 tests) 1ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/exports.core.test.ts (1 test) 0ms
+ ✓ |layer-instrumentation| tests/unit/instrumentation/version.core.test.ts (1 test) 0ms
+ ✓ |layer-relations| tests/unit/relations/relation-factory-input.core.test.ts (43 tests) 7ms
+ ✓ |layer-relations| tests/unit/relations/junction-topology.core.test.ts (20 tests) 2ms
+ ✓ |layer-relations| tests/unit/relations/relation-clearability.core.test.ts (13 tests) 6ms
+ ✓ |layer-relations| tests/unit/relations/relation-target-settlement.core.test.ts (10 tests) 1ms
+ ✓ |layer-relations| tests/unit/relations/relation-terminal-immutability.core.test.ts (11 tests) 1ms
+ ✓ |layer-relations| tests/unit/relations/relation-exports.core.test.ts (4 tests) 1ms
+ ✓ |layer-pattern| tests/pattern/generator/generator.core.test.ts (87 tests) 396ms
+ ✓ |layer-pattern| tests/pattern/construct/to-one.core.test.ts (17 tests) 10ms
+ ✓ |layer-pattern| tests/pattern/execute/differential.core.test.ts (15 tests) 34ms
+ ✓ |layer-pattern| tests/pattern/schedule/dataflow.core.test.ts (6 tests) 3ms
+ ✓ |layer-pattern| tests/pattern/schedule/legality.core.test.ts (5 tests) 3ms
+ ✓ |layer-pattern| tests/pattern/construct/root.core.test.ts (14 tests) 4ms
+ ✓ |layer-pattern| tests/pattern/execute/transaction.core.test.ts (13 tests) 4ms
+ ✓ |layer-pattern| tests/pattern/construct/refusals.core.test.ts (10 tests) 8ms
+ ✓ |layer-pattern| tests/pattern/construct/to-many.core.test.ts (12 tests) 9ms
+ ✓ |layer-pattern| tests/pattern/construct/variants.core.test.ts (9 tests) 7ms
+ ✓ |layer-pattern| tests/pattern/execute/batch.core.test.ts (10 tests) 4ms
+ ✓ |layer-pattern| tests/pattern/execute/faults.core.test.ts (7 tests) 8ms
+ ✓ |layer-pattern| tests/pattern/schedule/fragments.core.test.ts (4 tests) 2ms
+ ✓ |layer-pattern| tests/pattern/construct/reference-row.core.test.ts (7 tests) 5ms
+ ✓ |layer-pattern| tests/pattern/execute/segments.core.test.ts (7 tests) 7ms
+ ✓ |layer-pattern| tests/pattern/execute/retry.core.test.ts (8 tests) 3ms
+ ✓ |layer-pattern| tests/pattern/construct/census.core.test.ts (8 tests) 5ms
+ ✓ |layer-pattern| tests/pattern/execute/admission.core.test.ts (5 tests) 2ms
+ ✓ |layer-pattern| tests/pattern/construct/members.core.test.ts (2 tests) 3ms
+ ✓ |layer-pattern| tests/pattern/match/construct-read-census.core.test.ts (1 test) 2ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/relation-membership-contracts.core.test.ts (10 tests) 15ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/fragment-validator.core.test.ts (17 tests) 4ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/series-result-read.core.test.ts (14 tests) 150ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/target-projection.core.test.ts (16 tests) 3ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/write-shared-coverage.core.test.ts (11 tests) 5ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/relation-target-coverage.core.test.ts (7 tests) 1ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/generated-output-boundary.core.test.ts (6 tests) 2ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/race-retry-classification.core.test.ts (13 tests) 4ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (16 tests) 407ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/create-race-pin.core.test.ts (8 tests) 1ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 0ms
+ ✓ |layer-write-engine| tests/contracts/engine/query/nested-create-many.core.test.ts (1 test) 4ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/compound-relation-adoption.core.test.ts (1 test) 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/official-cache-swr.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+AssertionError: expected +0 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/public-client/official-cache-swr.core.test.ts:550:48
+    548|       expect(state.scheduled).toEqual([]);
+    549|       if (scenario === "snapshot") {
+    550|         expect(hostileJsonReadsAtCoreBoundary).toBe(1);
+       |                                                ^
+    551|         expect(hostileJsonGetterReads).toBe(hostileJsonReadsAtCoreBoun…
+    552|         publishHostileJson = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts > native array query execution > orders provider, committed outcomes, parsing, and handler post-work
+AssertionError: expected "spy" to be called once, but got 0 times
+ ❯ tests/contracts/public-client/query-interceptors-array.core.test.ts:1089:19
+    1087|     await runUnsafeArrayTransaction(client, [parsing]);
+    1088| 
+    1089|     expect(parse).toHaveBeenCalledOnce();
+       |                   ^
+    1090|     expect(timeline).toEqual(["provider", "outcome", "parse", "post-wo…
+    1091|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts > native array query execution > keeps the native child primary across ordered post-work and commit failures
+AssertionError: expected [ …(3) ] to have a length of 5 but got 3
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 5[39m
+[31m+ 3[39m
+
+ ❯ tests/contracts/public-client/query-interceptors-array.core.test.ts:1242:28
+    1240|     expect(failure).toBeInstanceOf(AggregateError);
+    1241|     if (!(failure instanceof AggregateError)) throw failure;
+    1242|     expect(failure.errors).toHaveLength(5);
+       |                            ^
+    1243|     expect(failure.errors[0]).toBe(failure.cause);
+    1244|     expect(failure.errors[0]).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts > public array lifecycle observers > orders native statement onions before transforms and submits nothing on failure
+AssertionError: expected [ 'provider' ] to deeply equal []
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "provider",[39m
+[31m+ ][39m
+
+ ❯ tests/contracts/public-client/query-interceptors-array.core.test.ts:2035:27
+    2033|     );
+    2034|     await Promise.resolve();
+    2035|     expect(driver.events).toEqual([]);
+       |                           ^
+    2036|     expect(timeline.slice(0, 4)).toEqual([
+    2037|       "statement:in:findMany",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts > public query-interceptor integration > reports commit ambiguity for a direct composed write transaction
+AssertionError: expected [] to deeply equal [ 'may-have-committed' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "may-have-committed",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/public-client/query-interceptors-integration.core.test.ts:1383:25
+    1381|     expect(driver.events).toContain("COMMIT");
+    1382|     expect(driver.events).toContain("ROLLBACK");
+    1383|     expect(certainties).toEqual(["may-have-committed"]);
+       |                         ^
+    1384|     expect(failure).toBeInstanceOf(QueryError);
+    1385|     expect(failure).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts > public query-interceptor integration > reports committed certainty when direct transaction cleanup fails after commit
+AssertionError: expected [] to deeply equal [ 'committed' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "committed",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ tests/contracts/public-client/query-interceptors-integration.core.test.ts:1427:25
+    1425|     expect(driver.events).toContain("BEGIN");
+    1426|     expect(driver.events.at(-1)).toBe("COMMIT");
+    1427|     expect(certainties).toEqual(["committed"]);
+       |                         ^
+    1428|     expect(failure).toBeInstanceOf(QueryError);
+    1429|     expect(failure).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts > contract and provider matrix > inventories every executable test by owner and boundary
+AssertionError: tests/raptor3/candidate-handoff.test.ts: expected undefined to be defined
+ ❯ tests/contracts/architecture/contract-matrix.core.test.ts:208:31
+    206|     for (const file of testFiles) {
+    207|       const inventory = classifyTestFile(file);
+    208|       expect(inventory, file).toBeDefined();
+       |                               ^
+    209|       expect(inventory?.file).toBe(file);
+    210|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts > bulk insert row-shape planning > empty createMany rejects during batch preparation
+AssertionError: promise resolved "[ { count: +0 } ]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[
+  {
+    "count": 0,
+  },
+]
+
+ ❯ tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts:26:5
+     24|     await expect(
+     25|       client.$transaction([client.batchRow.createMany({ data: [] })])
+     26|     ).rejects.toThrow("No data to insert");
+       |     ^
+     27|   });
+     28| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'create' fails before dispatch
+AssertionError: expected 'Driver "no-atomic-planning" supports …' to be 'Driver \'no-atomic-planning\' support…' // Object.is equality
+
+Expected: [32m"Driver [7m'[27mno-atomic-planning[7m'[27m supports neither transactions nor atomic batch execution."[39m
+Received: [31m"Driver [7m"[27mno-atomic-planning[7m"[27m supports neither transactions nor atomic batch execution."[39m
+
+ ❯ tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts:71:30
+     69|         throw new Error("Expected a TransactionError.");
+     70|       }
+     71|       expect(thrown.message).toBe(
+       |                              ^
+     72|         `Driver '${driver.driverName}' supports neither transactions n…
+     73|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'update' fails before dispatch
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'upsert' fails before dispatch
+AssertionError: expected QueryError: Query execution failed { …(4) } to be an instance of TransactionError
+ ❯ tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts:67:22
+     65|       }
+     66| 
+     67|       expect(thrown).toBeInstanceOf(TransactionError);
+       |                      ^
+     68|       if (!(thrown instanceof TransactionError)) {
+     69|         throw new Error("Expected a TransactionError.");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+
+ Test Files  6 failed | 446 passed (452)
+      Tests  11 failed | 8958 passed (8969)
+   Start at  00:08:26
+   Duration  49.48s (transform 14.85s, setup 423ms, collect 39.47s, tests 6.28s, environment 1ms, prepare 546ms)
+
+Vitest resources: 51.93s wall, 1011.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

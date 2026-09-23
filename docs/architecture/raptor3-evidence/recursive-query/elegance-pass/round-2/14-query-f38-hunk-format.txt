@@ -1,0 +1,14 @@
+@@ -4369 +4359 @@
+-          a.identifiers.column(facts, edgeFacts),
++          a.identifiers.column(facts, edgeFacts)
+@@ -4380,2 +4370,2 @@
+-                ", ",
+-              ),
++                ", "
++              )
+@@ -4383 +4373 @@
+-            facts,
++            facts
+@@ -4386 +4376 @@
+-      }),
++      })

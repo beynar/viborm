@@ -1,0 +1,172 @@
+[FC01B BEGIN original sqlite-interactive]
+[FC01B run] kind=record placement=root role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id"
+[FC01B run] kind=captureSeries placement=capture role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=9 | 1:link/after/ord=9 | 2:lookup/after/ord=10<<MOVED | 3:remove/after/ord=10 | 4:choose/after/ord=10 | 5:link/after/ord=10
+[FC01B run] kind=selectedSeries placement=after role=undefined
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=lookup placement=before role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B run] kind=link placement=after role=undefined
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B run] kind=remove placement=after role=undefined
+[FC01B sql] DELETE FROM "s2_bin_targets" WHERE "binId" = ?
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B run] kind=link placement=after role=undefined
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B run] kind=record placement=root role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id"
+[FC01B run] kind=captureSeries placement=capture role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=6 | 1:link/after/ord=6 | 2:lookup/after/ord=7<<MOVED | 3:remove/after/ord=7 | 4:choose/after/ord=7 | 5:link/after/ord=7
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=9 | 1:link/after/ord=9 | 2:lookup/after/ord=10<<MOVED | 3:remove/after/ord=10 | 4:choose/after/ord=10 | 5:link/after/ord=10
+[FC01B run] kind=selectedSeries placement=after role=undefined
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B BEGIN original sqlite-atomic-batch]
+[FC01B run] kind=record placement=root role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHER
+[FC01B run] kind=captureSeries placement=capture role=undefined
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=9 | 1:link/after/ord=9 | 2:lookup/after/ord=10<<MOVED | 3:remove/after/ord=10 | 4:choose/after/ord=10 | 5:link/after/ord=10
+[FC01B run] kind=selectedSeries placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=lookup placement=before role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B run] kind=link placement=after role=undefined
+[FC01B run] kind=remove placement=after role=undefined
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B run] kind=link placement=after role=undefined
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] SELECT CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfI
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE (
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHER
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B sql] DELETE FROM "s2_bin_targets" WHERE "binId" = ?
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B run] kind=link placement=after role=undefined
+[FC01B run] kind=lookup placement=after role=undefined
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE (
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B BEGIN reordered sqlite-interactive]
+[FC01B run] kind=record placement=root role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id"
+[FC01B run] kind=captureSeries placement=capture role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=9 | 1:link/after/ord=9 | 2:lookup/after/ord=10<<MOVED | 3:remove/after/ord=10 | 4:choose/after/ord=10 | 5:link/after/ord=10
+[FC01B run] kind=selectedSeries placement=after role=undefined
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=lookup placement=before role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B run] kind=link placement=after role=undefined
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B run] kind=remove placement=after role=undefined
+[FC01B sql] DELETE FROM "s2_bin_targets" WHERE "binId" = ?
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B run] kind=link placement=after role=undefined
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B run] kind=record placement=root role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id"
+[FC01B run] kind=captureSeries placement=capture role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=6 | 1:link/after/ord=6 | 2:lookup/after/ord=7<<MOVED | 3:remove/after/ord=7 | 4:choose/after/ord=7 | 5:link/after/ord=7
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=9 | 1:link/after/ord=9 | 2:lookup/after/ord=10<<MOVED | 3:remove/after/ord=10 | 4:choose/after/ord=10 | 5:link/after/ord=10
+[FC01B run] kind=selectedSeries placement=after role=undefined
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B BEGIN reordered sqlite-atomic-batch]
+[FC01B run] kind=record placement=root role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHER
+[FC01B run] kind=captureSeries placement=capture role=undefined
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B depend] follows=false started=false ancestorRole=member consumerKind=lookup consumerPlacement=before producerKind=choose msg=Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+[FC01B moved] children=0:choose/after/ord=9 | 1:link/after/ord=9 | 2:lookup/after/ord=10<<MOVED | 3:remove/after/ord=10 | 4:choose/after/ord=10 | 5:link/after/ord=10
+[FC01B run] kind=selectedSeries placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=lookup placement=before role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B run] kind=link placement=after role=undefined
+[FC01B run] kind=remove placement=after role=undefined
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B run] kind=link placement=after role=undefined
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] SELECT CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfI
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE (
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHER
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B sql] DELETE FROM "s2_bin_targets" WHERE "binId" = ?
+[FC01B sql] INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("b
+[FC01B sql] SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHE
+[FC01B run] kind=record placement=root role=member
+[FC01B run] kind=choose placement=after role=undefined
+[FC01B sql] SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY 
+[FC01B run] kind=record placement=after role=missing
+[FC01B run] kind=link placement=after role=undefined
+[FC01B run] kind=lookup placement=after role=undefined
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHER
+[FC01B sql] SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE (
+[FC01B sql] INSERT INTO "s2_targets" ("id") VALUES (?)

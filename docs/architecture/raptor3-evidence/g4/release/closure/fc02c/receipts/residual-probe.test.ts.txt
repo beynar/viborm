@@ -1,0 +1,114 @@
+/** FC-02C residual probe — NOT a registered pin; run once to record the two
+ * placements this unit does not reach, on the REPAIRED tree. */
+import { createClient } from "@client/client";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, it } from "vitest";
+import { RecordingSQLiteDriver } from "../unit02/world";
+
+const badge = s
+  .model({
+    id: s.string().id(),
+    slug: s.string().unique(),
+    code: s.string().nullable().unique(),
+    holders: s.toMany(() => holder),
+  })
+  .map("fc02cr_badges");
+const holder = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    badgeCode: s.string().nullable(),
+    badge: s
+      .toOne(() => badge)
+      .fields("badgeCode")
+      .references("code"),
+  })
+  .map("fc02cr_holders");
+const schema = { badge, holder };
+
+async function report(label: string, body: () => Promise<unknown>) {
+  try {
+    console.log(label, "RESOLVED", JSON.stringify(await body()));
+  } catch (error) {
+    console.log(
+      label,
+      "REFUSED",
+      (error as Error).constructor.name,
+      (error as Error).message
+    );
+  }
+}
+
+describe("FC-02C residuals (measured, not pinned)", () => {
+  let driver: RecordingSQLiteDriver;
+  afterEach(async () => {
+    await driver?.disconnect();
+  });
+  async function world() {
+    driver = new RecordingSQLiteDriver();
+    const client = createClient({ schema, driver });
+    await syncLiveSchema(client);
+    await client.badge.create({
+      data: { id: "b1", slug: "codeless", code: null },
+    });
+    await client.badge.create({ data: { id: "b2", slug: "gold", code: "GOLD" } });
+    await client.holder.create({
+      data: { id: "h1", name: "one", badgeCode: "GOLD" },
+    });
+    driver.reset();
+    return client;
+  }
+
+  it("R1: the connectOrCreate CREATE arm whose own payload spells the referenced field NULL", async () => {
+    const client = await world();
+    await report("R1-coc-create-null", () =>
+      client.holder.update({
+        where: { id: "h1" },
+        data: {
+          badge: {
+            connectOrCreate: {
+              where: { slug: "fresh" },
+              create: { id: "b9", slug: "fresh", code: null },
+            },
+          },
+        },
+      })
+    );
+    console.log("R1-holders", JSON.stringify(await client.holder.findMany()));
+    console.log(
+      "R1-badges",
+      JSON.stringify(await client.badge.findMany({ orderBy: { id: "asc" } }))
+    );
+    // The CONTROL that names the existing owner: a plain nested `create` with
+    // the same payload is refused by `Commands.assignMembership`.
+    await report("R1-control-plain-create-null", () =>
+      client.holder.update({
+        where: { id: "h1" },
+        data: { badge: { create: { id: "b8", slug: "other", code: null } } },
+      })
+    );
+  });
+
+  it("R2: the CHILD-held direction, where the reference is the holder's parent's own value", async () => {
+    const client = await world();
+    await report("R2-child-held-connect-from-null-parent", () =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: { holders: { connect: { id: "h1" } } },
+      })
+    );
+    console.log("R2-holders", JSON.stringify(await client.holder.findMany()));
+  });
+
+  it("R3: a nested update arm that nulls the referenced column under a live member", async () => {
+    const client = await world();
+    await report("R3-update-arm-nulls-reference", () =>
+      client.holder.update({
+        where: { id: "h1" },
+        data: { badge: { update: { code: null } } },
+      })
+    );
+    console.log("R3-holders", JSON.stringify(await client.holder.findMany()));
+  });
+});

@@ -1,0 +1,36 @@
+##### src/query-engine/raptor3/commands/selection.ts
+--- BASE ---
+   1 src/query-engine/raptor3/commands/selection.ts format ━━━━━━━━━━
+   4 src/query-engine/raptor3/commands/selection.ts lint/style/noParameterProperties ━━━━━━━━━━
+--- NOW ---
+   1 src/query-engine/raptor3/commands/selection.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   4 src/query-engine/raptor3/commands/selection.ts lint/style/noParameterProperties ━━━━━━━━━━━━━━
+##### src/query-engine/raptor3/commands/commands.ts
+--- BASE ---
+   1 src/query-engine/raptor3/commands/commands.ts lint/style/noParameterAssign ━━━━━━━━━━
+   1 src/query-engine/raptor3/commands/commands.ts lint/style/noParameterProperties ━━━━━━━━━━
+--- NOW ---
+   1 src/query-engine/raptor3/commands/commands.ts lint/style/noParameterAssign ━━━━━━━━━━━━━━━━━━
+   1 src/query-engine/raptor3/commands/commands.ts lint/style/noParameterProperties ━━━━━━━━━━━━━━
+##### src/query-engine/raptor3/commands/relation-body.ts
+--- BASE ---
+   1 src/query-engine/raptor3/commands/relation-body.ts lint/correctness/noUnusedVariables ━━━━━━━━━━
+   5 src/query-engine/raptor3/commands/relation-body.ts lint/style/noParameterProperties ━━━━━━━━━━
+--- NOW ---
+   1 src/query-engine/raptor3/commands/relation-body.ts lint/correctness/noUnusedVariables ━━━━━━━━━━
+   2 src/query-engine/raptor3/commands/relation-body.ts lint/style/noParameterProperties ━━━━━━━━━━
+   3 src/query-engine/raptor3/commands/relation-body.ts lint/style/noParameterProperties ━━━━━━━━━━━
+##### src/query-engine/raptor3/shared/operation-context.ts
+--- BASE ---
+   1 src/query-engine/raptor3/shared/operation-context.ts assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+   1 src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━
+   4 src/query-engine/raptor3/shared/operation-context.ts lint/style/noParameterProperties ━━━━━━━━━━
+--- NOW ---
+   1 src/query-engine/raptor3/shared/operation-context.ts assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+   1 src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   4 src/query-engine/raptor3/shared/operation-context.ts lint/style/noParameterProperties ━━━━━━━━━━
+##### tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts
+--- BASE ---
+--- NOW ---
+##### tests/providers/docker/mysql2-concurrency-policy.test.ts (NEW)
+Checked 1 file in 11ms. No fixes applied.

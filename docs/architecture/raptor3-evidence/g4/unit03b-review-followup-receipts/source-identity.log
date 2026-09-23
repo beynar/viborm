@@ -1,0 +1,21 @@
+82ba9c9e8848c09ee4d29e7ac824a305c9fb3a052424005f446e2e167490b111  src/query-engine/raptor3/route/client-route.ts
+1e19986c9a751ab1b57d63e64512fabdebd22bffa276b433fe8da617a6df85ef  src/query-engine/pending-operation.ts
+bb07f7a0e52e61c086eb85d811361b2621cae950d1d396ee4908236680d5b612  src/query-engine/query-engine.ts
+764336127b1eba68195f98bb1a3a05dbc4f6c391de7d542caf7c0470d57459bf  src/client/client.ts
+1e557cd9657b424d1afb36f3f0227afc9c7170dbd1eb96f6d219c38e56821e1e  tests/raptor3/g4/route-lifecycle.test.ts
+8c93d18a668b51d53f0eeb446498250a81075b09741d62812d59fdf61ad545dd  tests/raptor3/g4/route-transactions.test.ts
+89e7673d02aca62f0bc5d820ccd36df8424f35ecfd850f92ca63f7b6fbe91cdb  tests/raptor3/g4/route-cache.test.ts
+8c00eba77cfd642628b4d95ae94e6ceddf24b992281e7c675fd5a27f6f081b30  tests/raptor3/g4/route-admission.test.ts
+72c6807333fa179dbccf9ae9fedbc881dc9083aa7c36400731d622e4c50b6b0f  tests/types/raptor3/route-public-types.core.types.ts
+209f8e5e6538b13f5d6e93102375ef089dd4e36b351f74692e4dde33d0114509  docs/architecture/raptor3-evidence/g4/unit03/production-followup.patch
+068e03f6857994bbfdaedbd84a96ff4c9cdd0202f3dc99bb61987099d96f2e0c  docs/architecture/raptor3-evidence/g4/unit03/tests-followup.patch
+a4b3012363ef1ba3225fca099cfcc399692427035832c2b9221098f2cd4becd5  tests/raptor3/g4/review/unit03b/review.workspace.ts
+92023ff4fa6d860aec8bbf39d16e34f7c5c3458c19ec2ff62844119d7fc303bb  tests/raptor3/g4/review/unit03b/route-admission-seam.review.test.ts
+b00a003e243ff157ed7cff81748992d442a0010396fb2a2e58ccf247746d7fd7  tests/raptor3/g4/review/unit03b/route-array-verbs.review.test.ts
+183a699d7406c92f7ae318ec52d76b425cf6c2ba38f3e0f3bac08e7bc5bc5683  tests/raptor3/g4/review/unit03b/route-envelope-array.review.test.ts
+751a149abdd9e881fc970d9b59f63f9d8df7c40f212bf85c826b96396e298941  tests/raptor3/g4/review/unit03b/route-nested-payload.review.test.ts
+1ba8f61f204b1bb8e9f88957184f1755797a57a359c1e2856c37181bc83ecd86  tests/raptor3/g4/review/unit03b/route-seams.review.test.ts
+952cd387486956667f257f6ea6ae9e9d25f8ee2018276ac512d4be8b4194782b  tests/raptor3/g4/review/unit03b/route-upsert-payload.review.test.ts
+9be54933163644b96814dc1b31d5f6478330812b889f602c55ce3b21b983e10c  tests/raptor3/g4/review/unit03b/route-write-outcome.review.test.ts
+base commit: 0cc61e61f372945026b0b564fa643de67168c08e
+git status src/:  M src/adapters/database-adapter.ts  M src/adapters/databases/mysql/mysql-adapter.ts  M src/adapters/databases/postgres/postgres-adapter.ts  M src/adapters/databases/sqlite/sqlite-adapter.ts  M src/client/client.ts  M src/query-engine/pending-operation.ts  M src/query-engine/query-engine.ts  M src/query-engine/raptor3/commands/assignments.ts  M src/query-engine/raptor3/commands/commands.ts  M src/query-engine/raptor3/commands/execution.ts  M src/query-engine/raptor3/commands/index.ts  M src/query-engine/raptor3/program/index.ts  M src/query-engine/raptor3/shared/operation-context.ts  M src/query-engine/raptor3/shared/query.ts  M src/query-engine/raptor3/shared/schema.ts  M src/query-engine/raptor3/shared/storage.ts ?? src/query-engine/raptor3/route/ 

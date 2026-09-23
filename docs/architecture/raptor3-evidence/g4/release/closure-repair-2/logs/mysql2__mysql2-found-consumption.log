@@ -1,0 +1,23 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts (15 tests) 6077ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found reference is spent at its CURRENT value, never a key another row acquired  377ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found conditional upsert refuses when the condition it matched has changed  423ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost at the FIRST refuse as one premise  318ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > two matched conditions lost at the SECOND refuse with the same sentence  327ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found nested to-ONE upsert refuses a member reparented out of its membership  316ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the confirmation's lock > holds the FOUND row through the consuming effect  1354ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a COMPOUND, column-mapped reference is confirmed and spent at its current pair  305ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a found arm that writes no column of its own spends the CURRENT reference through its child  325ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > inside a borrowed transaction the confirmation is the caller's own lock  410ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > an uncontended found consumption commits its ordinary result  397ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > the missing arm still reads unlocked, and the confirmation is the only locked read  300ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > a PARENT-HELD found target deleted in the same window fails with its own sentence  348ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+   Start at  01:29:47
+   Duration  7.80s (transform 1.04s, setup 10ms, collect 1.57s, tests 6.08s, environment 0ms, prepare 33ms)
+
+Vitest resources: 10.16s wall, 622.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

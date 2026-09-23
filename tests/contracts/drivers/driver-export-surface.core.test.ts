@@ -15,6 +15,7 @@ import {
   createClient as createLibSQLClient,
   LibSQLDriver,
 } from "@drivers/libsql";
+import { sqliteResultParser } from "@drivers/shared";
 import {
   createClient as createSQLite3Client,
   SQLite3Driver,
@@ -32,6 +33,44 @@ function driverFromWrapper(build: () => unknown): unknown {
   if (!config) throw new Error("Expected the wrapper to compose a client");
   return config.driver;
 }
+
+function installedDriver(build: () => unknown): object {
+  const installed = driverFromWrapper(build);
+  if (
+    installed === null ||
+    (typeof installed !== "object" && typeof installed !== "function")
+  ) {
+    throw new Error("Expected the wrapper to install a driver object");
+  }
+  return installed as object;
+}
+
+/** Every SQLite convenience wrapper the package ships, and what it installs. */
+const SQLITE_WRAPPERS = [
+  {
+    name: "Bun SQLite",
+    driver: BunSQLiteDriver,
+    build: () => createBunSQLiteClient({ schema: {} }),
+  },
+  {
+    name: "D1",
+    driver: D1Driver,
+    build: () =>
+      Reflect.apply(createD1Client, undefined, [
+        { database: Object.create(null), schema: {} },
+      ]),
+  },
+  {
+    name: "libSQL",
+    driver: LibSQLDriver,
+    build: () => createLibSQLClient({ schema: {} }),
+  },
+  {
+    name: "SQLite3",
+    driver: SQLite3Driver,
+    build: () => createSQLite3Client({ schema: {} }),
+  },
+];
 
 describe("driver runtime export surface", () => {
   test("the custom-driver subpath exposes only its documented runtime owners", () => {
@@ -81,43 +120,30 @@ describe("driver runtime export surface", () => {
     expect(drivers.Driver).toBe(Driver);
   });
 
-  test.each([
-    {
-      name: "Bun SQLite",
-      driver: BunSQLiteDriver,
-      build: () => createBunSQLiteClient({ schema: {} }),
-    },
-    {
-      name: "D1",
-      driver: D1Driver,
-      build: () =>
-        Reflect.apply(createD1Client, undefined, [
-          { database: Object.create(null), schema: {} },
-        ]),
-    },
-    {
-      name: "libSQL",
-      driver: LibSQLDriver,
-      build: () => createLibSQLClient({ schema: {} }),
-    },
-    {
-      name: "SQLite3",
-      driver: SQLite3Driver,
-      build: () => createSQLite3Client({ schema: {} }),
-    },
-  ])("the $name convenience wrapper installs its concrete driver lazily", ({
+  test.each(
+    SQLITE_WRAPPERS
+  )("the $name convenience wrapper installs its concrete driver lazily", ({
     build,
     driver,
   }) => {
-    const installed = driverFromWrapper(build);
-    if (
-      installed === null ||
-      (typeof installed !== "object" && typeof installed !== "function")
-    ) {
-      throw new Error("Expected the wrapper to install a driver object");
-    }
+    const installed = installedDriver(build);
 
     expect(installed).toBeInstanceOf(driver);
     expect(Reflect.get(installed, "dialect")).toBe("sqlite");
+  });
+
+  test.each(
+    SQLITE_WRAPPERS
+  )("the $name driver publishes the shipped SQLite result parser", ({
+    build,
+  }) => {
+    // One parser for the whole family, so what it owns it owns for all four
+    // drivers — and since D-35 it owns row VALUES only: the meaning of a
+    // `count`/`exist` answer belongs to the engine's decoder, which asks for
+    // its own `_count` alias and reads it back
+    // (`engine/query/parity-decoding.core.test.ts`, the D-35 cell).
+    expect(Reflect.get(installedDriver(build), "result")).toBe(
+      sqliteResultParser
+    );
   });
 });

@@ -1,0 +1,4 @@
+PostgreSQL image: sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b; server 16.14.
+MySQL image: sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb; server 8.4.11.
+Both providers used a random loopback port, 2 CPUs, 1 GiB, tmpfs provider data, no host mount, OOMKilled false, restart count 0, and exact-ID removal. The final task-label census was empty.
+Two PostgreSQL setup-only failures were preserved: 3qoW2n used the wrong authentication expectation; 1H8oII omitted the required raptor3_g2 database. Correcting provider setup changed no source or harness file.

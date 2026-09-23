@@ -1,0 +1,46 @@
+FC-06 — three falsifications of the census repair, each in a backup copy (cp restore, md5 verified)
+kept copy md5: 27fb52546acc18e3565cb1623a8949a9
+
+### F1 — the carried-argument resolution removed from constructionsOf
+✖ reads the sentence a site built into a local const and handed to the failure owner (419.163458ms)
+✖ reads the sentence the site's own factory built and handed to the failure owner (529.520375ms)
+✖ does not attribute a caught value to the site that rethrows it through the failure owner (545.939125ms)
+✔ reads the failure owner's own substituted sentence once, at the owner (532.804792ms)
+✔ does not mistake a zero-argument `failure()` member for the failure owner (596.068875ms)
+✔ refuses loudly when the declared failure owner is not where the census reads it (606.586916ms)
+✔ the engine's own tree still declares the failure owner the census reads (647.384375ms)
+ℹ pass 4
+ℹ fail 3
+✖ failing tests:
+✖ reads the sentence a site built into a local const and handed to the failure owner (419.163458ms)
+✖ reads the sentence the site's own factory built and handed to the failure owner (529.520375ms)
+✖ does not attribute a caught value to the site that rethrows it through the failure owner (545.939125ms)
+
+### F2 — the failure owner's own substitutions not collected
+✔ reads the sentence a site built into a local const and handed to the failure owner (430.526ms)
+✔ reads the sentence the site's own factory built and handed to the failure owner (545.343875ms)
+✖ does not attribute a caught value to the site that rethrows it through the failure owner (546.066375ms)
+✖ reads the failure owner's own substituted sentence once, at the owner (522.553167ms)
+✔ does not mistake a zero-argument `failure()` member for the failure owner (589.291708ms)
+✔ refuses loudly when the declared failure owner is not where the census reads it (639.83675ms)
+✔ the engine's own tree still declares the failure owner the census reads (646.4295ms)
+ℹ pass 5
+ℹ fail 2
+✖ failing tests:
+✖ does not attribute a caught value to the site that rethrows it through the failure owner (546.066375ms)
+✖ reads the failure owner's own substituted sentence once, at the owner (522.553167ms)
+
+### F3 — the declared-owner check no longer refuses (exit code)
+✔ reads the sentence a site built into a local const and handed to the failure owner (424.077708ms)
+✔ reads the sentence the site's own factory built and handed to the failure owner (566.332584ms)
+✔ does not attribute a caught value to the site that rethrows it through the failure owner (534.544042ms)
+✔ reads the failure owner's own substituted sentence once, at the owner (525.634375ms)
+✔ does not mistake a zero-argument `failure()` member for the failure owner (602.357875ms)
+✖ refuses loudly when the declared failure owner is not where the census reads it (591.687916ms)
+✔ the engine's own tree still declares the failure owner the census reads (648.438959ms)
+ℹ pass 6
+ℹ fail 1
+✖ failing tests:
+✖ refuses loudly when the declared failure owner is not where the census reads it (591.687916ms)
+
+restored md5: 27fb52546acc18e3565cb1623a8949a9

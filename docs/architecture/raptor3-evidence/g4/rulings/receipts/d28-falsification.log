@@ -1,0 +1,20 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ❯ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (4 tests | 4 failed) 28ms
+   × D-28 — the driver parseResult middleware is a result consumer > sees each operation's raw result exactly once on the live route 19ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ []
+- [
+-   'findMany',
+-   'findUnique',
+-   'count',
+-   'aggregate',
+-   'create',
+-   'update'
+- ]
+
+   × D-28 — the driver parseResult middleware is a result consumer > sees each operation's raw result exactly once on the prepared route 4ms
+     → Expected values to be strictly deep-equal:

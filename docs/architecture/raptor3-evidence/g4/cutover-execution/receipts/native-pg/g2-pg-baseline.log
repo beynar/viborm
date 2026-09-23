@@ -1,0 +1,62 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-legacy.test.ts (7 tests) 180ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-legacy.test.ts (3 tests) 164ms
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-legacy.test.ts (3 tests | 1 failed) 95ms
+   ✓ G2 live pg atomic-batch unique races: legacy > g2-race-selected-unique-recovery 30ms
+   ✓ G2 live pg atomic-batch unique races: legacy > g2-race-unrelated-unique-refused 19ms
+   × G2 live pg atomic-batch unique races: legacy > g2-race-wrong-insert-same-constraint 23ms
+     → wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
+  [
+    'unrelated-missing-choice-observed',
+-   'unrelated-missing-choice-observed'
+  ]
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-legacy.test.ts (2 tests) 83ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-legacy.test.ts (1 test) 47ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-legacy.test.ts (1 test) 55ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-legacy.test.ts > G2 live pg atomic-batch unique races: legacy > g2-race-wrong-insert-same-constraint
+AssertionError: wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
+  [
+    'unrelated-missing-choice-observed',
+-   'unrelated-missing-choice-observed'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "unrelated-missing-choice-observed",[22m
+[32m-   "unrelated-missing-choice-observed",[39m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:198:14
+    196|         "Unique constraint violation"
+    197|       );
+    198|       assert.deepEqual(
+       |              ^
+    199|         observation.reachedCuts,
+    200|         Array.from({ length: expectedAttempts }, () => cut),
+ ❯ runWrongInsertScenario tests/raptor3/transitions/unique-races-live.ts:292:11
+ ❯ tests/raptor3/transitions/unique-races-live-legacy.test.ts:13:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  1 failed | 16 passed (17)
+   Start at  21:15:18
+   Duration  2.22s (transform 706ms, setup 13ms, collect 1.37s, tests 624ms, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-YMMnVY/vitest.json
+Vitest resources: 4.18s wall, 601.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-YMMnVY

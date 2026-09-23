@@ -1,0 +1,40 @@
+      {
+        "file": "src/query-engine/write-engine/UpsertOperation.ts",
+        "lines": 1550
+      },
+      {
+        "file": "src/query-engine/write-engine/bulk-polymorphic-connect.ts",
+        "lines": 333
+      },
+      {
+        "file": "src/query-engine/write-engine/junction-singular-transfer.ts",
+        "lines": 400
+      },
+      {
+        "file": "src/query-engine/write-engine/nested-target-parts.ts",
+        "lines": 808
+      },
+      {
+        "file": "src/query-engine/write-engine/relation-membership.ts",
+        "lines": 1047
+      },
+      {
+        "file": "src/query-engine/write-engine/routing.ts",
+        "lines": 466
+      },
+      {
+        "file": "src/query-engine/write-engine/series-result-read.ts",
+        "lines": 458
+      },
+      {
+        "file": "src/query-engine/write-engine/shared.ts",
+        "lines": 759
+      },
+      {
+        "file": "src/query-engine/write-engine/target-projection.ts",
+        "lines": 512
+      }
+    ],
+    "runtimeImportCycles": []
+  }
+}

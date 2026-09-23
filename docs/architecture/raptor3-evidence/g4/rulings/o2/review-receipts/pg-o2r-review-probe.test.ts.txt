@@ -1,0 +1,17 @@
+/** D-40 REVIEW PROBE — PostgreSQL (`pg`). Removed once its receipt is taken. */
+import { PgDriver } from "@drivers/pg";
+import { describe, it } from "vitest";
+import { DELETED_LEGS, runReviewProbe } from "./o2r-review-probe";
+import { TEST_CONNECTION_STRING } from "./pg-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+
+describeIf("D-40 review probe — the PostgreSQL adapter parseResult leg", () => {
+  it("answers identically with and without the deleted bigint leg", async () => {
+    await runReviewProbe({
+      provider: "pg",
+      driver: new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+      deletedLeg: DELETED_LEGS.postgres,
+    });
+  }, 120_000);
+});

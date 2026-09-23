@@ -1,0 +1,110 @@
+/* Reviewer probe (D-41). Same short-window world twice in one process: as
+ * shipped, then with `publishedTerminal` replaced by the PRE-REPAIR shape
+ * (e821cd21a: one count over the CONCATENATION, inside `decodeQuery`, below
+ * the middleware). No file in the worktree is modified. */
+import { createClient } from "@client/client";
+import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { RecordingSQLiteDriver } from "@tests/raptor3/g4/unit02/world";
+import Database from "better-sqlite3";
+
+const widget = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    rank: s.int(),
+    active: s.boolean(),
+  })
+  .map("r41_widgets");
+
+const TERMINAL = /^\s*SELECT[\s\S]*"r41_widgets"/i;
+const ROWS = [
+  { id: 4, name: "d", rank: 1, active: true },
+  { id: 2, name: "b", rank: 2, active: false },
+  { id: 3, name: "c", rank: 3, active: true },
+  { id: 1, name: "a", rank: 4, active: false },
+];
+
+class ShortWindowDriver extends RecordingSQLiteDriver {
+  readonly observed: string[] = [];
+  readonly terminalReads: string[] = [];
+  override readonly result: any = {
+    parseResult: (raw: any, operation: any, next: any) => {
+      this.observed.push(operation);
+      return next(raw, operation);
+    },
+    parseField: (value: any, scalarType: any, next: any) =>
+      next(value, scalarType),
+  };
+
+  constructor(database: any) {
+    super({ client: database });
+    (this as any).adapter.capabilities.supportsReturning = false;
+    this.maxBindParametersPerStatement = 7;
+  }
+
+  protected override async execute<T>(
+    client: any,
+    statement: string,
+    parameters: unknown[],
+    context?: any
+  ): Promise<any> {
+    const isTerminal = TERMINAL.test(statement);
+    if (isTerminal) this.terminalReads.push(statement);
+    const response: any = await super.execute<T>(
+      client,
+      statement,
+      parameters,
+      context
+    );
+    if (!isTerminal || this.terminalReads.length !== 2) return response;
+    return { ...response, rows: response.rows.slice(1) };
+  }
+}
+
+const run = async (label: string) => {
+  const database = new Database(":memory:");
+  const driver = new ShortWindowDriver(database);
+  const client = createClient({ schema: { widget }, driver } as any);
+  const migration = await syncLiveSchema(client as any);
+  if (!migration.applied) throw new Error("probe schema did not apply");
+  driver.reset();
+  driver.observed.length = 0;
+  driver.terminalReads.length = 0;
+  let failure: any;
+  let published: unknown;
+  try {
+    published = await (client as any).widget.createMany({
+      data: ROWS,
+      select: { name: true, rank: true },
+    });
+  } catch (caught) {
+    failure = caught;
+  }
+  const answer = {
+    label,
+    threw: failure !== undefined,
+    class: failure?.constructor?.name,
+    isQueryEngineError: failure?.constructor?.name === "QueryEngineError",
+    message: failure?.message,
+    terminalWindowsReachingProvider: driver.terminalReads.length,
+    middlewareAsked: driver.observed.length,
+    published,
+  };
+  await (client as any).$disconnect();
+  database.close();
+  return answer;
+};
+
+const asShipped = await run("as shipped (per-window assertExpectedRows)");
+const proto: any = OperationContext.prototype;
+proto.publishedTerminal = function (queries: any[], windows: any[][]) {
+  const terminal = queries[0];
+  if (!terminal) return [];
+  return this.queries.decodeResult(windows.flat(), this.operation, (raw: any) =>
+    this.queries.decodeQuery(terminal, raw)
+  );
+};
+const falsified = await run("falsified (count over the concatenation)");
+process.stdout.write(`${JSON.stringify({ asShipped, falsified }, null, 2)}\n`);

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "method": "Whole-file parser-token census over the same 28 production owners as accepted G3P-05 and the original G3P-06 handoff; no proportional discounts",
+  "acceptedG3P05Receipt": "../g3-prep-05-review-repair/g3-prep-05-repair-cost.json",
+  "reviewedParentReceipt": "../g3-prep-06/g3-prep-06-cost.json",
+  "currentReceipt": "g3-prep-06-repair-cost.json",
+  "matchedScope": {
+    "acceptedG3P05TokenLines": 9360,
+    "originalG3P06TokenLines": 9360,
+    "currentTokenLines": 9360,
+    "repairProductionDeltaTokenLines": 0,
+    "ownerCount": 28
+  },
+  "repairChangedProductionOwners": [],
+  "repairChangedHarnessFiles": 3,
+  "historicalNarrowTokenLines": 4592,
+  "historicalNarrowComparable": false
+}

@@ -1,0 +1,2 @@
+tests/raptor3/ownership/commands.test.ts(376,55): error TS2322: Type '"atomic-array"' is not assignable to type '"borrowed-transaction" | "standalone"'.
+TypeScript (whole estate, native): 5.05s wall, 4923.5 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

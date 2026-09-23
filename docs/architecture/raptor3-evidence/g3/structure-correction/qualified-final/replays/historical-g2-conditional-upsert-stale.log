@@ -1,0 +1,73 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/gate.test.ts (1 test | 1 failed) 30ms
+   × replays the saved corpus against its exact executed-source identity 30ms
+     → Stale Raptor 3 evidence: executed source or runtime changed
++ actual - expected
+
+  {
++   harness: '3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922',
++   production: 'fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da',
+-   harness: '112e82f710c639c31d69ca3cb3395338d26d81a4a04bb2bed9b1ce947120c1e0',
+-   production: '509869f4df577a29820f26514f6bdb7750f5e5c32591722c004aab8e1d40c4c9',
+    runtime: {
+      architecture: 'arm64',
+      node: 'v24.21.0',
+      platform: 'darwin',
+      sqliteDriver: '12.6.0',
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/gate.test.ts > replays the saved corpus against its exact executed-source identity
+AssertionError: Stale Raptor 3 evidence: executed source or runtime changed
++ actual - expected
+
+  {
++   harness: '3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922',
++   production: 'fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da',
+-   harness: '112e82f710c639c31d69ca3cb3395338d26d81a4a04bb2bed9b1ce947120c1e0',
+-   production: '509869f4df577a29820f26514f6bdb7750f5e5c32591722c004aab8e1d40c4c9',
+    runtime: {
+      architecture: 'arm64',
+      node: 'v24.21.0',
+      platform: 'darwin',
+      sqliteDriver: '12.6.0',
+
+
+- Expected
++ Received
+
+@@ -1,8 +1,8 @@
+  {
+-   "harness": "112e82f710c639c31d69ca3cb3395338d26d81a4a04bb2bed9b1ce947120c1e0",
+-   "production": "509869f4df577a29820f26514f6bdb7750f5e5c32591722c004aab8e1d40c4c9",
++   "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922",
++   "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "runtime": {
+      "architecture": "arm64",
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "sqliteDriver": "12.6.0",
+
+ ❯ assertRaptor3Identity scripts/raptor3-manifest.mjs:678:10
+    676|   actual = captureRaptor3Identity()
+    677| ) {
+    678|   assert.deepEqual(
+       |          ^
+    679|     actual,
+    680|     expected,
+ ❯ tests/raptor3/gate.test.ts:134:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  21:39:53
+   Duration  1.99s (transform 1.20s, setup 9ms, collect 1.81s, tests 30ms, environment 0ms, prepare 34ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-De00U2/vitest.json
+Vitest resources: 4.02s wall, 515.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-De00U2

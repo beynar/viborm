@@ -64,12 +64,21 @@ describe("operation executor atomic-capability refusal", () => {
         thrown = error;
       }
 
+      // The refusal reaches the caller INSTEAD of any provider work: this
+      // fixture's `execute` throws "A planning-only contract dispatched
+      // provider work." and its `_executeBatch` a different sentence, so a
+      // dispatched decision read could not produce this error at all.
       expect(thrown).toBeInstanceOf(TransactionError);
       if (!(thrown instanceof TransactionError)) {
         throw new Error("Expected a TransactionError.");
       }
+      // The surviving driver seam's own sentence, unchanged since before the
+      // cutover (`drivers/driver-transaction-base.ts:790`, `:979`, and
+      // `client/array-transaction-native-batch.ts:51-61`). The deleted engine
+      // spelled the same capability with `'` quotes; the wording that survives
+      // is the one the estate still raises everywhere else.
       expect(thrown.message).toBe(
-        `Driver '${driver.driverName}' supports neither transactions nor atomic batch execution.`
+        `Driver "${driver.driverName}" supports neither transactions nor atomic batch execution.`
       );
       expect(thrown.meta.driver).toBe(driver.driverName);
       expect(thrown.meta.operation).toBe(operationName);

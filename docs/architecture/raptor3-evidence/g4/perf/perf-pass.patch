@@ -1,0 +1,1043 @@
+diff --git a/benchmarks/operation-pipeline-contract-workloads.mjs b/benchmarks/operation-pipeline-contract-workloads.mjs
+index 9e9bfe6f..a8b4c6c3 100644
+--- a/benchmarks/operation-pipeline-contract-workloads.mjs
++++ b/benchmarks/operation-pipeline-contract-workloads.mjs
+@@ -9,6 +9,70 @@ const orderedChildren = (rows) =>
+     left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+   );
+ 
++/** The parents `relation-series-2` locates, in the order it locates them. */
++const SERIES_2_ROOTS = Object.freeze([5000, 6000]);
++
++/**
++ * D-8 (Arnaud, 2026-09-16): ONE LEDGER PER ENGINE for `relation-series-2`.
++ *
++ * `generatedChild.id` is a counter, and the 2026-09-08 admission adjudication
++ * (plan §2.3, "one evaluation per admitted input") makes the two engines call
++ * it a different number of times for one `updateMany` with a nested create:
++ * `k + 2nk` on the shipped engine, which parses each captured member's `data`
++ * twice (`UpdateOperation.ts:132` and `:164`, the second one persisted), and
++ * `k + nk` on the candidate, which keeps the first parse and drops the second.
++ * The value a counter returns is a function of how many times it has been
++ * called, so the persisted ids shift; nothing else does. Arnaud confirmed the
++ * cardinality and directed the benchmark to pin both ledgers rather than one
++ * comparator carrying the shipped count, which §2.3 forbids. Diagnosis and
++ * scaling law: `docs/architecture/raptor3-evidence/g4/cutover/relation-series-2-classification.md`.
++ *
++ * The engine is identified by its OWN recorded per-member admission count, and
++ * by nothing else: exactly one of these two rows must explain the ledger, and a
++ * third answer — a member skipped, a default evaluated twice on the candidate,
++ * a replayed nested create — matches neither and fails here rather than
++ * silently borrowing the other engine's numbers.
++ */
++const RELATION_SERIES_2_LEDGERS = Object.freeze([
++  Object.freeze({
++    engine: "shipped",
++    admissionsPerMember: 2,
++    statements: 7,
++    children: Object.freeze([
++      Object.freeze({ id: "series_child_3", parentId: 5000 }),
++      Object.freeze({ id: "series_child_5", parentId: 6000 }),
++    ]),
++  }),
++  Object.freeze({
++    engine: "candidate",
++    admissionsPerMember: 1,
++    statements: 3,
++    children: Object.freeze([
++      Object.freeze({ id: "series_child_2", parentId: 5000 }),
++      Object.freeze({ id: "series_child_3", parentId: 6000 }),
++    ]),
++  }),
++]);
++
++/** One public admission, then this engine's own admissions per located root. */
++const seriesAdmissions = (ledger) =>
++  1 + SERIES_2_ROOTS.length * ledger.admissionsPerMember;
++
++/** The one recorded ledger that explains an observed admission count. */
++function seriesLedger(admissions) {
++  const matched = RELATION_SERIES_2_LEDGERS.filter(
++    (ledger) => seriesAdmissions(ledger) === admissions
++  );
++  assert.equal(
++    matched.length,
++    1,
++    `relation-series-2 evaluated the generated default ${admissions} times, which is neither recorded engine ledger (${RELATION_SERIES_2_LEDGERS.map(
++      (ledger) => `${ledger.engine}=${seriesAdmissions(ledger)}`
++    ).join(", ")})`
++  );
++  return matched[0];
++}
++
+ export async function buildContractWorkload(name, fixture, semanticFixture) {
+   if (
+     name === "nested-conditional-found" ||
+@@ -201,6 +265,8 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
+     );
+   }
+   if (name === "relation-series-2") {
++    let statements = 0;
++    let admissionsBeforeFirstEffect;
+     const invocation = (world) => (cold) => {
+       const client = cold ? world.createColdClient() : world.client;
+       return client.generatedParent.updateMany({
+@@ -214,10 +280,17 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
+       invocation,
+       (value) => value.count,
+       ({ outcome, initial, final, defaults, reachedCuts }) => {
+-        assert.deepEqual(outcome, { kind: "success", value: { count: 2 } });
++        // Engine-independent, asserted the same way on both sides.
++        assert.deepEqual(outcome, {
++          kind: "success",
++          value: { count: SERIES_2_ROOTS.length },
++        });
++        // The engine's OWN ledger, selected by its own recorded admission
++        // count — never one ledger carrying the other engine's number.
++        const ledger = seriesLedger(defaults.length);
+         assert.deepEqual(
+           defaults,
+-          Array.from({ length: 5 }, (_, index) => ({
++          Array.from({ length: seriesAdmissions(ledger) }, (_, index) => ({
+             name: "generatedChild.id",
+             value: `series_child_${index + 1}`,
+           }))
+@@ -226,10 +299,23 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
+           ...initial,
+           bench_generated_children: orderedChildren([
+             ...initial.bench_generated_children,
+-            { id: "series_child_3", parentId: 5000, label: "series-child" },
+-            { id: "series_child_5", parentId: 6000, label: "series-child" },
++            ...ledger.children.map((child) => ({
++              ...child,
++              label: "series-child",
++            })),
+           ]),
+         });
++        assert.equal(statements, ledger.statements);
++        // Every member was admitted before the first effect. The count is
++        // recorded ONCE, at the statement where the first child became
++        // visible, and compared here with the FINAL ledger this engine's own
++        // total selects: an admission that happened after an effect leaves the
++        // recorded count short and fails. Neither engine's constant appears.
++        assert.equal(
++          admissionsBeforeFirstEffect,
++          seriesAdmissions(seriesLedger(defaults.length)),
++          "series effects started before every member was admitted"
++        );
+         assert.deepEqual(reachedCuts, [
+           "selected-roots-captured",
+           "first-member-visible",
+@@ -237,13 +323,17 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
+         ]);
+       },
+       (database, rows, defaults) => {
++        statements++;
+         const cuts = [];
+         // Stock SQLite typed results retain INTEGER keys as bigint until parsing.
+         if (
+-          rows.length === 2 &&
+-          rows.some((row) => row?.id === 5000n) &&
+-          rows.some((row) => row?.id === 6000n)
++          rows.length === SERIES_2_ROOTS.length &&
++          SERIES_2_ROOTS.every((id) =>
++            rows.some((row) => row?.id === BigInt(id))
++          )
+         ) {
++          // Engine-independent: the roots are captured before ANY member is
++          // admitted, so only the operation's own public admission has run.
+           assert.equal(
+             defaults.length,
+             1,
+@@ -257,22 +347,18 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
+           )
+           .all();
+         if (children.length > 0) {
+-          assert.equal(
+-            defaults.length,
+-            5,
+-            "series effects started before every member was admitted"
+-          );
+-          assert.deepEqual(children[0], {
+-            id: "series_child_3",
+-            parentId: 5000,
+-          });
++          // `seriesLedger` carries the real cut here: an admission count that
++          // explains neither engine fails inside it. The count itself is
++          // recorded once and adjudicated against the final ledger in
++          // `verify`, where a late admission is still visible.
++          const ledger = seriesLedger(defaults.length);
++          admissionsBeforeFirstEffect ??= defaults.length;
++          assert.deepEqual(children[0], ledger.children[0]);
+           cuts.push("first-member-visible");
+         }
+         if (children.length > 1) {
+-          assert.deepEqual(children[1], {
+-            id: "series_child_5",
+-            parentId: 6000,
+-          });
++          const ledger = seriesLedger(defaults.length);
++          assert.deepEqual(children[1], ledger.children[1]);
+           cuts.push("second-member-visible");
+         }
+         return cuts;
+diff --git a/src/query-engine/raptor3/AGENTS.md b/src/query-engine/raptor3/AGENTS.md
+index fba21c72..b6e0c8c9 100644
+--- a/src/query-engine/raptor3/AGENTS.md
++++ b/src/query-engine/raptor3/AGENTS.md
+@@ -411,7 +411,16 @@ write and for every relation-free `createMany`/`updateMany`/`deleteMany` alike 
+ and with the envelope gone that whole family of candidate-only meta disappears,
+ at the price he accepted: a folded root single-record write rejected on a
+ batch-only transport publishes the shipped raw error, with no segment progress
+-and no `mayHaveCommittedSegment` at all.
++and no `mayHaveCommittedSegment` at all. The converse is the same price read
++from the other side and is equally the contract (**D-7.1**, Arnaud 2026-09-16,
++"accept the difference"): a root `update` or `delete` rejected before dispatch
++on a batch-only driver publishes NO `statementIndex` where the shipped engine
++publishes `0`, because the shipped fold is two statements (presence guard plus
++mutation, a real batch) and this engine's is ONE statement with a JavaScript
++postcondition, so the driver seam has no batch to index. It is a recorded
++diagnostic-meta difference, pinned as row 7 of
++`tests/raptor3/g4/unit02/lone-statement-transport.test.ts`; do not add a
++per-verb branch or a second statement to manufacture the index.
+ 
+ A packaged operation has no JavaScript postcondition available, so its
+ single-row premise becomes a STATEMENT: one `assertions.exists` over the same
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index f5034ede..984b7afb 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -22,6 +22,7 @@ import { CommandExecution } from "./execution";
+ import { RelationBody } from "./relation-body";
+ import {
+   type BoundMembership,
++  type DeferredFailure,
+   Selection,
+   type SelectionSource,
+ } from "./selection";
+@@ -78,7 +79,7 @@ export interface RecordSeriesCommand {
+ export interface MembershipRequirement {
+   readonly selection: Selection;
+   readonly membership: BoundMembership;
+-  readonly failure: Error;
++  readonly failure: DeferredFailure;
+ }
+ export interface JunctionCapture {
+   readonly kind: "junction";
+@@ -92,7 +93,7 @@ export interface AbsenceRequirement {
+   readonly model: AnyModel;
+   readonly membership: BoundMembership;
+   readonly excluding: Assignments[];
+-  readonly failure: Error;
++  readonly failure: DeferredFailure;
+ }
+ export interface Condition {
+   readonly lookup: Selection;
+@@ -989,7 +990,7 @@ export class Commands {
+   lookup(
+     model: AnyModel,
+     source: SelectionSource,
+-    required?: Error,
++    required?: DeferredFailure,
+     facts?: SelectorFacts
+   ): Selection {
+     return new Selection(this.execution, model, source, required, facts);
+@@ -1255,7 +1256,7 @@ export class Commands {
+               this.lookup(
+                 model,
+                 { kind: "query", where: args.where!, unique: true },
+-                new NotFoundError(model["~"].names.ts!, "update")
++                () => new NotFoundError(model["~"].names.ts!, "update")
+               ),
+               args.data,
+               raw.data
+@@ -1284,7 +1285,7 @@ export class Commands {
+     const selection = this.lookup(
+       model,
+       { kind: "query", where: args.where },
+-      new NotFoundError(model["~"].names.ts!, "update")
++      () => new NotFoundError(model["~"].names.ts!, "update")
+     );
+     const analysis = this.update(selection, updateData, raw.data, true);
+     const series: SelectedSeries = {
+diff --git a/src/query-engine/raptor3/commands/execution.ts b/src/query-engine/raptor3/commands/execution.ts
+index afdd3125..1b888ba5 100644
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -239,13 +239,13 @@ export class CommandExecution {
+     );
+     const found = rows[0];
+     if (!found) {
+-      if (selection.required) throw selection.required;
++      if (selection.required) throw selection.required();
+       return;
+     }
+     attempt.rows.set(selection, found);
+     attempt.bind(selection.fields, found);
+     if (this.context.usesBatch && selection.retained)
+-      this.context.requirePresent(selection.captured(), selection.retained);
++      this.context.requirePresent(selection.captured(), selection.retained());
+   }
+   async run(
+     occurrence: CommandOccurrence,
+@@ -266,15 +266,17 @@ export class CommandExecution {
+           !command.located.retained &&
+           !attempt.retained.has(command.located)
+         ) {
++          const missingRow =
++            command.requirement?.failure ?? command.located.required;
+           ctx.requirePresent(
+             command.located.captured(
+               undefined,
+               command.requirement?.membership ?? command.located.membership(),
+               1
+             ),
+-            command.requirement?.failure ??
+-              command.located.required ??
+-              new NotFoundError(command.model["~"].names.ts!, "update")
++            missingRow
++              ? missingRow()
++              : new NotFoundError(command.model["~"].names.ts!, "update")
+           );
+         }
+         await this.requireTransitions(command);
+@@ -354,7 +356,7 @@ export class CommandExecution {
+                 : undefined,
+             }
+           ),
+-          command.failure
++          command.failure()
+         );
+         return;
+       }
+@@ -424,7 +426,7 @@ export class CommandExecution {
+               false,
+               requirement.selection.model
+             );
+-            if (!rows[0]) throw requirement.failure;
++            if (!rows[0]) throw requirement.failure();
+           }
+           if (found) {
+             if (ctx.usesBatch && supplied) {
+diff --git a/src/query-engine/raptor3/commands/relation-body.ts b/src/query-engine/raptor3/commands/relation-body.ts
+index 06195a47..a7e7658f 100644
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -215,10 +215,11 @@ export class RelationBody {
+               unique: nestedTargetAddressesConstraint(edge, verb),
+               membership: { edge, parent: parent.located!.fields },
+             },
+-            new NestedWriteError(
+-              `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
+-              edge.name
+-            )
++            () =>
++              new NestedWriteError(
++                `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
++                edge.name
++              )
+           );
+           outgoing.origin = origin;
+           this.membershipSource(edge, parent.located!.fields);
+@@ -448,19 +449,21 @@ export class RelationBody {
+             edge.target,
+             selectionSource,
+             verb === "connect" || verb === "update"
+-              ? new NestedWriteError(
+-                  `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
+-                  edge.name
+-                )
++              ? () =>
++                  new NestedWriteError(
++                    `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
++                    edge.name
++                  )
+               : undefined,
+             facts
+           );
+           lookup.origin = origin;
+           if (verb === "connectOrCreate")
+-            lookup.retained = new NestedWriteError(
+-              "Record was replaced by another transaction during nested connectOrCreate",
+-              edge.name
+-            );
++            lookup.retained = () =>
++              new NestedWriteError(
++                "Record was replaced by another transaction during nested connectOrCreate",
++                edge.name
++              );
+           lookup.membershipOnly =
+             verb === "connect" &&
+             !(edge.kind === "reference" && edge.owner === "source");
+@@ -476,10 +479,11 @@ export class RelationBody {
+             foundMembership && {
+               selection: lookup,
+               membership: foundMembership,
+-              failure: new NestedWriteError(
+-                `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
+-                edge.name
+-              ),
++              failure: () =>
++                new NestedWriteError(
++                  `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
++                  edge.name
++                ),
+             };
+           const target: Choose = {
+             kind: "choose",
+@@ -558,10 +562,11 @@ export class RelationBody {
+               where,
+               membership: { edge, parent: parent.fields },
+             },
+-            new NestedWriteError(
+-              `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
+-              edge.name
+-            )
++            () =>
++              new NestedWriteError(
++                `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
++                edge.name
++              )
+           );
+           selection.origin = origin;
+           const mutation: SelectedSeries["mutation"] =
+@@ -636,10 +641,11 @@ export class RelationBody {
+           where,
+           unique: nestedTargetAddressesConstraint(edge, "set"),
+         },
+-        new NestedWriteError(
+-          `Cannot set relation '${edge.name}': target record was not found.`,
+-          edge.name
+-        )
++        () =>
++          new NestedWriteError(
++            `Cannot set relation '${edge.name}': target record was not found.`,
++            edge.name
++          )
+       );
+       lookup.origin = this.commands.createOrigin(edge.name, "set");
+       this.requireLookup(lookup);
+@@ -675,10 +681,11 @@ export class RelationBody {
+           model: edge.target,
+           membership: { edge, parent: parent.located!.fields },
+           excluding: targets.map((target) => target.lookup.fields),
+-          failure: new NestedWriteError(
+-            `Cannot set relation '${edge.name}' because foreign key field(s) ${required.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
+-            edge.name
+-          ),
++          failure: () =>
++            new NestedWriteError(
++              `Cannot set relation '${edge.name}' because foreign key field(s) ${required.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
++              edge.name
++            ),
+         };
+         this.commands.place(
+           parent,
+diff --git a/src/query-engine/raptor3/commands/selection.ts b/src/query-engine/raptor3/commands/selection.ts
+index 95ec4676..b22173e1 100644
+--- a/src/query-engine/raptor3/commands/selection.ts
++++ b/src/query-engine/raptor3/commands/selection.ts
+@@ -14,6 +14,19 @@ export interface BoundMembership {
+   readonly edge: Membership;
+   readonly parent: Assignments;
+ }
++/**
++ * A failure a PLAN knows how to build, not one it owns.
++ *
++ * Every one of these sentences is a pure function of construction-time facts —
++ * the verb and the relation name — so the plan carries the recipe and the one
++ * site that actually raises it builds it. Constructing them while nothing has
++ * failed ran the whole `VibORMError` constructor (two stack captures, two
++ * metadata sanitisations) on the success path of every nested write, which the
++ * G4 cutover diagnosis measured (`g4/cutover/perf-diagnosis.md` §4.1, cause
++ * 1b). The thunk is called EXACTLY where the old value was raised or handed to
++ * an assertion, so the error a caller sees is byte-identical.
++ */
++export type DeferredFailure = () => Error;
+ export type SelectionSource =
+   | {
+       readonly kind: "query";
+@@ -101,14 +114,14 @@ export class Selection {
+   private readonly rowProjection: PreparedProjection;
+   private readonly identityProjection: PreparedProjection;
+   origin?: Origin;
+-  retained?: Error;
++  retained?: DeferredFailure;
+   membershipOnly?: boolean;
+ 
+   constructor(
+     private readonly execution: CommandExecution,
+     readonly model: AnyModel,
+     readonly source: SelectionSource,
+-    readonly required?: Error,
++    readonly required?: DeferredFailure,
+     facts?: SelectorFacts
+   ) {
+     const queries = execution.context.queries;
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index 4f30e007..0e0b56ec 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -155,9 +155,27 @@ export class OperationContext {
+    */
+   private heldOutcomeFailure?: { readonly failure: unknown };
+   private atomicAssertionRejection?: unknown;
+-  private readonly incompletePreparation = new Error(
+-    "Raptor 3 operation requires dynamic execution"
+-  );
++  private incompletePreparationSentinel?: Error;
++  /**
++   * The preparation sentinel, built on its FIRST use and never before.
++   *
++   * It is a control-flow value, not a diagnostic: it is compared by identity
++   * ({@link isIncompletePreparation}) and thrown by the four preparation-only
++   * refusals, and no caller ever sees it — `prepareBatch`
++   * (`commands/index.ts:204`) turns it into `undefined`. Constructing it in the
++   * field block cost a full V8 stack capture on EVERY operation, prepared or
++   * not, which the G4 cutover diagnosis measured as the dominant share of the
++   * preparation regression (`g4/cutover/perf-diagnosis.md` §4.1). It stays an
++   * `Error` — a branded object would lose the `cause` link
++   * `attachRecordSeriesProgress` attaches only to an `Error`
++   * (`src/errors/record-series-progress.ts:26-28`) on the one path that wraps
++   * it (a batch-preparation prefix flush, `commands/execution.ts:382`).
++   */
++  private get incompletePreparation(): Error {
++    return (this.incompletePreparationSentinel ??= new Error(
++      "Raptor 3 operation requires dynamic execution"
++    ));
++  }
+   private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
+   private readonly preparedGuards: PreparedBatchGuard[] = [];
+   /**
+@@ -180,9 +198,19 @@ export class OperationContext {
+    */
+   private envelope: "open" | "deferred" | "statement" = "open";
+   private performed = 0;
+-  private readonly requiresEnvelope = new Error(
+-    "Raptor 3 operation requires its physical envelope"
+-  );
++  private requiresEnvelopeSentinel?: Error;
++  /**
++   * The envelope sentinel, built on its FIRST use and never before — the same
++   * control-flow value as {@link incompletePreparation} and for the same
++   * reason. It is raised by {@link dispatch} and caught by its one reader
++   * ({@link run}), which compares it by identity; a successful operation never
++   * materialises it, and an operation that does pays for exactly one.
++   */
++  private get requiresEnvelope(): Error {
++    return (this.requiresEnvelopeSentinel ??= new Error(
++      "Raptor 3 operation requires its physical envelope"
++    ));
++  }
+   constructor(
+     readonly schema: EngineSchema,
+     factoryDriver: AnyDriver,
+@@ -1824,7 +1852,12 @@ export class OperationContext {
+           .state;
+         // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
+         // publication gap, raised where it always was — before any statement of
+-        // this update is dispatched, so nothing is written. On a driver with no
++        // this update is dispatched, so nothing is written. The class is
++        // `UnsupportedOperationError` (V8003 UNSUPPORTED_OPERATION, Arnaud
++        // 2026-09-16, R-D3-class): a consumer can tell this deliberate
++        // capability boundary from a crash by class, which the base
++        // `QueryEngineError` (V9001 INTERNAL_ERROR) did not allow. The sentence
++        // and the `meta` are unchanged. On a driver with no
+         // interactive transaction the evaluated value has to travel through the
+         // adapter's batch scratch, which is read back with an integer cast
+         // (below), so an `int` field is the only domain a dependent can demand
+@@ -1832,7 +1865,7 @@ export class OperationContext {
+         // (and an answer to the decimal rounding question `Queries.updateValue`
+         // refuses), which is a capability change, not an identity.
+         if (state.type !== "int")
+-          throw new QueryEngineError(
++          throw new UnsupportedOperationError(
+             `Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`,
+             {
+               meta: {
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 9bbdd44b..8ced3819 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -484,6 +484,36 @@ export class Queries {
+   alias(): string {
+     return `q${this.nextAlias++}`;
+   }
++  /**
++   * The FIRST alias of one statement, which opens that statement's alias scope.
++   *
++   * An alias is a fact of the statement it names, not of this owner's history,
++   * so a statement whose first alias is minted by one of the six owners named
++   * below starts at `q0`, and the same logical query always emits the same
++   * text. Without it the engine-lifetime read owner
++   * (`commands/index.ts`) minted `q0, q1, … q10000` for the SAME
++   * `findUnique`, so its statement text was unique per call — measured as an
++   * obstacle by the cutover protocol (`g4/cutover/protocol.md` §7.2) and a
++   * guaranteed miss for any transport that caches by statement text
++   * (PostgreSQL named statements, `mysql2`'s prepare cache, D1/PlanetScale).
++   *
++   * The SIX owners that open a statement are {@link select}, {@link aggregated},
++   * {@link grouped}, {@link selectSeries}, {@link recursive} and
++   * {@link junction} — every method here that assembles a complete statement —
++   * and each calls this before any other alias of that statement. Nothing else
++   * may: a `lower…` fragment continues the statement it is part of, because a
++   * mutation statement is assembled from several of them by the physical owner
++   * (`OperationContext`'s `lowerMutationLimit` + `lowerProjection` pair) and
++   * two fragments of ONE statement must not both start at `q0`. For the same
++   * reason no statement owner may be entered while another statement is being
++   * built: a nested complete statement is a subquery of its parent and shares
++   * the parent's scope, which is why the nested relation projection, the
++   * correlated count and the cursor window mint plain {@link alias}es.
++   */
++  private rootAlias(): string {
++    this.nextAlias = 0;
++    return this.alias();
++  }
+   table(model: AnyModel, alias?: string): Sql {
+     return this.adapter.identifiers.table(model["~"].names.sql!, alias);
+   }
+@@ -718,7 +748,7 @@ export class Queries {
+     forUpdate = false,
+   ): Query {
+     const a = this.adapter;
+-    const alias = this.alias();
++    const alias = this.rootAlias();
+     const owner =
+       edge.uniqueSide === "target" ? edge.sourceSide : edge.targetSide;
+     const fields: Record<string, Leaf> = {};
+@@ -2348,7 +2378,7 @@ export class Queries {
+       selector?: PreparedSelector;
+     } = {},
+   ): Query {
+-    const alias = this.alias();
++    const alias = this.rootAlias();
+     // The shipped owner sequence, and the reason it is stated here: when one
+     // call violates two contracts at once, the refusal the caller sees is the
+     // one whose owner runs first. `buildFind` (`operations/find-common.ts`)
+@@ -2548,7 +2578,7 @@ export class Queries {
+     shape: (alias: string) => Extract<Shape, { kind: "object" }>,
+   ): Query {
+     const a = this.adapter;
+-    const inner = this.alias();
++    const inner = this.rootAlias();
+     const page = this.page(model, args, inner);
+     const filter = this.lowerWhere(model, args.where, inner);
+     const window = assembleAdapterSelect(a, {
+@@ -2696,7 +2726,7 @@ export class Queries {
+     operation: "createMany" | "updateMany" = "createMany"
+   ): Query {
+     const model = prepared.model;
+-    const alias = this.alias();
++    const alias = this.rootAlias();
+     const projection = this.lowerProjection(prepared, alias);
+     const predicates = identities.map(
+       (identity) => this.lowerIdentity(model, identity, alias),
+@@ -2752,7 +2782,7 @@ export class Queries {
+         `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`,
+       );
+     const a = this.adapter;
+-    const cteName = this.alias();
++    const cteName = this.rootAlias();
+     const occupied = new Set(
+       storedFields(this.schema, model).map((field) =>
+         this.columnName(model, field),
+@@ -3342,7 +3372,7 @@ export class Queries {
+   }
+   grouped(model: AnyModel, args: Arguments): Query {
+     const a = this.adapter;
+-    const alias = this.alias();
++    const alias = this.rootAlias();
+     const by = args.by!;
+     const aggregates = this.prepareAggregates(model, args);
+     const fields: Record<string, Shape | Leaf> = {};
+diff --git a/src/query-engine/raptor3/shared/schema.ts b/src/query-engine/raptor3/shared/schema.ts
+index fe21b52f..8bfc956d 100644
+--- a/src/query-engine/raptor3/shared/schema.ts
++++ b/src/query-engine/raptor3/shared/schema.ts
+@@ -516,11 +516,22 @@ export class EngineSchema {
+     }
+     return fields;
+   }
++  /**
++   * The admitted payload's scalar fields, in the model's own scalar order.
++   *
++   * One pass into one object. The model's scalar order is already memoised by
++   * the model itself (`schema/model/model.ts`, `_scalarFieldNames ??=`), so the
++   * only per-call cost left was the three intermediates
++   * `Object.fromEntries(names.filter(…).map(…))` built — on a normalization
++   * every row of every `createMany` crosses (`g4/cutover/perf-diagnosis.md`
++   * §4.2). Same keys, same order, same values.
++   */
+   scalars(model: AnyModel, admitted: Input): Input {
+-    return Object.fromEntries(
+-      model["~"].scalarFieldNames
+-        .filter((field) => admitted[field] !== undefined)
+-        .map((field) => [field, admitted[field]])
+-    );
++    const values: Input = {};
++    for (const field of model["~"].scalarFieldNames) {
++      const value = admitted[field];
++      if (value !== undefined) values[field] = value;
++    }
++    return values;
+   }
+ }
+diff --git a/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts b/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
+index be550f4c..2d1f529c 100644
+--- a/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
++++ b/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
+@@ -361,10 +361,11 @@ function overlapCommands(
+         where: selector,
+         membership: { edge, parent: root.fields },
+       },
+-      new NestedWriteError(
+-        "Cannot update relation 'kids': target record was not found for this parent.",
+-        "kids"
+-      )
++      () =>
++        new NestedWriteError(
++          "Cannot update relation 'kids': target record was not found for this parent.",
++          "kids"
++        )
+     );
+     selection.membershipOnly = true;
+     selection.origin = origin;
+@@ -845,7 +846,7 @@ function seriesCommands(
+   const located = commands.lookup(
+     schema.shelf,
+     { kind: "query", where: admitted.where! },
+-    new NotFoundError("shelf", "update")
++    () => new NotFoundError("shelf", "update")
+   );
+   const root = commands.update(located, admitted.data, raw.data);
+   for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
+diff --git a/tests/raptor3/core-structure/structural-reference.test.ts b/tests/raptor3/core-structure/structural-reference.test.ts
+index b954c597..0253d433 100644
+--- a/tests/raptor3/core-structure/structural-reference.test.ts
++++ b/tests/raptor3/core-structure/structural-reference.test.ts
+@@ -222,7 +222,7 @@ function priorityCommands(
+   const located = commands.lookup(
+     schema.shelf,
+     { kind: "query", where: admitted.where! },
+-    new NotFoundError("shelf", "update")
++    () => new NotFoundError("shelf", "update")
+   );
+   const root = commands.update(located, admitted.data, raw.data);
+   for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
+@@ -548,10 +548,11 @@ async function executeReconciliationPublication(
+       where: record(consumerMember.where),
+       membership: { edge, parent: root.fields },
+     },
+-    new NestedWriteError(
+-      "Cannot update relation 'kids': target record was not found for this parent.",
+-      "kids"
+-    )
++    () =>
++      new NestedWriteError(
++        "Cannot update relation 'kids': target record was not found for this parent.",
++        "kids"
++      )
+   );
+   const origin = commands.createOrigin("kids", "updateMany");
+   selection.origin = origin;
+diff --git a/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts b/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts
+index daca8761..cf7db3cb 100644
+--- a/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts
++++ b/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts
+@@ -4,7 +4,12 @@
+  * The decision: the bare `Error: Raptor 3 update expression publication
+  * requires an integer field` becomes a registered `QueryEngineError` naming the
+  * model, the field and the operation, with `meta { model, operation, field }`,
+- * raised at the same point — before any statement is dispatched.
++ * raised at the same point — before any statement is dispatched. Arnaud
++ * answered R-D3-class on 2026-09-16: the class is `UnsupportedOperationError`
++ * (V8003 UNSUPPORTED_OPERATION), the `QueryEngineError` subclass that names a
++ * deliberate capability boundary rather than a crash; the sentence, the `meta`
++ * and the raise point are unchanged, so every assertion below still holds with
++ * the answer's class name updated.
+  *
+  * The author's two cells measure ONE domain (`number`) and one operation
+  * (`upsert`). This probe asks the questions they do not:
+@@ -23,7 +28,7 @@ import type {
+   QueryResult,
+ } from "@drivers";
+ import { SQLite3Driver } from "@drivers/sqlite3";
+-import { QueryEngineError } from "@errors";
++import { QueryEngineError, UnsupportedOperationError } from "@errors";
+ import { createCommandEngine } from "@query-engine/raptor3/commands";
+ import { s } from "@schema";
+ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+@@ -164,7 +169,12 @@ describe("G4-02 decisions review — R-D3's identity across the non-int domains"
+       );
+       assert.equal(
+         candidate.answer,
+-        `QueryEngineError: Cannot publish the updated value of '${model}.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a ${type} field.`,
++        `UnsupportedOperationError: Cannot publish the updated value of '${model}.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a ${type} field.`,
++        name
++      );
++      assert.equal(
++        candidate.raised instanceof UnsupportedOperationError,
++        true,
+         name
+       );
+       assert.equal(candidate.raised instanceof QueryEngineError, true, name);
+diff --git a/tests/raptor3/g4/unit02/key-arithmetic.test.ts b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
+index 209320cc..372f9fe0 100644
+--- a/tests/raptor3/g4/unit02/key-arithmetic.test.ts
++++ b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
+@@ -42,7 +42,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+ import { createClient } from "@client/client";
+ import { SQLite3Driver } from "@drivers/sqlite3";
+-import { QueryEngineError } from "@errors";
++import { QueryEngineError, UnsupportedOperationError } from "@errors";
+ import { createCommandEngine } from "@query-engine/raptor3/commands";
+ import { Queries } from "@query-engine/raptor3/shared/query";
+ import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+@@ -486,8 +486,12 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
+    * demanded by a dependent cannot be published. Arnaud decided on 2026-09-15:
+    * "give it a public identity now" (R-D3). The refusal is raised at the same
+    * point it always was — before any statement of the update is dispatched — and
+-   * is now a registered `QueryEngineError` naming the model, the field and the
+-   * operation, with `meta` `{ model, operation, field }`.
++   * is now a registered `UnsupportedOperationError` naming the model, the field
++   * and the operation, with `meta` `{ model, operation, field }`. The CLASS is
++   * Arnaud's 2026-09-16 answer to R-D3-class: `UnsupportedOperationError`
++   * (V8003 UNSUPPORTED_OPERATION), a `QueryEngineError` subclass, so a consumer
++   * can tell this deliberate capability boundary from a crash (V9001
++   * INTERNAL_ERROR) without reading the sentence.
+    *
+    * The divergence from the shipped row answer is the recorded, accepted half of
+    * the decision: the shipped engine computes the value in JavaScript and
+@@ -540,11 +544,17 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
+       // The accepted divergence, recorded: the shipped engine computes the
+       // value in JavaScript and answers the row.
+       assert.equal(shipped.answer, shippedAnswer);
+-      // The decided identity: a registered QueryEngineError, naming the model,
+-      // the field and the operation, raised before any statement is dispatched.
++      // The decided identity: a registered UnsupportedOperationError (R-D3
++      // plus R-D3-class), naming the model, the field and the operation, raised
++      // before any statement is dispatched. It is still a QueryEngineError —
++      // the class narrows the code, it does not leave the family.
+       assert.equal(
+         candidate.answer,
+-        "QueryEngineError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
++        "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
++      );
++      assert.equal(
++        candidate.raised instanceof UnsupportedOperationError,
++        true
+       );
+       assert.equal(candidate.raised instanceof QueryEngineError, true);
+       assert.deepEqual(
+diff --git a/tests/raptor3/g4/unit02/prepared-operation.test.ts b/tests/raptor3/g4/unit02/prepared-operation.test.ts
+index 68b8171f..73481d0a 100644
+--- a/tests/raptor3/g4/unit02/prepared-operation.test.ts
++++ b/tests/raptor3/g4/unit02/prepared-operation.test.ts
+@@ -171,4 +171,43 @@ describe("G4-02 prepared operation boundary", () => {
+     const rows = await world.driver._executeBatch(packaged.queries);
+     assert.throws(() => packaged.parseResult(rows), NotFoundError);
+   });
++
++  it("answers undefined for an operation that cannot be packaged, every time", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // The incomplete-preparation sentinel is control flow, and `prepareBatch`
++    // recognises it by IDENTITY inside its own `catch`. The sentinel is built
++    // on first use and memoised, so a sentinel that were not the same object
++    // on a second read would make this boundary either swallow a real refusal
++    // or leak its own control-flow sentence to the caller — both silent, and
++    // neither visible to any other registered cell. A nested write whose plan
++    // needs a row it has not read yet is the shape that raises it.
++    for (let repeat = 0; repeat < 4; repeat++) {
++      const prepared = await engine.prepareBatch("author", "update", {
++        where: { id: 1 },
++        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
++      });
++      assert.equal(
++        prepared,
++        undefined,
++        "a dynamic operation packaged statically"
++      );
++    }
++    // …while a statically packageable operation still packages on the same
++    // engine, interleaved with the sentinel path so neither masks the other.
++    for (let repeat = 0; repeat < 4; repeat++) {
++      const packaged = await engine.prepareBatch("author", "findUnique", {
++        where: { id: 1 },
++        select: { id: true },
++      });
++      assert.ok(packaged, "a static read did not package");
++      await engine.prepareBatch("author", "update", {
++        where: { id: 1 },
++        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
++      });
++    }
++  });
+ });
+diff --git a/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts b/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
+new file mode 100644
+index 00000000..d4657495
+--- /dev/null
++++ b/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
+@@ -0,0 +1,157 @@
++/**
++ * G4 performance pass, item 3 — a statement's aliases are a fact of that
++ * statement, not of the engine's history.
++ *
++ * `Queries` used to mint table aliases from an instance-lifetime counter, and
++ * `commands/index.ts` keeps ONE engine-lifetime `Queries` for the prepared
++ * read, so the same `findUnique` published `q0`, then `q1`, … `q10000`: its
++ * statement TEXT was unique per call. The cutover protocol recorded that as a
++ * measurement obstacle (`g4/cutover/protocol.md` §7.2,
++ * `receipts-stage2/prepared-sql-alias-drift.json`), and any transport that
++ * caches by statement text — PostgreSQL named prepared statements, `mysql2`'s
++ * prepare cache, D1/PlanetScale/Neon — would miss every time while growing a
++ * per-connection cache keyed on a counter that never repeats.
++ *
++ * `Queries.rootAlias` is the fix: the six owners that assemble a COMPLETE
++ * statement open its alias scope, and nothing else does. These cells pin both
++ * halves of that rule — the same query always emits the same text, and the
++ * subqueries INSIDE one statement keep sharing its scope, which is what makes
++ * the aliases unique where it matters.
++ *
++ * Not registered in `scripts/raptor3-manifest.mjs` by this unit (the pass edits
++ * no manifest); the count is reported to the integrator for `g4-unit02-author`.
++ */
++
++import assert from "node:assert/strict";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { afterEach, describe, it } from "vitest";
++import { createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++/** The statement texts one prepared operation publishes, in order. */
++async function preparedSql(
++  engine: ReturnType<typeof createCommandEngine>,
++  model: string,
++  operation: string,
++  args: unknown
++): Promise<string[]> {
++  const prepared = await engine.prepareBatch(
++    model,
++    operation as Parameters<typeof engine.prepareBatch>[1],
++    args
++  );
++  assert.ok(prepared, `${model}.${operation} did not package statically`);
++  return prepared.queries.map((query) => query.sql);
++}
++
++describe("G4 perf item 3 — statement-scoped SQL aliases", () => {
++  it("publishes byte-identical SQL for two successive identical findUnique calls", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const args = { where: { id: 1 }, select: { id: true, name: true } };
++    const first = await preparedSql(engine, "author", "findUnique", args);
++    const second = await preparedSql(engine, "author", "findUnique", args);
++    assert.deepEqual(second, first);
++    assert.equal(first.length, 1);
++    // Every statement starts at `q0`, so the text is a function of the query.
++    assert.match(first[0]!, /"q0"/);
++    assert.doesNotMatch(first[0]!, /"q1"/);
++
++    // …and it stays that text after twenty more of the same call, and after
++    // OTHER operations have minted aliases on the same engine in between.
++    for (let index = 0; index < 20; index++) {
++      assert.deepEqual(
++        await preparedSql(engine, "author", "findUnique", args),
++        first
++      );
++      assert.deepEqual(
++        await preparedSql(engine, "post", "findMany", {
++          where: { rank: { gt: 0 } },
++          select: { id: true },
++        }),
++        await preparedSql(engine, "post", "findMany", {
++          where: { rank: { gt: 0 } },
++          select: { id: true },
++        })
++      );
++    }
++    assert.deepEqual(
++      await preparedSql(engine, "author", "findUnique", args),
++      first
++    );
++  });
++
++  it("keeps one statement's nested scopes inside that statement's alias scope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // A nested to-many projection is a correlated subquery of the SAME
++    // statement: it must continue the statement's counter, never restart it,
++    // or the subquery would address the root's own alias.
++    const [nested] = await preparedSql(engine, "author", "findMany", {
++      select: { id: true, posts: { select: { id: true, title: true } } },
++    });
++    assert.ok(nested);
++    const declared = [...nested.matchAll(/AS "(q\d+)"/g)].map(
++      (match) => match[1]!
++    );
++    assert.deepEqual(
++      [...new Set(declared)].length,
++      declared.length,
++      `one statement declared an alias twice: ${nested}`
++    );
++    assert(
++      declared.length > 1,
++      "the nested projection declared no second alias"
++    );
++    // One contiguous run from `q0`: the subquery continued the statement's own
++    // scope instead of opening a second one that would collide with the root.
++    const used = [...new Set([...nested.matchAll(/"(q\d+)"/g)].map((m) => m[1]!))]
++      .map((alias) => Number(alias.slice(1)))
++      .sort((left, right) => left - right);
++    assert.deepEqual(
++      used,
++      used.map((_, index) => index),
++      `one statement's aliases are not one run from q0: ${nested}`
++    );
++
++    // The same statement, again: still byte-identical.
++    const [again] = await preparedSql(engine, "author", "findMany", {
++      select: { id: true, posts: { select: { id: true, title: true } } },
++    });
++    assert.equal(again, nested);
++  });
++
++  it("gives every statement of one multi-statement operation its own scope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // A bulk delete with a limit is one mutation statement whose predicate
++    // carries a capped subquery: the fragment and the mutation share ONE scope,
++    // so the capped select's alias is the statement's own first alias.
++    const [capped] = await preparedSql(engine, "post", "deleteMany", {
++      where: { rank: { gt: 0 } },
++      limit: 1,
++    });
++    assert.ok(capped);
++    assert.match(capped, /"q0"/);
++    const repeated = await preparedSql(engine, "post", "deleteMany", {
++      where: { rank: { gt: 0 } },
++      limit: 1,
++    });
++    assert.equal(repeated[0], capped);
++  });
++});

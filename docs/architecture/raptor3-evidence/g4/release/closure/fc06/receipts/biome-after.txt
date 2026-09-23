@@ -1,0 +1,12 @@
+scripts/raptor3-refusal-census.mjs                   AFTER: 
+scripts/raptor3-refusal-census.test.mjs              AFTER: 
+scripts/raptor3-manifest.mjs                         AFTER: (72 errors) (71 errors) 
+scripts/raptor3-campaign-receipts.test.mjs           AFTER: need to be formatted (53 errors) (46 errors) (3 errors) (2 errors) 
+scripts/run-raptor3.mjs                              AFTER: need to be formatted (37 errors) (2 errors) (18 errors) (8 errors) (7 errors) 
+package.json                                         AFTER: 
+CHANGELOG.md                                         AFTER: 
+.github/workflows/ci.yml                             AFTER: 
+.github/workflows/release.yml                        AFTER: 
+docs/content/docs/drivers/index.mdx                  AFTER: 
+src/query-engine/raptor3/AGENTS.md                   AFTER: 
+docs/architecture/raptor3-evidence/g4/final-report.md AFTER: 

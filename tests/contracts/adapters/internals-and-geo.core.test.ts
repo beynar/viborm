@@ -7,6 +7,7 @@ import { installGeoPointSql } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { createOnConflictBatchRefs } from "@adapters/shared/batch-refs";
 import {
   geoBoundsIndexPolygons,
   geoPolygonJson,
@@ -169,6 +170,58 @@ describe("adapter SELECT assembly", () => {
 });
 
 describe("private adapter seam", () => {
+  test("owns exact provider constraint names without a public property", () => {
+    const postgres = new PostgresAdapter();
+    const mysql = new MySQLAdapter();
+    const sqlite = new SQLiteAdapter();
+
+    expect(
+      getAdapterInternals(postgres).constraints.primaryKey("account", ["id"])
+    ).toEqual({
+      name: "account_pkey",
+      normalizedError: { table: "account", constraint: "account_pkey" },
+    });
+    expect(
+      getAdapterInternals(mysql).constraints.primaryKey("account", ["id"])
+    ).toEqual({
+      name: "PRIMARY",
+      normalizedError: { table: "account", constraint: "PRIMARY" },
+    });
+    expect(
+      getAdapterInternals(sqlite).constraints.unique("account", "email", [
+        "email_address",
+      ])
+    ).toEqual({
+      name: "account_email_key",
+      normalizedError: { columns: ["account.email_address"] },
+    });
+    // The other half of the same matrix: a named dialect identifies a unique
+    // key by CONSTRAINT, and SQLite identifies a primary key by qualified
+    // COLUMNS, because that is the only evidence each provider's error gives.
+    for (const named of [postgres, mysql]) {
+      expect(
+        getAdapterInternals(named).constraints.unique("account", "email", [
+          "email_address",
+        ])
+      ).toEqual({
+        name: "account_email_key",
+        normalizedError: { table: "account", constraint: "account_email_key" },
+      });
+    }
+    expect(
+      getAdapterInternals(sqlite).constraints.primaryKey("account", [
+        "id",
+        "tenant",
+      ])
+    ).toEqual({
+      name: "account_pkey",
+      normalizedError: { columns: ["account.id", "account.tenant"] },
+    });
+    for (const adapter of [postgres, mysql, sqlite]) {
+      expect("constraints" in adapter).toBe(false);
+    }
+  });
+
   test("stock adapters expose batch-reference SQL without a public property", () => {
     for (const adapter of [
       new PostgresAdapter(),
@@ -188,8 +241,83 @@ describe("private adapter seam", () => {
       if (batchRefs.storeLastInsertId) {
         expectComposable(batchRefs.storeLastInsertId("batch-1", "user"));
       }
+      if (batchRefs.storeReturning) {
+        expectComposable(
+          batchRefs.storeReturning(
+            "batch-1",
+            "user",
+            sql`INSERT INTO ${sql.raw`"users"`} DEFAULT VALUES`,
+            sql.raw`"id"`
+          )
+        );
+      }
       expect("batchRefs" in adapter).toBe(false);
     }
+  });
+
+  test("the PostgreSQL batch store carries an INSERT's own RETURNING through a data-modifying CTE (D-50)", () => {
+    const postgres = getAdapterInternals(new PostgresAdapter()).batchRefs;
+    expect(
+      getAdapterInternals(new MySQLAdapter()).batchRefs.storeReturning
+    ).toBeUndefined();
+    expect(
+      getAdapterInternals(new SQLiteAdapter()).batchRefs.storeReturning
+    ).toBeUndefined();
+    const stored = postgres.storeReturning!(
+      "batch-1",
+      "7",
+      sql`INSERT INTO ${sql.raw`"users"`} (${sql.raw`"name"`}) VALUES (${"Ada"})`,
+      sql.raw`"id"`
+    );
+    const statement = stored.toStatement();
+    expect(
+      statement.startsWith(
+        'WITH "__viborm_inserted" AS (INSERT INTO "users" ("name") VALUES ('
+      )
+    ).toBe(true);
+    expect(statement).toContain(
+      'RETURNING "id") INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") SELECT '
+    );
+    expect(
+      statement.endsWith('CAST("id" AS TEXT) FROM "__viborm_inserted"')
+    ).toBe(true);
+    expect(stored.values).toEqual(["Ada", "batch-1", "7"]);
+  });
+
+  test("the dialect states how a generated increment key is stored, in order (D-50)", () => {
+    const insert = sql`INSERT INTO ${sql.raw`"users"`} DEFAULT VALUES`;
+    const column = sql.raw`"id"`;
+    const shapes = (adapter: PostgresAdapter | MySQLAdapter | SQLiteAdapter) =>
+      getAdapterInternals(adapter)
+        .batchRefs.storeInsertedKey?.("batch-1", "7", insert, column)
+        .map((statement) => statement.toStatement().split(" ")[0]);
+    // PostgreSQL: the CTE store is the INSERT itself, one statement.
+    expect(shapes(new PostgresAdapter())).toEqual(["WITH"]);
+    // SQLite and MySQL: the INSERT, then the last insert id store.
+    expect(shapes(new SQLiteAdapter())).toEqual(["INSERT", "INSERT"]);
+    expect(shapes(new MySQLAdapter())).toEqual(["INSERT", "INSERT"]);
+    // A PostgreSQL that cannot mutate inside a CTE offers no exact key store
+    // at all: lastval() is session-global, and the capability is read live.
+    const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsCteWithMutations = false;
+    const refs = getAdapterInternals(adapter).batchRefs;
+    expect(refs.storeReturning).toBeUndefined();
+    expect(refs.storeInsertedKey).toBeUndefined();
+    adapter.capabilities.supportsCteWithMutations = true;
+    expect(refs.storeInsertedKey).toBeDefined();
+    // A dialect with neither exact mechanism states no key store: the engine
+    // then refuses or segments RETURNING, never guesses a session value.
+    const neither = createOnConflictBatchRefs({
+      table: sql.raw`"refs"`,
+      batchIdColumn: sql.raw`"batch_id"`,
+      keyColumn: sql.raw`"ref_key"`,
+      valueColumn: sql.raw`"ref_value"`,
+      createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "refs" ("batch_id" TEXT, "ref_key" TEXT, "ref_value" TEXT)`,
+      castValue: (value) => sql`CAST((${value}) AS TEXT)`,
+    });
+    expect(neither.storeLastInsertId).toBeUndefined();
+    expect(neither.storeReturning).toBeUndefined();
+    expect(neither.storeInsertedKey).toBeUndefined();
   });
 
   test("the PostgreSQL batch store omits unsafe session-global identity", () => {
@@ -429,22 +557,40 @@ describe("adapter result hooks", () => {
   const next = (value?: unknown): unknown =>
     value === undefined ? passthrough : value;
 
-  test("PostgreSQL converts top-level bigint and otherwise passes through", () => {
+  test("PostgreSQL passes every result through", () => {
+    // Until D-40 the first line answered 5: the leg offered
+    // `convertBigIntToNumber(raw)` for every verb. `Queries.decodeResult` hands
+    // this leg the operation's ROW ARRAY, so the bigint it tested for could not
+    // arrive — measured `undefined` on all 40 live asks, `pg` and `postgres.js`
+    // — and an integer's width is a VALUE's fact the engine's `int` codec owns.
     const result = new PostgresAdapter().result;
-    expect(result.parseResult(5n, "count", next)).toBe(5);
+    expect(result.parseResult(5n, "count", next)).toBe(passthrough);
+    expect(result.parseResult([{ _count: "5" }], "count", next)).toBe(
+      passthrough
+    );
     expect(result.parseResult(5, "count", next)).toBe(passthrough);
     expect(result.parseRelation({}, next)).toBe(passthrough);
     expect(result.parseField("value", "string", next)).toBe(passthrough);
   });
 
-  test("MySQL normalizes counts, booleans, and naive UTC datetimes", () => {
+  test("MySQL normalizes booleans and naive UTC datetimes, and passes results through", () => {
+    // Until D-40 the first two lines answered `[{ "0viborm_count_result": … }]`:
+    // the leg offered `normalizeCountResult(raw)` for `count`/`exist`. This
+    // engine names the column `_count` and mysql2 preserves that alias, so the
+    // leg was asked about `[{ _count: 2 }]` and decided nothing on all 20 live
+    // asks — its `count`/`exist` arm was entered on 10 of them and answered
+    // `undefined` every time; the key it produced is one the decoder cannot
+    // read either.
     const result = new MySQLAdapter().result;
-    expect(result.parseResult([{ "COUNT(*)": 2 }], "count", next)).toEqual([
-      { "0viborm_count_result": 2 },
-    ]);
-    expect(result.parseResult({ "COUNT(*)": 1 }, "exist", next)).toEqual([
-      { "0viborm_count_result": 1 },
-    ]);
+    expect(result.parseResult([{ "COUNT(*)": 2 }], "count", next)).toBe(
+      passthrough
+    );
+    expect(result.parseResult({ "COUNT(*)": 1 }, "exist", next)).toBe(
+      passthrough
+    );
+    expect(result.parseResult([{ _count: 2 }], "count", next)).toBe(
+      passthrough
+    );
     expect(result.parseResult([{ id: 1 }], "count", next)).toBe(passthrough);
     expect(result.parseResult([{ "COUNT(*)": 2 }], "findMany", next)).toBe(
       passthrough
@@ -465,6 +611,8 @@ describe("adapter result hooks", () => {
   });
 
   test("SQLite publishes physical promises and otherwise passes through", () => {
+    // The dialect whose result leg was ALWAYS the contract's pass-through, and
+    // after D-40 the shape all three share.
     const result = new SQLiteAdapter().result;
     expect(result.decimalRepresentation).toBe("coefficient");
     expect(result.decimalListRepresentation).toBe("coefficient");

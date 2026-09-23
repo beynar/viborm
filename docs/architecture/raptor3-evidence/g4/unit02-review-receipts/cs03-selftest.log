@@ -1,0 +1,8 @@
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 32 passed (42)
+   Start at  03:29:42
+   Duration  2.13s (transform 1.13s, setup 9ms, collect 1.68s, tests 226ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.38s wall, 576.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

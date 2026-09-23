@@ -1,0 +1,63 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ❯ |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests | 1 failed) 9ms
+   ✓ provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary 2ms
+   ✓ provider-free MySQL catalog reconstruction > undoes both layers of MySQL's deparse, and keeps what it cannot 1ms
+   ✓ provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text 0ms
+   × provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table 3ms
+     → expected 'ENUM(\'a\\b\', \'line1nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+   ✓ coverage low value > refuses the structurally impossible catalog SRID -1 2ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID 4294967296 0ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID not-a-number 0ms
+ ❯ |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests | 1 failed) 9ms
+   ✓ provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary 2ms
+   ✓ provider-free MySQL catalog reconstruction > undoes both layers of MySQL's deparse, and keeps what it cannot 1ms
+   ✓ provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text 0ms
+   × provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table 3ms
+     → expected 'ENUM(\'a\\b\', \'line1nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+   ✓ coverage low value > refuses the structurally impossible catalog SRID -1 2ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID 4294967296 0ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID not-a-number 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table
+AssertionError: expected 'ENUM(\'a\\b\', \'line1nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+
+Expected: [32m"ENUM('a\\b', 'line1[7m\[27mnline2', 'it''s', 'café ☕', 'p\Zq')"[39m
+Received: [31m"ENUM('a\\b', 'line1nline2', 'it''s', 'café ☕', 'p\Zq')"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:468:38
+    466|     // a type MySQL never created.
+    467|     const expected = `${String.raw`ENUM('a\\b', 'line1\nline2', 'it''s…
+    468|     expect(byName.get("kind")?.type).toBe(expected);
+       |                                      ^
+    469|     expect(snapshot.enums).toEqual([
+    470|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table
+AssertionError: expected 'ENUM(\'a\\b\', \'line1nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+
+Expected: [32m"ENUM('a\\b', 'line1[7m\[27mnline2', 'it''s', 'café ☕', 'p\Zq')"[39m
+Received: [31m"ENUM('a\\b', 'line1nline2', 'it''s', 'café ☕', 'p\Zq')"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:468:38
+    466|     // a type MySQL never created.
+    467|     const expected = `${String.raw`ENUM('a\\b', 'line1\nline2', 'it''s…
+    468|     expect(byName.get("kind")?.type).toBe(expected);
+       |                                      ^
+    469|     expect(snapshot.enums).toEqual([
+    470|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 12 passed (14)
+   Start at  23:23:54
+   Duration  1.13s (transform 533ms, setup 15ms, collect 790ms, tests 18ms, environment 0ms, prepare 55ms)
+
+Vitest resources: 2.98s wall, 474.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

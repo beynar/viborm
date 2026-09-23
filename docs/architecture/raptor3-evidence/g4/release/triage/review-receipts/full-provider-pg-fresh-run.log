@@ -1,0 +1,516 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-triage
+
+(node:30377) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections 1116ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds 1183ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions 1109ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs 1122ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh 1095ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions 1244ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical 1317ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering 1189ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases 1333ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes 1191ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset 3219ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates 1032ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude 1005ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression 1058ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate 1300ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Driver Creation > creates driver with connection string 465ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Driver Creation > creates driver with options 340ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > attributes a sequential atomic-batch failure to its exact statement 794ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes INSERT and returns row count 969ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes SELECT and returns rows 937ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes UPDATE and returns affected count 931ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes DELETE and returns affected count 925ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > commits transaction on success 922ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > rolls back transaction on error 911ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > supports nested transactions with savepoints 923ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > rejects removed isolation before opening a transaction 927ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > creates client with schema 442ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > performs CRUD operations via client 814ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > performs transactions via client 951ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > rejects removed isolation at the client boundary 899ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list round-trip > create returns real arrays with typed elements 915ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list round-trip > empty and null lists round-trip 880ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals matches the exact list 878ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals is order-sensitive 877ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals matches empty lists 893ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals matches int lists 940ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals null matches null lists only 880ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > not excludes the matching list and null lists 917ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has matches string elements 877ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has matches int elements 946ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has with no match returns empty 903ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has null is rejected consistently 875ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > hasEvery requires all elements 882ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > hasSome requires any element 927ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list 891ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect 957ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > set replaces the whole list 892ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push appends a single value 909ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push expands an array value element-wise 941ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push appends int elements 900ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push onto an empty list 909ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push onto a null list creates the list 945ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > unshift prepends a single value 892ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > unshift expands an array value element-wise 905ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > equals matches the exact document 886ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > equals does not match a partial document 880ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > equals null matches null json only 942ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > not equals excludes the matching document and nulls 895ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches the scoped value 886ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a nested path 881ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches numbers 878ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents 913ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a missing path matches nothing 885ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys 881ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > integer path segments address array elements 885ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > path segments with dots stay literal 881ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution 939ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > string_contains at a path 879ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND 889ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode 883ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots 897ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_contains requires every candidate element 872ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate 927ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_contains without a path matches array roots only 882ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_starts_with matches the first element 880ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_ends_with matches the last element 916ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > not at a path inherits the path 881ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators 916ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract 875ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded 904ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold 916ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode 900ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode 900ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too 924ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored 955ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form 895ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements 928ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root 884ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form 883ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form 955ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution 918ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal 863ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only 921ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types 887ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point 919ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation 921ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross 881ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error 883ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object 900ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices 918ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root 946ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows 886ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution 898ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only 924ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only 886ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > equals AnyNull matches both 896ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > not DbNull matches every row that holds a document 889ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs 885ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > not AnyNull matches only real documents 899ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > the three equals predicates partition the table 893ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > DbNull and JsonNull are different stored values 917ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > update moves a row between the two nulls 916ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > upsert stores a sentinel on either arm 944ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column 898ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > a bare null in write position is refused, not guessed 914ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > AnyNull is filter-only 954ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column 908ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > a sentinel nested inside a document is refused 884ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > a sentinel under a path is refused before execution 891ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused 900ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root 895ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL 876ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there 892ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > gt compares two columns of the same row 937ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > lt compares two columns of the same row 959ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > gte and lte include the equal row 982ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > equals and not compare two columns of the same row 975ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a bare reference is the equals shorthand 987ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference resolves through .map()ed column names 1022ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > string prefix/suffix/substring predicates accept a reference 950ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a callback is refused where only the token is accepted 989ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation 1006ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column 923ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive contains folds the referenced column 956ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive startsWith folds the referenced column 1042ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive endsWith folds the referenced column 951ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive `not` complements the folded comparison 945ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive mode folds ASCII only 974ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > equals compares two enum columns of the same row 949ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > not complements it 975ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand 966ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name 949ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > lt on an enum is refused with the portability reason 953ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > lte on an enum is refused with the portability reason 958ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > gt on an enum is refused with the portability reason 930ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > gte on an enum is refused with the portability reason 991ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > literal enum filters are untouched 944ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference mixes with literal operands in one filter object 954ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference works inside a nested relation where 1010ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > the nested scope's own model is the one a reference must name 956ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference drives updateMany and deleteMany 974ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > two decimals of the SAME domain compare exactly 959ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > two decimals of DIFFERENT domains are refused before any I/O 929ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a cross-model reference is refused before any I/O 962ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference of the wrong scalar type is refused 936ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference is refused in in/notIn 942ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference is refused in `having`, however deeply nested 1017ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference is refused in JSON filters and JSON write data 975ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > an arithmetic expression compares against the row 956ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table 970ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > an interpolated value rides as a bound parameter 988ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter 972ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment drives updateMany and deleteMany 974ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment survives both execution substrates 1009ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment is refused where a reference is 947ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > datetime round-trips exactly through create and findMany 942ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > datetime filters match the stored instant 942ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > datetime update round-trips exactly 927ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > decimal reads back as its exact canonical value 935ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST round-trips member by member 927ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST filters by containment on its logical members 919ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary 966ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST survives a grouped projection 932ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly 931ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly 961ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > round-trips every value in the domain exactly 915ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > callback transactions materialize fresh Decimal scalar and list results 894ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > array transactions materialize fresh Decimal scalar and list results 896ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > a nullable decimal stores and reads NULL, not zero 916ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > equals matches on value, not on spelling 913ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > equals distinguishes the two values a double cannot 908ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > in / notIn compare numerically 897ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > gt/lt compare numerically, not lexicographically 913ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > orderBy sorts numerically, windowed and not 908ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision 968ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _avg of an all-null column is NULL, not zero and not an error 912ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs 921ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > groupBy orders groups and filters them on exact aggregates 910ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision 904ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > increment and decrement are exact and never round 898ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact 936ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour 942ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd 885ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour 917ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > a rounded tie CARRIES across the whole value 890ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > divide rounds by the same rule, in both signs 922ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign 951ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > arithmetic on a NULL column stays NULL 914ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > division by zero fails BEFORE any statement is issued 940ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > a result past the field's precision fails and leaves the row alone 951ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float 905ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > an operand finer than the field's scale is refused, never rounded 901ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in matches exactly the listed byte arrays 908ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out 875ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in with no matching member returns nothing 917ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > empty in matches nothing (Prisma semantics) 911ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > notIn excludes exactly the listed byte arrays 917ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > empty notIn matches everything (Prisma semantics) 930ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > notIn on a nullable column excludes NULL rows 906ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in on a nullable column excludes NULL rows 897ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > empty notIn on a nullable column keeps the NULL row 941ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > Buffer members are accepted alongside Uint8Array 909ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in composes with not 893ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in composes with arbitrarily nested not 890ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in composes with the boolean wrappers 954ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in drives deleteMany, not just reads 898ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly top-level 958ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include 990ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types 976ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > aggregates are scalar-aware 962ms
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders nearest-first by l2 distance and honors take
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders farthest-first by l2 distance when distance sort is desc
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders nearest-first by cosine distance and honors take
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > selects l2 distance scores as numbers
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders by distance and returns matching selected scores
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders included docs nearest-first by vector distance and honors take
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > throws on vector dimension mismatch before execution
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > plain upsert creates the row when missing 967ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > plain upsert updates the row when present 975ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > does not take the update branch for a conflict outside the requested target 991ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces 1044ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > plain upsert returns the row when the update is a no-op 1009ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > plain upsert create branch resolves auto-increment ids 1019ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > upsert update branch may rewrite the unique where field 1013ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > upsert supports select on both branches 1005ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > upsert with include returns the relation payload on both branches 1068ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > delete with include returns the relation payload 994ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed 982ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed 1011ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx) 1116ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx) 1136ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (batch) 1147ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (batch) 1131ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested-write concurrency behavior > planned-path create-branch race loser surfaces a UniqueConstraintError, then the retry converges 1080ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx) 1141ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx) 1049ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (batch) 1079ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (batch) 1087ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg singular polymorphic slot transfer under concurrency > an adopter whose captured owner was replaced aborts, re-plans once, and converges 1170ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that captured the SAME old owner produce exactly one winner 1052ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg singular polymorphic slot transfer under concurrency > two adopters that both observed the slot EMPTY produce exactly one winner 1068ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg filtered m2m deleteMany staleness > a member added after the plan-time read aborts the guard, then the retry converges 1429ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > declares an atomic strategy for nested writes 1122ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > rejects default-only createMany duplicate skipping before writing 1106ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > rejects nested default-only duplicate skipping before the parent write 1128ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > create derives to-one and to-many foreign keys 1132ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > create connects and connect-or-creates nullable children 1111ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > update creates, createManys, and connects children 1105ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > update disconnects and sets nullable children 1104ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > update and updateMany keep child mutations parent-correlated 1196ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > delete and deleteMany keep child mutations parent-correlated 1100ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > to-many upsert creates and updates the current parent's child 1133ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > to-one upsert creates and updates the current target 1151ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > to-one nested update modifies the connected author 1070ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > to-one disconnect true nulls the foreign key, both rows survive 1087ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > to-one delete true deletes the related row 1098ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author 1110ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives 1075ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > explicit join rows work as a practical many-to-many case 1115ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > unsupported nested create keys reject before parent mutation 1063ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > nested child failures roll back parent and prior children 1098ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > to-many updates cannot target another parent's child 1081ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > non-nullable child foreign keys reject disconnect atomically 1066ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > nested create propagates foreign keys through mapped columns 1103ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > nested create derives mapped foreign keys for createMany and connect 1100ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > set keeping all required-FK children is a no-op and succeeds 1086ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > set on required-FK children rejects only when rows would be orphaned 1115ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > set disconnects only nullable-FK children leaving the set 1093ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > connect with a list of targets reparents every one of them 1120ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > a connect list with one absent target writes nothing 1070ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > disconnect with a list nulls every one of them 1073ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing 1097ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > a create tree's connect list reparents every one of them 1145ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone 1096ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone 1101ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg nested write behavior > delete with a relation projection > the `include` spelling is unaffected 1120ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes 1061ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg advanced nested write behavior > top-level upsert guards gate nested update branch 1124ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip 950ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order 950ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment 1002ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params 913ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path 894ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement 925ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError 958ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError 895ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found 878ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches 970ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found 951ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist 917ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > exist > returns true when a matching row exists 926ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg client raw/orThrow/exist behavior > exist > returns false when no row matches 913ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > raw/model array transactions (Docker PostgreSQL) > execute in declared order and return each public result 952ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > raw/model array transactions (Docker PostgreSQL) > a later raw failure rolls model and raw writes back 886ms
+ × |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK 1008ms
+   → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ × |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs 1080ms
+   → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ × |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK 1089ms
+   → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ × |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches 1096ms
+   → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ × |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create 1051ms
+   → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it 1078ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it 1100ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it 1111ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it 1138ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it 1132ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it 1159ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create 1111ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > failure after generated refs rolls back parent and children 1086ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > unsupported compound primary-key dataflow rejects before parent mutation 1062ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > unsafe PK update shape rejects before parent mutation 1055ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order 1193ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order 1150ms
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted 1136ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg foreign-key index > push creates an index over the manyToOne FK column 1069ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg foreign-key index > re-pushing the schema is not an index change 1431ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg foreign-key index > re-pushing the schema is not a foreign-key change 1331ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg foreign-key index > a declared .index() on the FK column is not duplicated 1128ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg foreign-key index > a wider declared index over the FK columns replaces it in one push 1256ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg foreign-key index > a compound unique over the FK columns replaces it in one push 1480ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg declared index on a mapped field > push creates the index over the mapped column names 1121ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg declared index on a mapped field > re-pushing the schema is not an index change 1477ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg declared index on a mapped field > the declared index leaves the FK index nothing to add 1084ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg compound junction storage > round-trips two complete string-key sides and their cascade 1221ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic member junction storage > creates, enforces and converges the member tables 1266ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg partial index predicate churn > re-pushing the same declaration is not an index change 1215ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg partial index predicate churn > the same predicate in another spelling is not an index change 1354ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg partial index predicate churn > a real predicate change is still an index change 1660ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg partial index predicate churn > a canonicalization that fails answers nothing, and the change stands 1397ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (tx) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips 1043ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (tx) forward-ref FK push ordering > multi-model forward chain: push + create through the chain 1232ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (tx) forward-ref FK push ordering > self reference: push + parent/child round-trip 1043ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (tx) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables 1116ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (batch) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips 942ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (batch) forward-ref FK push ordering > multi-model forward chain: push + create through the chain 985ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (batch) forward-ref FK push ordering > self reference: push + parent/child round-trip 949ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg (batch) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables 1170ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic relations > direct writes preserve the generated private storage pair 994ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic relations > inverse create publishes a generated parent identity 987ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic relations > direct and inverse reads correlate exact variants without N+1 1028ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic relations > target-local omit subtracts from polymorphic select 1012ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic relations > inverse reads use the generated discriminator/id index 1158ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic relations > empty storage is optional but orphaned membership is invalid 1082ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > an empty collection reads as a fresh empty array, never null 1009ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly 1071ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > equal ids in two target tables return two correctly tagged rows 1121ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > order, window and distinct stay ARM-LOCAL 1128ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > a negative arm take restores the logical order 1086ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > only narrows the returned variants without reordering 1022ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > total and filtered counts, and count ordering 1425ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table 3853ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 1043ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array 1104ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 1071ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement 1026ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > a fresh owner writes memberships across several variants at once 1053ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > connect is idempotent for the same owner and target 1044ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > a plural member admits SEVERAL owners for one target 1078ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it 1049ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > connectOrCreate finds, then creates, without doubling either 1090ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > `set` clears every configured variant once, then refills 1069ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row 1089ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > `set: []` empties every variant and deletes no target 1062ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > disconnect removes this owner's membership and nothing else 1059ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > update and updateMany reach only the connected targets 1125ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > upsert creates then updates, scoped to this owner's membership 1048ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > createMany writes one bulk group per variant 1040ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > duplicate singular createMany targets transfer once 1144ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership 1044ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it 1098ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER 1106ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner 1078ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > a singular inverse upsert takes both arms through the membership 1165ms
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts > pg Driver > pg polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote 2849ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation _count selection > select _count returns exact counts, including zero 1009ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation _count selection > returns multiple counts with a long public relation name 948ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation _count selection > includes a long relation under its exact public name 977ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation _count selection > select _count on findUnique with zero relations 943ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation _count selection > filtered _count only counts rows matching the where 950ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation _count selection > _count alongside relation rows returns both 985ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation _count selection > _count inside include returns counts alongside relations 963ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > select _count: true counts every to-many relation 950ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > select _count: true equals the explicit object form 981ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > include _count: true counts every to-many relation 956ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > include _count: true sits alongside included relations 952ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true on findUnique counts for the single row 980ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key) 959ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true inside a nested include 951ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy posts._count desc yields exact order 973ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy posts._count asc yields exact order 941ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > relation orderBy > orderBy to-one relation scalar asc/desc 946ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-one relation filters > isNot with real conditions includes null-FK rows 988ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-one relation filters > findMany applies same-object is and isNot filters independent of key order 980ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-one relation filters > findMany combines null and object to-one filters 937ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and none filters independent of key order 1026ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and every filters independent of key order 1157ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches zero related rows 1207ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches one related row 1076ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches several related rows 1279ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > every matches vacuously for zero relations 988ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > none excludes any user with a matching relation 951ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg relation read/aggregate behavior > to-many relation filters on the read path > none with empty condition means zero relations 951ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > orders root rows by a two-hop to-one chain 1005ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > orders root rows by a three-hop to-one chain 1012ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > runs the sorting docs three-hop author chain example 992ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > places null relation-chain rows according to explicit nulls 993ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > orders a self-relation chain by parent.parent.name 1026ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > rejects ordering through a to-many relation mid-chain 1118ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > combines nested orderBy with take, skip, and scalar tiebreakers 1209ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg nested relation orderBy behavior > orders included to-many rows by a nested relation chain 1249ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > findMany drops exactly the omitted scalar 1020ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > findUnique / findFirst honor omit 1003ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > omit composes with include, and the relation keeps its own shape 931ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > nested omit reduces the relation payload only 939ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > omit at both levels applies independently 980ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > create / update / upsert / delete honor omit 959ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > create composes select with omit 936ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a bulk write with omit returns the projected rows, not a count 938ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a bulk write composes select with omit 956ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a bulk write WITHOUT a projection still counts 934ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > select + omit returns the selected shape minus overlaps 938ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > an omit that hides every field is refused 925ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a model-level omitted column never comes back 920ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > neither select nor omit can re-include it 940ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a model-level omitted column cannot be selected through a relation 938ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > client-level omit hides the field on every read of that model 927ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > client-level omit reaches relation payloads 976ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a local omit: { field: false } re-includes a globally hidden field 949ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a local omit adds to the global one instead of replacing it 957ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > an explicit select overrides the client default before local omit subtracts 966ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > select + omit composes through a selected relation include and all omit layers 974ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > client-level omit does not turn a bulk write into a row-returning one 1009ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg omit > a client that configures nothing is unaffected 927ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > deleteMany limit below the matching count removes exactly limit rows 944ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > deleteMany limit equal to the matching count removes all of them 948ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > deleteMany limit above the matching count is the uncapped delete 923ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > deleteMany limit 0 removes nothing and reports count 0 915ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > deleteMany limit without a where caps a whole-table delete 925ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > updateMany limit below the matching count updates exactly limit rows 926ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > updateMany limit at or above the matching count updates all of them 1011ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > updateMany limit 0 changes nothing and reports count 0 925ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > updateMany limit composes with an arithmetic update 924ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > updateMany limit composes with a relation filter 919ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > deleteMany limit composes with a relation filter 937ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > updateMany with select returns exactly the capped rows 964ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > deleteMany with select returns exactly the capped rows 974ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set 918ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > limit works on a model with a compound primary key 1006ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > limit 0 is the same no-op inside $transaction([...]) 957ms
+ ✓ |provider-pg| tests/providers/docker/pg-read-surface.test.ts > pg Driver > pg bulk-write limit > a negative or fractional limit is rejected before any write 929ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2235:17
+    2233|           adapter.capabilities.supportsCteWithMutations
+    2234|         )
+    2235|           throw new Error(
+       |                 ^
+    2236|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2237|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:863:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:695:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts > pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2235:17
+    2233|           adapter.capabilities.supportsCteWithMutations
+    2234|         )
+    2235|           throw new Error(
+       |                 ^
+    2236|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2237|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:300:45
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:863:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:695:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior.ts:127:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  5 failed | 446 passed | 7 skipped (458)
+   Start at  18:38:19
+   Duration  457.40s (transform 1.07s, setup 14ms, collect 2.08s, tests 455.18s, environment 0ms, prepare 27ms)
+
+Vitest resources: 459.33s wall, 522.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -115,14 +115,31 @@ export function polymorphicCollectionFilterFactory<
   State extends VariantRelationState,
   Getters extends PolymorphicTargetSchemaGetters<State>,
 >(
+  slot: string,
   state: State,
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicCollectionFilterSchema<Getters> {
   const schemaGetters: PolymorphicTargetSchemaGetters<State> = targetSchemas;
   const predicate = taggedTargetPredicate(state, schemaGetters);
-  return v.object({
-    some: predicate,
-    every: predicate,
-    none: predicate,
-  }) as PolymorphicCollectionFilterSchema<Getters>;
+  // A collection filter that names no quantifier is not a filter: the same
+  // rule (and the same registered sentence) the to-one and to-many relation
+  // filters own, on the third relation surface that spells quantifiers.
+  // `where: { items: {} }` read as silence lowers to TRUE, which is how
+  // `deleteMany({ where: { items: {} } })` came to delete every row.
+  const refusal = `Polymorphic collection filter '${slot}' requires one of: some, every, none.`;
+  return v.object(
+    {
+      some: predicate,
+      every: predicate,
+      none: predicate,
+    },
+    {
+      refuse: (value) =>
+        value.some !== undefined ||
+        value.every !== undefined ||
+        value.none !== undefined
+          ? undefined
+          : refusal,
+    }
+  ) as PolymorphicCollectionFilterSchema<Getters>;
 }

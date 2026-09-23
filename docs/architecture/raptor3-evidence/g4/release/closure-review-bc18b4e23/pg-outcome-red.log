@@ -1,0 +1,115 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+(node:97793) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |closure-review| tests/providers/docker/pg-captured-set-concurrency.test.ts (17 tests | 2 failed | 15 skipped) 2028ms
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > default native route: nothing is captured, and the statement removes exactly the rows it still matches
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route, lock held: the captured row that stopped matching survives the write, and the shortfall is the cardinality sentence
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported 1005ms
+     → expected 'Extension "review-failed-outcome" wri…' to contain 'deleteMany selected-row cardinality c…'
+     → expected undefined to match object { atomicity: 'segment', …(2) }
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back 966ms
+     → expected 'Extension "review-failed-outcome" wri…' to contain 'updateMany selected-row cardinality c…'
+     → expected undefined to match object { atomicity: 'segment', …(2) }
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: an undisturbed captured UPDATE succeeds, publishing the rows its non-RETURNING read-back produced
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a LIMITED capture claims no complement, and a newly eligible row outside its slice is not mutated
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a COMPOUND captured identity is carried completely, and only the row that still matches is deleted
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added after that boundary stays outside the captured worklist
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: the initial filter selected the worklist and is not re-asked at each member's own write
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member whose required membership was reassigned is not deleted for the parent that no longer holds it
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: an earlier member's own write does not invalidate the worklist a sibling was selected into
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |closure-review| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported
+AssertionError: expected 'Extension "review-failed-outcome" wri…' to contain 'deleteMany selected-row cardinality c…'
+
+Expected: "deleteMany selected-row cardinality changed during its locked mutation."
+Received: "Extension "review-failed-outcome" write-outcome listener failed after committed."
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:718:40
+    717|           phase: "result",
+    718|           committedSegments: 1,
+    719|         });
+       |        ^
+    720|       }
+    721|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |closure-review| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported
+AssertionError: expected undefined to match object { atomicity: 'segment', …(2) }
+
+- Expected: 
+{
+  "atomicity": "segment",
+  "committedSegments": 1,
+  "phase": "result",
+}
+
++ Received: 
+undefined
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:720:41
+    722| 
+    723|     test(
+    724|       "batch route: a root UPDATE in the same window leaves the row th…
+       |               ^
+    725|       { timeout: 90_000 },
+    726|       async () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |closure-review| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back
+AssertionError: expected 'Extension "review-failed-outcome" wri…' to contain 'updateMany selected-row cardinality c…'
+
+Expected: "updateMany selected-row cardinality changed during its locked mutation."
+Received: "Extension "review-failed-outcome" write-outcome listener failed after committed."
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:768:40
+    767|           ["n3", "three"],
+    768|         ]);
+    769|         expect(progressOf(raised)).toMatchObject({
+       |                            ^
+    770|           atomicity: "segment",
+    771|           phase: "result",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |closure-review| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back
+AssertionError: expected undefined to match object { atomicity: 'segment', …(2) }
+
+- Expected: 
+{
+  "atomicity": "segment",
+  "committedSegments": 1,
+  "phase": "result",
+}
+
++ Received: 
+undefined
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:779:41
+    778|       "batch route: an undisturbed captured UPDATE succeeds, publishin…
+    779|       { timeout: 90_000 },
+    780|       async () => {
+       |              ^
+    781|         const seeder = interactive();
+    782|         await seedNotes(seeder);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 15 skipped (17)
+   Start at  16:05:07
+   Duration  4.15s (transform 1.23s, setup 16ms, collect 1.89s, tests 2.03s, environment 0ms, prepare 46ms)
+
+Vitest resources: 4.78s wall, 422.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

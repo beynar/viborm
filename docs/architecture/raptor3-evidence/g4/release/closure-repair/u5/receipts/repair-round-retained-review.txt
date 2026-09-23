@@ -1,0 +1,18 @@
+# closure-final-index.mjs --gate <retained gate> section 1, retained review line
+
+## base copy of scripts/closure-final-index.mjs (REVIEW_PREFIX = "closure-review-")
+55:No retained review directory sits beside this checkpoint.
+
+## repaired (REVIEW_PREFIX = "closure-review")
+Retained review evidence this checkpoint answers:
+
+| review | files | identity |
+| --- | --- | --- |
+| `docs/architecture/raptor3-evidence/g4/release/closure-review` | 3 | `49e0aee0876882eb68c6ec6f64102b4b31a872c88c0ac6e33b53943c05ec0762` (sha256 over the directory's sorted (path, file sha256) pairs) |
+
+
+## git ls-tree bc18b4e23 (the directory the base copy could not see)
+040000 tree 177502466495c5702113ab560f0ce900378f5d1b	docs/architecture/raptor3-evidence/g4/release/closure-review
+100644 blob 04980d21770a9b8ea777f1667f3932a8276085a6	docs/architecture/raptor3-evidence/g4/release/closure-review/README.md
+100644 blob 6de76b24da90c9a2c45a1ae7980d8bea6007e957	docs/architecture/raptor3-evidence/g4/release/closure-review/paired-probes.log
+100644 blob 111cb712c223b2b382b1133a5f4a47a0a717964d	docs/architecture/raptor3-evidence/g4/release/closure-review/probes.test.ts.txt

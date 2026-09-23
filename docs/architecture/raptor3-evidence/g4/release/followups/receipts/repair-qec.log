@@ -1,0 +1,1 @@
+qec exit=0 query-engine core thresholds: statements 87.38% (floor 87%), branches 91.1% (floor 91%), functions 90.48% (floor 90%), lines 87.38% (floor 87%)

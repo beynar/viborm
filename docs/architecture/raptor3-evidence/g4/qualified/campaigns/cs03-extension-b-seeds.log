@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.test.ts (1 test) 867ms
+   ✓ completes one exact admitted CS-03 extension seed batch  867ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  19:39:57
+   Duration  4.94s (transform 1.49s, setup 14ms, collect 2.23s, tests 867ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-8TNhUZ/vitest.json
+Vitest resources: 10.51s wall, 724.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs03-extension-b-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-8TNhUZ

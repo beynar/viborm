@@ -1,0 +1,18 @@
+=== g4-write-seed-batch 74999 ===
+Generated batch must start at an exact frozen boundary
+=== g4-write-seed-batch 75050 ===
+Generated batch must start at an exact frozen boundary
+=== g4-write-seed-batch 100000 ===
+Generated batch must start at an exact frozen boundary
+=== g4-write-seed-batch 124900 ===
+Generated batch must start at an exact frozen boundary
+=== g4-write-transport-seed-batch 99999 ===
+Generated batch must start at an exact frozen boundary
+=== g4-write-transport-seed-batch 100050 ===
+Generated batch must start at an exact frozen boundary
+=== g4-write-transport-seed-batch 125000 ===
+Generated batch must start at an exact frozen boundary
+=== g4-write-transport-seed-batch 124900 ===
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-rpokJu/vitest.json
+Vitest resources: 4.86s wall, 665.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-rpokJu

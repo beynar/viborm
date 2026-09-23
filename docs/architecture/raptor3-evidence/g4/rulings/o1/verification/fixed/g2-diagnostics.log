@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 135ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  01:19:06
+   Duration  4.34s (transform 1.50s, setup 21ms, collect 2.37s, tests 135ms, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-jQz6em/vitest.json
+Vitest resources: 7.18s wall, 448.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-diagnostics disputed behavior reproduced (not accepted). Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-jQz6em

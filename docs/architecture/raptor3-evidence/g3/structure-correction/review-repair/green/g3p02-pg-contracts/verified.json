@@ -1,0 +1,19 @@
+{
+  "mode": "g3p02-pg-contracts",
+  "identity": {
+    "production": "cb8ff5373ec0a518b2097b2bd232cd194f684c8366011e8ad2f2f9b24a78de01",
+    "harness": "61bc21c0d7f6c77ebcff5b4c44162e0912481fdb428e3f2cdb848ba536e17ed7",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

@@ -1,0 +1,113 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 1 failed) 38ms
+   × G3-02 author execution regressions > reports a malformed result on the transport its plan uses, with the progress that transport has 22ms
+     → {
+  "half": "lone statement",
+  "statements": [
+    "INSERT INTO \"g3_author_execution_records\" (\"id\", \"code\") VALUES (?, ?), (?, ?) RETURNING \"id\" AS \"id\""
+  ],
+  "batchCalls": 0,
+  "corrupted": false,
+  "rows": [
+    {
+      "id": 1,
+      "code": "one"
+    },
+    {
+      "id": 2,
+      "code": "two"
+    }
+  ],
+  "value": [
+    {
+      "id": 1
+    },
+    {
+      "id": 2
+    }
+  ],
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ [
++   {
++     id: 1
++   },
++   {
++     id: 2
++   }
++ ]
+- undefined
+
+   ✓ G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking 10ms
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > reports a malformed result on the transport its plan uses, with the progress that transport has
+AssertionError: {
+  "half": "lone statement",
+  "statements": [
+    "INSERT INTO \"g3_author_execution_records\" (\"id\", \"code\") VALUES (?, ?), (?, ?) RETURNING \"id\" AS \"id\""
+  ],
+  "batchCalls": 0,
+  "corrupted": false,
+  "rows": [
+    {
+      "id": 1,
+      "code": "one"
+    },
+    {
+      "id": 2,
+      "code": "two"
+    }
+  ],
+  "value": [
+    {
+      "id": 1
+    },
+    {
+      "id": 2
+    }
+  ],
+  "failure": {
+    "thrown": "undefined"
+  }
+}
++ actual - expected
+
++ [
++   {
++     id: 1
++   },
++   {
++     id: 2
++   }
++ ]
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g3/author-execution-regressions.test.ts:247:14
+    245|     );
+    246|     try {
+    247|       assert.equal(loneValue, undefined, loneDiagnostic);
+       |              ^
+    248|       assert.equal(loneDriver.corrupted, true, loneDiagnostic);
+    249|       assert.equal(loneDriver.statements.length, 1, loneDiagnostic);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  01:28:19
+   Duration  2.29s (transform 1.29s, setup 10ms, collect 1.87s, tests 38ms, environment 0ms, prepare 44ms)
+
+Vitest resources: 4.61s wall, 549.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

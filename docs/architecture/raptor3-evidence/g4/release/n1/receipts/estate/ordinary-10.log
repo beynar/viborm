@@ -1,0 +1,9 @@
+[test:all] extended-local shard 10/14 (3 files; 180 ordinary of 192)
+ ✓ |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts (36 tests) 153ms
+ ✓ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (7 tests) 20ms
+ ❯ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (9 tests | 2 failed) 36ms
+ FAIL  |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts > lane X — nested set mutations > still refuses a relation-bearing updateMany that reads what a sibling update wrote
+ FAIL  |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts > lane X — nested set mutations > still refuses a connectOrCreate whose target a different earlier entry creates
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 50 passed (52)
+[test:all] extended-local shard 10/14 (3 files; 180 ordinary of 192): 4.13s wall, 56.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

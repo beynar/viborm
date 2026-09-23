@@ -1,0 +1,170 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (2 tests | 1 failed) 60ms
+   × G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch answers the shipped meta 50ms
+     → the rejected root create must answer what the shipped engine answers: {
+  "shipped": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create"
+      }
+    }
+  },
+  "candidate": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create",
+        "statementIndex": 0,
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "member",
+          "committedSegments": 0,
+          "completedMembers": 0,
+          "committedWriteMembers": 0,
+          "mayHaveCommittedSegment": true
+        }
+      }
+    }
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'create',
++       recordSeriesProgress: {
++         atomicity: 'segment',
++         committedSegments: 0,
++         committedWriteMembers: 0,
++         completedMembers: 0,
++         mayHaveCommittedSegment: true,
++         phase: 'member'
++       },
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    rows: [],
+    value: undefined
+
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch answers the shipped meta
+AssertionError: the rejected root create must answer what the shipped engine answers: {
+  "shipped": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create"
+      }
+    }
+  },
+  "candidate": {
+    "rows": [],
+    "failure": {
+      "name": "QueryError",
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create",
+        "statementIndex": 0,
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "member",
+          "committedSegments": 0,
+          "completedMembers": 0,
+          "committedWriteMembers": 0,
+          "mayHaveCommittedSegment": true
+        }
+      }
+    }
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'create',
++       recordSeriesProgress: {
++         atomicity: 'segment',
++         committedSegments: 0,
++         committedWriteMembers: 0,
++         completedMembers: 0,
++         mayHaveCommittedSegment: true,
++         phase: 'member'
++       },
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    rows: [],
+    value: undefined
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,10 +3,19 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "create",[22m
+[31m+       "recordSeriesProgress": {[39m
+[31m+         "atomicity": "segment",[39m
+[31m+         "committedSegments": 0,[39m
+[31m+         "committedWriteMembers": 0,[39m
+[31m+         "completedMembers": 0,[39m
+[31m+         "mayHaveCommittedSegment": true,[39m
+[31m+         "phase": "member",[39m
+[31m+       },[39m
+[31m+       "statementIndex": 0,[39m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "rows": [],[22m
+[2m    "value": undefined,[22m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:162:12
+    160|     const shipped = await run("shipped");
+    161|     const candidate = await run("candidate");
+    162|     assert.deepEqual(
+       |            ^
+    163|       candidate,
+    164|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  21:20:00
+   Duration  3.02s (transform 1.77s, setup 14ms, collect 2.60s, tests 60ms, environment 0ms, prepare 50ms)
+
+Vitest resources: 5.98s wall, 572.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,4 @@
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+Vitest resources: 4.44s wall, 700.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-baseline contract gate verified. Evidence: /private/tmp/viborm-probe-tmp/viborm-raptor3-g0-scaa3P

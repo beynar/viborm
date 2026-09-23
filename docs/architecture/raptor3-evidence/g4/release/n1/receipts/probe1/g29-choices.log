@@ -1,0 +1,12 @@
+ ❯ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests | 2 failed) 61ms
+ ❯ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests | 2 failed) 62ms
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts > G2.9 dependency choice locality [commands] (sqlite-interactive) > refuses the same conflicting lookup when its create
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts > G2.9 dependency choice locality [commands] (sqlite-atomic-batch) > refuses the same conflicting lookup when its creat
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts > G2.9 dependency choice locality [commands] (sqlite-interactive) > refuses the same conflicting lookup when its create arm is t
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts > G2.9 dependency choice locality [commands] (sqlite-atomic-batch) > refuses the same conflicting lookup when its create arm is 
+AssertionError: {
+ Test Files  2 failed (2)
+      Tests  4 failed | 16 passed (20)

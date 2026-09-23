@@ -1,0 +1,6 @@
+{
+  "command": "node scripts/query-engine-structure.mjs",
+  "result": "passed",
+  "queryEngine": { "files": 180, "lines": 80848, "tokenLines": 64043 },
+  "writeEngine": { "files": 43, "lines": 34084, "tokenLines": 25911, "runtimeImportCycleComponents": 0 }
+}

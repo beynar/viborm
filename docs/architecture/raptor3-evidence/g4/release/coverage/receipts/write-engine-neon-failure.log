@@ -1,0 +1,55 @@
+
+> viborm@0.1.0 test:coverage:write-engine /private/tmp/viborm-coverage
+> node --max-old-space-size=768 scripts/run-coverage.mjs write-engine
+
+Coverage write-engine: 1 source files, 98% target.
+Coverage write-engine part 1/2: coverage-write-engine (4 explicit tests).
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ✓ |coverage-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts (3 tests) 3ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (43 tests) 649ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 0ms
+ ✓ |coverage-write-engine| tests/contracts/engine/query/nested-create-many.core.test.ts (1 test) 7ms
+
+ Test Files  4 passed (4)
+      Tests  50 passed (50)
+   Start at  00:56:49
+   Duration  3.07s (transform 1.09s, setup 17ms, collect 1.40s, tests 660ms, environment 0ms, prepare 49ms)
+
+Vitest resources: 6.46s wall, 454.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage write-engine part 2/2: coverage-write-engine (1 explicit tests).
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ❯ |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts (12 tests | 1 failed) 91ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > typed direct execution requests object-row full results 5ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > raw direct execution retains named provider rows 1ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > the capability is false, beside the two that are true 5ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > raw and model operations share one native Neon array transaction 11ms
+   × H2 — Neon HTTP declares no ordered committed segments > generated scalar create and upsert return from one native Neon request 8ms
+     → Driver "neon-http" does not support callback transactions and this transaction contains operations that cannot be batched atomically.
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a ROOT relation-bearing createMany awaits batch execution while the capability is false 54ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > an ordinary write on the same driver DOES reach the provider 2ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > the native batch acknowledges commit after transaction resolution and before returning 2ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a committed callback precedes result-cardinality failure 1ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a committed callback precedes statement-result parsing failure 0ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > a rejected native transaction never acknowledges a commit 0ms
+   ✓ H2 — Neon HTTP declares no ordered committed segments > attributes a one-statement provider rejection and keeps an opaque multi-statement rejection at batch scope 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts > H2 — Neon HTTP declares no ordered committed segments > generated scalar create and upsert return from one native Neon request
+TransactionError: Driver "neon-http" does not support callback transactions and this transaction contains operations that cannot be batched atomically.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  00:56:56
+   Duration  2.13s (transform 939ms, setup 11ms, collect 1.17s, tests 91ms, environment 0ms, prepare 43ms)
+
+Vitest resources: 5.30s wall, 455.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+ ELIFECYCLE  Command failed with exit code 1.

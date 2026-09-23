@@ -1,0 +1,270 @@
+
+[test:all] provider-pglite: tests/providers/local/pglite-bulk-writes.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ❯ |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts (147 tests | 9 failed) 69832ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > connect inserts junction rows without touching unrelated foreign keys  698ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > connect is idempotent  538ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > connect of a missing record fails  523ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > create connects and creates through the junction on parent create  484ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > connectOrCreate connects existing and creates missing  507ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > disconnect removes the association and keeps the row  495ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > set replaces the association set  510ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > delete removes the child row and all its associations  487ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > delete of a record not connected to the parent fails  482ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > deleteMany deletes only connected rows matching the filter  568ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > writes from the side without junction config resolve the same junction  499ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > implicit default junction works end to end  496ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > rows participating in a many-to-many can be deleted directly  511ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > nested update modifies a connected record only  507ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > nested updateMany touches only connected rows matching the filter  485ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > nested upsert updates a connected record  477ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > nested upsert creates and connects a missing record  479ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > nested upsert of an existing but unconnected record fails  492ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > connect lands after a deleteMany that cannot see it  508ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > duplicate connectOrCreate targets collapse to one association  495ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > boolean disconnect on a many-to-many relation is rejected  471ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > named duplicate pairs keep isolated junction tables  495ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL  468ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > self-referential many-to-many round trip  477ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > create through the junction with a DB-generated target primary key  472ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > junction create with a generated target PK under an update root  489ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing  468ms
+   ✓ PGlite Driver > PGlite many-to-many write behavior > upsert through the junction creates a target whose PK the database generates  501ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > to-many include honors ascending orderBy  451ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > to-many include honors descending orderBy  463ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > to-many include honors orderBy with skip and no take  457ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > orderBy asc with nulls last places null rows at the end  461ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > orderBy desc with nulls first places null rows at the start  446ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > orderBy asc with nulls first places null rows at the start  468ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > has filter matches string array elements  447ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > has filter matches int array elements  467ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > has filter with no match returns empty  455ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > create returns the auto-increment row  458ms
+   ✓ PGlite Driver > PGlite ordering/array/create behavior > concurrent creates each return their own row  457ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany without select returns { count }, with select returns rows  470ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany with a narrow select returns only selected fields  521ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > a relation in a bulk write's select is refused, not silently emptied  478ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > include is refused with a message that names the alternative  473ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany with select assigns auto-increment ids  493ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany preserves generation when another row supplies an increment id  458ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany with select restores input order across increment row shapes  479ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany with select preserves bigint generation and order  460ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > application defaults remain values while increment defaults stay database-owned  450ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > default-only createMany rows use database generation  461ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > default-only create uses database generation  473ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany preserves conflict winner input order across row shapes  458ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > singleton createMany duplicate recovery returns count zero  467ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > skipDuplicates keeps case, accent, and trailing-space unique values distinct  465ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > explicit zero increment ids reject uniformly before mutation  446ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > createMany with select skips only duplicate rows and returns inserted rows  464ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > skipDuplicates still surfaces unrelated foreign-key failures  457ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > skipDuplicates does not suppress required, length, or conversion errors  458ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > updateMany without select returns { count }, with select returns rows  471ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > updateMany with select applies atomic operations  465ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > updateMany with select applies atomic decrement and multiply  450ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > updateMany with select applies atomic divide (exact quotient)  469ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > atomic divide pins integer-division semantics on inexact quotients  463ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > updateMany with select returns empty array when nothing matches  457ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > deleteMany without select returns { count }, with select returns the deleted rows  463ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > deleteMany with select returns [] when nothing matches and deletes nothing  464ms
+   ✓ PGlite Driver > PGlite bulk-write implicit returning > deleteMany with select over every row returns them all  443ms
+   ✓ PGlite Driver > PGlite createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order  459ms
+   ✓ PGlite Driver > PGlite createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order  454ms
+   ✓ PGlite Driver > PGlite createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted  450ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > deleteMany limit below the matching count removes exactly limit rows  463ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > deleteMany limit equal to the matching count removes all of them  462ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > deleteMany limit above the matching count is the uncapped delete  450ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > deleteMany limit 0 removes nothing and reports count 0  510ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > deleteMany limit without a where caps a whole-table delete  478ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > updateMany limit below the matching count updates exactly limit rows  455ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > updateMany limit at or above the matching count updates all of them  470ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > updateMany limit 0 changes nothing and reports count 0  470ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > updateMany limit composes with an arithmetic update  453ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > updateMany limit composes with a relation filter  473ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > deleteMany limit composes with a relation filter  457ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > updateMany with select returns exactly the capped rows  453ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > deleteMany with select returns exactly the capped rows  466ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set  452ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > limit works on a model with a compound primary key  470ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > limit 0 is the same no-op inside $transaction([...])  458ms
+   ✓ PGlite Driver > PGlite (tx) bulk-write limit > a negative or fractional limit is rejected before any write  464ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > deleteMany limit below the matching count removes exactly limit rows  449ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > deleteMany limit equal to the matching count removes all of them  464ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > deleteMany limit above the matching count is the uncapped delete  448ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > deleteMany limit 0 removes nothing and reports count 0  457ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > deleteMany limit without a where caps a whole-table delete  455ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > updateMany limit below the matching count updates exactly limit rows  459ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > updateMany limit at or above the matching count updates all of them  455ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > updateMany limit 0 changes nothing and reports count 0  459ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > updateMany limit composes with an arithmetic update  450ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > updateMany limit composes with a relation filter  466ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > deleteMany limit composes with a relation filter  451ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > updateMany with select returns exactly the capped rows  458ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > deleteMany with select returns exactly the capped rows  454ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set  469ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > limit works on a model with a compound primary key  453ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > limit 0 is the same no-op inside $transaction([...])  459ms
+   ✓ PGlite Driver > PGlite (batch) bulk-write limit > a negative or fractional limit is rejected before any write  455ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > connect inserts junction rows without touching unrelated foreign keys  470ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > connect is idempotent  531ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > connect of a missing record fails  533ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > create connects and creates through the junction on parent create  493ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > connectOrCreate connects existing and creates missing  478ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > disconnect removes the association and keeps the row  482ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > set replaces the association set  496ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > delete removes the child row and all its associations  478ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > delete of a record not connected to the parent fails  483ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > deleteMany deletes only connected rows matching the filter  477ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > writes from the side without junction config resolve the same junction  477ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > implicit default junction works end to end  470ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > rows participating in a many-to-many can be deleted directly  479ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > nested update modifies a connected record only  469ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > nested updateMany touches only connected rows matching the filter  495ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > nested upsert updates a connected record  472ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > nested upsert creates and connects a missing record  489ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > nested upsert of an existing but unconnected record fails  476ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > connect lands after a deleteMany that cannot see it  491ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > duplicate connectOrCreate targets collapse to one association  474ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > boolean disconnect on a many-to-many relation is rejected  486ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > named duplicate pairs keep isolated junction tables  473ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL  486ms
+   ✓ PGlite Driver > PGlite batch-only many-to-many write behavior > self-referential many-to-many round trip  477ms
+   × PGlite Driver > PGlite batch-only many-to-many write behavior > create through the junction with a DB-generated target primary key 486ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only many-to-many write behavior > junction create with a generated target PK under an update root 483ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing 489ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only many-to-many write behavior > upsert through the junction creates a target whose PK the database generates 460ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK 474ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs 461ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK 484ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches 487ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   × PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create 477ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it  460ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it  529ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it  478ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it  485ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it  458ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it  479ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create  462ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > failure after generated refs rolls back parent and children  473ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > unsupported compound primary-key dataflow rejects before parent mutation  468ms
+   ✓ PGlite Driver > PGlite batch-only batch primary-key dataflow > unsafe PK update shape rejects before parent mutation  475ms
+   ✓ PGlite Driver > PGlite batch-only batch refs > stores and reads an exact reference inside one batch  407ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only many-to-many write behavior > create through the junction with a DB-generated target primary key
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2218:17
+    2216|           adapter.capabilities.supportsCteWithMutations
+    2217|         )
+    2218|           throw new Error(
+       |                 ^
+    2219|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2220|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:862:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:694:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only many-to-many write behavior > junction create with a generated target PK under an update root
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2218:17
+    2216|           adapter.capabilities.supportsCteWithMutations
+    2217|         )
+    2218|           throw new Error(
+       |                 ^
+    2219|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2220|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:339:44
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:862:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:694:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/many-to-many-behavior.ts:677:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2218:17
+    2216|           adapter.capabilities.supportsCteWithMutations
+    2217|         )
+    2218|           throw new Error(
+       |                 ^
+    2219|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2220|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:472:11
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:339:44
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:862:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:694:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/many-to-many-behavior.ts:724:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only many-to-many write behavior > upsert through the junction creates a target whose PK the database generates
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2218:17
+    2216|           adapter.capabilities.supportsCteWithMutations
+    2217|         )
+    2218|           throw new Error(
+       |                 ^
+    2219|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2220|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:472:11
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:339:44
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:862:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:694:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/many-to-many-behavior.ts:778:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/9]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite-bulk-writes.test.ts > PGlite Driver > PGlite batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2218:17
+    2216|           adapter.capabilities.supportsCteWithMutations
+    2217|         )
+    2218|           throw new Error(
+       |                 ^
+    2219|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2220|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:300:45
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:862:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:694:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior.ts:127:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/9]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  9 failed | 138 passed (147)
+   Start at  20:33:25
+   Duration  71.28s (transform 861ms, setup 9ms, collect 1.29s, tests 69.83s, environment 0ms, prepare 26ms)
+
+[test:all] provider-pglite: tests/providers/local/pglite-bulk-writes.test.ts: 73.18s wall, 1775.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

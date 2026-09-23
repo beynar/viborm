@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/generation/harness.selftest.test.ts (6 tests) 354ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  12:24:52
+   Duration  4.45s (transform 2.52s, setup 18ms, collect 3.84s, tests 354ms, environment 0ms, prepare 57ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-gixMA8/vitest.json
+Vitest resources: 7.92s wall, 545.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-generation-selftests contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-gixMA8

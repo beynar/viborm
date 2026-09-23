@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-ci
+
+ ✓ |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts (5 tests) 64ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  00:39:40
+   Duration  392ms (transform 36ms, setup 15ms, collect 48ms, tests 64ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 2.43s wall, 332.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

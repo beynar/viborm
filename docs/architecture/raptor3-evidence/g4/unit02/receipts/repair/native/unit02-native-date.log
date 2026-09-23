@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test) 24ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  04:01:29
+   Duration  1.85s (transform 976ms, setup 9ms, collect 1.54s, tests 24ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.12s wall, 545.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0 (port 65504)

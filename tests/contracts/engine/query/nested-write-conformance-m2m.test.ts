@@ -162,10 +162,12 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     }),
   },
   {
-    name: "m2m connectOrCreate string-selector array rejects unknown overlap",
-    expectReject: true,
-    expectedError:
-      "depends on an earlier 'connectOrCreate' target write in the same nested write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'connectOrCreate' target write in the same nested write"); now the two
+    // members of one series run in order and each observes what the previous
+    // one left — the found member connects, the unknown one is created and
+    // connected.
+    name: "m2m connectOrCreate string-selector array connects the found member and creates the unknown one",
     seed: m2mBaselineSeed,
     act: (client) =>
       client.post.update({
@@ -179,7 +181,10 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected(),
+    expected: m2mExpected({
+      membership: { p1: ["t1", "t9"] },
+      tags: { ...BASELINE_M2M_TAGS, t9: "tag-9" },
+    }),
   },
   {
     name: "m2m connectOrCreate dedupes duplicate targets to one association",
@@ -383,9 +388,11 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     }),
   },
   {
-    name: "m2m overlapping set and deleteMany reject membership dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'set' membership write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'set'
+    // membership write"); now the removal's capture is an ordered observation
+    // of the junction, taken behind the set's whole mutation — t1 is the
+    // member the set just made, so the removal takes its row back out.
+    name: "m2m overlapping set and deleteMany: the removal observes the set's membership",
     seed: m2mBaselineSeed,
     act: (client) =>
       client.post.update({
@@ -394,12 +401,14 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           tags: { set: [{ id: "t1" }], deleteMany: { id: "t1" } },
         },
       }),
-    expected: m2mExpected(),
+    expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
   },
   {
-    name: "m2m connectOrCreate then deleteMany rejects target dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'connectOrCreate' target write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'connectOrCreate' target write"); now the removal's observation is
+    // placed behind the connectOrCreate's whole mutation — its insert AND its
+    // junction link — so it finds t9 a member and takes the row back out.
+    name: "m2m connectOrCreate then deleteMany removes the tag the connectOrCreate just created",
     seed: m2mBaselineSeed,
     act: (client) =>
       client.post.update({
@@ -417,9 +426,11 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected(),
   },
   {
-    name: "m2m explicit delete then deleteMany rejects target dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'delete' target write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'delete'
+    // target write"); now `delete` runs first and takes t1's row and its
+    // membership with it, and the removal's observation behind it matches no
+    // member at all — the no-op the standalone cell below already pins.
+    name: "m2m explicit delete then deleteMany finds no member left to remove",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -434,12 +445,15 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           tags: { delete: { id: "t1" }, deleteMany: { id: "t1" } },
         },
       }),
-    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+    expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
   },
   {
-    name: "m2m disconnect then deleteMany rejects membership dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'disconnect' membership write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'disconnect' membership write"); now the disconnect runs first and keeps
+    // t1's row while dropping its junction row, and the removal's observation
+    // of the emptied membership behind it matches no member at all — the
+    // no-op the standalone cell below already pins.
+    name: "m2m disconnect then deleteMany observes the emptied membership and keeps the row",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -457,12 +471,13 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+    expected: m2mExpected(),
   },
   {
-    name: "m2m update then deleteMany rejects target dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'update' target write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // target write"); now the removal's filter is resolved against the state
+    // the update left, so the row it renamed is exactly the row it removes.
+    name: "m2m update then deleteMany removes the row the update just renamed",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -480,12 +495,14 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+    expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
   },
   {
-    name: "m2m updateMany then deleteMany rejects filter dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'updateMany' target write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'updateMany' target write"); now the bulk rename runs first and the
+    // removal's filter observes its result — the same answer as the single
+    // `update` above, reached through the set-based verb.
+    name: "m2m updateMany then deleteMany removes the rows its filter just matched",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -503,12 +520,14 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+    expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
   },
   {
-    name: "m2m multiple deleteMany filters reject internal dependency",
-    expectReject: true,
-    expectedError: "depends on an earlier 'deleteMany' target write",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'deleteMany' target write"); now the two members of one expanded series
+    // run in order, each reading the membership the previous one left, and
+    // both named rows go.
+    name: "m2m multiple deleteMany filters each observe what the previous one left",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -521,7 +540,7 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
         where: { id: "p1" },
         data: { tags: { deleteMany: [{ id: "t1" }, { id: "t2" }] } },
       }),
-    expected: m2mExpected({ membership: { p1: ["t1", "t2"] } }),
+    expected: m2mExpected({ tags: { t3: "tag-3" } }),
   },
   {
     name: "standalone m2m deleteMany with no matching member is a no-op",
@@ -601,17 +620,13 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected(),
   },
   {
-    // RETARGETED by N6-U3 — and this pair is the FORK ITSELF, made visible. The old
-    // message blamed `deleteMany` for the `upsert`'s read; the new one blames `upsert`
-    // for the `deleteMany`'s read. Both cannot be right, and the old one was derived
-    // over `planRelationMutationSteps`' private order, which put `deleteMany` before
-    // `upsert` while the engine emitted `upsert` first. The attribution now names the
-    // sequence that actually runs. The shape still rejects (a junction `deleteMany`
-    // resolves its filter against a membership the sibling upsert rewrites — ATOM §4.1
-    // case ii, the class no ordering can fix) and still writes nothing.
-    name: "m2m upsert then deleteMany: the removal cannot read past the upsert",
-    expectReject: true,
-    expectedError: "depends on an earlier 'upsert' target write",
+    // RETARGETED by N6-U3, which moved the blame from `deleteMany` to `upsert`
+    // because the engine emits `upsert` first — the canonical order still runs
+    // it there. N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'upsert' target write", called then "the class no ordering can fix");
+    // now the removal simply reads behind the upsert, which is the order that
+    // runs, and removes the member the upsert had just rewritten.
+    name: "m2m upsert then deleteMany: the removal observes the upserted row",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -633,7 +648,7 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected({ membership: { p1: ["t1"] } }),
+    expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
   },
   {
     name: "m2m nested upsert updates a connected record",
@@ -709,7 +724,14 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
 
 const selfRefM2mScenarios: Scenario<ManyToManySchema>[] = [
   {
-    name: "self m2m connect then inverse upsert rejects shared junction dependency",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
+    // 'connect' membership write"); now `follows` runs before `followedBy`
+    // (declaration order) and the two relations are two views of ONE junction
+    // table, so the upsert's membership probe is an ordered observation of the
+    // link the connect just made — u1 IS a member of its own `followedBy`,
+    // the found arm runs and renames it. The create arm was never reachable:
+    // it would re-insert id "u1".
+    name: "self m2m connect then inverse upsert observes the shared junction and updates",
     seed: (client) => client.user.create({ data: { id: "u1", name: "Alice" } }),
     act: (client) =>
       client.user.update({
@@ -725,9 +747,11 @@ const selfRefM2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'connect' membership write",
-    expected: { follows: [], followedBy: [] },
+    expected: {
+      users: [{ id: "u1", name: "updated" }],
+      follows: [{ userId: "u1", followsIds: ["u1"] }],
+      followedBy: [{ userId: "u1", followedByIds: ["u1"] }],
+    },
   },
   {
     name: "self-referential m2m connect then disconnect",
@@ -747,6 +771,11 @@ const selfRefM2mScenarios: Scenario<ManyToManySchema>[] = [
       });
     },
     expected: {
+      users: [
+        { id: "u1", name: "Alice" },
+        { id: "u2", name: "Bob" },
+        { id: "u3", name: "Cara" },
+      ],
       follows: [{ userId: "u1", followsIds: ["u3"] }],
       followedBy: [{ userId: "u3", followedByIds: ["u1"] }],
     },
@@ -756,20 +785,25 @@ const selfRefM2mScenarios: Scenario<ManyToManySchema>[] = [
 async function dumpSelfRefM2m(
   client: SchemaClient<ManyToManySchema>
 ): Promise<PersistedState> {
-  const users = await client.user.findMany({
+  const records = await client.user.findMany({
     orderBy: { id: "asc" },
     include: {
       follows: { orderBy: { id: "asc" } },
       followedBy: { orderBy: { id: "asc" } },
     },
   });
+  // The user ROWS ride beside the two membership views: on this self-referential
+  // junction the arm a nested upsert took is visible only in the row it wrote.
+  const users: unknown[] = [];
   const follows: unknown[] = [];
   const followedBy: unknown[] = [];
-  for (const user of users as {
+  for (const user of records as {
     id: string;
+    name: string;
     follows?: { id: string }[];
     followedBy?: { id: string }[];
   }[]) {
+    users.push({ id: user.id, name: user.name });
     const followsIds = (user.follows ?? []).map((u) => u.id).sort();
     const followedByIds = (user.followedBy ?? []).map((u) => u.id).sort();
     if (followsIds.length > 0) {
@@ -779,7 +813,7 @@ async function dumpSelfRefM2m(
       followedBy.push({ userId: user.id, followedByIds });
     }
   }
-  return { follows, followedBy };
+  return { users, follows, followedBy };
 }
 
 type NamedM2mSchema = typeof manyToManySchema;
@@ -802,7 +836,12 @@ async function dumpNamedM2m(
 
 const namedM2mTargetScenarios: Scenario<NamedM2mSchema>[] = [
   {
-    name: "named likes create then stars connectOrCreate rejects target dependency",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+    // target write"); now `likes` runs before `stars` (declaration order) and
+    // the connectOrCreate's lookup observes behind the create — b1 exists, so
+    // the connect arm runs and the second NAMED junction gets its own row
+    // without a second beta.
+    name: "named likes create then stars connectOrCreate connects the beta the create just made",
     seed: (client) => client.alpha.create({ data: { id: "a1" } }),
     act: (client) =>
       client.alpha.update({
@@ -817,11 +856,9 @@ const namedM2mTargetScenarios: Scenario<NamedM2mSchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'create' target write",
     expected: {
-      alphas: [{ id: "a1", likes: [], stars: [] }],
-      betas: [],
+      alphas: [{ id: "a1", likes: [{ id: "b1" }], stars: [{ id: "b1" }] }],
+      betas: [{ id: "b1" }],
     },
   },
   {

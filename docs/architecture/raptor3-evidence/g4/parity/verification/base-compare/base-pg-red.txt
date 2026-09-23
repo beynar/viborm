@@ -1,0 +1,57 @@
+pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes
+pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh
+pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases
+pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical
+pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs
+pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions
+pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions
+pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections
+pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds
+pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering
+pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset
+pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression
+pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate
+pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude
+pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates
+pg Driver > pg batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK
+pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches
+pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs
+pg Driver > pg batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK
+pg Driver > pg batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create
+pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs
+pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision
+pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision
+pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table
+pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand
+pg Driver > pg field references > enum references > equals compares two enum columns of the same row
+pg Driver > pg field references > enum references > not complements it
+pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name
+pg Driver > pg filtered m2m deleteMany staleness > a member added after the plan-time read aborts the guard, then the retry converges
+pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include
+pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types
+pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused
+pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column
+pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root
+pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode
+pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored
+pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution
+pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution
+pg Driver > pg nested write behavior > delete and deleteMany keep child mutations parent-correlated
+pg Driver > pg nested write behavior > rejects nested default-only duplicate skipping before the parent write
+pg Driver > pg nested write behavior > update and updateMany keep child mutations parent-correlated
+pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+pg Driver > pg polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT
+pg Driver > pg polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+pg Driver > pg polymorphic collection reads > total and filtered counts, and count ordering
+pg Driver > pg polymorphic collection writes > duplicate singular createMany targets transfer once
+pg Driver > pg polymorphic relations > empty storage is optional but orphaned membership is invalid
+pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key)
+pg Driver > pg upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+pg Driver > pg upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed

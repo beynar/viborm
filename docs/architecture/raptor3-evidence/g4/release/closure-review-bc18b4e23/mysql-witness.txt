@@ -1,0 +1,81 @@
+
+  test("review: a found reference cannot silently connect another target after rekey", async () => {
+    const planter = boot(new RecordingMySQL2Driver());
+    await planter.badge.create({ data: { id: "b1", slug: "chosen", code: "G" } });
+    let observed = false;
+    let planted = false;
+    const driver = new RecordingMySQL2Driver({
+      beforeStatement: async (statement) => {
+        if (planted) return;
+        if (!observed) {
+          if (statement.startsWith("SELECT") && statement.includes("review_badges")) observed = true;
+          return;
+        }
+        planted = true;
+        await planter.badge.update({ where: { id: "b1" }, data: { code: "M" } });
+        await planter.badge.create({ data: { id: "b2", slug: "unselected", code: "G" } });
+      },
+    });
+    const client = boot(driver);
+    await client.holder.create({ data: {
+      id: "h1",
+      badge: { connectOrCreate: {
+        where: { slug: "chosen" },
+        create: { id: "never-created", slug: "chosen", code: "N" },
+      } },
+    } });
+    expect(observed && planted).toBe(true);
+    const holder = await planter.holder.findUnique({ where: { id: "h1" }, include: { badge: true } });
+    expect(holder?.badge?.id).toBe("b1");
+  });
+
+  test("review: a found conditioned upsert cannot write after its condition stops matching", async () => {
+    const planter = boot(new RecordingMySQL2Driver());
+    await planter.tag.create({ data: { id: "t1", name: "chosen", slug: "chosen", count: 7 } });
+    let planted = false;
+    const driver = new RecordingMySQL2Driver({
+      beforeStatement: async (statement) => {
+        if (planted || !statement.startsWith("UPDATE") || !TAG_TABLE.test(statement)) return;
+        planted = true;
+        await planter.tag.update({ where: { id: "t1" }, data: { count: 8 } });
+      },
+    });
+    const client = boot(driver);
+    let failure: unknown;
+    try {
+      await client.tag.upsert({
+        where: { id: "t1" }, setWhere: { count: 7 },
+        create: { id: "t1", name: "chosen", slug: "chosen", count: 0 },
+        update: { count: 42 },
+      });
+    } catch (error) { failure = error; }
+    expect(planted).toBe(true);
+    const stored = await planter.tag.findUnique({ where: { id: "t1" } });
+    expect(stored?.count).toBe(8);
+    expect(failure).toBeDefined();
+  });
+
+  test("review: a found nested to-one upsert cannot write a reparented record", async () => {
+    const planter = boot(new RecordingMySQL2Driver());
+    await planter.owner.create({ data: { id: "o1", name: "one", profile: { create: { id: "pr1", bio: "original" } } } });
+    await planter.owner.create({ data: { id: "o2", name: "two" } });
+    let planted = false;
+    const driver = new RecordingMySQL2Driver({
+      beforeStatement: async (statement) => {
+        if (planted || !statement.startsWith("UPDATE") || !PROFILE_TABLE.test(statement)) return;
+        planted = true;
+        await planter.profile.update({ where: { id: "pr1" }, data: { owner: { connect: { id: "o2" } } } });
+      },
+    });
+    const client = boot(driver);
+    let failure: unknown;
+    try {
+      await client.owner.update({ where: { id: "o1" }, data: { profile: { upsert: {
+        create: { id: "pr-new", bio: "created" }, update: { bio: "written-by-o1" },
+      } } } });
+    } catch (error) { failure = error; }
+    expect(planted).toBe(true);
+    const stored = await planter.profile.findUnique({ where: { id: "pr1" } });
+    expect(stored).toMatchObject({ ownerId: "o2", bio: "original" });
+    expect(failure).toBeDefined();
+  });

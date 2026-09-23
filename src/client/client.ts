@@ -22,6 +22,7 @@ import type {
 import {
   ClientInitializationError,
   isVibORMError,
+  retainWriteOutcomeFailure,
   TransactionError,
 } from "@errors";
 import {
@@ -47,10 +48,7 @@ import {
   type HasResultConsumingExtension,
   type MergeExtensionState,
 } from "@extensions/methods";
-import {
-  retainWriteOutcomeFailure,
-  TransactionWriteOutcomes,
-} from "@extensions/query";
+import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import {
   createCacheExecutionOptions,
@@ -69,8 +67,9 @@ import {
   readPendingCacheResult,
 } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
-import { isWriteOperation } from "@query-engine/write-engine/routing";
+import { isWriteOperation } from "@query-engine/routed-operations";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
@@ -475,7 +474,21 @@ export class VibORM<C extends VibORMConfig> {
       schemaRegistry,
       relations
     );
-    this.engine = new QueryEngine(config.driver, registry);
+    // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
+    // views above travel to it by identity, so the route's engine hydrates,
+    // validates and registers nothing a second time (B-3).
+    this.engine = new QueryEngine(
+      config.driver,
+      registry,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createCandidateRoute(this.schema, config.driver, {
+        index: relations,
+        registry: schemaRegistry,
+      })
+    );
   }
 
   /**

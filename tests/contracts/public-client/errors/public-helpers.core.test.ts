@@ -247,6 +247,47 @@ describe("concrete error contracts", () => {
     ).toBe("Validation failed for JSON Schema: invalid");
   });
 
+  it("carries validation options into the source, the meta and the cause", () => {
+    // Every other ValidationError in this suite is built with two arguments.
+    // The third one is what the registry and the write boundary actually pass
+    // (`validation/builder.ts`, `write-engine/parse-boundary.ts`), and it is
+    // what decides three separate things: the model the source names, the
+    // operation the meta carries, and whether a cause is retained at all.
+    const withModel = new ValidationError(
+      "createManyAndReturn",
+      [{ path: "data.0.id", message: "required" }],
+      {
+        cause: new Error("provider detail"),
+        diagnostics: { includeParams: true, includeSql: true },
+        meta: { model: "user" },
+      }
+    );
+    expect(withModel.source).toEqual({
+      kind: "operation",
+      operation: "createMany",
+      model: "user",
+    });
+    expect(withModel.meta).toEqual({ model: "user", operation: "createMany" });
+    expect(withModel.originalCause).toBeInstanceOf(Error);
+
+    // A meta whose `model` is not a string names no model: the source states
+    // what it knows rather than carrying the value through unchecked.
+    expect(
+      new ValidationError("create", [{ path: "id", message: "required" }], {
+        meta: { model: 7 as unknown as string },
+      }).source
+    ).toEqual({ kind: "operation", operation: "create" });
+
+    // A non-operation source keeps its meta and invents no operation.
+    const registry = new ValidationError(
+      { kind: "registry", property: "user" },
+      [{ path: "user", message: "invalid" }],
+      { meta: { model: "user" } }
+    );
+    expect(registry.operation).toBeUndefined();
+    expect(registry.meta).toEqual({ model: "user" });
+  });
+
   it("rejects all unsupported vector operations with the same capability error", () => {
     for (const invoke of [
       unsupportedVector.literal,

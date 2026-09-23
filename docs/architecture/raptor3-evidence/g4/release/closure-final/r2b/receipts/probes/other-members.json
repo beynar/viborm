@@ -1,0 +1,73 @@
+{
+  "stored": [
+    {
+      "bigs": "[\"10\", \"20\"]",
+      "days": "[\"2024-01-02\"]"
+    }
+  ],
+  "bigHas": {
+    "ids": [
+      "r1"
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`bigs` AS `bigs`, `q0`.`days` AS `days`, `q0`.`tags` AS `tags` FROM `raptor3_g2`.`r2b_member_rows` AS `q0` WHERE JSON_CONTAINS(`q0`.`bigs`, JSON_ARRAY(?))",
+        "params": [
+          "20"
+        ]
+      }
+    ]
+  },
+  "bigHasEvery": {
+    "ids": [
+      "r1"
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`bigs` AS `bigs`, `q0`.`days` AS `days`, `q0`.`tags` AS `tags` FROM `raptor3_g2`.`r2b_member_rows` AS `q0` WHERE JSON_CONTAINS(`q0`.`bigs`, CAST(? AS JSON))",
+        "params": [
+          "[\"10\",\"20\"]"
+        ]
+      }
+    ]
+  },
+  "dayHas": {
+    "ids": [
+      "r1"
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`bigs` AS `bigs`, `q0`.`days` AS `days`, `q0`.`tags` AS `tags` FROM `raptor3_g2`.`r2b_member_rows` AS `q0` WHERE JSON_CONTAINS(`q0`.`days`, JSON_ARRAY(?))",
+        "params": [
+          "2024-01-02"
+        ]
+      }
+    ]
+  },
+  "dayHasEvery": {
+    "ids": [
+      "r1"
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`bigs` AS `bigs`, `q0`.`days` AS `days`, `q0`.`tags` AS `tags` FROM `raptor3_g2`.`r2b_member_rows` AS `q0` WHERE JSON_CONTAINS(`q0`.`days`, CAST(? AS JSON))",
+        "params": [
+          "[\"2024-01-02\"]"
+        ]
+      }
+    ]
+  },
+  "tagHas": {
+    "ids": [
+      "r1"
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`bigs` AS `bigs`, `q0`.`days` AS `days`, `q0`.`tags` AS `tags` FROM `raptor3_g2`.`r2b_member_rows` AS `q0` WHERE JSON_CONTAINS(`q0`.`tags`, JSON_ARRAY(?))",
+        "params": [
+          "a"
+        ]
+      }
+    ]
+  }
+}

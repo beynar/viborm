@@ -1,0 +1,23 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fcpg
+
+(node:7536) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (10 tests) 8031ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted  758ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: the same schedule deletes a row that had stopped being a member before the write executed  756ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row that stops matching between the last premise and the first write is still deleted  764ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts  827ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing  717ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing  805ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges  832ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added between the complement premise and the first write is silently missed  863ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a captured member that stops matching the filter in the same window is still deleted  805ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing  859ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  22:18:48
+   Duration  9.65s (transform 999ms, setup 9ms, collect 1.48s, tests 8.03s, environment 0ms, prepare 33ms)
+
+Vitest resources: 11.46s wall, 512.4 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

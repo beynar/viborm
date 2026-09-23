@@ -1,0 +1,22 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02b
+
+ ✓ |coverage-drivers| tests/contracts/drivers/sqlite-native-datetime.provider.test.ts (14 tests) 46ms
+ ✓ |extended-local| tests/contracts/drivers/sqlite-native-datetime.provider.test.ts (14 tests) 44ms
+ ✓ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (6 tests) 14ms
+ ✓ |extended-local| tests/unit/migrations/sqlite-datetime-recreation.test.ts (17 tests) 57ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 68ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 13ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 71ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 13ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 26ms
+ ✓ |coverage-migrations| tests/unit/migrations/sqlite-datetime-recreation.test.ts (17 tests) 91ms
+ ✓ |layer-validation| tests/unit/validation/datetime-physical-codec.core.test.ts (11 tests) 2ms
+
+ Test Files  12 passed (12)
+      Tests  125 passed (125)
+   Start at  23:11:59
+   Duration  8.66s (transform 4.47s, setup 48ms, collect 7.13s, tests 464ms, environment 0ms, prepare 164ms)
+
+Vitest resources: 10.72s wall, 680.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

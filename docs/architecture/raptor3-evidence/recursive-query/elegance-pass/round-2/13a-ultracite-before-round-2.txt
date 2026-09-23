@@ -1,0 +1,952 @@
+src/query-engine/raptor3/shared/query.ts:2685:11 lint/correctness/noUnusedVariables  FIXABLE  ━━━━━━━━━━
+
+  i This variable a is unused.
+  
+    2683 │     cursored = false,
+    2684 │   ): OrderTerm {
+  > 2685 │     const a = this.adapter;
+         │           ^
+    2686 │     if (model["~"].state.relations[field])
+    2687 │       return this.relationOrderTerm(model, field, record(direction), alias);
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+  i Unsafe fix: If this is intentional, prepend a with an underscore.
+  
+    2683 2683 │       cursored = false,
+    2684 2684 │     ): OrderTerm {
+    2685      │ - ····const·a·=·this.adapter;
+         2685 │ + ····const·_a·=·this.adapter;
+    2686 2686 │       if (model["~"].state.relations[field])
+    2687 2687 │         return this.relationOrderTerm(model, field, record(direction), alias);
+  
+
+src/query-engine/raptor3/shared/query.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { ArithmeticTarget } from "@adapters/adapter-core-types";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
+    3 │ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+       1    1 │   import type { ArithmeticTarget } from "@adapters/adapter-core-types";
+       2      │ - import·type·{·DatabaseAdapter,·GeoPointSql·}·from·"@adapters/database-adapter";
+       3      │ - import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+       4      │ - import·{
+       5      │ - ··FeatureNotSupportedError,
+       6      │ - ··QueryEngineError,
+       7      │ - ··TransactionError,
+       8      │ - }·from·"@errors";
+            2 │ + import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+            3 │ + import·type·{·DatabaseAdapter,·GeoPointSql·}·from·"@adapters/database-adapter";
+            4 │ + import·type·{·DriverResultParser·}·from·"@drivers";
+       9    5 │   import {
+      10      │ - ··fieldRefPayload,
+      11      │ - ··formatFieldRef,
+      12      │ - ··isFieldRef,
+      13      │ - }·from·"@schema/field-ref";
+      14      │ - import·{·jsonNullKindOf·}·from·"@schema/json-null";
+            6 │ + ··FeatureNotSupportedError,
+            7 │ + ··QueryEngineError,
+            8 │ + ··TransactionError,
+            9 │ + }·from·"@errors";
+           10 │ + import·{·DISTANCE_NAME_COLLISION·}·from·"@query-engine/result/result-shape";
+      15   11 │   import {
+      16      │ - ··findAddressableKey,
+      17      │ - ··getModelKeyCatalog,
+      18      │ - ··type·AnyModel,
+      19      │ - ··type·OrderedModelKey,
+      20      │ - }·from·"@schema/model";
+      21      │ - import·type·{·Scalar·}·from·"@schema/scalars/base";
+      22      │ - import·type·{·ScalarState·}·from·"@schema/scalars/common";
+      23      │ - import·type·{·StandardSchemaV1·}·from·"@standard-schema/spec";
+      24      │ - import·type·{·NativeType·}·from·"@schema/scalars/native-types";
+           12 │ + ··CURSOR_CARRIER_PREFIX,
+           13 │ + ··EMPTY_ROW_RESULT_KEY,
+           14 │ + ··POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+           15 │ + }·from·"@query-engine/result-aliases";
+           16 │ + import·{
+           17 │ + ··fieldRefPayload,
+           18 │ + ··formatFieldRef,
+           19 │ + ··isFieldRef,
+           20 │ + }·from·"@schema/field-ref";
+           21 │ + import·{·jsonNullKindOf·}·from·"@schema/json-null";
+           22 │ + import·{
+           23 │ + ··type·AnyModel,
+           24 │ + ··findAddressableKey,
+           25 │ + ··getModelKeyCatalog,
+           26 │ + ··type·OrderedModelKey,
+           27 │ + }·from·"@schema/model";
+           28 │ + import·{·slotMayBeEmpty·}·from·"@schema/relation/clearability";
+      25   29 │   import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
+      26      │ - import·{·slotMayBeEmpty·}·from·"@schema/relation/clearability";
+      27      │ - import·{
+      28      │ - ··CURSOR_CARRIER_PREFIX,
+      29      │ - ··EMPTY_ROW_RESULT_KEY,
+      30      │ - ··POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+      31      │ - }·from·"@query-engine/result-aliases";
+      32      │ - import·{·DISTANCE_NAME_COLLISION·}·from·"@query-engine/result/result-shape";
+      33      │ - import·type·{·DriverResultParser·}·from·"@drivers";
+      34      │ - import·type·{·Operation·}·from·"../../types";
+      35      │ - import·{·Sql,·sql·}·from·"@sql";
+           30 │ + import·type·{·Scalar·}·from·"@schema/scalars/base";
+           31 │ + import·type·{·ScalarState·}·from·"@schema/scalars/common";
+           32 │ + import·type·{·NativeType·}·from·"@schema/scalars/native-types";
+           33 │ + import·{·Sql,·sql·}·from·"@sql";
+           34 │ + import·type·{·StandardSchemaV1·}·from·"@standard-schema/spec";
+           35 │ + import·{·parse·}·from·"@validation";
+      36   36 │   import {
+      37   37 │     decodePhysicalDateTime,
+    ········· │ 
+      43   43 │     isGregorianCalendarDate,
+      44   44 │   } from "@validation/primitives/datetime-values";
+      45      │ - import·{
+      46      │ - ··validateIsoDate,
+      47      │ - ··validateIsoTimestamp,
+      48      │ - }·from·"@validation/primitives/iso";
+      49      │ - import·{
+      50      │ - ··canonicalDecimal,
+      51      │ - ··decimalMembers,
+      52      │ - ··decimalSumOperand,
+      53      │ - ··decodeDecimalList,
+      54      │ - ··decodeDecimalScalar,
+      55      │ - ··dividesByZero,
+      56      │ - ··exactDecimalDomain,
+      57      │ - ··requireDecimal,
+      58      │ - ··sameDecimalDomain,
+      59      │ - ··type·DecimalDescriptor,
+      60      │ - }·from·"./decimal";
+      61      │ - import·{·parse·}·from·"@validation";
+      62      │ - import·{·geoBoundsForDistance·}·from·"@validation/primitives/geo-area-codec";
+      63      │ - import·{·validateGeoPoint·}·from·"@validation/primitives/geo-point-codec";
+      64      │ - import·type·{·GeoArea,·GeoPoint·}·from·"@validation/primitives/geo-values";
+           45 │ + import·{·geoBoundsForDistance·}·from·"@validation/primitives/geo-area-codec";
+           46 │ + import·{·validateGeoPoint·}·from·"@validation/primitives/geo-point-codec";
+           47 │ + import·type·{·GeoArea,·GeoPoint·}·from·"@validation/primitives/geo-values";
+           48 │ + import·{
+           49 │ + ··validateIsoDate,
+           50 │ + ··validateIsoTimestamp,
+           51 │ + }·from·"@validation/primitives/iso";
+           52 │ + import·{
+           53 │ + ··carriesRepeatedKey,
+           54 │ + ··type·NormalizedRecurrence,
+           55 │ + }·from·"@validation/relations/recurrence";
+           56 │ + import·type·{·Operation·}·from·"../../types";
+      65   57 │   import {
+      66      │ - ··carriesRepeatedKey,
+      67      │ - ··type·NormalizedRecurrence,
+      68      │ - }·from·"@validation/relations/recurrence";
+           58 │ + ··canonicalDecimal,
+           59 │ + ··type·DecimalDescriptor,
+           60 │ + ··decimalMembers,
+           61 │ + ··decimalSumOperand,
+           62 │ + ··decodeDecimalList,
+           63 │ + ··decodeDecimalScalar,
+           64 │ + ··dividesByZero,
+           65 │ + ··exactDecimalDomain,
+           66 │ + ··requireDecimal,
+           67 │ + ··sameDecimalDomain,
+           68 │ + }·from·"./decimal";
+      69   69 │   import {
+      70   70 │     assertInvariant,
+    ········· │ 
+      75   75 │     type Arguments,
+      76   76 │     type EngineSchema,
+      77      │ - ··type·Input,
+           77 │ + ··entries,
+           78 │ + ··type·Input,
+      78   79 │     type QueryViews,
+      79   80 │     type ReadOperation,
+      80      │ - ··record,
+      81      │ - ··entries,
+           81 │ + ··record,
+      82   82 │   } from "./schema";
+      83   83 │   import {
+      84   84 │     bindMembership,
+      85   85 │     type Membership,
+      86      │ - ··physicalField,
+      87      │ - ··type·PhysicalField,
+           86 │ + ··type·PhysicalField,
+           87 │ + ··physicalField,
+      88   88 │   } from "./storage";
+      89   89 │   
+  
+
+src/query-engine/raptor3/shared/query.ts:466:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    464 │ export class InvalidScalarResult extends TypeError {
+    465 │   constructor(
+  > 466 │     readonly scalarType: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    467 │     readonly reason: string,
+    468 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:467:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    465 │   constructor(
+    466 │     readonly scalarType: string,
+  > 467 │     readonly reason: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+    468 │   ) {
+    469 │     super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:666:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    664 │   private readonly result: DriverResultParser | undefined;
+    665 │   constructor(
+  > 666 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    667 │     readonly adapter: DatabaseAdapter,
+    668 │     result?: DriverResultParser,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:667:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    665 │   constructor(
+    666 │     readonly schema: EngineSchema,
+  > 667 │     readonly adapter: DatabaseAdapter,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    668 │     result?: DriverResultParser,
+    669 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:2025:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    2023 │   ): Sql {
+    2024 │     const a = this.adapter;
+  > 2025 │     switch (predicate.kind) {
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 2026 │       case "and":
+          ...
+  > 2047 │         return this.lowerRelationPredicate(predicate, alias, mutationTarget);
+  > 2048 │     }
+         │     ^
+    2049 │   }
+    2050 │   private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/shared/query.ts:3118:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    3116 │       row: query.shape,
+    3117 │     });
+  > 3118 │     switch (operation) {
+         │     ^^^^^^^^^^^^^^^^^^^^
+  > 3119 │       case "findUnique": {
+          ...
+  > 3238 │       }
+  > 3239 │     }
+         │     ^
+    3240 │   }
+    3241 │   /** One aggregate window: the same filter/order/cursor/page, then aggregates. */
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/shared/query.ts:4571:9 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    4569 │     const rawNodes = own(carrier, RECURSIVE_CARRIER.nodes);
+    4570 │     const rawEdges = own(carrier, RECURSIVE_CARRIER.edges);
+  > 4571 │     if (!Array.isArray(root) || !Array.isArray(rawNodes) || !Array.isArray(rawEdges))
+         │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    4572 │       throw new TypeError("Invalid provider recursive carrier");
+    4573 │ 
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    4569 4569 │       const rawNodes = own(carrier, RECURSIVE_CARRIER.nodes);
+    4570 4570 │       const rawEdges = own(carrier, RECURSIVE_CARRIER.edges);
+    4571      │ - ····if·(!Array.isArray(root)·||·!Array.isArray(rawNodes)·||·!Array.isArray(rawEdges))
+         4571 │ + ····if·(!(Array.isArray(root)·&&·Array.isArray(rawNodes)·)·||·!Array.isArray(rawEdges))
+    4572 4572 │         throw new TypeError("Invalid provider recursive carrier");
+    4573 4573 │   
+  
+
+src/query-engine/raptor3/shared/query.ts:4768:25 lint/style/useAtIndex  FIXABLE  ━━━━━━━━━━━━━━━━━━━
+
+  × Prefer X.at(-Y) over X[X.length - Y].
+  
+    4766 │       follow(0, child);
+    4767 │       while (stack.length > 0) {
+  > 4768 │         const current = stack[stack.length - 1]!;
+         │                         ^^^^^^^^^^^^^^^^^^^^^^^
+    4769 │         if (current.next < current.childKeys.length) {
+    4770 │           follow(current.depth, current.childKeys[current.next++]!);
+  
+  i Using .at() is more convenient and is easier to read.
+  
+  i Unsafe fix: Use .at().
+  
+    4766 4766 │         follow(0, child);
+    4767 4767 │         while (stack.length > 0) {
+    4768      │ - ········const·current·=·stack[stack.length·-·1]!;
+         4768 │ + ········const·current·=·stack.at(-1)!;
+    4769 4769 │           if (current.next < current.childKeys.length) {
+    4770 4770 │             follow(current.depth, current.childKeys[current.next++]!);
+  
+
+src/query-engine/raptor3/shared/query.ts:4777:24 lint/style/useAtIndex  FIXABLE  ━━━━━━━━━━━━━━━━━━━
+
+  × Prefer X.at(-Y) over X[X.length - Y].
+  
+    4775 │         if (!cutoff(current.depth))
+    4776 │           current.row[shape.relation] = collapse(current.childRows);
+  > 4777 │         const parent = stack[stack.length - 1];
+         │                        ^^^^^^^^^^^^^^^^^^^^^^^
+    4778 │         if (parent) parent.childRows.push(current.row);
+    4779 │         else rootRows.push(current.row);
+  
+  i Using .at() is more convenient and is easier to read.
+  
+  i Unsafe fix: Use .at().
+  
+    4775 4775 │           if (!cutoff(current.depth))
+    4776 4776 │             current.row[shape.relation] = collapse(current.childRows);
+    4777      │ - ········const·parent·=·stack[stack.length·-·1];
+         4777 │ + ········const·parent·=·stack.at(-1);
+    4778 4778 │           if (parent) parent.childRows.push(current.row);
+    4779 4779 │           else rootRows.push(current.row);
+  
+
+src/query-engine/raptor3/shared/query.ts:5041:11 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    5039 │           typeof value === "string" ? DATE_TEXT.exec(value) : null;
+    5040 │         if (
+  > 5041 │           !match ||
+         │           ^^^^^^^^^
+  > 5042 │           !isGregorianCalendarDate(
+  > 5043 │             Number(match[1]),
+  > 5044 │             Number(match[2]),
+  > 5045 │             Number(match[3]),
+  > 5046 │           )
+         │           ^
+    5047 │         )
+    5048 │           throw new InvalidScalarResult(
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    5039 5039 │             typeof value === "string" ? DATE_TEXT.exec(value) : null;
+    5040 5040 │           if (
+    5041      │ - ··········!match·||
+    5042      │ - ··········!isGregorianCalendarDate(
+         5041 │ + ··········!(match·&&isGregorianCalendarDate(
+    5043 5042 │               Number(match[1]),
+    5044 5043 │               Number(match[2]),
+    5045 5044 │               Number(match[3]),
+    5046      │ - ··········)
+         5045 │ + ··········))
+    5047 5046 │           )
+    5048 5047 │             throw new InvalidScalarResult(
+  
+
+src/query-engine/raptor3/shared/query.ts:5285:5 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    5283 │   if (!match) return undefined;
+    5284 │   if (
+  > 5285 │     !isGregorianCalendarDate(
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 5286 │       Number(match[1]),
+  > 5287 │       Number(match[2]),
+  > 5288 │       Number(match[3]),
+  > 5289 │     ) ||
+  > 5290 │     !isDateTimeClock(Number(match[4]), Number(match[5]), Number(match[6]))
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5291 │   )
+    5292 │     return undefined;
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    5283 5283 │     if (!match) return undefined;
+    5284 5284 │     if (
+    5285      │ - ····!isGregorianCalendarDate(
+         5285 │ + ····!(isGregorianCalendarDate(
+    5286 5286 │         Number(match[1]),
+    5287 5287 │         Number(match[2]),
+    5288 5288 │         Number(match[3]),
+    5289      │ - ····)·||
+    5290      │ - ····!isDateTimeClock(Number(match[4]),·Number(match[5]),·Number(match[6]))
+         5289 │ + ····)·&&isDateTimeClock(Number(match[4]),·Number(match[5]),·Number(match[6])))
+    5291 5290 │     )
+    5292 5291 │       return undefined;
+  
+
+src/query-engine/raptor3/shared/query.ts:5308:5 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    5306 │   const match = TIME_TEXT.exec(value);
+    5307 │   if (
+  > 5308 │     !match ||
+         │     ^^^^^^^^^
+  > 5309 │     !isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3]))
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5310 │   )
+    5311 │     throw new InvalidScalarResult("time", "the value is not a valid provider time");
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    5306 5306 │     const match = TIME_TEXT.exec(value);
+    5307 5307 │     if (
+    5308      │ - ····!match·||
+    5309      │ - ····!isDateTimeClock(Number(match[1]),·Number(match[2]),·Number(match[3]))
+         5308 │ + ····!(match·&&isDateTimeClock(Number(match[1]),·Number(match[2]),·Number(match[3])))
+    5310 5309 │     )
+    5311 5310 │       throw new InvalidScalarResult("time", "the value is not a valid provider time");
+  
+
+src/query-engine/raptor3/shared/query.ts:5366:7 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    5364 │ /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
+    5365 │ function providerArrayMembers(text: string): unknown[] {
+  > 5366 │   if (!text.startsWith("{") || !text.endsWith("}"))
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5367 │     throw new InvalidScalarResult("enum", "a list scalar did not return an array");
+    5368 │   const body = text.slice(1, -1);
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    5364 5364 │   /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
+    5365 5365 │   function providerArrayMembers(text: string): unknown[] {
+    5366      │ - ··if·(!text.startsWith("{")·||·!text.endsWith("}"))
+         5366 │ + ··if·(!(text.startsWith("{")·&&·text.endsWith("}")))
+    5367 5367 │       throw new InvalidScalarResult("enum", "a list scalar did not return an array");
+    5368 5368 │     const body = text.slice(1, -1);
+  
+
+src/query-engine/raptor3/shared/query.ts:2331:5 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    2329 │     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    2330 │     column: Sql,
+  > 2331 │     alias?: string,
+         │     ^^^^^
+    2332 │   ): Sql {
+    2333 │     const a = this.adapter;
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    2329 2329 │       predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    2330 2330 │       column: Sql,
+    2331      │ - ····alias?:·string,
+         2331 │ + ····_alias?:·string,
+    2332 2332 │     ): Sql {
+    2333 2333 │       const a = this.adapter;
+  
+
+src/query-engine/raptor3/shared/query.ts:2947:5 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    2945 │     order: readonly OrderTerm[],
+    2946 │     cursor: Input,
+  > 2947 │     alias: string,
+         │     ^^^^^
+    2948 │   ): Sql {
+    2949 │     const a = this.adapter;
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    2945 2945 │       order: readonly OrderTerm[],
+    2946 2946 │       cursor: Input,
+    2947      │ - ····alias:·string,
+         2947 │ + ····_alias:·string,
+    2948 2948 │     ): Sql {
+    2949 2949 │       const a = this.adapter;
+  
+
+src/query-engine/raptor3/shared/query.ts:4674:5 lint/style/useForOf ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Use for-of loop instead of a for loop.
+  
+    4672 │     const levels = new Set<string>();
+    4673 │     const pending: (readonly [string, number])[] = [[rootKey, 0]];
+  > 4674 │     for (let index = 0; index < pending.length; index += 1) {
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 4675 │       const [parent, level] = pending[index]!;
+          ...
+  > 4695 │         throw new TypeError("Invalid provider recursive depth");
+  > 4696 │     }
+         │     ^
+    4697 │     if (shape.recurrence.depth !== false && consumed.size !== facts.size)
+    4698 │       throw new TypeError("Invalid provider recursive depth");
+  
+
+src/query-engine/raptor3/shared/query.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       7    7 │     TransactionError,
+       8    8 │   } from "@errors";
+       9      │ - import·{
+      10      │ - ··fieldRefPayload,
+      11      │ - ··formatFieldRef,
+      12      │ - ··isFieldRef,
+      13      │ - }·from·"@schema/field-ref";
+            9 │ + import·{·fieldRefPayload,·formatFieldRef,·isFieldRef·}·from·"@schema/field-ref";
+      14   10 │   import { jsonNullKindOf } from "@schema/json-null";
+      15   11 │   import {
+    ········· │ 
+     242  238 │    */
+     243  239 │   export function returningSafeProjection(
+     244      │ - ··projection:·PreparedProjection,
+          240 │ + ··projection:·PreparedProjection
+     245  241 │   ): boolean {
+     246  242 │     return projection.fields.every(
+     247      │ - ····(field)·=>·field.kind·===·"scalar"·||·field.kind·===·"sentinel",
+          243 │ + ····(field)·=>·field.kind·===·"scalar"·||·field.kind·===·"sentinel"
+     248  244 │     );
+     249  245 │   }
+    ········· │ 
+     390  386 │     const { lt, lte } = value as { lt?: unknown; lte?: unknown };
+     391  387 │     const bounds = [lt, lte].filter(
+     392      │ - ····(bound):·bound·is·number·=>·typeof·bound·===·"number"·&&·bound·>·0,
+          388 │ + ····(bound):·bound·is·number·=>·typeof·bound·===·"number"·&&·bound·>·0
+     393  389 │     );
+     394  390 │     return bounds.length === 0 ? undefined : Math.min(...bounds);
+    ········· │ 
+     409  405 │     if (typeof document !== "object" || document === null) return false;
+     410  406 │     return (
+     411      │ - ····Object.keys(document).length·===·0·&&
+     412      │ - ····Object.keys(arm.fields).length·>·0
+          407 │ + ····Object.keys(document).length·===·0·&&·Object.keys(arm.fields).length·>·0
+     413  408 │     );
+     414  409 │   }
+    ········· │ 
+     465  460 │     constructor(
+     466  461 │       readonly scalarType: string,
+     467      │ - ····readonly·reason:·string,
+          462 │ + ····readonly·reason:·string
+     468  463 │     ) {
+     469  464 │       super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+    ········· │ 
+     551  546 │   function addressesOperators(
+     552  547 │     state: ScalarState | undefined,
+     553      │ - ··value:·Input,
+          548 │ + ··value:·Input
+     554  549 │   ): boolean {
+     555  550 │     if (!isOperatorRecord(value)) return false;
+    ········· │ 
+     599  594 │    */
+     600  595 │   export function wholeValue(
+     601      │ - ··value:·unknown,
+          596 │ + ··value:·unknown
+     602  597 │   ): { readonly value: unknown } | undefined {
+     603  598 │     if (value instanceof Sql || value === null || typeof value !== "object")
+    ········· │ 
+     666  661 │       readonly schema: EngineSchema,
+     667  662 │       readonly adapter: DatabaseAdapter,
+     668      │ - ····result?:·DriverResultParser,
+          663 │ + ····result?:·DriverResultParser
+     669  664 │     ) {
+     670  665 │       this.views = schema.queryViews(adapter);
+    ········· │ 
+     680  675 │       const adapterDecode = (input: unknown): unknown =>
+     681  676 │         this.adapter.result.parseField(input, type, (transformed?: unknown) =>
+     682      │ - ········transformed·===·undefined·?·input·:·transformed,
+          677 │ + ········transformed·===·undefined·?·input·:·transformed
+     683  678 │         );
+     684  679 │       const driverParse = this.result?.parseField;
+    ········· │ 
+     796  791 │         physicalField(this.schema, model, field).scalar,
+     797  792 │         value,
+     798      │ - ······field,
+          793 │ + ······field
+     799  794 │       );
+     800  795 │     }
+    ········· │ 
+     809  804 │       }
+     810  805 │       const sentinel = jsonNullKindOf(value);
+     811      │ - ····if·(sentinel)·return·sentinel·===·"DbNull"·?·a.literals.null()·:·a.json.value(null);
+          806 │ + ····if·(sentinel)
+          807 │ + ······return·sentinel·===·"DbNull"·?·a.literals.null()·:·a.json.value(null);
+     812  808 │       if (value === null || value === undefined) return a.literals.null();
+     813  809 │       if (state.array === true && Array.isArray(value))
+    ········· │ 
+     827  823 │           return member
+     828  824 │             ? a.literals.value(
+     829      │ - ··············decimalMembers(state,·[value],·field,·this.adapter.result)[0]!,
+          825 │ + ··············decimalMembers(state,·[value],·field,·this.adapter.result)[0]!
+     830  826 │               )
+     831  827 │             : a.literals.decimal(
+     832  828 │                 canonicalDecimal(value, field),
+     833      │ - ··············requireDecimal(state,·field),
+          829 │ + ··············requireDecimal(state,·field)
+     834  830 │               );
+     835  831 │         case "json":
+    ········· │ 
+     838  834 │           return this.geoPoint("value").value(
+     839  835 │             this.value((value as GeoPoint).longitude),
+     840      │ - ··········this.value((value·as·GeoPoint).latitude),
+          836 │ + ··········this.value((value·as·GeoPoint).latitude)
+     841  837 │           );
+     842  838 │         case "vector":
+    ········· │ 
+     867  863 │       state: ScalarState,
+     868  864 │       values: readonly unknown[],
+     869      │ - ····field:·string,
+          865 │ + ····field:·string
+     870  866 │     ): Sql {
+     871  867 │       if (state.type === "decimal")
+     872  868 │         return this.adapter.arrays.value(
+     873      │ - ········decimalMembers(state,·values,·field,·this.adapter.result),
+          869 │ + ········decimalMembers(state,·values,·field,·this.adapter.result)
+     874  870 │         );
+     875  871 │       return state.type === "enum"
+    ········· │ 
+     890  886 │           "point",
+     891  887 │           usage,
+     892      │ - ········"GeoPoint·requires·a·provider·with·its·physical·point·tier·enabled.",
+          888 │ + ········"GeoPoint·requires·a·provider·with·its·physical·point·tier·enabled."
+     893  889 │         );
+     894  890 │       return geoPoint;
+    ········· │ 
+     915  911 │                 },
+     916  912 │               ],
+     917      │ - ············projected,
+          913 │ + ············projected
+     918  914 │             )
+     919  915 │           : projected;
+    ········· │ 
+     937  933 │           ? this.adapter.arrays.decimalProjection(expression)
+     938  934 │           : this.adapter.expressions.cast(expression, "text");
+     939      │ - ····if·(leaf.list·||·leaf.type·===·"json"·||·leaf.type·===·"point"·||·leaf.type·===·"vector")
+          935 │ + ····if·(
+          936 │ + ······leaf.list·||
+          937 │ + ······leaf.type·===·"json"·||
+          938 │ + ······leaf.type·===·"point"·||
+          939 │ + ······leaf.type·===·"vector"
+          940 │ + ····)
+     940  941 │         return this.adapter.json.document(expression);
+     941  942 │       if (leaf.type === "bigint")
+    ········· │ 
+     981  982 │           state.type === "datetime"
+     982  983 │             ? (this.adapter.result.dateTimeRepresentation?.(
+     983      │ - ··············this.nativeType(scalar),
+          984 │ + ··············this.nativeType(scalar)
+     984  985 │               ) ?? "text")
+     985  986 │             : undefined,
+    ········· │ 
+     995  996 │       edge: Extract<Membership, { kind: "junction" }>,
+     996  997 │       values: Input,
+     997      │ - ····alias?:·string,
+          998 │ + ····alias?:·string
+     998  999 │     ): Sql {
+     999 1000 │       return this.adapter.operators.and(
+    ········· │ 
+    1009 1010 │                   side.model,
+    1010 1011 │                   pair.referencedField,
+    1011      │ - ················values[pair.junctionField],
+    1012      │ - ··············),
+    1013      │ - ············),
+    1014      │ - ··········),
+    1015      │ - ······),
+         1012 │ + ················values[pair.junctionField]
+         1013 │ + ··············)
+         1014 │ + ············)
+         1015 │ + ··········)
+  2031 more lines truncated
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:182:32 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    180 │       distanceAlone
+    181 │     );
+  > 182 │     assert.match(distanceOnly, /_distance: number/);
+        │                                ^^^^^^^^^^^^^^^^^^^
+    183 │     assert.doesNotMatch(distanceOnly, /VibORMRecursiveNode/);
+    184 │     const relationOnly = renderOperationResultType(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:183:39 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    181 │     );
+    182 │     assert.match(distanceOnly, /_distance: number/);
+  > 183 │     assert.doesNotMatch(distanceOnly, /VibORMRecursiveNode/);
+        │                                       ^^^^^^^^^^^^^^^^^^^^^
+    184 │     const relationOnly = renderOperationResultType(
+    185 │       schema,
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:190:32 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    188 │       relationAlone
+    189 │     );
+  > 190 │     assert.match(relationOnly, /_distance\?: Array<VibORMRecursiveNode1>/);
+        │                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    191 │     assert.doesNotMatch(relationOnly, /_distance: number/);
+    192 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:191:39 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    189 │     );
+    190 │     assert.match(relationOnly, /_distance\?: Array<VibORMRecursiveNode1>/);
+  > 191 │     assert.doesNotMatch(relationOnly, /_distance: number/);
+        │                                       ^^^^^^^^^^^^^^^^^^^
+    192 │   });
+    193 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:211:57 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    209 │     if (distance.shape.kind !== "object") return;
+    210 │     assert.equal(distance.shape.fields._distance?.kind, "scalar");
+  > 211 │     assert.doesNotMatch(distance.sql.toStatement("$n"), /WITH RECURSIVE/);
+        │                                                         ^^^^^^^^^^^^^^^^
+    212 │ 
+    213 │     const relation = queries().select(place, relationAlone as never);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts:217:50 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    215 │     if (relation.shape.kind !== "object") return;
+    216 │     assert.equal(relation.shape.fields._distance?.kind, "recursive");
+  > 217 │     assert.match(relation.sql.toStatement("$n"), /WITH RECURSIVE/);
+        │                                                  ^^^^^^^^^^^^^^^^
+    218 │   });
+    219 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/recursive-query/distance-key-collision.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     84  84 │     },
+     85  85 │   };
+     86     │ - const·distanceAlone·=·{·select:·{·id:·true,·at:·{·_distance:·{·to:·paris·}·}·}·};
+         86 │ + const·distanceAlone·=·{
+         87 │ + ··select:·{·id:·true,·at:·{·_distance:·{·to:·paris·}·}·},
+         88 │ + };
+     87  89 │   const relationAlone = {
+     88     │ - ··select:·{·id:·true,·_distance:·{·recurse:·{·depth:·2·},·select:·{·id:·true·}·}·},
+         90 │ + ··select:·{
+         91 │ + ····id:·true,
+         92 │ + ····_distance:·{·recurse:·{·depth:·2·},·select:·{·id:·true·}·},
+         93 │ + ··},
+     89  94 │   };
+     90  95 │   
+    ······· │ 
+    158 163 │         }
+    159 164 │         await Promise.all(background);
+    160     │ - ······assert.equal(driver.statements,·0,·"a·refused·projection·reaches·no·provider");
+        165 │ + ······assert.equal(
+        166 │ + ········driver.statements,
+        167 │ + ········0,
+        168 │ + ········"a·refused·projection·reaches·no·provider"
+        169 │ + ······);
+    161 170 │         assert.equal(memory.reads, 0, "a refused projection is never looked up");
+    162 171 │         assert.equal(memory.writes, 0, "a refused projection is never cached");
+  
+
+tests/raptor3/recursive-query/provider-sql-fixture.ts:648:29 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Unnecessary grouping of digits in numeric literal.
+  
+    646 │ export const PAIR_LINK_TABLE = "rq_provider_pair_links";
+    647 │ /** Beyond MySQL's default recursion ceiling and the public depth ceiling. */
+  > 648 │ export const SPINE_LENGTH = 1_100;
+        │                             ^^^^^
+    649 │ 
+    650 │ export const hierarchySchema = (() => {
+  
+  i Short numbers don't require separators.
+  
+  i Safe fix: Remove unnecessary numeric separators.
+  
+     646  646 │   export const PAIR_LINK_TABLE = "rq_provider_pair_links";
+     647  647 │   /** Beyond MySQL's default recursion ceiling and the public depth ceiling. */
+     648      │ - export·const·SPINE_LENGTH·=·1_100;
+          648 │ + export·const·SPINE_LENGTH·=·1100;
+     649  649 │   
+     650  650 │   export const hierarchySchema = (() => {
+  
+
+tests/raptor3/recursive-query/provider-sql-fixture.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     128  128 │   export const PROVIDER_INITIAL = Object.freeze({
+     129  129 │     nodes: TREE_ROWS.map(
+     130      │ - ····([tenant_key,·node_code,·label,·rank,·visible,·parent_tenant,·parent_code])·=>·({
+          130 │ + ····([
+          131 │ + ······tenant_key,
+          132 │ + ······node_code,
+          133 │ + ······label,
+          134 │ + ······rank,
+          135 │ + ······visible,
+          136 │ + ······parent_tenant,
+          137 │ + ······parent_code,
+          138 │ + ····])·=>·({
+     131  139 │         tenant_key,
+     132  140 │         node_code,
+    ········· │ 
+     136  144 │         parent_tenant,
+     137  145 │         parent_code,
+     138      │ - ····}),
+          146 │ + ····})
+     139  147 │     ),
+     140  148 │     notes: NOTE_ROWS.map(([id, text, position, node_tenant, node_code]) => ({
+    ········· │ 
+     600  608 │         if (Array.isArray(next)) {
+     601  609 │           if (next.length === 0) return { labels, end: "empty" };
+     602      │ - ········if·(next.length·!==·1)·return·{·labels,·end:·`branching·${next.length}`·};
+          610 │ + ········if·(next.length·!==·1)
+          611 │ + ··········return·{·labels,·end:·`branching·${next.length}`·};
+     603  612 │           current = occurrence(next[0]);
+     604  613 │         } else current = occurrence(next);
+    ········· │ 
+     810  819 │       // reverse (w, x, y).
+     811  820 │       rows: [
+     812      │ - ······{·tenant:·"r",·code:·"root",·rank:·0,·parent_code:·null,·parent_tenant:·null·},
+     813      │ - ······{·tenant:·"b",·code:·"x",·rank:·1,·parent_code:·"root",·parent_tenant:·"r"·},
+     814      │ - ······{·tenant:·"a",·code:·"y",·rank:·1,·parent_code:·"root",·parent_tenant:·"r"·},
+     815      │ - ······{·tenant:·"c",·code:·"w",·rank:·1,·parent_code:·"root",·parent_tenant:·"r"·},
+          821 │ + ······{
+          822 │ + ········tenant:·"r",
+          823 │ + ········code:·"root",
+          824 │ + ········rank:·0,
+          825 │ + ········parent_code:·null,
+          826 │ + ········parent_tenant:·null,
+          827 │ + ······},
+          828 │ + ······{
+          829 │ + ········tenant:·"b",
+          830 │ + ········code:·"x",
+          831 │ + ········rank:·1,
+          832 │ + ········parent_code:·"root",
+          833 │ + ········parent_tenant:·"r",
+          834 │ + ······},
+          835 │ + ······{
+          836 │ + ········tenant:·"a",
+          837 │ + ········code:·"y",
+          838 │ + ········rank:·1,
+          839 │ + ········parent_code:·"root",
+          840 │ + ········parent_tenant:·"r",
+          841 │ + ······},
+          842 │ + ······{
+          843 │ + ········tenant:·"c",
+          844 │ + ········code:·"w",
+          845 │ + ········rank:·1,
+          846 │ + ········parent_code:·"root",
+          847 │ + ········parent_tenant:·"r",
+          848 │ + ······},
+     816  849 │       ],
+     817  850 │     },
+    ········· │ 
+    1043 1076 │           "parent",
+    1044 1077 │           { depth: 1000 },
+    1045      │ - ········{·labels:·labels("s",·SPINE_LENGTH·-·1,·SPINE_LENGTH·-·1000),·end:·"omitted"·},
+         1078 │ + ········{
+         1079 │ + ··········labels:·labels("s",·SPINE_LENGTH·-·1,·SPINE_LENGTH·-·1000),
+         1080 │ + ··········end:·"omitted",
+         1081 │ + ········},
+    1046 1082 │           1000
+    1047 1083 │         ),
+    ········· │ 
+    1657 1693 │   
+    1658 1694 │   const diamondTree = (relation: string) => [
+    1659      │ - ··node("d1",·relation,·[
+    1660      │ - ····node("d3",·relation,·[node("d4",·relation,·[])]),
+    1661      │ - ··]),
+    1662      │ - ··node("d2",·relation,·[
+    1663      │ - ····node("d3",·relation,·[node("d4",·relation,·[])]),
+    1664      │ - ··]),
+         1695 │ + ··node("d1",·relation,·[node("d3",·relation,·[node("d4",·relation,·[])])]),
+         1696 │ + ··node("d2",·relation,·[node("d3",·relation,·[node("d4",·relation,·[])])]),
+    1665 1697 │   ];
+    1666 1698 │   
+    ········· │ 
+    1679 1711 │     assert.notStrictEqual(leftTail.payload, rightTail.payload);
+    1680 1712 │     (leftTail.payload as Record<string, unknown>).changed = true;
+    1681      │ - ··assert.equal((rightTail.payload·as·Record<string,·unknown>).changed,·undefined);
+         1713 │ + ··assert.equal(
+         1714 │ + ····(rightTail.payload·as·Record<string,·unknown>).changed,
+         1715 │ + ····undefined
+         1716 │ + ··);
+    1682 1717 │   }
+    1683 1718 │   
+    ········· │ 
+    1931 1966 │           expected: [
+    1932 1967 │             node("d0", "out", diamondTree("out")),
+    1933      │ - ··········node("d1",·"out",·[
+    1934      │ - ············node("d3",·"out",·[node("d4",·"out",·[])]),
+    1935      │ - ··········]),
+         1968 │ + ··········node("d1",·"out",·[node("d3",·"out",·[node("d4",·"out",·[])])]),
+    1936 1969 │           ],
+    1937 1970 │           check(value) {
+  
+
+Checked 6 files in 89ms. No fixes applied.
+Found 27 errors.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

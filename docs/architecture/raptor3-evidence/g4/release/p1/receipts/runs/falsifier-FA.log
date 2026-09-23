@@ -1,0 +1,387 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-p1
+
+ ❯ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests | 6 failed) 22ms
+   ✓ the decoder fails closed on a wrong provider row > a null _count carrier is a malformed row, not a null count 7ms
+   ✓ the decoder fails closed on a wrong provider row > a relation that is not an array raises the public class 2ms
+   ✓ the decoder fails closed on a wrong provider row > a document that is not a row raises the public class 1ms
+   × the driver result seam is reached (D-17) > the driver's own json rule decodes a top-level document 6ms
+     → expected [ { meta: 'just a json string' } ] to deeply equal [ { id: 1, …(1) } ]
+   ✓ the driver result seam is reached (D-17) > a driver rule that throws is a malformed value, not a raw SyntaxError 1ms
+   × the driver result seam is reached (D-17) > the count and the exists answer are the decoder's, not the seam's (D-35) 1ms
+     → expected +0 to be 2 // Object.is equality
+   × the driver result seam is reached (D-17) > a JSON integer outside the safe range is refused, and a safe one is a number 1ms
+     → expected [ { meta: 42 } ] to deeply equal [ { id: 1, meta: 42 } ]
+   × the adapter result seam decides nothing (D-40) > PostgreSQL answers the count and the exists from the decoder alone 0ms
+     → expected +0 to be 2 // Object.is equality
+   × the adapter result seam decides nothing (D-40) > MySQL answers them from the decoder alone, and only under its own alias 0ms
+     → expected +0 to be 2 // Object.is equality
+   × the adapter result seam decides nothing (D-40) > the three shipped adapters share one pass-through, and a custom adapter's own is still asked 1ms
+     → expected +0 to be 2 // Object.is equality
+   ✓ one physical vocabulary > a decimal carried inside a window stays TEXT 1ms
+   ✓ one physical vocabulary > the cursor carrier has one home 1ms
+   ✓ one physical vocabulary > the registered _distance collision sentence, in both orders 1ms
+ ❯ |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests | 3 failed) 24ms
+   ✓ post-G3 projection preparation > prepares shape without SQL and binds aliases only while lowering 5ms
+   × post-G3 projection preparation > decodes one prepared mapped decimal, nested, and variant shape freshly 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   displayName: 'Ada'
+- }
+
+   × post-G3 projection preparation > reuses one projection for segmented generated output and its continuation read 12ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+-   id: 1,
+    score: 7,
+    stamp: 51
+  }
+
+   × post-G3 projection preparation > reuses one projection for a non-returning update and its stored-row read 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   score: 11
+- }
+
+ ❯ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests | 3 failed) 21ms
+   ✓ post-G3 projection preparation > prepares shape without SQL and binds aliases only while lowering 5ms
+   × post-G3 projection preparation > decodes one prepared mapped decimal, nested, and variant shape freshly 6ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   displayName: 'Ada'
+- }
+
+   × post-G3 projection preparation > reuses one projection for segmented generated output and its continuation read 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+-   id: 1,
+    score: 7,
+    stamp: 51
+  }
+
+   × post-G3 projection preparation > reuses one projection for a non-returning update and its stored-row read 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   score: 11
+- }
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the driver result seam is reached (D-17) > the driver's own json rule decodes a top-level document
+AssertionError: expected [ { meta: 'just a json string' } ] to deeply equal [ { id: 1, …(1) } ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "id": 1,[39m
+[2m      "meta": "just a json string",[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:161:5
+    159|       sqliteResultParser
+    160|     );
+    161|     await expect(
+       |     ^
+    162|       client.parent.findMany({ select: { id: true, meta: true } })
+    163|     ).resolves.toEqual([{ id: 1, meta: "just a json string" }]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the driver result seam is reached (D-17) > the count and the exists answer are the decoder's, not the seam's (D-35)
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:193:5
+    191| 
+    192|     const counted = scripted([{ _count: 2n }], sqliteResultParser);
+    193|     await expect(counted.client.parent.count({})).resolves.toBe(2);
+       |     ^
+    194|     await counted.client.$disconnect();
+    195| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the driver result seam is reached (D-17) > a JSON integer outside the safe range is refused, and a safe one is a number
+AssertionError: expected [ { meta: 42 } ] to deeply equal [ { id: 1, meta: 42 } ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "id": 1,[39m
+[2m      "meta": 42,[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:211:5
+    209|   test("a JSON integer outside the safe range is refused, and a safe o…
+    210|     const { client } = scripted([{ id: 1, meta: 42n }]);
+    211|     await expect(
+       |     ^
+    212|       client.parent.findMany({ select: { id: true, meta: true } })
+    213|     ).resolves.toEqual([{ id: 1, meta: 42 }]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > PostgreSQL answers the count and the exists from the decoder alone
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:254:5
+    252|     // `postgres.js` actually answer: `COUNT(*)` as integer TEXT.
+    253|     const counted = scriptedPg([{ _count: "2" }]);
+    254|     await expect(counted.counted.count({})).resolves.toBe(2);
+       |     ^
+    255|     await counted.$disconnect();
+    256| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > MySQL answers them from the decoder alone, and only under its own alias
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:288:5
+    286|     // The raw mysql2 answers, measured live.
+    287|     const counted = scriptedMysql([{ _count: 2 }]);
+    288|     await expect(counted.counted.count({})).resolves.toBe(2);
+       |     ^
+    289|     await counted.$disconnect();
+    290| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > the three shipped adapters share one pass-through, and a custom adapter's own is still asked
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:358:5
+    356|     const custom = new CustomAdapter();
+    357|     const client = on(custom, "sqlite")([{ zz_count: 2 }]);
+    358|     await expect(client.counted.count({})).resolves.toBe(2);
+       |     ^
+    359|     await client.$disconnect();
+    360|     expect(custom.asked).toEqual([
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts > post-G3 projection preparation > decodes one prepared mapped decimal, nested, and variant shape freshly
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   displayName: 'Ada'
+- }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- {[39m
+[32m-   "displayName": "Ada",[39m
+[32m- }[39m
+[31m+ {}[39m
+
+ ❯ tests/raptor3/post-prep/projection-preparation.test.ts:213:12
+    211|     assert(firstRow.amount.eq("12.34"));
+    212|     assert(secondRow.amount.eq("12.34"));
+    213|     assert.deepEqual(firstRow.author, { displayName: "Ada" });
+       |            ^
+    214|     assert.deepEqual(firstRow.subject, {
+    215|       type: "post",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts > post-G3 projection preparation > reuses one projection for segmented generated output and its continuation read
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+-   id: 1,
+    score: 7,
+    stamp: 51
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "id": 1,[39m
+[2m    "score": 7,[22m
+[2m    "stamp": 51,[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/post-prep/projection-preparation.test.ts:282:14
+    280|       });
+    281| 
+    282|       assert.deepEqual(created, { score: 7, id: 1, stamp: 51 });
+       |              ^
+    283|       assert.equal(preparation.mock.calls.length, 1);
+    284|       assert.equal(lowering.mock.calls.length, 2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts > post-G3 projection preparation > reuses one projection for a non-returning update and its stored-row read
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   score: 11
+- }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- {[39m
+[32m-   "score": 11,[39m
+[32m- }[39m
+[31m+ {}[39m
+
+ ❯ tests/raptor3/post-prep/projection-preparation.test.ts:352:14
+    350|       );
+    351| 
+    352|       assert.deepEqual(updated, { score: 11 });
+       |              ^
+    353|       assert.equal(preparation.mock.calls.length, 1);
+    354|       assert.equal(selection.mock.calls.length, 1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/12]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts > post-G3 projection preparation > decodes one prepared mapped decimal, nested, and variant shape freshly
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   displayName: 'Ada'
+- }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- {[39m
+[32m-   "displayName": "Ada",[39m
+[32m- }[39m
+[31m+ {}[39m
+
+ ❯ tests/raptor3/post-prep/projection-preparation.test.ts:213:12
+    211|     assert(firstRow.amount.eq("12.34"));
+    212|     assert(secondRow.amount.eq("12.34"));
+    213|     assert.deepEqual(firstRow.author, { displayName: "Ada" });
+       |            ^
+    214|     assert.deepEqual(firstRow.subject, {
+    215|       type: "post",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/12]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts > post-G3 projection preparation > reuses one projection for segmented generated output and its continuation read
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+-   id: 1,
+    score: 7,
+    stamp: 51
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "id": 1,[39m
+[2m    "score": 7,[22m
+[2m    "stamp": 51,[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/post-prep/projection-preparation.test.ts:282:14
+    280|       });
+    281| 
+    282|       assert.deepEqual(created, { score: 7, id: 1, stamp: 51 });
+       |              ^
+    283|       assert.equal(preparation.mock.calls.length, 1);
+    284|       assert.equal(lowering.mock.calls.length, 2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/12]⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts > post-G3 projection preparation > reuses one projection for a non-returning update and its stored-row read
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ {}
+- {
+-   score: 11
+- }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- {[39m
+[32m-   "score": 11,[39m
+[32m- }[39m
+[31m+ {}[39m
+
+ ❯ tests/raptor3/post-prep/projection-preparation.test.ts:352:14
+    350|       );
+    351| 
+    352|       assert.deepEqual(updated, { score: 11 });
+       |              ^
+    353|       assert.equal(preparation.mock.calls.length, 1);
+    354|       assert.equal(selection.mock.calls.length, 1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/12]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  12 failed | 9 passed (21)
+   Start at  20:18:02
+   Duration  4.36s (transform 2.44s, setup 31ms, collect 3.72s, tests 67ms, environment 0ms, prepare 101ms)
+
+Vitest resources: 6.40s wall, 553.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

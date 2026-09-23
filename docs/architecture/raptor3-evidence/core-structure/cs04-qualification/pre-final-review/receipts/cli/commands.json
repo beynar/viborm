@@ -1,0 +1,194 @@
+{
+  "identity": {
+    "production": "d7f14cc5973eb25e8ab80678bd55dfcb424e2a837907ce1f4c3728b1bbf66922",
+    "harness": "4b4783d8926b943a07066dc741106ea9caeeabc9ca35c58042f1d3cca2c2c18f",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "gateDirectory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N5QWte",
+  "commands": [
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "g0"
+      ],
+      "environment": {},
+      "status": 0,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 981ms\n   ✓ records the complete fixed and 100-seed-per-profile G0 campaign  887ms\n ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 31ms\n\n Test Files  2 passed (2)\n      Tests  33 passed (33)\n   Start at  03:08:26\n   Duration  2.48s (transform 904ms, setup 8ms, collect 1.35s, tests 1.01s, environment 0ms, prepare 24ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N5QWte/vitest.json\nRaptor 3 g0 contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N5QWte\n",
+      "stderr": "Vitest resources: 4.16s wall, 801.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "replay",
+        "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N5QWte/corpus.json"
+      ],
+      "environment": {},
+      "status": 0,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ✓ |raptor3| tests/raptor3/gate.test.ts (1 test) 301ms\n   ✓ replays the saved corpus against its exact executed-source identity  301ms\n\n Test Files  1 passed (1)\n      Tests  1 passed (1)\n   Start at  03:08:30\n   Duration  1.68s (transform 880ms, setup 7ms, collect 1.27s, tests 301ms, environment 0ms, prepare 23ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ypvOKH/vitest.json\nRaptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ypvOKH\n",
+      "stderr": "Vitest resources: 3.38s wall, 715.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "replay",
+        "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N5QWte/cut-evidence.json"
+      ],
+      "environment": {},
+      "status": 0,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ✓ |raptor3| tests/raptor3/gate.test.ts (1 test) 37ms\n\n Test Files  1 passed (1)\n      Tests  1 passed (1)\n   Start at  03:08:34\n   Duration  1.43s (transform 883ms, setup 8ms, collect 1.27s, tests 37ms, environment 0ms, prepare 24ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-bWTA7F/vitest.json\nRaptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-bWTA7F\n",
+      "stderr": "Vitest resources: 3.12s wall, 534.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "replay",
+        "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-N5QWte/clock-evidence.json"
+      ],
+      "environment": {},
+      "status": 0,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ✓ |raptor3| tests/raptor3/gate.test.ts (1 test) 31ms\n\n Test Files  1 passed (1)\n      Tests  1 passed (1)\n   Start at  03:08:37\n   Duration  1.44s (transform 890ms, setup 7ms, collect 1.30s, tests 31ms, environment 0ms, prepare 24ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1rYY2G/vitest.json\nRaptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1rYY2G\n",
+      "stderr": "Vitest resources: 3.18s wall, 531.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "g0",
+        "--testNamePattern=absent"
+      ],
+      "environment": {},
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered.\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "g0"
+      ],
+      "environment": {
+        "VIBORM_RAPTOR3_SPECIMEN": "missing-case"
+      },
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ❯ |raptor3| tests/raptor3/gate.test.ts (1 test | 1 failed) 4ms\n   × fails closed for the requested command specimen 4ms\n     → Missing or duplicate fixed G0 case\n+ actual - expected\n\n  [\n    's1-child-found',\n    's1-child-missing',\n    's1-child-rollback',\n-   's1-parent-found',\n    's1-parent-missing',\n    's1-parent-rollback',\n    's2-changed-dependency',\n    's2-distinct-defaults',\n    's3-empty',\n\n ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 55ms\n\n Test Files  1 failed | 1 passed (2)\n      Tests  1 failed | 24 passed (25)\n   Start at  03:08:41\n   Duration  1.60s (transform 946ms, setup 8ms, collect 1.42s, tests 60ms, environment 0ms, prepare 23ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6tLBKS/vitest.json\n",
+      "stderr": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |raptor3| tests/raptor3/gate.test.ts > fails closed for the requested command specimen\nAssertionError: Missing or duplicate fixed G0 case\n+ actual - expected\n\n  [\n    's1-child-found',\n    's1-child-missing',\n    's1-child-rollback',\n-   's1-parent-found',\n    's1-parent-missing',\n    's1-parent-rollback',\n    's2-changed-dependency',\n    's2-distinct-defaults',\n    's3-empty',\n\n\n- Expected\n+ Received\n\n@@ -1,10 +1,9 @@\n  [\n    \"s1-child-found\",\n    \"s1-child-missing\",\n    \"s1-child-rollback\",\n-   \"s1-parent-found\",\n    \"s1-parent-missing\",\n    \"s1-parent-rollback\",\n    \"s2-changed-dependency\",\n    \"s2-distinct-defaults\",\n    \"s3-empty\",\n\n ❯ assertFixedInventory tests/raptor3/harness/replay.ts:285:10\n    283|   profiles: readonly ProfileId[]\n    284| ): void {\n    285|   assert.deepEqual(\n       |          ^\n    286|     scenarios.map((scenario) => scenario.id).sort(),\n    287|     [...G0_CASE_IDS].sort(),\n ❯ runG0Campaign tests/raptor3/harness/replay.ts:315:3\n ❯ tests/raptor3/gate.test.ts:48:13\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\nVitest resources: 3.29s wall, 525.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6tLBKS\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "g0"
+      ],
+      "environment": {
+        "VIBORM_RAPTOR3_SPECIMEN": "missing-profile"
+      },
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ❯ |raptor3| tests/raptor3/gate.test.ts (1 test | 1 failed) 4ms\n   × fails closed for the requested command specimen 4ms\n     → Missing or duplicate required G0 profile\n+ actual - expected\n\n  [\n    'sqlite-atomic-batch',\n-   'sqlite-interactive'\n  ]\n\n ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 53ms\n\n Test Files  1 failed | 1 passed (2)\n      Tests  1 failed | 24 passed (25)\n   Start at  03:08:44\n   Duration  1.53s (transform 909ms, setup 9ms, collect 1.35s, tests 57ms, environment 0ms, prepare 23ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-p3qp4x/vitest.json\n",
+      "stderr": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |raptor3| tests/raptor3/gate.test.ts > fails closed for the requested command specimen\nAssertionError: Missing or duplicate required G0 profile\n+ actual - expected\n\n  [\n    'sqlite-atomic-batch',\n-   'sqlite-interactive'\n  ]\n\n\n- Expected\n+ Received\n\n  [\n    \"sqlite-atomic-batch\",\n-   \"sqlite-interactive\",\n  ]\n\n ❯ assertFixedInventory tests/raptor3/harness/replay.ts:290:10\n    288|     \"Missing or duplicate fixed G0 case\"\n    289|   );\n    290|   assert.deepEqual(\n       |          ^\n    291|     [...profiles].sort(),\n    292|     [...G0_CAMPAIGN.profiles].sort(),\n ❯ runG0Campaign tests/raptor3/harness/replay.ts:315:3\n ❯ tests/raptor3/gate.test.ts:56:13\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\nVitest resources: 3.28s wall, 545.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-p3qp4x\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "replay",
+        "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-rZJhMA/stale.json"
+      ],
+      "environment": {},
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ❯ |raptor3| tests/raptor3/gate.test.ts (1 test | 1 failed) 34ms\n   × replays the saved corpus against its exact executed-source identity 34ms\n     → Stale Raptor 3 evidence: executed source or runtime changed\n+ actual - expected\n\n  {\n    harness: '4b4783d8926b943a07066dc741106ea9caeeabc9ca35c58042f1d3cca2c2c18f',\n+   production: 'd7f14cc5973eb25e8ab80678bd55dfcb424e2a837907ce1f4c3728b1bbf66922',\n-   production: 'stale',\n    runtime: {\n      architecture: 'arm64',\n      node: 'v24.21.0',\n      platform: 'darwin',\n      sqliteDriver: '12.6.0',\n\n\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n   Start at  03:08:48\n   Duration  1.48s (transform 887ms, setup 8ms, collect 1.27s, tests 34ms, environment 0ms, prepare 24ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2eqUdW/vitest.json\n",
+      "stderr": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |raptor3| tests/raptor3/gate.test.ts > replays the saved corpus against its exact executed-source identity\nAssertionError: Stale Raptor 3 evidence: executed source or runtime changed\n+ actual - expected\n\n  {\n    harness: '4b4783d8926b943a07066dc741106ea9caeeabc9ca35c58042f1d3cca2c2c18f',\n+   production: 'd7f14cc5973eb25e8ab80678bd55dfcb424e2a837907ce1f4c3728b1bbf66922',\n-   production: 'stale',\n    runtime: {\n      architecture: 'arm64',\n      node: 'v24.21.0',\n      platform: 'darwin',\n      sqliteDriver: '12.6.0',\n\n\n- Expected\n+ Received\n\n@@ -1,8 +1,8 @@\n  {\n    \"harness\": \"4b4783d8926b943a07066dc741106ea9caeeabc9ca35c58042f1d3cca2c2c18f\",\n-   \"production\": \"stale\",\n+   \"production\": \"d7f14cc5973eb25e8ab80678bd55dfcb424e2a837907ce1f4c3728b1bbf66922\",\n    \"runtime\": {\n      \"architecture\": \"arm64\",\n      \"node\": \"v24.21.0\",\n      \"platform\": \"darwin\",\n      \"sqliteDriver\": \"12.6.0\",\n\n ❯ assertRaptor3Identity scripts/raptor3-manifest.mjs:583:10\n    581|   actual = captureRaptor3Identity()\n    582| ) {\n    583|   assert.deepEqual(\n       |          ^\n    584|     actual,\n    585|     expected,\n ❯ tests/raptor3/gate.test.ts:134:5\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\nVitest resources: 3.19s wall, 531.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2eqUdW\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "replay",
+        "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-rZJhMA/empty.json"
+      ],
+      "environment": {},
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ❯ |raptor3| tests/raptor3/gate.test.ts (1 test | 1 failed) 22ms\n   × replays the saved corpus against its exact executed-source identity 22ms\n     → [\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [],\n    \"message\": \"Too small: expected array to have >=1 items\"\n  }\n]\n\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n   Start at  03:08:51\n   Duration  1.43s (transform 901ms, setup 8ms, collect 1.30s, tests 22ms, environment 0ms, prepare 25ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Yml4Hb/vitest.json\n",
+      "stderr": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |raptor3| tests/raptor3/gate.test.ts > replays the saved corpus against its exact executed-source identity\nZodError: [\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [],\n    \"message\": \"Too small: expected array to have >=1 items\"\n  }\n]\n ❯ assertReplayRecords tests/raptor3/harness/replay.ts:367:36\n    365|   // These schemas have no coercions/transforms. Keep the admitted wir…\n    366|   // themselves, including public input key order, instead of Zod's sh…\n    367|   z.array(recordSchema).nonempty().parse(records);\n       |                                    ^\n    368| }\n    369| \n ❯ decodeReplayRecords tests/raptor3/harness/replay.ts:358:3\n ❯ tests/raptor3/gate.test.ts:135:26\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\nVitest resources: 3.11s wall, 542.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Yml4Hb\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "replay",
+        "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-rZJhMA/malformed.json"
+      ],
+      "environment": {},
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ❯ |raptor3| tests/raptor3/gate.test.ts (1 test | 1 failed) 24ms\n   × replays the saved corpus against its exact executed-source identity 24ms\n     → Unknown evidence wire tag\n\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n   Start at  03:08:54\n   Duration  1.41s (transform 887ms, setup 7ms, collect 1.27s, tests 24ms, environment 0ms, prepare 23ms)\n\nJSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-P6jSn7/vitest.json\n",
+      "stderr": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |raptor3| tests/raptor3/gate.test.ts > replays the saved corpus against its exact executed-source identity\nAssertionError: Unknown evidence wire tag\n\n- Expected\n+ Received\n\n- true\n+ false\n\n ❯ decodeEvidenceValue benchmarks/operation-pipeline-evidence.mjs:78:9\n     76|   assert(Array.isArray(payload), \"Invalid evidence container\");\n     77|   if (tag === \"array\") return payload.map(decodeEvidenceValue);\n     78|   assert(\n       |         ^\n     79|     tag === \"record\" || tag === \"null-record\",\n     80|     \"Unknown evidence wire tag\"\n ❯ decodeReplayRecords tests/raptor3/harness/replay.ts:357:19\n ❯ tests/raptor3/gate.test.ts:135:26\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\nVitest resources: 3.11s wall, 554.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-P6jSn7\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "g0"
+      ],
+      "environment": {
+        "VIBORM_RAPTOR3_SPECIMEN": "nontermination"
+      },
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\nstdout | tests/raptor3/gate.test.ts > fails closed for the requested command specimen\nG0 nontermination: public operation completed\n\n",
+      "stderr": "Vitest exceeded its 120 second wall limit.\nVitest resources: 120.06s wall, 528.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2u7bhz\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "g0",
+        "--wall-limit-ms=10000"
+      ],
+      "environment": {
+        "VIBORM_RAPTOR3_SPECIMEN": "transport-nontermination"
+      },
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\nstdout | tests/raptor3/gate.test.ts > fails closed for the requested command specimen\nG1 nontermination: public operation awaits queued provider reply\n\n",
+      "stderr": "Vitest exceeded its 10 second wall limit.\nVitest resources: 10.07s wall, 541.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Hj3nEd\n"
+    },
+    {
+      "entry": "scripts/run-raptor3.mjs",
+      "args": [
+        "g0",
+        "--wall-limit-ms=30000"
+      ],
+      "environment": {
+        "VIBORM_RAPTOR3_SPECIMEN": "campaign-progress-nontermination"
+      },
+      "status": 1,
+      "signal": null,
+      "stdout": "\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\nstdout | tests/raptor3/gate.test.ts > fails closed for the requested command specimen\nG2 nontermination: verified cells persisted at /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-O0FOql\n\n",
+      "stderr": "Vitest exceeded its 30 second wall limit.\nVitest resources: 30.06s wall, 570.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\nRaptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-O0FOql\n"
+    },
+    {
+      "entry": "scripts/run-credential-free-tests.mjs",
+      "args": [
+        "--only",
+        "Raptor 3"
+      ],
+      "environment": {
+        "VIBORM_RAPTOR3_SPECIMEN": "nontermination",
+        "VIBORM_RAPTOR3_REPLAY_PATH": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-rZJhMA/does-not-exist.json",
+        "VIBORM_RAPTOR3_EVIDENCE_DIRECTORY": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-rZJhMA/does-not-exist"
+      },
+      "status": 0,
+      "signal": null,
+      "stdout": "\n[test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison\n\n RUN  v3.1.4 /private/tmp/viborm-cs00-candidate.V7lUlt\n\n ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 64ms\n ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 19ms\n ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 17ms\n ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 7ms\n ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 30ms\n ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 25ms\n ✓ |raptor3| tests/raptor3/gate.test.ts (8 tests) 80ms\n ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 51ms\n ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 15ms\n ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 8ms\n ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 30ms\n ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 13ms\n ✓ |raptor3| tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts (4 tests) 3ms\n ✓ |raptor3| tests/raptor3/ownership/commands.test.ts (6 tests) 4ms\n ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 4ms\n ✓ |raptor3| tests/raptor3/transport.test.ts (44 tests) 403ms\n ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 4ms\n ✓ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests) 13ms\n ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms\n ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 13ms\n ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts (5 tests) 10ms\n ✓ |raptor3| tests/raptor3/core-structure/extension-b.contract.test.ts (4 tests) 8ms\n ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 28ms\n ✓ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 4ms\n ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 15ms\n ✓ |raptor3| tests/raptor3/cleanup-failure.test.ts (2 tests) 22ms\n ✓ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 7ms\n ✓ |raptor3| tests/raptor3/candidate.test.ts (48 tests) 211ms\n ✓ |raptor3| tests/raptor3/generated-gate.test.ts (3 tests) 35ms\n ✓ |raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms\n ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (8 tests) 7ms\n ✓ |raptor3| tests/raptor3/expanded/lifetime-commands.test.ts (16 tests) 40ms\n ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (4 tests) 18ms\n ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 204ms\n ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 49ms\n ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 167ms\n ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 26ms\n ✓ |raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 20ms\n ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 38ms\n ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 59ms\n ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 54ms\n ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 37ms\n ✓ |raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 20ms\n ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 72ms\n ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 157ms\n ✓ |raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 61ms\n ✓ |raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 52ms\n ✓ |raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 32ms\n ✓ |raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 60ms\n ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 77ms\n ✓ |raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 1ms\n ✓ |raptor3| tests/raptor3/expanded/commands.test.ts (82 tests) 127ms\n ✓ |raptor3| tests/raptor3/expanded/variant-identity-commands.test.ts (42 tests) 74ms\n ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 32ms\n ✓ |raptor3| tests/raptor3/generated-smoke.test.ts (32 tests) 140ms\n\n Test Files  55 passed (55)\n      Tests  716 passed (716)\n   Start at  03:11:38\n   Duration  7.72s (transform 1.23s, setup 28ms, collect 4.72s, tests 2.77s, environment 0ms, prepare 25ms)\n\n",
+      "stderr": "Vitest resources: 9.40s wall, 916.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\n[test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 9.56s wall, 60.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.\n"
+    }
+  ]
+}

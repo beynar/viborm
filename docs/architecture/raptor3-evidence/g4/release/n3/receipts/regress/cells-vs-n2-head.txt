@@ -1,0 +1,8 @@
+failing cells before 140 after 137 | newly red 0 | newly green 3 | same cell, different message 3
+  GREEN  : m8-race-retry.test.ts > M8 race-retry classification > an un-attributable planned abort surfaces the typed non-rac
+  GREEN  : nested-m2m-parent-pk-dataflow.test.ts > planned m2m delete parent-PK dataflow > deleteMany retries when a member is added to a non
+  GREEN  : nested-m2m-parent-pk-dataflow.test.ts > planned m2m delete parent-PK dataflow > deleteMany retries without deleting a member remov
+  MOVED  : relation-key-update-legality-transition-arm.test.ts > relation-key update legality > allows primary-key arithmetic transition with cas | AssertionError: expected { …(2) } to deeply equal { name: 'UniqueConst -> AssertionError: expected { name: 'NestedWriteError', …(1) } to deeply 
+  MOVED  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-many in | AssertionError: expected { …(3) } to deeply equal { name: 'NestedWrite -> AssertionError: expected { name: 'NestedWriteError', …(2) } to deeply 
+  MOVED  : shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > update publishes the tar | NestedWriteAssertionError: Nested write assertion failed: a batch prec -> NestedWriteError: Nested write assertion failed: a batch precondition 
+failing cells before 2 after 2 | newly red 0 | newly green 0 | same cell, different message 0

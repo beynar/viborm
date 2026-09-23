@@ -1,0 +1,16 @@
+✔ reads the sentence a site built into a local const and handed to the failure owner (370.462792ms)
+✔ reads the sentence the site's own factory built and handed to the failure owner (547.607625ms)
+✔ does not attribute a caught value to the site that rethrows it through the failure owner (531.098584ms)
+✔ reads the failure owner's own substituted sentence once, at the owner (497.802917ms)
+✔ does not mistake a zero-argument `failure()` member for the failure owner (505.296041ms)
+✔ refuses loudly when the declared failure owner is not where the census reads it (491.627375ms)
+✔ the engine's own tree still declares the failure owner the census reads (610.706833ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3557.598458
+Node resources: 3.75s wall, 308.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

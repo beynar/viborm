@@ -1,0 +1,314 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/gate.test.ts (9 tests | 1 failed) 197ms
+   ✓ G0 assembled oracle falsifiers > rejects wrong rows, missing writes and changed public values 18ms
+   ✓ G0 assembled oracle falsifiers > rejects changed errors and leaked rolled-back effects 6ms
+   ✓ G0 assembled oracle falsifiers > accepts equivalent changed SQL executed by the real provider 4ms
+   ✓ G0 assembled oracle falsifiers > round-trips success/failure records and rejects uncontrolled or missing events 30ms
+   ✓ G0 assembled oracle falsifiers > controls public Date defaults and rejects a real uncontrolled clock source 6ms
+   ✓ G0 assembled oracle falsifiers > fails on fixture exceptions, swallowed failures and event exhaustion 4ms
+   ✓ G0 assembled oracle falsifiers > distinguishes reached, atomically eliminated and unexpectedly missing cuts 24ms
+   ✓ G0 assembled oracle falsifiers > refuses an empty campaign and stale executed-source identity 36ms
+   × records the complete fixed and 100-seed-per-profile G0 campaign 62ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'ticket.id',
+      value: 'ticket-1'
+    },
+...
+    },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-4'
+-   },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-5'
+-   }
+  ]
+
+ ❯ |raptor3| tests/raptor3/fixed.test.ts (24 tests | 4 failed) 32ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-found 4ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-missing 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-parent-rollback 2ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-found 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-missing 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s1-child-rollback 1ms
+   × Raptor 3 G0 fixed contracts: sqlite-interactive > s2-distinct-defaults 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'ticket.id',
+      value: 'ticket-1'
+    },
+...
+    },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-4'
+-   },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-5'
+-   }
+  ]
+
+   × Raptor 3 G0 fixed contracts: sqlite-interactive > s2-changed-dependency 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'target.id',
+      value: 1
+    },
+...
+      name: 'target.id',
+-     value: 1
+-   },
+-   {
+-     name: 'target.id',
+      value: 2
+    }
+  ]
+
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s3-grouped 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s3-empty 0ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s4-parent-pages 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-interactive > s4-shared-occurrences 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-found 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-missing 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-parent-rollback 2ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-found 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-missing 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s1-child-rollback 1ms
+   × Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-distinct-defaults 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'ticket.id',
+      value: 'ticket-1'
+    },
+...
+    },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-4'
+-   },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-5'
+-   }
+  ]
+
+   × Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-changed-dependency 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'target.id',
+      value: 1
+    },
+...
+      name: 'target.id',
+-     value: 1
+-   },
+-   {
+-     name: 'target.id',
+      value: 2
+    }
+  ]
+
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s3-grouped 0ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s3-empty 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s4-parent-pages 1ms
+   ✓ Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s4-shared-occurrences 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-interactive > s2-distinct-defaults
+ FAIL  |raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-distinct-defaults
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'ticket.id',
+      value: 'ticket-1'
+    },
+...
+    },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-4'
+-   },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-5'
+-   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -9,14 +9,6 @@[39m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "ticket.id",[22m
+[2m      "value": "ticket-3",[22m
+[2m    },[22m
+[32m-   {[39m
+[32m-     "name": "ticket.id",[39m
+[32m-     "value": "ticket-4",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "ticket.id",[39m
+[32m-     "value": "ticket-5",[39m
+[32m-   },[39m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:182:16
+    180|         // The envelope and each captured occurrence admit once in Rap…
+    181|         // Keep the old duplicate relation evaluations visible in its …
+    182|         assert.deepEqual(observation.defaults, [
+       |                ^
+    183|           { name: "ticket.id", value: "ticket-1" },
+    184|           { name: "ticket.id", value: "ticket-2" },
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/fixed.test.ts:10:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-interactive > s2-changed-dependency
+ FAIL  |raptor3| tests/raptor3/fixed.test.ts > Raptor 3 G0 fixed contracts: sqlite-atomic-batch > s2-changed-dependency
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'target.id',
+      value: 1
+    },
+...
+      name: 'target.id',
+-     value: 1
+-   },
+-   {
+-     name: 'target.id',
+      value: 2
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -7,12 +7,8 @@[39m
+[2m      "name": "target.id",[22m
+[2m      "value": 1,[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "target.id",[22m
+[32m-     "value": 1,[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "target.id",[39m
+[2m      "value": 2,[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:362:16
+    360|           "Nested operation 'set' on relation 'targets' depends on an …
+    361|         );
+    362|         assert.deepEqual(observation.defaults, [
+       |                ^
+    363|           { name: "target.id", value: 1 },
+    364|           { name: "target.id", value: 1 },
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/fixed.test.ts:10:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |raptor3| tests/raptor3/gate.test.ts > records the complete fixed and 100-seed-per-profile G0 campaign
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  [
+    {
+      name: 'ticket.id',
+      value: 'ticket-1'
+    },
+...
+    },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-4'
+-   },
+-   {
+-     name: 'ticket.id',
+-     value: 'ticket-5'
+-   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -9,14 +9,6 @@[39m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "ticket.id",[22m
+[2m      "value": "ticket-3",[22m
+[2m    },[22m
+[32m-   {[39m
+[32m-     "name": "ticket.id",[39m
+[32m-     "value": "ticket-4",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "ticket.id",[39m
+[32m-     "value": "ticket-5",[39m
+[32m-   },[39m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/scenarios/contracts/instances.ts:182:16
+    180|         // The envelope and each captured occurrence admit once in Rap…
+    181|         // Keep the old duplicate relation evaluations visible in its …
+    182|         assert.deepEqual(observation.defaults, [
+       |                ^
+    183|           { name: "ticket.id", value: "ticket-1" },
+    184|           { name: "ticket.id", value: "ticket-2" },
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:249:20
+ ❯ verifyCell tests/raptor3/harness/replay.ts:366:5
+ ❯ runG0Campaign tests/raptor3/harness/replay.ts:375:7
+ ❯ tests/raptor3/gate.test.ts:478:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 28 passed (33)
+   Start at  21:09:17
+   Duration  1.82s (transform 835ms, setup 10ms, collect 1.36s, tests 229ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mIDA27/vitest.json
+Vitest resources: 3.79s wall, 561.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mIDA27

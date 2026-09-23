@@ -1,0 +1,4 @@
+PASS docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-seeds: 100 restored archives
+PASS docs/architecture/raptor3-evidence/g3/unit04/campaigns/g3-transport-seeds: 100 restored archives
+{"archives":200,"restoredBytes":15412150694,"compressedBytes":297206575,"mismatches":0}
+Node resources: 13.51s wall, 202.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

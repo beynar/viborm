@@ -1,0 +1,6 @@
+[test:all] extended-local shard 6/14 (3 files; 180 ordinary of 192)
+ ✓ |extended-local| tests/contracts/public-client/cli/migrate.test.ts (12 tests) 11ms
+ ✓ |extended-local| tests/contracts/public-client/cli/index.test.ts (1 test) 43ms
+ Test Files  2 passed | 1 skipped (3)
+      Tests  13 passed | 8 skipped (21)
+[test:all] extended-local shard 6/14 (3 files; 180 ordinary of 192): 3.90s wall, 56.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01b
+
+ ✓ |coverage-raptor3| tests/raptor3/candidate.test.ts (24 tests | 22 skipped) 72ms
+ ✓ |coverage-raptor3| tests/raptor3/fixed.test.ts (24 tests | 22 skipped) 9ms
+ ✓ |raptor3| tests/raptor3/candidate.test.ts (24 tests | 22 skipped) 66ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests | 22 skipped) 9ms
+
+ Test Files  4 passed (4)
+      Tests  8 passed | 88 skipped (96)
+   Start at  23:20:51
+   Duration  3.72s (transform 1.90s, setup 21ms, collect 3.14s, tests 155ms, environment 0ms, prepare 61ms)
+
+Vitest resources: 5.67s wall, 606.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

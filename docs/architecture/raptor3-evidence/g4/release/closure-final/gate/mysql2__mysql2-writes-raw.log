@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (92 tests) 12475ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set disconnects only nullable-FK children leaving the set  353ms
+
+ Test Files  1 passed (1)
+      Tests  92 passed (92)
+   Start at  13:58:52
+   Duration  13.95s (transform 901ms, setup 9ms, collect 1.35s, tests 12.48s, environment 0ms, prepare 24ms)
+
+Vitest resources: 15.65s wall, 642.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

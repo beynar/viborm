@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/prep/native-constraint-ownership.test.ts (5 tests) 146ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  21:14:52
+   Duration  1.46s (transform 734ms, setup 9ms, collect 1.12s, tests 146ms, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-IJICdz/vitest.json
+Vitest resources: 3.67s wall, 478.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p02-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-IJICdz

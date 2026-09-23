@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/transport.test.ts (44 tests) 631ms
+
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  16:11:20
+   Duration  2.41s (transform 1.01s, setup 11ms, collect 1.53s, tests 631ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-eyaQ86/vitest.json
+Vitest resources: 4.60s wall, 602.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g1-transport contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-eyaQ86

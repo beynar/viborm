@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/unit/migrations/mysql-strict-mode-docker.test.ts (9 tests) 782ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  11:10:09
+   Duration  2.61s (transform 1.10s, setup 11ms, collect 1.67s, tests 782ms, environment 0ms, prepare 40ms)
+
+Vitest resources: 4.68s wall, 501.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

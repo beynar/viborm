@@ -1,0 +1,10 @@
+ ❯ |coverage-raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests | 2 failed) 202ms
+ ❯ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests | 2 failed) 204ms
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/junctions-commands.test.ts > G2 junction transitions: commands sqlite-interactive > g2-junction-inverse-delete-owner
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/junctions-commands.test.ts > G2 junction transitions: commands sqlite-atomic-batch > g2-junction-inverse-delete-owner
+AssertionError: {"kind":"success","value":{"region":"eu","isbn":"111","title":"Exact"}}
+ FAIL  |raptor3| tests/raptor3/transitions/junctions-commands.test.ts > G2 junction transitions: commands sqlite-interactive > g2-junction-inverse-delete-owner
+ FAIL  |raptor3| tests/raptor3/transitions/junctions-commands.test.ts > G2 junction transitions: commands sqlite-atomic-batch > g2-junction-inverse-delete-owner
+AssertionError: {"kind":"success","value":{"region":"eu","isbn":"111","title":"Exact"}}
+ Test Files  2 failed (2)
+      Tests  4 failed | 48 passed (52)

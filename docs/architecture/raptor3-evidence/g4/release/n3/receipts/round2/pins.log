@@ -1,0 +1,4 @@
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 73ms
+ ✓ |raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 76ms
+ Test Files  2 passed (2)
+      Tests  54 passed (54)

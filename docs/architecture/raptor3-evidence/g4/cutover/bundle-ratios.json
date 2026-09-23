@@ -1,0 +1,90 @@
+{
+ "unit": "g4-cutover-measurement (stage 2b, frozen identity 2)",
+ "generatedAt": "2026-09-16T00:45:31.303Z",
+ "frozenBaseline": "docs/architecture/raptor3-evidence/baseline.json",
+ "candidateReport": "docs/architecture/raptor3-evidence/g4/cutover/bundles.json",
+ "candidateCommit": "0f09f7b6",
+ "frozenProductionIdentity": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+ "targets": {
+  "productionTokenRatio": 0.6,
+  "productionPhysicalRatio": 0.7,
+  "engineGzipRatio": 0.75,
+  "everyPublicPostgresGzipRatio": 1,
+  "qualification": "Size targets require review on a miss, not automatic abandonment"
+ },
+ "fixtures": [
+  {
+   "fixture": "engine",
+   "baselineRuntimeBytes": 603586,
+   "candidateRuntimeBytes": 123093,
+   "baselineGzipBytes": 156771,
+   "candidateGzipBytes": 37260,
+   "gzipRatio": 0.2377,
+   "runtimeRatio": 0.2039,
+   "target": 0.75,
+   "meetsTarget": true,
+   "baselineModules": 241,
+   "candidateModules": 93,
+   "externalPackagesIdentical": true
+  },
+  {
+   "fixture": "pg-simple",
+   "baselineRuntimeBytes": 953377,
+   "candidateRuntimeBytes": 622715,
+   "baselineGzipBytes": 262658,
+   "candidateGzipBytes": 183366,
+   "gzipRatio": 0.6981,
+   "runtimeRatio": 0.6532,
+   "target": 1,
+   "meetsTarget": true,
+   "baselineModules": 427,
+   "candidateModules": 311,
+   "externalPackagesIdentical": true
+  },
+  {
+   "fixture": "pg-relations",
+   "baselineRuntimeBytes": 953658,
+   "candidateRuntimeBytes": 622996,
+   "baselineGzipBytes": 262788,
+   "candidateGzipBytes": 183508,
+   "gzipRatio": 0.6983,
+   "runtimeRatio": 0.6533,
+   "target": 1,
+   "meetsTarget": true,
+   "baselineModules": 427,
+   "candidateModules": 311,
+   "externalPackagesIdentical": true
+  }
+ ],
+ "bundleProtocolIdenticalToBaseline": true,
+ "toolVersions": {
+  "baseline": {
+   "node": "v24.20.0",
+   "v8": "13.6.233.17-node.53",
+   "typescript": "5.9.3",
+   "tsdown": "0.19.0-beta.4",
+   "biome": "2.3.11",
+   "platform": "darwin",
+   "arch": "arm64",
+   "rolldown": "1.0.0-beta.58"
+  },
+  "candidate": {
+   "node": "v24.21.0",
+   "v8": "13.6.233.17-node.53",
+   "typescript": "5.9.3",
+   "tsdown": "0.19.0-beta.4",
+   "biome": "2.3.11",
+   "platform": "darwin",
+   "arch": "arm64",
+   "rolldown": "1.0.0-beta.58"
+  },
+  "differences": [
+   {
+    "key": "node",
+    "baseline": "v24.20.0",
+    "candidate": "v24.21.0"
+   }
+  ]
+ },
+ "note": "Gzip sizes are measured per fixture and are not additive. Same rolldown/tsdown/typescript versions, ESM, tree shaking, minification, one inlined chunk, gzip level 9 and identical externalization on both sides (the fixture and externalization lists live in scripts/measure-raptor3-baseline.mjs, unchanged). The only tool difference from the frozen baseline is the Node patch version used to drive rolldown (v24.20.0 frozen, v24.21.0 here, the pinned measurement runtime); the V8 version is identical."
+}

@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "source": "g3-transport-seeds-8000.json",
+  "file": "g3-transport-seeds-8000.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 83679271,
+  "originalSha256": "2c7d224231d9b77fd13706311231adcac9bf1740a4aedb47fb823675be557568",
+  "archiveBytes": 1626005,
+  "archiveSha256": "52d0f326bb54f485a3cfacb9ed376739e4cbad49d55543bae2ec0f99361fce62",
+  "identity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
+  },
+  "role": "replay input",
+  "restoreWorkingDirectory": "the directory containing this descriptor",
+  "restoreCommand": "g4_replay_restore_dir=$(mktemp -d); gzip -dc \"g3-transport-seeds-8000.json.gz\" > \"$g4_replay_restore_dir/g3-transport-seeds-8000.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm\"; node scripts/run-raptor3.mjs replay \"$g4_replay_restore_dir/g3-transport-seeds-8000.json\""
+}

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 271ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 157ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (3 tests) 452ms
+
+ Test Files  3 passed (3)
+      Tests  8 passed (8)
+   Start at  13:42:19
+   Duration  3.33s (transform 1.27s, setup 19ms, collect 2.19s, tests 880ms, environment 0ms, prepare 56ms)
+
+Vitest resources: 6.24s wall, 519.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

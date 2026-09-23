@@ -1,0 +1,38 @@
+# FC-02B — Biome per changed file, current tree vs `git show HEAD:<file>`
+
+Method: the base copy is written to the SAME path (so every path-keyed rule
+and override applies identically), checked, then the delivered file restored
+by `cp` (md5 verified equal). No file was formatted: `shared/query.ts`'s base
+copy already carries a `format` diagnostic, which the rules forbid touching,
+and the test file is not new — its one new formatter diagnostic was fixed by
+hand (a type annotation re-wrapped).
+
+## src/query-engine/raptor3/shared/query.ts
+### base
+Checked 1 file in 162ms. No fixes applied.
+Found 15 errors.
+Found 1 info.
+   4 lint/complexity/useSimplifiedLogicExpression
+   3 lint/correctness/noUnusedFunctionParameters
+   1 lint/correctness/noUnusedVariables
+   4 lint/style/noParameterProperties
+   2 lint/style/useDefaultSwitchClause
+### now
+Checked 1 file in 216ms. No fixes applied.
+Found 15 errors.
+Found 1 info.
+   4 lint/complexity/useSimplifiedLogicExpression
+   3 lint/correctness/noUnusedFunctionParameters
+   1 lint/correctness/noUnusedVariables
+   4 lint/style/noParameterProperties
+   2 lint/style/useDefaultSwitchClause
+(the 15th error is the file's pre-existing `format` diagnostic; its printed
+diff is byte-identical base vs now — 9839 bytes, same lines.)
+
+## tests/raptor3/g4/parity/captured-identity-domains.test.ts
+### base
+Checked 1 file in 11ms. No fixes applied.
+(no `Found` line: Biome prints none for a clean file — 0 diagnostics)
+### now
+Checked 1 file in 28ms. No fixes applied.
+(no `Found` line: clean — 0 diagnostics)

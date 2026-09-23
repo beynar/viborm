@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "status": "frozen-for-independent-review",
+  "accounting": {
+    "codeBearingLines": "distinct physical lines containing parser-owned TypeScript token starts; JSDoc, comments and EOF excluded",
+    "parserTokenCount": "parser-owned TypeScript token leaves; JSDoc and EOF excluded",
+    "sourceBytes": "UTF-8 bytes",
+    "wholeOwnerPolicy": true
+  },
+  "reference": {
+    "core": {
+      "files": 12,
+      "codeBearingLines": 6031,
+      "parserTokenCount": 38161,
+      "sourceBytes": 200477
+    },
+    "broader": {
+      "files": 28,
+      "codeBearingLines": 10105,
+      "parserTokenCount": 62785,
+      "sourceBytes": 433524
+    }
+  },
+  "candidate": {
+    "productionIdentity": "7fe2364f6988a794f613119c763ec3295a53e39f60a3215ca81630db2f4d0ffc",
+    "core": {
+      "files": 12,
+      "codeBearingLines": 6481,
+      "parserTokenCount": 40606,
+      "sourceBytes": 215556
+    },
+    "broader": {
+      "files": 28,
+      "codeBearingLines": 10555,
+      "parserTokenCount": 65230,
+      "sourceBytes": 448603
+    }
+  },
+  "delta": {
+    "core": {
+      "files": 0,
+      "codeBearingLines": 450,
+      "parserTokenCount": 2445,
+      "sourceBytes": 15079
+    },
+    "broader": {
+      "files": 0,
+      "codeBearingLines": 450,
+      "parserTokenCount": 2445,
+      "sourceBytes": 15079
+    }
+  },
+  "disposition": "explicit tradeoff pending independent CS-02 review and measured CS-03 extension comparison; not compression"
+}

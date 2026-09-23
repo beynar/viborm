@@ -1,0 +1,8 @@
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  23:40:50
+   Duration  2.45s (transform 1.19s, setup 9ms, collect 1.78s, tests 517ms, environment 0ms, prepare 31ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2LNuZt/vitest.json
+Vitest resources: 4.50s wall, 728.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g1-transport contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2LNuZt

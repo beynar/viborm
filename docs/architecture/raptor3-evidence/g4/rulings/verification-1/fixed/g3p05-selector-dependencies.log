@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 114ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  21:01:14
+   Duration  1.83s (transform 1.04s, setup 10ms, collect 1.55s, tests 114ms, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-PDmoak/vitest.json
+Vitest resources: 3.94s wall, 479.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p05-selector-dependencies contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-PDmoak

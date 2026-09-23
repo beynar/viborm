@@ -1,0 +1,10 @@
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ✓ |provider-mysql2| tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts (1 test) 252ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  23:50:13
+   Duration  1.53s (transform 796ms, setup 8ms, collect 1.16s, tests 252ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.06s wall, 492.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

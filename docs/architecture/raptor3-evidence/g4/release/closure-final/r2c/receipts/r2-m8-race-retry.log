@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |extended-local| tests/contracts/engine/query/m8-race-retry.test.ts (4 tests) 711ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  11:19:23
+   Duration  2.26s (transform 849ms, setup 9ms, collect 1.26s, tests 711ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 4.01s wall, 1513.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

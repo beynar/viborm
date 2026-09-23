@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+
+ ✓ |g4-review-pattern-retirement| tests/raptor3/g4/review/pattern-retirement/type-anchor-parity.review.test.ts (20 tests) 7ms
+ ✓ |g4-review-pattern-retirement| tests/raptor3/g4/review/pattern-retirement/retirement-closure.review.test.ts (7 tests) 134ms
+ ✓ |g4-review-pattern-retirement| tests/raptor3/g4/review/pattern-retirement/dropped-gate-cells.review.test.ts (2 tests) 1705ms
+   ✓ the two deleted gate cells whose subject survived > (e) still has a subject: the census reports the engine's import cycles  1703ms
+
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  00:59:46
+   Duration  5.21s (transform 1.69s, setup 29ms, collect 2.73s, tests 1.85s, environment 0ms, prepare 43ms)
+
+Vitest resources: 6.68s wall, 544.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

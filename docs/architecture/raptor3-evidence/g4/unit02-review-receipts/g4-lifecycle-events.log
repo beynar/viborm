@@ -1,0 +1,25 @@
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/lifecycle-events.test.ts:158:12
+    156|       .record?.findMany({ orderBy: { id: "asc" } });
+    157|     await routedRecorder.settle();
+    158|     assert.ok(
+       |            ^
+    159|       routedRecorder.units.some((unit) => unit.kind === "statement"),
+    160|       "the candidate route published no statement unit"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  03:20:17
+   Duration  1.84s (transform 1.14s, setup 9ms, collect 1.68s, tests 27ms, environment 0ms, prepare 27ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JAVZSO/vitest.json
+Vitest resources: 3.86s wall, 522.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JAVZSO

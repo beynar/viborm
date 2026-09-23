@@ -1,0 +1,113 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01b
+
+stderr | tests/raptor3/g4/parity/zzz-fc01b-trace.test.ts > FC01B trace > original sqlite-interactive
+### original profile=sqlite-interactive
+00  SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0". || params=[1,1]
+01  UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id" || params=["before-series",1]
+02  SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? || params=[1]
+03  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."shelfId" = ? ORDER BY || params=[1]
+04  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[2,1]
+05  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+06  INSERT INTO "s2_targets" ("id") VALUES (?) || params=[1]
+07  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,1]
+08  DELETE FROM "s2_bin_targets" WHERE "binId" = ? || params=[10]
+09  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,2]
+10  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+11  SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0". || params=[1,1]
+12  UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id" || params=["before-series",1]
+13  SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? || params=[1]
+14  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."shelfId" = ? ORDER BY || params=[1]
+15  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+OUTCOME {"kind":"failure","failure":{"name":"UniqueConstraintError","message":"Unique constraint violation","code":"V3001","meta":{"columns":["s2_targets.id"],"correlationId":"4e36d194-eb12-4fe8-afd0-9dbc45f5f14a","driver":"sqlite3","model":"target","operation":"update"},"cause":{"name":"Error","message":"Underlying error details redacted"}}}
+DEFAULTS [{"name":"target.id","value":1},{"name":"target.id","value":1},{"name":"target.id","value":2},{"name":"target.id","value":2},{"name":"target.id","value":2}]
+FINAL {"shelves":[{"id":1,"label":"original"},{"id":2,"label":"untouched"}],"bins":[{"id":10,"shelfId":1},{"id":11,"shelfId":1},{"id":12,"shelfId":2}],"targets":[{"id":2},{"id":8}],"memberships":[{"binId":12,"targetId":8}]}
+CUTS ["s2-selected-members-captured"]
+
+stderr | tests/raptor3/g4/parity/zzz-fc01b-trace.test.ts > FC01B trace > original sqlite-atomic-batch
+### original profile=sqlite-atomic-batch
+00  SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0". || params=[1,1]
+01  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE ("q0"."id" = ? AND "q0"."id" || params=[1,1,1]
+02  UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? || params=["before-series",1]
+03  SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? || params=[1]
+04  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."shelfId" = ? ORDER BY || params=[1]
+05  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0" || params=[10,1]
+06  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[2,1]
+07  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+08  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?) THEN 1 ELSE j || params=[1]
+09  SELECT CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHER || params=[1,10,11,1]
+10  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?) THEN 1 ELSE j || params=[1]
+11  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE ("q0"."shelfId" = ? AND "q0"."i || params=[1,10,10,1]
+12  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE ("q0"."id" = ? AND "q0"."id" || params=[2,2]
+13  INSERT INTO "s2_targets" ("id") VALUES (?) || params=[1]
+14  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,1]
+15  DELETE FROM "s2_bin_targets" WHERE "binId" = ? || params=[10]
+16  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,2]
+17  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0" || params=[11,1]
+18  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+19  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?) THEN 1 ELSE j || params=[1]
+20  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE ("q0"."shelfId" = ? AND "q0"."i || params=[1,11,11,1]
+OUTCOME {"kind":"failure","failure":{"name":"UniqueConstraintError","message":"Unique constraint violation","code":"V3001","meta":{"columns":["s2_targets.id"],"correlationId":"4e36d194-eb12-4fe8-afd0-9dbc45f5f14a","driver":"sqlite3","model":"shelf","operation":"update","recordSeriesProgress":{"atomicity":"segment","phase":"member","committedSegments":2,"completedMembers":1,"committedWriteMembers":2,"memberPath":[1],"totalMembers":2}},"cause":{"name":"Error","message":"Underlying error details redacted"}}}
+DEFAULTS [{"name":"target.id","value":1},{"name":"target.id","value":1},{"name":"target.id","value":2}]
+FINAL {"shelves":[{"id":1,"label":"before-series"},{"id":2,"label":"untouched"}],"bins":[{"id":10,"shelfId":1},{"id":11,"shelfId":1},{"id":12,"shelfId":2}],"targets":[{"id":1},{"id":2},{"id":8}],"memberships":[{"binId":10,"targetId":2},{"binId":12,"targetId":8}]}
+CUTS ["s2-selected-members-captured"]
+
+stderr | tests/raptor3/g4/parity/zzz-fc01b-trace.test.ts > FC01B trace > reordered sqlite-interactive
+### reordered profile=sqlite-interactive
+00  SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0". || params=[1,1]
+01  UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id" || params=["before-series",1]
+02  SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? || params=[1]
+03  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."shelfId" = ? ORDER BY || params=[1]
+04  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[2,1]
+05  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+06  INSERT INTO "s2_targets" ("id") VALUES (?) || params=[1]
+07  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,1]
+08  DELETE FROM "s2_bin_targets" WHERE "binId" = ? || params=[10]
+09  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,2]
+10  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+11  SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0". || params=[1,1]
+12  UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? RETURNING "id" AS "id" || params=["before-series",1]
+13  SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? || params=[1]
+14  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."shelfId" = ? ORDER BY || params=[1]
+15  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+OUTCOME {"kind":"failure","failure":{"name":"UniqueConstraintError","message":"Unique constraint violation","code":"V3001","meta":{"columns":["s2_targets.id"],"correlationId":"4e36d194-eb12-4fe8-afd0-9dbc45f5f14a","driver":"sqlite3","model":"target","operation":"update"},"cause":{"name":"Error","message":"Underlying error details redacted"}}}
+DEFAULTS [{"name":"target.id","value":1},{"name":"target.id","value":1},{"name":"target.id","value":2},{"name":"target.id","value":2},{"name":"target.id","value":2}]
+FINAL {"shelves":[{"id":1,"label":"original"},{"id":2,"label":"untouched"}],"bins":[{"id":10,"shelfId":1},{"id":11,"shelfId":1},{"id":12,"shelfId":2}],"targets":[{"id":2},{"id":8}],"memberships":[{"binId":12,"targetId":8}]}
+CUTS ["s2-selected-members-captured"]
+
+stderr | tests/raptor3/g4/parity/zzz-fc01b-trace.test.ts > FC01B trace > reordered sqlite-atomic-batch
+### reordered profile=sqlite-atomic-batch
+00  SELECT "q0"."id" AS "id", "q0"."label" AS "label" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0". || params=[1,1]
+01  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE ("q0"."id" = ? AND "q0"."id" || params=[1,1,1]
+02  UPDATE "s2_shelves" SET "label" = ? WHERE "id" = ? || params=["before-series",1]
+03  SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ? || params=[1]
+04  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."shelfId" = ? ORDER BY || params=[1]
+05  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0" || params=[10,1]
+06  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[2,1]
+07  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+08  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?) THEN 1 ELSE j || params=[1]
+09  SELECT CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHER || params=[1,10,11,1]
+10  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?) THEN 1 ELSE j || params=[1]
+11  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE ("q0"."shelfId" = ? AND "q0"."i || params=[1,10,10,1]
+12  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE ("q0"."id" = ? AND "q0"."id" || params=[2,2]
+13  INSERT INTO "s2_targets" ("id") VALUES (?) || params=[1]
+14  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,1]
+15  DELETE FROM "s2_bin_targets" WHERE "binId" = ? || params=[10]
+16  INSERT INTO "s2_bin_targets" ("binId", "targetId") VALUES (?, ?) ON CONFLICT ("binId", "targetId") DO NOTHING || params=[10,2]
+17  SELECT "q0"."id" AS "id", "q0"."shelfId" AS "shelfId" FROM "s2_bins" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0" || params=[11,1]
+18  SELECT "q0"."id" AS "id" FROM "s2_targets" AS "q0" WHERE "q0"."id" = ? ORDER BY "q0"."id" ASC LIMIT ? || params=[99,1]
+19  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_shelves" AS "q0" WHERE "q0"."id" = ?) THEN 1 ELSE j || params=[1]
+20  SELECT CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "s2_bins" AS "q0" WHERE ("q0"."shelfId" = ? AND "q0"."i || params=[1,11,11,1]
+OUTCOME {"kind":"failure","failure":{"name":"UniqueConstraintError","message":"Unique constraint violation","code":"V3001","meta":{"columns":["s2_targets.id"],"correlationId":"4e36d194-eb12-4fe8-afd0-9dbc45f5f14a","driver":"sqlite3","model":"shelf","operation":"update","recordSeriesProgress":{"atomicity":"segment","phase":"member","committedSegments":2,"completedMembers":1,"committedWriteMembers":2,"memberPath":[1],"totalMembers":2}},"cause":{"name":"Error","message":"Underlying error details redacted"}}}
+DEFAULTS [{"name":"target.id","value":1},{"name":"target.id","value":1},{"name":"target.id","value":2}]
+FINAL {"shelves":[{"id":1,"label":"before-series"},{"id":2,"label":"untouched"}],"bins":[{"id":10,"shelfId":1},{"id":11,"shelfId":1},{"id":12,"shelfId":2}],"targets":[{"id":1},{"id":2},{"id":8}],"memberships":[{"binId":10,"targetId":2},{"binId":12,"targetId":8}]}
+CUTS ["s2-selected-members-captured"]
+
+ ✓ |extended-local| tests/raptor3/g4/parity/zzz-fc01b-trace.test.ts (4 tests) 37ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  23:12:29
+   Duration  1.57s (transform 827ms, setup 9ms, collect 1.28s, tests 37ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 3.51s wall, 515.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

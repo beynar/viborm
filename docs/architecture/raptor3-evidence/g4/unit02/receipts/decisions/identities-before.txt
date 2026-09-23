@@ -1,0 +1,10 @@
+48fc18c13d558c6fad237d7ffab7588437c72ed354d43799a506f52dedc465c9  src/query-engine/raptor3/shared/schema.ts
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  src/query-engine/raptor3/shared/operation-context.ts
+57ec20aa9c819de8f45fae9fe17be1eafc41b40938a71c722b79ed0b46e72aac  src/query-engine/raptor3/commands/selection.ts
+a3bf3e7beb9da956a1321c1ccf36cc168d225c6220585400bcc6f6b54b6db9f4  src/query-engine/raptor3/commands/relation-body.ts
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts
+c73e1908967dc5361846d2ca78e4c8459697192da4b648eff782d6495967a5ba  tests/raptor3/g4/unit02/key-arithmetic.test.ts
+97d5c91d60a85d7306c71e3bed75a3d72ee589125608f9def0a20d733ee2ef4d  tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+9760a56a52bffbe1c894ff66cc340c354a2929577aac8a52e830219b365b98c8  tests/raptor3/g4/unit02/unique-discriminator.test.ts
+8c93d18a668b51d53f0eeb446498250a81075b09741d62812d59fdf61ad545dd  tests/raptor3/g4/route-transactions.test.ts
+1e557cd9657b424d1afb36f3f0227afc9c7170dbd1eb96f6d219c38e56821e1e  tests/raptor3/g4/route-lifecycle.test.ts

@@ -1,0 +1,642 @@
+diff --git a/src/client/client.ts b/src/client/client.ts
+index 898bda26..c538c2fc 100644
+--- a/src/client/client.ts
++++ b/src/client/client.ts
+@@ -69,6 +69,7 @@ import {
+   readPendingCacheResult,
+ } from "@query-engine/pending-operation";
+ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
++import type { ClientOperationRouteFactory } from "@query-engine/raptor3/route/client-route";
+ import type { TransactionOperation } from "@query-engine/transaction-operation";
+ import { isWriteOperation } from "@query-engine/write-engine/routing";
+ import { hydrateSchemaNames } from "@schema/hydration";
+@@ -464,7 +465,11 @@ export class VibORM<C extends VibORMConfig> {
+    *   nothing here resolves a second time and nothing copies it (§10E.10,
+    *   §11.4.10).
+    */
+-  constructor(config: C, relations: ResolvedRelationIndex) {
++  constructor(
++    config: C,
++    relations: ResolvedRelationIndex,
++    route?: ClientOperationRouteFactory
++  ) {
+     this.schema = config.schema as C["schema"];
+     this.relations = relations;
+ 
+@@ -475,7 +480,22 @@ export class VibORM<C extends VibORMConfig> {
+       schemaRegistry,
+       relations
+     );
+-    this.engine = new QueryEngine(config.driver, registry);
++    // `route` is the non-public Raptor 3 selection (G4-03). It is absent on
++    // every public client, and this is the only line that can install it. The
++    // two resolved views above travel to it by identity, so the route's engine
++    // hydrates, validates and registers nothing a second time (B-3).
++    this.engine = new QueryEngine(
++      config.driver,
++      registry,
++      undefined,
++      undefined,
++      undefined,
++      undefined,
++      route?.(this.schema, config.driver, {
++        index: relations,
++        registry: schemaRegistry,
++      })
++    );
+   }
+ 
+   /**
+@@ -1184,7 +1204,10 @@ export class VibORM<C extends VibORMConfig> {
+   /**
+    * Create the full client with all utility methods
+    */
+-  static create<C extends VibORMConfig>(config: C): VibORMClient<C> {
++  static create<C extends VibORMConfig>(
++    config: C,
++    route?: ClientOperationRouteFactory
++  ): VibORMClient<C> {
+     if (!config.driver) {
+       throw new ClientInitializationError(
+         "Driver is required to create a client. Pass a driver in createClient options."
+@@ -1219,7 +1242,11 @@ export class VibORM<C extends VibORMConfig> {
+       // ONE resolution for the whole client lifecycle: the gate's index goes
+       // straight into the constructor, so the registry and query scopes are
+       // composed over the same object (§11.4.10).
+-      return new VibORM<C>(config, validateClientSchemaOrThrow(config.schema));
++      return new VibORM<C>(
++        config,
++        validateClientSchemaOrThrow(config.schema),
++        route
++      );
+     });
+ 
+     return orm.createRootView<EmptyClientExtensionState>(orm.engine, undefined);
+diff --git a/src/query-engine/pending-operation.ts b/src/query-engine/pending-operation.ts
+index 9fa1f875..63358614 100644
+--- a/src/query-engine/pending-operation.ts
++++ b/src/query-engine/pending-operation.ts
+@@ -43,6 +43,10 @@ import {
+ import { PendingExecution } from "./pending-execution";
+ import type { QueryEngine } from "./query-engine";
+ import { snapshotQueryInput } from "./query-inspection";
++import type {
++  ClientOperationRoute,
++  RoutedCandidateOperation,
++} from "./raptor3/route/client-route";
+ import type { CacheResultCodec } from "./result/cache-result-codec";
+ import {
+   registerTransactionOperationOwner,
+@@ -134,6 +138,7 @@ interface OperationInputPreparation {
+ 
+ interface OperationResolution {
+   operation?: RoutedExecutableOperation;
++  routed?: RoutedCandidateOperation;
+ }
+ 
+ type ResolvedPrepareOptions = Readonly<
+@@ -186,6 +191,11 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+   #operationInstance: RoutedExecutableOperation | undefined;
+   #operationResolved = false;
+   readonly #operationExecutor: OperationExecutor;
++  // The private Raptor 3 route, when this client lineage was constructed with
++  // one (G4-03). Absent on every public client; where it is present it answers
++  // the operation facts the owners below would otherwise construct.
++  readonly #route: ClientOperationRoute | undefined;
++  #routedInstance: RoutedCandidateOperation | undefined;
+   // The single-statement plan, memoized: `null` uncomputed, `undefined` when the
+   // operation is multi-statement (runs through the atomic-batch seam).
+   #singlePlan: SingleStatementCandidate | undefined | null = null;
+@@ -221,7 +231,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+       operation.#wrapExecution(wrapper);
+     readPendingCacheResultFriend = (operation) => ({
+       args: operation.cacheKeyArgs(),
+-      codec: createRoutedCacheResultCodec(operation.#resolveOperation()),
++      codec: operation.#cacheResultCodec(),
+       executionContext: operation.#context.attribution,
+     });
+     pendingOperationTransactionOwner = Object.freeze({
+@@ -256,7 +266,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+         );
+       },
+       prepareAdmission: (operation) => {
+-        operation.#resolveOperation();
++        operation.#preparedInput();
+       },
+       stagePackageWriteOutcomes: (operation, outcomes) => {
+         const registration = operation.#resolveWriteOutcomeRegistration();
+@@ -270,7 +280,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+           operation.#modelName,
+           requestedOperation
+         );
+-        const preparedOperation = operation.#resolveOperation();
++        const preparedInput = operation.#preparedInput();
+         const writeOutcomeRegistration =
+           operation.#resolveWriteOutcomeRegistration();
+         if (
+@@ -287,7 +297,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+                 kind: "model" as const,
+                 model: operation.#modelName,
+                 operation: requestedOperation,
+-                input: snapshotQueryInput(preparedOperation.validatedArgs),
++                input: snapshotQueryInput(preparedInput),
+               });
+         return executePreparedQuery<unknown, Record<string, unknown>>(
+           queryContext,
+@@ -359,12 +369,20 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+         );
+       },
+       prepareBatch: (operation, driver = operation.#engine.driver) =>
+-        operation.#operationExecutor.prepareSharedBatch<unknown>(
+-          operation.#resolveOperation(),
+-          driver,
+-          operation.#context.attribution,
+-          operation.#operation
+-        ),
++        operation.#route
++          ? operation
++              .#resolveRouted()
++              .prepareBatch(operation.#context.attribution)
++          : operation.#operationExecutor.prepareSharedBatch<unknown>(
++              operation.#resolveOperation(),
++              driver,
++              operation.#context.attribution,
++              operation.#operation
++            ),
++      // A routed operation never reaches here: `#resolveSinglePlan` answers
++      // `undefined` for it, so `prepare` above publishes no single statement
++      // and every array owner reads a result only through the `single` arm it
++      // takes when `prepare` answered one.
+       parseResult: (operation, raw) => {
+         const resolvedOperation = operation.#resolveOperation();
+         if (isRecordSeries(resolvedOperation)) {
+@@ -423,6 +441,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+     this.#operationResolution = operationResolution;
+     this.#operationExecutor =
+       operationExecutor ?? new OperationExecutor(engine);
++    this.#route = engine.route;
+     const isOrThrow = requestedOperation.endsWith(OR_THROW_SUFFIX);
+     this.#operation = isOrThrow
+       ? (requestedOperation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
+@@ -518,6 +537,46 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+     return operation;
+   }
+ 
++  /**
++   * Construct (once) the private route's view of this operation. It shares the
++   * cache wrapper's resolution object, so a wrapped copy and its source name
++   * one operation, exactly as the shipped construction above does.
++   */
++  #resolveRouted(): RoutedCandidateOperation {
++    const shared = this.#operationResolution?.routed;
++    if (shared) return shared;
++    if (this.#routedInstance) return this.#routedInstance;
++    // `#route` is present: every caller below is inside a route branch.
++    const routed = (this.#route as ClientOperationRoute).operation(
++      this.#model,
++      String(this.#options.originalOperation),
++      this.#resolveArgs()
++    );
++    this.#routedInstance = routed;
++    if (this.#operationResolution) {
++      this.#operationResolution.routed = routed;
++    }
++    return routed;
++  }
++
++  /**
++   * The payload this operation runs, named by the owner that admits it: the
++   * constructed operation's validated arguments on the shipped route, the
++   * prepared operation's ONE admission on the private one. Resolving it
++   * settles request preparation, and admits on the candidate route exactly as
++   * it constructs on the shipped one.
++   */
++  #preparedInput(): Record<string, unknown> {
++    if (this.#route) return this.#resolveRouted().preparedArgs;
++    return this.#resolveOperation().validatedArgs;
++  }
++
++  /** The detached cache representation of this read, from its result owner. */
++  #cacheResultCodec(): CacheResultCodec {
++    if (this.#route) return this.#resolveRouted().cacheResultCodec();
++    return createRoutedCacheResultCodec(this.#resolveOperation());
++  }
++
+   /**
+    * This payload's operation as ONE fragment atom, or `undefined` when it runs as
+    * a record series — a form with no single planning phase, no
+@@ -540,6 +599,9 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+    * operation is multi-statement (it uses the atomic-batch seam instead).
+    */
+   #resolveSinglePlan(): SingleStatementCandidate | undefined {
++    // The candidate publishes complete packages, never one prepared statement:
++    // the array owner asks it for a package (`prepareBatch`) instead.
++    if (this.#route) return undefined;
+     if (this.#singlePlan !== null) return this.#singlePlan;
+     this.#singlePlan = this.#executor().singleStatementPlan(
+       this.#resolveOperation()
+@@ -604,9 +666,9 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+         combineWriteNotifications(writeMayBeVisible, observerMayHaveCommitted)
+       );
+     }
+-    let preparedOperation: RoutedExecutableOperation;
++    let preparedInput: Record<string, unknown>;
+     try {
+-      preparedOperation = this.#resolveOperation();
++      preparedInput = this.#preparedInput();
+     } catch (error) {
+       return Promise.reject(error);
+     }
+@@ -631,7 +693,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+             kind: "model" as const,
+             model: this.#modelName,
+             operation: requestedOperation,
+-            input: snapshotQueryInput(preparedOperation.validatedArgs),
++            input: snapshotQueryInput(preparedInput),
+           });
+     return executePreparedQuery<T, Record<string, unknown>>(
+       context,
+@@ -700,6 +762,13 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+     committedWriteSegment?: CommittedWriteSegmentNotification,
+     writeMayBeVisible?: WriteMayBeVisibleNotification
+   ): Promise<T> {
++    if (this.#route) {
++      return this.#runRouted(
++        driverOverride,
++        committedWriteSegment,
++        writeMayBeVisible
++      );
++    }
+     let operation: RoutedExecutableOperation;
+     try {
+       operation = this.#resolveOperation();
+@@ -716,6 +785,32 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+     );
+   }
+ 
++  /**
++   * Run this operation through the private route. The driver an existing
++   * transaction or array owner supplied stays exactly the driver it supplied;
++   * this operation opens, closes and retries nothing of its own.
++   */
++  #runRouted(
++    driverOverride?: AnyDriver,
++    committedWriteSegment?: CommittedWriteSegmentNotification,
++    writeMayBeVisible?: WriteMayBeVisibleNotification
++  ): Promise<T> {
++    let routed: RoutedCandidateOperation;
++    try {
++      routed = this.#resolveRouted();
++    } catch (error) {
++      return Promise.reject(error);
++    }
++    return routed.execute<T>({
++      committedWriteSegment,
++      context: this.#context.attribution,
++      driverOverride,
++      engineDriver: this.#engine.driver,
++      isWrite: !isReadOperation(String(this.#options.originalOperation)),
++      writeMayBeVisible,
++    });
++  }
++
+   getArgs(): Record<string, unknown> {
+     return this.#args;
+   }
+@@ -738,9 +833,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+    * publishes it; scalar and record-series writes share the same refusal.
+    */
+   cacheKeyArgs(): Record<string, unknown> {
+-    const validated = isReadOperation(this.#operation)
+-      ? this.#statementOperation()?.validatedArgs
+-      : undefined;
++    const validated = this.#cacheKeyPayload();
+     if (!validated) {
+       throw new QueryEngineError(
+         `Operation '${this.#operation}' on model '${this.#modelName}' exposes no validated payload to key a cache entry on.`
+@@ -749,6 +842,13 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+     return validated;
+   }
+ 
++  /** The read payload a cache entry is keyed on, from its admitting owner. */
++  #cacheKeyPayload(): Record<string, unknown> | undefined {
++    if (!isReadOperation(this.#operation)) return undefined;
++    if (this.#route) return this.#resolveRouted().preparedArgs;
++    return this.#statementOperation()?.validatedArgs;
++  }
++
+   /**
+    * The one SQL statement this operation compiles to, or `undefined` when it is
+    * multi-statement (backs {@link QueryEngine.build}). Unlike the cache/array-batch
+@@ -757,13 +857,22 @@ export class PendingOperation<T> implements TransactionOperation<T> {
+    * assertion is enforced after execution, and `build()` still wants its SQL.
+    */
+   buildStatement(): Sql | undefined {
++    // The candidate's prepared read owns a statement, but publishes only the
++    // read's shape and cardinality, not the `Sql` (divergence D-4',
++    // `g4/unit03/note.md` FU.6). `QueryEngine.build` reports the absence with
++    // its existing "does not compile to one SQL statement"; no client surface
++    // reaches it.
++    if (this.#route) return undefined;
+     return this.#executor().buildStatement(this.#resolveOperation());
+   }
+ 
+   #wrapExecution(wrapper: PendingCacheExecution<T>): PendingOperation<T> {
+     const operationResolution =
+       this.#operationResolution ??
+-      (this.#operationResolution = { operation: this.#operationInstance });
++      (this.#operationResolution = {
++        operation: this.#operationInstance,
++        routed: this.#routedInstance,
++      });
+     const deferredExecution: DeferredExecution<T> = (
+       driverOverride,
+       outerCommittedWriteSegment,
+diff --git a/src/query-engine/query-engine.ts b/src/query-engine/query-engine.ts
+index 17e001df..ed339ac6 100644
+--- a/src/query-engine/query-engine.ts
++++ b/src/query-engine/query-engine.ts
+@@ -15,6 +15,7 @@ import {
+   type PrepareOperationInput,
+   type PrepareWriteOutcomeRegistration,
+ } from "./pending-operation";
++import type { ClientOperationRoute } from "./raptor3/route/client-route";
+ import {
+   type ModelRegistry,
+   type Operation,
+@@ -39,6 +40,12 @@ export class QueryEngine {
+   readonly clientId: symbol;
+   /** Identity of the current root or transaction-bound execution scope. */
+   readonly scopeId: symbol;
++  /**
++   * The private Raptor 3 route, when this client lineage was constructed with
++   * one. Absent on every public client: the shipped operation owners below
++   * answer instead, unchanged (G4-03, `g4/unit03/note.md`).
++   */
++  readonly route: ClientOperationRoute | undefined;
+   private readonly operationExecutor: OperationExecutor;
+   private readonly cacheOperationExecutor: OperationExecutor;
+ 
+@@ -48,9 +55,11 @@ export class QueryEngine {
+     clientId = Symbol("viborm.client"),
+     scopeId = Symbol("viborm.scope"),
+     extensionChain?: ResolvedExtensionChain,
+-    transactionWriteOutcomes?: TransactionWriteOutcomes
++    transactionWriteOutcomes?: TransactionWriteOutcomes,
++    route?: ClientOperationRoute
+   ) {
+     this.driver = driver;
++    this.route = route;
+     this.registry = registry;
+     if (!registry.schemas) {
+       throw new QueryEngineError(
+@@ -110,7 +119,8 @@ export class QueryEngine {
+       this.clientId,
+       Symbol("viborm.scope"),
+       extensionChain,
+-      transactionWriteOutcomes
++      transactionWriteOutcomes,
++      this.route
+     );
+   }
+ 
+diff --git a/src/query-engine/raptor3/route/client-route.ts b/src/query-engine/raptor3/route/client-route.ts
+new file mode 100644
+index 00000000..2b4b9e0e
+--- /dev/null
++++ b/src/query-engine/raptor3/route/client-route.ts
+@@ -0,0 +1,234 @@
++/**
++ * Raptor 3 — private client route (G4-03).
++ *
++ * The one place that adapts the EXISTING client protocol to the candidate's
++ * private prepared-operation boundary. It owns exactly one decision: which
++ * driver an existing owner supplied for this run, and therefore which of the
++ * two transaction grants the candidate receives. It owns no lifecycle —
++ * request transforms, default omit, the extension chain, interceptors, the
++ * official cache, raw SQL, transactions, arrays, observers and introspection
++ * stay with their current owners, and this route is reached only through the
++ * ordinary `PendingOperation` those owners already drive.
++ *
++ * It is NOT public: nothing here is exported from the package entry, and
++ * `createClient` cannot select it. The shipped default route is unchanged.
++ */
++
++import { VibORM, type VibORMClient, type VibORMConfig } from "@client/client";
++import type { Operations } from "@client/types";
++import type { AnyDriver, QueryExecutionContext } from "@drivers";
++import {
++  getTrustedRecordSeriesProgress,
++  isVibORMError,
++  UnsupportedOperationError,
++} from "@errors";
++import type { Schema } from "@schema/hydration";
++import type { AnyModel } from "@schema/model";
++import type { PreparedBatchOperation } from "../../types";
++import { createCommandEngine, type PreparedOperation } from "../commands";
++import type { ResolvedSchemaViews } from "../shared/schema";
++
++/**
++ * The detached cache representation of one read result. Structural on purpose:
++ * the official cache owns this contract, and the candidate must not import the
++ * shipped result engine to name it.
++ */
++export interface RouteCacheResultCodec {
++  snapshot(value: unknown): unknown;
++  materialize(snapshot: unknown): unknown;
++}
++
++/** What the existing pending-operation lifecycle knows when it executes. */
++export interface RoutedOperationExecution {
++  /** This operation's immutable attribution, created with the operation. */
++  readonly context: QueryExecutionContext;
++  /** The driver of the engine this operation was created on. */
++  readonly engineDriver: AnyDriver;
++  /** A driver an existing transaction/array owner supplies for this run. */
++  readonly driverOverride: AnyDriver | undefined;
++  /** The existing read/write classification of the requested verb. */
++  readonly isWrite: boolean;
++  readonly committedWriteSegment: (() => Promise<void>) | undefined;
++  readonly writeMayBeVisible: (() => Promise<void>) | undefined;
++}
++
++/** One client operation's facts, answered by the candidate. */
++export interface RoutedCandidateOperation {
++  /**
++   * The payload this operation runs: the candidate's ONE admission of the
++   * client-prepared input (post request transform, post default omit). The
++   * same object the statements are built from, so the interceptor's `input`
++   * and the cache key describe the query that actually runs.
++   */
++  readonly preparedArgs: Record<string, unknown>;
++  cacheResultCodec(): RouteCacheResultCodec;
++  prepareBatch(
++    context: QueryExecutionContext
++  ): Promise<PreparedBatchOperation<unknown> | undefined>;
++  execute<T>(execution: RoutedOperationExecution): Promise<T>;
++}
++
++/** The client-scoped route a query engine consults instead of its executor. */
++export interface ClientOperationRoute {
++  operation(
++    model: AnyModel,
++    requestedOperation: string,
++    args: Record<string, unknown>
++  ): RoutedCandidateOperation;
++}
++
++export type ClientOperationRouteFactory = (
++  schema: Schema,
++  driver: AnyDriver,
++  resolved: ResolvedSchemaViews
++) => ClientOperationRoute;
++
++/**
++ * Publish the exact durable phase of a failed write, from the trusted progress
++ * the candidate already attached at the `@errors` boundary. A rolled-back
++ * attempt publishes nothing.
++ */
++async function publishFailedWriteOutcome(
++  error: unknown,
++  execution: RoutedOperationExecution
++): Promise<void> {
++  const progress = isVibORMError(error)
++    ? getTrustedRecordSeriesProgress(error)
++    : undefined;
++  if (!progress) return;
++  if (progress.committedSegments > 0) {
++    await execution.committedWriteSegment?.();
++    return;
++  }
++  if (progress.mayHaveCommittedSegment) await execution.writeMayBeVisible?.();
++}
++
++/**
++ * Create the candidate route for one client lineage. The candidate engine is
++ * factory-bound to that client's root driver, so any other driver reaching an
++ * operation is a scope an existing owner opened — which is exactly the binding
++ * decision below.
++ *
++ * `resolved` is the client's own already-composed topology index and schema
++ * registry, handed over by identity: the candidate hydrates, validates and
++ * registers nothing a second time (note.md B-3).
++ */
++export function createCandidateRoute(
++  schema: Schema,
++  factoryDriver: AnyDriver,
++  resolved?: ResolvedSchemaViews
++): ClientOperationRoute {
++  const engine = createCommandEngine({
++    schema,
++    driver: factoryDriver,
++    resolved,
++  });
++  return {
++    operation(
++      model: AnyModel,
++      requestedOperation: string,
++      args: Record<string, unknown>
++    ): RoutedCandidateOperation {
++      const modelName = model["~"].names.ts ?? "unknown";
++      const operation = requestedOperation as Operations;
++      // One prepared handle per client operation. Admission and the prepared
++      // read stay lazy inside it (LX-01); every consumer below reads the same
++      // construction, so nothing is admitted or projected twice.
++      const prepared = engine.prepare(modelName, operation, args);
++      return {
++        get preparedArgs(): Record<string, unknown> {
++          return prepared.args;
++        },
++        cacheResultCodec(): RouteCacheResultCodec {
++          throw new UnsupportedOperationError(
++            `The Raptor 3 route cannot encode a cached result for '${requestedOperation}' on model '${modelName}': the prepared read's leaves publish no scalar to compile a value codec from (g4/unit03/note.md FU.6 B-1c).`,
++            { meta: { model: modelName, operation: requestedOperation } }
++          );
++        },
++        prepareBatch(
++          context: QueryExecutionContext
++        ): Promise<PreparedBatchOperation<unknown> | undefined> {
++          return prepared.prepareBatch(context);
++        },
++        async execute<T>(execution: RoutedOperationExecution): Promise<T> {
++          try {
++            const value = await runCandidate(
++              prepared,
++              execution,
++              factoryDriver
++            );
++            if (execution.isWrite) await execution.committedWriteSegment?.();
++            return value as T;
++          } catch (error) {
++            if (execution.isWrite) {
++              await publishFailedWriteOutcome(error, execution);
++            }
++            throw error;
++          }
++        },
++      };
++    },
++  };
++}
++
++/**
++ * Run one operation on the driver its owner selected.
++ *
++ * - root: no binding; the candidate owns its standalone envelope.
++ * - an existing array owner's sequential fallback (`driverOverride`): the exact
++ *   borrowed driver and NO grant — the array owner's transaction is the unit,
++ *   exactly as the shipped `runLinearOn` path leaves it, so the candidate opens
++ *   no scope and a failing statement poisons the array's scope.
++ * - inside `$transaction(callback)` (the engine is bound to a transaction
++ *   driver): the caller opened no scope for this operation, so the route
++ *   TRANSFERS the right to open one. The candidate then applies the same
++ *   envelope rule it applies everywhere — a statement-atomic write runs
++ *   directly on the caller's transaction driver (poisoning it on failure,
++ *   exactly as the shipped `runStatementAtomic` path does), a multi-statement
++ *   one opens exactly one nested region and rolls back only its own work. The
++ *   second grant is member isolation inside whichever of those two scopes is
++ *   current.
++ *
++ * The route decides WHICH SITUATION it is in and states it; it never decides
++ * whether an envelope is needed.
++ */
++function runCandidate(
++  prepared: PreparedOperation,
++  execution: RoutedOperationExecution,
++  factoryDriver: AnyDriver
++): Promise<unknown> {
++  const { context, driverOverride, engineDriver } = execution;
++  if (driverOverride) {
++    return prepared.execute(
++      { driver: driverOverride, kind: "borrowed-transaction" },
++      context
++    );
++  }
++  if (engineDriver === factoryDriver)
++    return prepared.execute(undefined, context);
++  return prepared.execute(
++    {
++      driver: engineDriver,
++      kind: "borrowed-transaction",
++      memberRollback: (execute, scoped) =>
++        engineDriver.withTransaction(execute, undefined, scoped),
++      operationRegion: (execute, scoped) =>
++        engineDriver.withTransaction(execute, undefined, scoped),
++    },
++    context
++  );
++}
++
++/**
++ * Construct a client whose model operations execute through the candidate.
++ *
++ * Private by construction: it is the public `createClient` configuration and
++ * the public client surface, with one non-public route argument. The shipped
++ * default route is untouched; a cutover (C-01) is this call becoming the
++ * default inside `VibORM.create`, not a new public entry.
++ */
++export function createCandidateClient<C extends VibORMConfig>(
++  config: C
++): VibORMClient<C> {
++  return VibORM.create<C>(config, createCandidateRoute);
++}

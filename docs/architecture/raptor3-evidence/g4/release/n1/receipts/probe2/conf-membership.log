@@ -1,0 +1,37 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts (30 tests | 13 failed) 1094ms
+     → expected 'Unique constraint violation' to contain 'depends on an earlier \'create\' memb…'
+     → expected 'Unique constraint violation' to contain 'depends on an earlier \'connectOrCrea…'
+     → expected 'Unique constraint violation' to contain 'depends on an earlier \'connect\' mem…'
+     → expected true to be false // Object.is equality
+     → expected { name: 'NestedWriteError', …(2) } to deeply equal { name: 'NestedWriteError', …(2) }
+     → expected false to be true // Object.is equality
+     → expected 'Cannot update relation \'nodes\': tar…' to contain 'depends on an earlier \'update\' memb…'
+     → expected false to be true // Object.is equality
+     → expected true to be false // Object.is equality
+     → expected 'Cannot update relation \'friends\': t…' to contain 'depends on an earlier \'connect\' mem…'
+     → expected true to be false // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > nested create membership rejects a l
+AssertionError: expected 'Unique constraint violation' to contain 'depends on an earlier \'create\' memb…'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > connectOrCreate membership rejects a
+AssertionError: expected 'Unique constraint violation' to contain 'depends on an earlier \'connectOrCrea…'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > found connect membership rejects a l
+AssertionError: expected 'Unique constraint violation' to contain 'depends on an earlier \'connect\' mem…'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-one inverse upsert rejects a
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > non-self child-holds cascade keeps m
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membersh
+AssertionError: expected true to be false // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-many inverse update rejects 
+AssertionError: expected { name: 'NestedWriteError', …(2) } to deeply equal { name: 'NestedWriteError', …(2) }
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > nested to-many child update carries 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > non-self nested FK rebind rejects a 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested scalar FK rebind 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested scalar FK rebind 
+AssertionError: expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > same-node non-self FK rebind rejects
+AssertionError: expected 'Cannot update relation \'nodes\': tar…' to contain 'depends on an earlier \'update\' memb…'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physical membersh
+AssertionError: expected 'Cannot update relation \'friends\': t…' to contain 'depends on an earlier \'connect\' mem…'
+ Test Files  1 failed (1)
+      Tests  13 failed | 17 passed (30)

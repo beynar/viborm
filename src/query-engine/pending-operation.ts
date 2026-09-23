@@ -5,34 +5,18 @@
  */
 
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { InvalidTransactionInputError } from "@errors";
+import {
+  InvalidTransactionInputError,
+  retainWriteOutcomeFailure,
+} from "@errors";
 import { lookupResolvedExtensionHandlers } from "@extensions/chain";
 import { observeOperation } from "@extensions/observation";
 import {
   executePreparedQuery,
-  retainWriteOutcomeFailure,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import type {
-  CommittedWriteSegmentNotification,
-  ExecutableOperation,
-  SingleStatementCandidate,
-  WriteMayBeVisibleNotification,
-} from "../query-engine/write-engine/OperationExecutor";
-import { OperationExecutor } from "../query-engine/write-engine/OperationExecutor";
-import {
-  isRecordSeries,
-  type RoutedExecutableOperation,
-} from "../query-engine/write-engine/record-series";
-import {
-  constructRoutedOperation,
-  createRoutedCacheResultCodec,
-  executeRoutedOperation,
-  isReadOperation,
-  ROUTED_OPERATIONS,
-} from "../query-engine/write-engine/routing";
 import { isCacheManagedExecution } from "./cache-flow";
 import {
   createPendingOperationContext,
@@ -43,15 +27,30 @@ import {
 import { PendingExecution } from "./pending-execution";
 import type { QueryEngine } from "./query-engine";
 import { snapshotQueryInput } from "./query-inspection";
+import type {
+  ClientOperationRoute,
+  RoutedCandidateOperation,
+} from "./raptor3/route/client-route";
 import type { CacheResultCodec } from "./result/cache-result-codec";
+import { isReadOperation, ROUTED_OPERATIONS } from "./routed-operations";
 import {
   registerTransactionOperationOwner,
   type TransactionOperation,
   type TransactionOperationOwner,
 } from "./transaction-operation";
-import { type Operation, type PrepareOptions, QueryEngineError } from "./types";
+import {
+  type Operation,
+  type PreparedBatchOperation,
+  type PrepareOptions,
+  QueryEngineError,
+} from "./types";
 
 export const PENDING_OPERATION_SYMBOL = Symbol.for("viborm.pendingOperation");
+
+/** Publish a durably committed write segment to the cache and observers. */
+export type CommittedWriteSegmentNotification = () => Promise<void>;
+/** Conservatively invalidate after dispatch when provider acknowledgement is ambiguous. */
+export type WriteMayBeVisibleNotification = () => Promise<void>;
 
 type PendingCacheExecution<T> = (
   execute: (
@@ -133,7 +132,7 @@ interface OperationInputPreparation {
 }
 
 interface OperationResolution {
-  operation?: RoutedExecutableOperation;
+  routed?: RoutedCandidateOperation;
 }
 
 type ResolvedPrepareOptions = Readonly<
@@ -149,7 +148,6 @@ type CreatePendingOperation = <T>(
   operation: Operation | `${Operation}OrThrow`,
   args: Record<string, unknown>,
   options?: PrepareOptions,
-  operationExecutor?: OperationExecutor,
   prepareInput?: PrepareOperationInput,
   prepareWriteOutcomeRegistration?: PrepareWriteOutcomeRegistration
 ) => PendingOperation<T>;
@@ -182,13 +180,13 @@ export class PendingOperation<T> implements TransactionOperation<T> {
   #operationResolution: OperationResolution | undefined;
   #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 
-  // The V2 operation for this payload, constructed once (lazily, before any I/O).
-  #operationInstance: RoutedExecutableOperation | undefined;
-  #operationResolved = false;
-  readonly #operationExecutor: OperationExecutor;
-  // The single-statement plan, memoized: `null` uncomputed, `undefined` when the
-  // operation is multi-statement (runs through the atomic-batch seam).
-  #singlePlan: SingleStatementCandidate | undefined | null = null;
+  // The ONE operation owner (C-01). Every client lineage builds it in
+  // `VibORM`'s constructor and `bind()` forwards it, so an operation that was
+  // created from a client has one.
+  readonly #route: ClientOperationRoute;
+  #routedInstance: RoutedCandidateOperation | undefined;
+  #singlePackage: PreparedBatchOperation<unknown> | undefined;
+  #singlePackageResolved = false;
 
   static {
     createPendingOperationFriend = <T>(
@@ -197,7 +195,6 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       operation: Operation | `${Operation}OrThrow`,
       args: Record<string, unknown>,
       options?: PrepareOptions,
-      operationExecutor?: OperationExecutor,
       prepareInput?: PrepareOperationInput,
       prepareWriteOutcomeRegistration?: PrepareWriteOutcomeRegistration
     ) =>
@@ -210,7 +207,6 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         options,
         undefined,
         undefined,
-        operationExecutor,
         prepareInput === undefined
           ? undefined
           : { prepare: prepareInput, status: "pending" },
@@ -221,7 +217,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       operation.#wrapExecution(wrapper);
     readPendingCacheResultFriend = (operation) => ({
       args: operation.cacheKeyArgs(),
-      codec: createRoutedCacheResultCodec(operation.#resolveOperation()),
+      codec: operation.#cacheResultCodec(),
       executionContext: operation.#context.attribution,
     });
     pendingOperationTransactionOwner = Object.freeze({
@@ -256,7 +252,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         );
       },
       prepareAdmission: (operation) => {
-        operation.#resolveOperation();
+        operation.#preparedInput();
       },
       stagePackageWriteOutcomes: (operation, outcomes) => {
         const registration = operation.#resolveWriteOutcomeRegistration();
@@ -270,7 +266,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
           operation.#modelName,
           requestedOperation
         );
-        const preparedOperation = operation.#resolveOperation();
+        const preparedInput = operation.#preparedInput();
         const writeOutcomeRegistration =
           operation.#resolveWriteOutcomeRegistration();
         if (
@@ -287,7 +283,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
                 kind: "model" as const,
                 model: operation.#modelName,
                 operation: requestedOperation,
-                input: snapshotQueryInput(preparedOperation.validatedArgs),
+                input: snapshotQueryInput(preparedInput),
               });
         return executePreparedQuery<unknown, Record<string, unknown>>(
           queryContext,
@@ -349,38 +345,21 @@ export class PendingOperation<T> implements TransactionOperation<T> {
           )
         );
       },
-      prepare: (operation, driver = operation.#engine.driver) => {
-        const single = operation.#resolveSinglePlan();
-        if (!single) return undefined;
-        return operation.#operationExecutor.prepareSingleStatement(
-          single,
-          driver,
-          operation.#context.attribution
-        );
-      },
-      prepareBatch: (operation, driver = operation.#engine.driver) =>
-        operation.#operationExecutor.prepareSharedBatch<unknown>(
-          operation.#resolveOperation(),
-          driver,
-          operation.#context.attribution,
-          operation.#operation
-        ),
+      // One preparation answers both arms: the package this operation prepares
+      // to synchronously publishes the one query and the parser for its one
+      // result. A verb that needs the asynchronous fold publishes no single
+      // query, and the array owner asks it for the package instead.
+      prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
+      prepareBatch: (operation) =>
+        operation.#resolveRouted().prepareBatch(operation.#context.attribution),
       parseResult: (operation, raw) => {
-        const resolvedOperation = operation.#resolveOperation();
-        if (isRecordSeries(resolvedOperation)) {
+        const single = operation.#resolveSinglePackage();
+        if (!single) {
           throw new QueryEngineError(
-            `Operation '${operation.#operation}' on model '${operation.#modelName}' runs as a transactional record series and parses no single driver result.`
+            `Operation '${operation.#operation}' on model '${operation.#modelName}' publishes no single driver result to parse.`
           );
         }
-        const single = operation.#resolveSinglePlan();
-        if (single) {
-          return operation.#operationExecutor.parseSingleStatement<unknown>(
-            resolvedOperation,
-            single,
-            raw
-          );
-        }
-        return resolvedOperation.parse<unknown>({ result: raw.rows });
+        return single.parseResult([raw]);
       },
       observeBatchPhase: (operation, driver, execute) =>
         observeTransactionBatchPhase(
@@ -406,7 +385,6 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     options?: PrepareOptions,
     context?: OperationExecutionContext,
     deferredExecution?: DeferredExecution<T>,
-    operationExecutor?: OperationExecutor,
     inputPreparation?: OperationInputPreparation,
     operationResolution?: OperationResolution,
     prepareWriteOutcomeRegistration?: PrepareWriteOutcomeRegistration
@@ -421,8 +399,10 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     this.#inputPreparation = inputPreparation;
     this.#prepareWriteOutcomeRegistration = prepareWriteOutcomeRegistration;
     this.#operationResolution = operationResolution;
-    this.#operationExecutor =
-      operationExecutor ?? new OperationExecutor(engine);
+    // Every client lineage installs the route in `VibORM`'s constructor and
+    // `bind()` forwards it (C-01); an engine built outside that lineage owns no
+    // operation path at all.
+    this.#route = engine.route as ClientOperationRoute;
     const isOrThrow = requestedOperation.endsWith(OR_THROW_SUFFIX);
     this.#operation = isOrThrow
       ? (requestedOperation.slice(0, -OR_THROW_SUFFIX.length) as Operation)
@@ -481,70 +461,65 @@ export class PendingOperation<T> implements TransactionOperation<T> {
   }
 
   /**
-   * Construct (once) the V2 operation for this payload. Routing is decided here —
-   * lazily, before any I/O — so a validation error surfaces at execution time
-   * exactly as intended, never synchronously at client-dispatch time. Every client
-   * operation family constructs; a name outside the routed set (unreachable through
-   * the typed client, reachable through an untyped call or a removed method name)
-   * is a loud "unknown operation" error rather than a silent no-op.
+   * Construct (once) the route's view of this operation. It shares the
+   * cache wrapper's resolution object, so a wrapped copy and its source name
+   * one operation, exactly as the shipped construction above does.
    */
-  #resolveOperation(): RoutedExecutableOperation {
-    const sharedOperation = this.#operationResolution?.operation;
-    if (sharedOperation) return sharedOperation;
-    if (this.#operationResolved && this.#operationInstance) {
-      return this.#operationInstance;
-    }
-    const operation = constructRoutedOperation(
-      this.#engine,
-      this.#model,
-      this.#options.originalOperation,
-      this.#resolveArgs()
-    );
-    if (!operation) {
-      // The model proxy answers every property with a callable child, so a
-      // misspelled or REMOVED operation name (`createManyAndReturn`,
-      // `updateManyAndReturn` — see the implicit-returning surface) reaches here
-      // instead of failing as "undefined is not a function". Name it as what it
-      // is: an unknown operation, listing the surface it is missing from.
+  #resolveRouted(): RoutedCandidateOperation {
+    const shared = this.#operationResolution?.routed;
+    if (shared) return shared;
+    if (this.#routedInstance) return this.#routedInstance;
+    // The model proxy answers every property with a callable child, so a
+    // misspelled or REMOVED operation name (`createManyAndReturn`,
+    // `updateManyAndReturn` — see the implicit-returning surface) reaches here
+    // instead of failing as "undefined is not a function". Name it as what it
+    // is, from the one vocabulary owner, before the route is asked for a verb
+    // it has no construction path for.
+    if (!ROUTED_OPERATIONS.has(this.#operation)) {
       throw new QueryEngineError(
         `Unknown operation '${this.#operation}' on model '${this.#modelName}'. Known operations: ${[...ROUTED_OPERATIONS].sort().join(", ")}.`
       );
     }
-    this.#operationInstance = operation;
-    this.#operationResolved = true;
-    if (this.#operationResolution) {
-      this.#operationResolution.operation = operation;
-    }
-    return operation;
-  }
-
-  /**
-   * This payload's operation as ONE fragment atom, or `undefined` when it runs as
-   * a record series — a form with no single planning phase, no
-   * single statement, and no single driver result. The seams that ask the executor
-   * (`prepare`, `buildStatement`, `prepareBatch`) hand it the routed operation and
-   * let the executor decline; the two seams below read the operation themselves
-   * and need the narrower view.
-   */
-  #statementOperation(): ExecutableOperation | undefined {
-    const operation = this.#resolveOperation();
-    return isRecordSeries(operation) ? undefined : operation;
-  }
-
-  #executor(): OperationExecutor {
-    return this.#operationExecutor;
-  }
-
-  /**
-   * The single-statement plan for this operation, memoized. `undefined` means the
-   * operation is multi-statement (it uses the atomic-batch seam instead).
-   */
-  #resolveSinglePlan(): SingleStatementCandidate | undefined {
-    if (this.#singlePlan !== null) return this.#singlePlan;
-    this.#singlePlan = this.#executor().singleStatementPlan(
-      this.#resolveOperation()
+    const routed = this.#route.operation(
+      this.#model,
+      String(this.#options.originalOperation),
+      this.#resolveArgs()
     );
-    return this.#singlePlan;
+    this.#routedInstance = routed;
+    if (this.#operationResolution) {
+      this.#operationResolution.routed = routed;
+    }
+    return routed;
+  }
+
+  /**
+   * The ONE prepared package this operation compiles to when it compiles to
+   * exactly one driver query — every read. The route prepares it once and both
+   * array-owner arms read it: the query `prepare()` publishes and the parser
+   * `parseResult()` applies come from that single preparation, so a member's
+   * statement and its decoder cannot describe different queries.
+   */
+  #resolveSinglePackage(): PreparedBatchOperation<unknown> | undefined {
+    if (this.#singlePackageResolved) return this.#singlePackage;
+    const prepared = this.#resolveRouted().prepareSingle(
+      this.#context.attribution
+    );
+    this.#singlePackage = prepared?.queries.length === 1 ? prepared : undefined;
+    this.#singlePackageResolved = true;
+    return this.#singlePackage;
+  }
+
+  /**
+   * The payload this operation runs: the prepared operation's ONE admission.
+   * Resolving it settles request preparation and admits the operation.
+   */
+  #preparedInput(): Record<string, unknown> {
+    return this.#resolveRouted().preparedArgs;
+  }
+
+  /** The detached cache representation of this read, from its result owner. */
+  #cacheResultCodec(): CacheResultCodec {
+    return this.#resolveRouted().cacheResultCodec();
   }
 
   #getPromise(): Promise<T> {
@@ -604,9 +579,9 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         combineWriteNotifications(writeMayBeVisible, observerMayHaveCommitted)
       );
     }
-    let preparedOperation: RoutedExecutableOperation;
+    let preparedInput: Record<string, unknown>;
     try {
-      preparedOperation = this.#resolveOperation();
+      preparedInput = this.#preparedInput();
     } catch (error) {
       return Promise.reject(error);
     }
@@ -631,7 +606,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
             kind: "model" as const,
             model: this.#modelName,
             operation: requestedOperation,
-            input: snapshotQueryInput(preparedOperation.validatedArgs),
+            input: snapshotQueryInput(preparedInput),
           });
     return executePreparedQuery<T, Record<string, unknown>>(
       context,
@@ -695,25 +670,34 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     return this.#run(driverOverride, committedWriteSegment, writeMayBeVisible);
   }
 
+  /**
+   * Run this operation through the route. The driver an existing transaction or
+   * array owner supplied stays exactly the driver it supplied; this owner opens
+   * and closes no scope of its own, and retries nothing here. The engine's four
+   * bounded recoveries live inside the route (`raptor3/AGENTS.md`, "Which
+   * recovery REPLAYS and which RE-PLANS"); one of them reads `meta.raceable`
+   * off the failure to decide whether a premise may be answered by a second
+   * attempt.
+   */
   #run(
     driverOverride?: AnyDriver,
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification
   ): Promise<T> {
-    let operation: RoutedExecutableOperation;
+    let routed: RoutedCandidateOperation;
     try {
-      operation = this.#resolveOperation();
+      routed = this.#resolveRouted();
     } catch (error) {
       return Promise.reject(error);
     }
-    return executeRoutedOperation<T>(
-      this.#executor(),
-      operation,
-      this.#context.attribution,
-      driverOverride,
+    return routed.execute<T>({
       committedWriteSegment,
-      writeMayBeVisible
-    );
+      context: this.#context.attribution,
+      driverOverride,
+      engineDriver: this.#engine.driver,
+      isWrite: !isReadOperation(String(this.#options.originalOperation)),
+      writeMayBeVisible,
+    });
   }
 
   getArgs(): Record<string, unknown> {
@@ -738,9 +722,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
    * publishes it; scalar and record-series writes share the same refusal.
    */
   cacheKeyArgs(): Record<string, unknown> {
-    const validated = isReadOperation(this.#operation)
-      ? this.#statementOperation()?.validatedArgs
-      : undefined;
+    const validated = this.#cacheKeyPayload();
     if (!validated) {
       throw new QueryEngineError(
         `Operation '${this.#operation}' on model '${this.#modelName}' exposes no validated payload to key a cache entry on.`
@@ -749,21 +731,30 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     return validated;
   }
 
+  /** The read payload a cache entry is keyed on, from its admitting owner. */
+  #cacheKeyPayload(): Record<string, unknown> | undefined {
+    if (!isReadOperation(this.#operation)) return undefined;
+    return this.#resolveRouted().preparedArgs;
+  }
+
   /**
-   * The one SQL statement this operation compiles to, or `undefined` when it is
-   * multi-statement (backs {@link QueryEngine.build}). Unlike the cache/array-batch
-   * `prepare()` seam this permits a postcondition — a returning-driver
-   * create/update/delete is one `… RETURNING` statement whose exactly-one-row
-   * assertion is enforced after execution, and `build()` still wants its SQL.
+   * The one SQL statement this operation compiles to, or `undefined` when it
+   * does not compile to exactly one (backs {@link QueryEngine.build}).
+   *
+   * Every read compiles to one statement and publishes it, from the prepared
+   * read the execution itself runs — there is no second lowering here. A write
+   * answers `undefined`: the engine's only write fold is the asynchronous
+   * `prepareBatch()`, which publishes driver-prepared queries rather than an
+   * `Sql`, and this accessor is synchronous.
    */
   buildStatement(): Sql | undefined {
-    return this.#executor().buildStatement(this.#resolveOperation());
+    return this.#resolveRouted().buildStatement();
   }
 
   #wrapExecution(wrapper: PendingCacheExecution<T>): PendingOperation<T> {
     const operationResolution =
       this.#operationResolution ??
-      (this.#operationResolution = { operation: this.#operationInstance });
+      (this.#operationResolution = { routed: this.#routedInstance });
     const deferredExecution: DeferredExecution<T> = (
       driverOverride,
       outerCommittedWriteSegment,
@@ -790,7 +781,6 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       this.#options,
       this.#context,
       deferredExecution,
-      this.#operationExecutor,
       this.#inputPreparation,
       operationResolution,
       this.#prepareWriteOutcomeRegistration
@@ -822,7 +812,6 @@ export function createPendingOperation<T>(
   operation: Operation | `${Operation}OrThrow`,
   args: Record<string, unknown>,
   options?: PrepareOptions,
-  operationExecutor?: OperationExecutor,
   prepareInput?: PrepareOperationInput,
   prepareWriteOutcomeRegistration?: PrepareWriteOutcomeRegistration
 ): PendingOperation<T> {
@@ -832,7 +821,6 @@ export function createPendingOperation<T>(
     operation,
     args,
     options,
-    operationExecutor,
     prepareInput,
     prepareWriteOutcomeRegistration
   );

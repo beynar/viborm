@@ -1,0 +1,6 @@
+Command: node scripts/run-credential-free-tests.mjs --only 'Raptor 3 fixed contracts'
+Runtime: Node v24.21.0, darwin arm64.
+Frozen identity checked before and after execution: production 2fa782174626ac1d27b31ecae3beb6fdf97f49450b86ceeb94230f90ba579e11; harness e0da0fd939ab2ba5fde32c094bb407d3648421bc40ab8f539372203c501b87ff.
+Result: 632/632 passed across 47 files; zero failed or pending.
+Resources: 10.85 seconds wall; 888.9 MiB peak sampled process-group RSS under the registered 1536 MiB ceiling; teardown verified.
+Evidence limitation: this aggregate runner prints its result but emits no receipt directory. This file records the observed command and output; it is not a runner-generated verified receipt.

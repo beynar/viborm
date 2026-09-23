@@ -1,0 +1,15 @@
+✔ a bounded descendant inherits its ancestor's workspace lock (67.112666ms)
+✔ parses complete process rows without truncating commands (0.382709ms)
+✔ refuses malformed, duplicate, and incomplete process graphs (0.17975ms)
+✔ excludes every direct, pnpm, and coverage-wrapper ancestor (0.113292ms)
+✔ finds stale Vitest, TypeScript, tsdown, and Vitest worker processes (0.16575ms)
+✔ does not confuse a sibling path with the current workspace (0.060916ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 70.666042
+Node resources: 0.33s wall, 0.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

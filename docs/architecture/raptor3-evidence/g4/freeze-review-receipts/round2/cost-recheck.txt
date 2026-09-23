@@ -1,0 +1,6 @@
+raptor3 tree: files=15 bytes=399356 physical=11349 tokenLines=10280
+candidate core: files=12 bytes=363744 physical=10335 tokenLines=9407
+commands/assignments.ts: files=1 bytes=5074 physical=160 tokenLines=148
+shared/query.ts: files=1 bytes=139660 physical=3940 tokenLines=3568
+commands/relation-body.ts: files=1 bytes=32238 physical=912 tokenLines=867
+core files: commands/assignments.ts commands/command-attempt.ts commands/commands.ts commands/execution.ts commands/index.ts commands/relation-body.ts commands/selection.ts shared/operation-context.ts shared/query.ts shared/schema.ts shared/storage.ts shared/transport-attempt.ts

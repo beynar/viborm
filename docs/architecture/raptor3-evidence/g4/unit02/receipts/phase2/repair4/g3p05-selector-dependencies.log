@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 307ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  12:21:45
+   Duration  4.14s (transform 2.34s, setup 12ms, collect 3.54s, tests 307ms, environment 0ms, prepare 40ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-at6xdN/vitest.json
+Vitest resources: 7.74s wall, 552.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p05-selector-dependencies contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-at6xdN

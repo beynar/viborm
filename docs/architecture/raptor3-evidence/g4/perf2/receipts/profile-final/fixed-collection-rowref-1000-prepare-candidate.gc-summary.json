@@ -1,0 +1,1 @@
+{"file":"fixed-collection-rowref-1000-prepare-candidate.gc.json","cpuUsPerOp":30.59,"wallUsPerOp":14.066,"iterations":3000,"scavenges":17,"scavengeMs":10.12,"majorCount":1,"majorMs":1.25,"totalGcMs":11.37,"gcUsPerOp":3.79,"steadyScavengeMsMedian":0.67,"steadyCapMB":53,"steadyBeforeMB":35.7,"steadyAfterMB":22.6}

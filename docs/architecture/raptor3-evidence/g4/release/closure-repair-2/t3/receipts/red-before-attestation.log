@@ -1,0 +1,31 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts (6 tests | 1 failed) 1274ms
+   ✓ MySQL2 schema attestation > pushes an enum-and-default schema and converges on a second push  368ms
+   ✓ MySQL2 schema attestation > the declared defaults are the DATABASE's, not admission's 191ms
+   ✓ MySQL2 schema attestation > an actual change is planned, applied and then converges  314ms
+   ✓ MySQL2 schema attestation > an apostrophe survives MySQL's deparse of an expression default 158ms
+   ✓ MySQL2 schema attestation > a backslash in a declared default reaches the database intact 152ms
+   × MySQL2 schema attestation > an escaped enum member and a Unicode default survive the attestation 90ms
+     → This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. The last statement that completed was: -- MySQL: ENUM type is part of column definition. Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts > MySQL2 schema attestation > an escaped enum member and a Unicode default survive the attestation
+MigrationError: This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. The last statement that completed was: -- MySQL: ENUM type is part of column definition. Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V2001' }
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: 1067, sqlState: '42000' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  23:09:06
+   Duration  5.68s (transform 2.24s, setup 21ms, collect 3.92s, tests 1.27s, environment 0ms, prepare 138ms)
+
+Vitest resources: 9.37s wall, 450.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

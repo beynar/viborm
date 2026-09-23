@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/mutation-args.core.test.ts (63 tests) 6ms
+
+ Test Files  1 passed (1)
+      Tests  63 passed (63)
+   Start at  18:15:12
+   Duration  656ms (transform 289ms, setup 8ms, collect 437ms, tests 6ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 2.49s wall, 366.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

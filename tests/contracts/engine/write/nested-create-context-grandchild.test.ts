@@ -1,5 +1,6 @@
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite } from "@electric-sql/pglite";
+import { TransactionError } from "@errors";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -26,8 +27,13 @@ import { describe, expect, test } from "vitest";
  *             fresh parent's produced id (`parent.create → children.createMany`). Absorbed
  *             by `CreateOperation.foldCreateMany` composing `buildCreateManyPlan`'s skip.
  *
- * Each is a full dual-run oracle: Direct vs Observed-tx vs Observed-batch, byte-identical final state, and
- * the observed boundary is Observed (a NATIVE execution, not a silent Direct fallback). Keys 1 and 2
+ * Keys 1 and 2 are a full dual-run oracle: Direct vs Observed-tx vs Observed-batch,
+ * byte-identical final state, and the observed boundary is Observed (a NATIVE execution,
+ * not a silent Direct fallback). KEY 3's batch leg is not: G3P-04 admits root-conflict
+ * suppression only where the operation owns the member rollback region, and the batch
+ * route owns none, so key 3's nested `skipDuplicates` is refused there before the fresh
+ * root can write — that refusal, and the empty database behind it, is what the batch leg
+ * pins. Keys 1 and 2
  * carry a multi-parent witness at the GRANDCHILD level — a disjoint second parent whose
  * subtree must stay untouched, which is exactly what would break if the captured FK were
  * mis-threaded (inject the wrong parent id and the grandchild lands under the disjoint
@@ -95,6 +101,10 @@ const bulkSchema = (() => {
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
 type AnyClient = Record<string, any>;
+
+// G3P-04, registered at `shared/operation-context.ts` `suppressionRefusal()`.
+const BORROWED_SUPPRESSION_REFUSAL =
+  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
 
 /** The part of a schema family this harness reads. */
 interface SuiteFamily {
@@ -296,7 +306,12 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
     ]);
   };
 
-  test("direct, transaction, and batch preserve the same skip winner", async () => {
+  // G3P-04: suppression needs an operation-owned member rollback region, which the
+  // batch route never has, so this key's skip composes on direct and transaction
+  // and is REFUSED on batch — ahead of the fresh root's own INSERT (AGENTS.md
+  // "G3P-04 admits root-conflict suppression only when the operation owns the
+  // member rollback region").
+  test("direct, transaction preserve the same skip winner; batch refuses it", async () => {
     const direct = (await runDirect(
       getBulkFamily,
       seed,
@@ -318,15 +333,17 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
     expect(engines).toEqual(new Set(["production"]));
     expect(state).toEqual(direct);
 
-    const batch = await runObserved(
+    const failure = await runObserved(
       getBulkFamily,
       bulkSchema,
       "batch",
       seed,
       op,
       snap
-    );
-    expect(batch.engines).toEqual(new Set(["production"]));
-    expect(batch.state).toEqual(direct);
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(TransactionError);
+    expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+    // Neither the parent nor any child row was written.
+    expect(await snap(getBulkFamily().client as AnyClient)).toEqual([]);
   });
 });

@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-perf
+
+BATCH #1: SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || INSERT INTO "suite_1"."probe_owner_tags" ("owner_ref", "tag_ref") VALUES ($1, $2) ON CONFL || INSERT INTO "suite_1"."probe_owner_tags" ("owner_ref", "tag_ref") VALUES ($1, $2) ON CONFL || SELECT "q0"."id" AS "id", "q0"."name" AS "name" FROM "suite_1"."probe_owners" AS "q0" WHER
+BATCH #2: SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || SELECT 1 / CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."code" AS "code" FROM "sui || SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || DELETE FROM "suite_1"."probe_tags" WHERE "id" = $1
+BATCH #3: SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || DELETE FROM "suite_1"."probe_tags" WHERE "id" = $1
+BATCH #4: SELECT "q0"."id" AS "id", "q0"."name" AS "name" FROM "suite_1"."probe_owners" AS "q0" WHER
+RESOLVED2; tags left=[]
+ ✓ |extended-local| tests/contracts/engine/query/probe-membership-race.test.ts (2 tests | 1 skipped) 700ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 1 skipped (2)
+   Start at  01:20:46
+   Duration  2.06s (transform 808ms, setup 8ms, collect 1.21s, tests 700ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.69s wall, 1466.4 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

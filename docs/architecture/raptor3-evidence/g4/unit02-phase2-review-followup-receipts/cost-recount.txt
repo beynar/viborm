@@ -1,0 +1,11 @@
+== four phase-2 files, round 3 ==
+{"files":4,"bytes":257036,"physical":7296,"tokenLines":6694}
+== four phase-2 files, phase-1 accepted ==
+{"files":4,"bytes":236563,"physical":6864,"tokenLines":6461}
+== schema.ts before/after ==
+{"files":1,"bytes":10116,"physical":341,"tokenLines":327}
+{"files":1,"bytes":13390,"physical":414,"tokenLines":370}
+== adapters before/after ==
+{"files":4,"bytes":138743,"physical":3393,"tokenLines":1629}
+{"files":4,"bytes":140389,"physical":3423,"tokenLines":1635}
+{"files":15,"bytes":373660,"physical":10826,"tokenLines":10046}

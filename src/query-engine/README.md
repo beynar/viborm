@@ -5,36 +5,36 @@ fragments, executes them atomically through a driver, and parses the declared
 result. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite share operation semantics;
 dialect syntax remains adapter-owned.
 
+> **Since C-01 (the Raptor 3 cutover, commit `e8114ed9`) every client operation
+> is owned by `src/query-engine/raptor3/`**, built unconditionally in `VibORM`'s
+> constructor and reached through `PendingOperation`'s single route arm. The V1
+> write/read engine was deleted at C-01; the pattern-engine experiment and the
+> owners it alone kept alive — `builders/`, `operations/`, `result/`'s parser
+> tree and the rest of `write-engine/` — were deleted with it in the pattern
+> retirement (D-15), and follow-up F-2 moved the last two survivors to their
+> consumers (`raptor3/shared/parse-boundary.ts`, `result/groupby-fields.ts`)
+> and deleted both emptied directories. `src/query-engine/raptor3/README.md` and
+> `raptor3/AGENTS.md` are the normative documents for the engine that ships.
+
 ## Ownership
 
 ```text
 QueryEngine
 └── creates PendingOperation
-    ├── operation shell → SQL builders → adapter
-    ├── PlanningFragment → OperationFragment → OperationExecutor → driver
-    └── declared outputs → strict result parsers
+    └── raptor3 route → command engine → adapter → driver → prepared read/decoder
 ```
 
 | Owner | Responsibility |
 | --- | --- |
+| `raptor3/` | Admission, preparation, lowering, execution and decoding — the whole operation |
 | `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
 | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
-| `write-engine/routing.ts` | Route-wide operation gates, shared-envelope parsing, and shell construction |
-| `write-engine/*Operation.ts` | Public-operation-family owners and their executable fragments |
-| `operations/*.ts` | Operation-specific SQL, plan, identity, and ordering helpers |
-| relation Parts | Selection, membership, branches, guards, race pins, and edge effects |
-| `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
-| `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
-| `builders/` | Shared SQL and semantic builders, including payload and topology parsing |
-| `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
-
-An operation shell is the concrete owner of one public operation family. It
-exposes `mode`, `planning()`, `compile(known)`, and `parse(outputs)`. Routing
-applies route-wide gates and parses shared envelopes before constructing it.
-The routed root shell owns the remaining family- and arm-specific parsing,
-public target, result, and direct folds while delegating SQL leaves,
-selected-record mutation, and relation-edge policy. `CreateOperation` is also
-reused as a delegated fresh-record compiler inside an outer shell.
+| `routed-operations.ts` | The read/write verb vocabulary the cache and interception seams key on |
+| `types.ts` | The prepared-operation, prepared-batch and guard shapes the client and the route share |
+| `batch-error-attribution.ts` | Attribution of a native-batch assertion failure to the guard that raised it, and the one guard-failure-to-error construction |
+| `result/` | The cache codecs (`cache-result-codec.ts`, `cache-value-codecs.ts`, `cache-json-codec.ts`, `cache-snapshot-structure.ts`), the result-shape vocabulary the client's type renderer reads, and `groupby-fields.ts` |
+| `raptor3/shared/parse-boundary.ts` | The typed parse boundary: the ONE place a user payload becomes a validated, typed value |
+| `context/`, `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts`, `transaction-operation.ts`, `pending-execution.ts` | Retained boundaries outside either engine |
 
 `QueryEngine` is not a forwarding shell. A transaction-bound engine preserves
 the originating client identity, receives a new scope identity, and owns the
@@ -46,128 +46,21 @@ driver used to construct and execute operations.
 client call
   → QueryEngine.prepare(...)
   → PendingOperation (lazy)
-  → route-wide gates, shell construction, and family/arm parsing
-  → PlanningFragment
-  → selected OperationFragment
-  → OperationExecutor
-       ├── direct statement
-       ├── interactive transaction
-       └── atomic driver batch
-  → strict result parser
+  → the raptor3 route: admission, prepared selector/projection, command lowering
+  → adapter-spelled SQL
+  → driver (direct statement, interactive transaction, or atomic driver batch)
+  → the prepared read's decoder
   → typed public value
 ```
 
-A simple read or write is one statement. Relation writes, non-returning
-emulation, generated keys, branch premises, and deep results use the same small
-fragment vocabulary.
-
-## Fragment vocabulary
-
-`write-engine/OperationFragment.ts` defines four runtime step kinds:
-
-- `read` executes adapter-built SQL;
-- `write` executes adapter-built SQL and can carry a race pin or
-  conflict-skip effect;
-- `guard` checks a database premise for the selected final fragment;
-- `recordSeries` suspends a final fragment at one nested bulk position, runs
-  the existing ordered record-series form, then resumes the fragment.
-
-Produced values reference declared outputs from earlier steps. The fragment is
-not a second SQL AST and contains no relation strategy, payload walker, driver,
-or arbitrary context bag.
-
-Planning has its own guard-free `PlanningFragment`. Planning is not necessarily
-read-only: skip-duplicate capture performs preparation writes and publishes
-their outputs. Final compilation emits only the selected effects.
-
-## Relation writes
-
-Nested writes are a public feature, not a second runtime. Their compiler keeps
-three independent facts:
-
-1. `RelationMutationProgram` records schema-transformed payload meaning.
-2. `BoundRelation` records where the relation edge is stored.
-3. A record compiler emits the mutation of one fresh or selected record.
-
-`RelationMutationProgram` preserves operation order, item order, duplicates,
-empty set, filters, and normalized target forms. Execution-specific
-deduplication stays with the consumer that owns it.
-
-`BoundRelation` classifies an edge as parent-held to-one, child-held to-one,
-child-held to-many, or junction. It carries ordered topology only, not scopes,
-identities, value sources, transition state, SQL, or branch policy.
-
-Parent and child are edge-relative roles. Parent is the enclosing source record
-whose relation field is being compiled; child is its target. A
-parent-held edge (`position: "parentHeld"`) means that source record stores the FK.
-
-`CreateOperation` compiles fresh record subtrees, including record-series
-members. `RecordUpdateCompiler` compiles updates for an already-selected record,
-including selected members of root or nested update series.
-The record compiler owns scalar assignments, an optional incoming membership,
-nested record effects, required target fields, primary-key transitions, and
-root-write order.
-
-It also owns selected-row continuity. Planning locates the complete captured
-primary key. A relation placement then chooses that tuple before the root write
-or the compiler's complete final tuple after it. Correlated update and found-
-upsert arms may use this fact to re-enter their exact incoming parent; nested
-progressive series use the same fact to re-pin later committed segments.
-
-Relation Parts still own target reads, parent correlation, membership,
-found/missing decisions, not-found failures, guards, race pins, junction
-effects, and standalone edge effects. A write addresses the captured primary
-key, not a selector that can match another row after planning.
-
-Validation transforms are not assumed to be idempotent. Parse untrusted input
-once at its trust boundary and pass transformed programs or record data
-downstream.
-
-Scalar-only `createMany` and `updateMany`, `deleteMany`, relation `set`, and
-many-and-return folds remain specialized because their expressed payload has
-set semantics. A relation-bearing root bulk operation uses the one
-`RecordSeriesOperation`; nested relation-bearing `createMany` and `updateMany`
-place that same form through one `RecordSeriesStep`. Scalar-only bulk shapes
-stay grouped.
-
-A transaction-capable root series and its nested steps share one transaction.
-Any no-transaction driver with native atomic batches executes root and exactly
-guarded nested series as ordered progressive segments. A later failure reports
-the committed prefix and does not replay it. An unguardable nested placement
-fails closed before its containing write segment. A root-first relation-bearing
-`skipDuplicates` member is isolated and suppresses its descendants on conflict;
-a prior write before that root remains refused. Dynamic series inside explicit
-`$transaction([...])` remain indivisible.
-
-Returning series group their final row lookups into K set reads bounded by the
-driver bind limit, normally one, then reconstruct source order. Per-member
-terminal reads remain as liveness witnesses.
-
-See [write-engine/ATOM.md](write-engine/ATOM.md) for the normative write-engine
-doctrine.
+`raptor3/AGENTS.md` is normative for that path: the route opens and closes no
+scope of its own, and never falls back to a shipped engine — there is no shipped
+engine left to fall back to. It is not retry-free: the engine has four bounded
+recoveries, and one of them is armed by reading `meta.raceable` off the failure
+its own owner marked (`OperationContext.submit`, Arnaud's D-32). See
+`raptor3/AGENTS.md` for which recovery REPLAYS and which RE-PLANS.
 
 ## SQL construction
-
-Shared SQL and semantic sub-concerns remain in `builders/`. Operation-specific
-SQL, plan, identity, and ordering helpers such as `buildUpdate`, `buildUpsert`,
-and `buildCreateManyPlan` remain in `operations/`; they are not executable
-operation shells.
-
-| Concern | Primary module |
-| --- | --- |
-| scalar and logical filters | `where-builder.ts` |
-| relation predicates | `relation-filter-builder.ts` |
-| selection and recursive includes | `select-builder.ts`, `include-builder.ts` |
-| ordering | `orderby-builder.ts`, `relation-orderby-builder.ts` |
-| aggregation | `aggregate-utils.ts` and relation counts |
-| insert values and row shapes | `values-builder.ts`, `insert-row-shapes.ts` |
-| mutation assignments | `set-builder.ts` |
-| relation payload meaning | `relation-mutation-parser.ts` |
-| relation topology | `relation-data-builder.ts` |
-| physical read traversal of a relation | `relation-traversal.ts` |
-| junction SQL — ordinary many-to-many and polymorphic member junctions alike | `many-to-many-utils.ts`, `JunctionStatements.ts` |
-| polymorphic reads | `polymorphic-read-builder.ts` (row-held), `polymorphic-collection-read-builder.ts` (collection) |
-| polymorphic collection writes | `write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts` |
 
 The golden rule is absolute: query-engine code decides what a query means;
 adapters decide how that meaning is written in a dialect.
@@ -180,29 +73,26 @@ sql`COALESCE(json_agg(...), '[]'::json)`;
 scope.adapter.json.agg(expression);
 ```
 
-SQL-emitting builders return parameterized `Sql` fragments. Query-engine code
-does not match provider-specific SQL tokens to recover semantic facts. Provider
+SQL-emitting code returns parameterized `Sql` fragments. Query-engine code does
+not match provider-specific SQL tokens to recover semantic facts. Provider
 error-message and assertion-marker recognition belongs to driver error mapping.
+Selectors and projections are prepared once per admission scope, and SQL and
+dependency meaning consume the same prepared predicate.
 
 ## Results
 
-Result parsing validates every declared source and keeps middleware caches
-isolated per driver. Provider middleware order is:
-
-```text
-driver parser → adapter parser → default strict parser
-```
-
-Absent rows, malformed scalar carriers, unexpected columns, and invalid counts
-raise typed errors. Result code never substitutes a plausible empty object,
-array, count, or null for malformed provider output.
+Provider rows are a real trust boundary and are decoded once, at the prepared
+read's own decoder. Absent rows, malformed scalar carriers, unexpected columns
+and invalid counts raise typed errors; result code never substitutes a
+plausible empty object, array, count, or null for malformed provider output.
+Middleware caches stay isolated per driver.
 
 ## Single-statement inspection
 
-`QueryEngine.build()` returns SQL only when an operation is representable as one
-statement without executor-only behavior. It rejects guards, unresolved
-references, and multi-step semantics instead of pretending that an atomic
-operation is one statement.
+`QueryEngine.build()` asks `PendingOperation.buildStatement()` for the one
+statement an operation compiles to. Since C-01 the prepared read publishes its
+`Sql` through the route's prepared handle (D-14); an operation that does not
+compile to exactly one statement raises "does not compile to one SQL statement".
 
 Use `prepare()` or await the returned `PendingOperation` for general operations.
 
@@ -217,8 +107,7 @@ or bare `@query-engine` alias; the scoped `@query-engine/*` path mapping remains
 
 ## Verification
 
-Architecture gates check fragment vocabulary, layer imports, parsing boundaries,
-result contracts, and provider-neutral behavior. Run:
+Run:
 
 ```bash
 pnpm test:types
@@ -234,6 +123,4 @@ The local PGlite estate reuses one provisioned database per compatible schema
 family. Ordinary cases truncate tables and restart identities; race,
 staleness, lifecycle, DDL, destructive-schema, and independently committed
 concurrency witnesses retain fresh databases. The family fixture owns
-disconnect. The full credential-free write report is
-`pnpm test:coverage:write-engine`; the representative sub-30-second gate is
-`pnpm test:layer:query-engine`.
+disconnect.

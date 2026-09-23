@@ -1,0 +1,144 @@
+{
+  "name": "string-default",
+  "pushed": "MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema",
+  "catalog": [
+    {
+      "TABLE_NAME": "r2a_tickets",
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "int",
+      "COLUMN_TYPE": "int",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": "auto_increment"
+    },
+    {
+      "TABLE_NAME": "r2a_tickets",
+      "COLUMN_NAME": "label",
+      "DATA_TYPE": "text",
+      "COLUMN_TYPE": "text",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_tickets",
+      "COLUMN_NAME": "qty",
+      "DATA_TYPE": "int",
+      "COLUMN_TYPE": "int",
+      "COLUMN_DEFAULT": "0",
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_tickets",
+      "COLUMN_NAME": "note",
+      "DATA_TYPE": "text",
+      "COLUMN_TYPE": "text",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    }
+  ],
+  "differences": [
+    "/tables/0/columns/1/default: desired=\"'application-default'\" live=null",
+    "/tables/0/primaryKey/name: desired=\"r2a_tickets_pkey\" live=\"PRIMARY\""
+  ],
+  "desired": {
+    "tables": [
+      {
+        "name": "r2a_tickets",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": true,
+            "decimal": null
+          },
+          {
+            "name": "label",
+            "type": "TEXT",
+            "nullable": false,
+            "default": "'application-default'",
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "note",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "qty",
+            "type": "INT",
+            "nullable": false,
+            "default": "0",
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "r2a_tickets_pkey"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  },
+  "live": {
+    "tables": [
+      {
+        "name": "r2a_tickets",
+        "columns": [
+          {
+            "name": "id",
+            "type": "INT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": true,
+            "decimal": null
+          },
+          {
+            "name": "label",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "note",
+            "type": "TEXT",
+            "nullable": true,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "qty",
+            "type": "INT",
+            "nullable": false,
+            "default": "0",
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "PRIMARY"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  }
+}

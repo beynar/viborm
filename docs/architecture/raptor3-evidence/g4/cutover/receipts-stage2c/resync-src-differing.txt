@@ -1,0 +1,10 @@
+Only in src/adapters: database-adapter.ts
+src
+src/query-engine/raptor3/AGENTS.md
+src/query-engine/raptor3/commands/commands.ts
+src/query-engine/raptor3/commands/execution.ts
+src/query-engine/raptor3/commands/relation-body.ts
+src/query-engine/raptor3/commands/selection.ts
+src/query-engine/raptor3/shared/operation-context.ts
+src/query-engine/raptor3/shared/query.ts
+src/query-engine/raptor3/shared/schema.ts

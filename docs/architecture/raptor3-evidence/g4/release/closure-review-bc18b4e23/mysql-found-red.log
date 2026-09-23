@@ -1,0 +1,87 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts (14 tests | 3 failed | 11 skipped) 1024ms
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race
+   ↓ MySQL2 concurrency policy > an eligible unique-key race > the CONDITION probe of a conditioned upsert locks no absence either
+   ↓ MySQL2 concurrency policy > a native deadlock > the victim fails visibly, replays nothing, and leaves the survivor's state
+   ↓ MySQL2 concurrency policy > a native deadlock > the same two row locks in the SAME order both succeed
+   ↓ MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle
+   ↓ MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed
+   ↓ MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a row deleted before the update arm fails visibly and commits nothing
+   ↓ MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a CHILD-HELD connectOrCreate whose found target moves out from under it connects nothing, visibly
+   ↓ MySQL2 concurrency policy > the unlocked probe when it FINDS the row > a nested to-ONE upsert whose found target is deleted before the update arm loses nothing silently
+   × MySQL2 concurrency policy > review: a found reference cannot silently connect another target after rekey 440ms
+     → expected 'b2' to be 'b1' // Object.is equality
+   × MySQL2 concurrency policy > review: a found conditioned upsert cannot write after its condition stops matching 280ms
+     → expected 42 to be 8 // Object.is equality
+   × MySQL2 concurrency policy > review: a found nested to-one upsert cannot write a reparented record 304ms
+     → expected { id: 'pr1', …(2) } to match object { ownerId: 'o2', bio: 'original' }
+(1 matching property omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > review: a found reference cannot silently connect another target after rekey
+AssertionError: expected 'b2' to be 'b1' // Object.is equality
+
+Expected: "b1"
+Received: "b2"
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:1015:31
+    983|     });
+    984|   });
+    985| });
+       |    ^
+    986| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > review: a found conditioned upsert cannot write after its condition stops matching
+AssertionError: expected 42 to be 8 // Object.is equality
+
+- Expected
++ Received
+
+- 8
++ 42
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:1040:27
+    983|     });
+    984|   });
+    985| });
+       |    ^
+    986| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |closure-review-mysql| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > review: a found nested to-one upsert cannot write a reparented record
+AssertionError: expected { id: 'pr1', …(2) } to match object { ownerId: 'o2', bio: 'original' }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "bio": "original",
++   "bio": "written-by-o1",
+    "ownerId": "o2",
+  }
+
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:1065:20
+    983|     });
+    984|   });
+    985| });
+       |    ^
+    986| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 11 skipped (14)
+   Start at  16:02:48
+   Duration  2.82s (transform 1.09s, setup 13ms, collect 1.62s, tests 1.02s, environment 0ms, prepare 41ms)
+
+Vitest resources: 3.50s wall, 472.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

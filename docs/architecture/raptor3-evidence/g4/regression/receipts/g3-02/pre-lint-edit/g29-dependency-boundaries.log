@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 35ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  01:29:39
+   Duration  1.88s (transform 1.14s, setup 10ms, collect 1.69s, tests 35ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PVOXkh/vitest.json
+Vitest resources: 4.15s wall, 534.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-dependency-boundaries contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PVOXkh

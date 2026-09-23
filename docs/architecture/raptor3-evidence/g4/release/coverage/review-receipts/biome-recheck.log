@@ -1,0 +1,38 @@
+tests/unit/operation-schemas/args/mutation-args.core.test.ts:87:11 lint/correctness/noUnusedVariables  FIXABLE  ━━━━━━━━━━
+
+  i This variable resultAge is unused.
+  
+    85 │     const result = parse(schema, input);
+    86 │     const age = schema.entries.data.entries.age;
+  > 87 │     const resultAge = parse(age, undefined);
+       │           ^^^^^^^^^
+    88 │     expect(result.issues).toBeUndefined();
+    89 │     if (!result.issues) {
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+  i Unsafe fix: If this is intentional, prepend resultAge with an underscore.
+  
+     85  85 │       const result = parse(schema, input);
+     86  86 │       const age = schema.entries.data.entries.age;
+     87     │ - ····const·resultAge·=·parse(age,·undefined);
+         87 │ + ····const·_resultAge·=·parse(age,·undefined);
+     88  88 │       expect(result.issues).toBeUndefined();
+     89  89 │       if (!result.issues) {
+  
+
+tests/unit/scalars/json-scalar-schemas.core.test.ts:37:6 lint/correctness/noUnusedVariables ━━━━━━━━━━
+
+  i This type alias JsonValue is unused.
+  
+    36 │ // JSON value type
+  > 37 │ type JsonValue =
+       │      ^^^^^^^^^
+    38 │   | null
+    39 │   | boolean
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+
+Checked 13 files in 36ms. No fixes applied.
+Found 2 infos.

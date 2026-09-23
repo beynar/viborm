@@ -1,0 +1,21 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | docs/architecture/raptor3-evidence/g4/root-review-probes/C/public-surface.review.test.ts > Area C1 — the public surface does not carry the route > no public export names the route, and `createClient` takes one argument
+[public entry] 48 exports: AnyNull, CheckConstraintError, ClientInitializationError, ConnectionError, DbNull, Decimal, FeatureNotSupportedError, ForeignKeyError, JsonNull, JsonNullSentinel, NestedWriteError, NotFoundError, NotNullConstraintError, PendingOperation, QueryError, SchemaValidationError, Sql, TransactionError, UniqueConstraintError, UnsupportedOperationError, ValidationError, ValueTooLongError, VibORMError, VibORMErrorCode, createClient, createModelFieldRefs, defineExtension, empty, getOperationPayloadSchema, getSchemas, isFieldRef, isJsonNullSentinel, isPendingOperation, isRetryableError, isSchemaValidationError, isSql, isVibORMError, join, raw, renderOperationResultType, renderSchemaType, s, sql, toPrismaErrorCode, validateOperationPayload, validateSchema, validateSchemaOrThrow, wrapError
+
+stdout | docs/architecture/raptor3-evidence/g4/root-review-probes/C/public-surface.review.test.ts > Area C1 — the public surface does not carry the route > a second argument to the public `createClient` installs NO route
+[default route] engine.route=undefined
+[default route] build => SELECT "t0"."id" AS "id", "t0"."title" AS "title" FROM "g4_rootC_notes" AS "t0"
+
+stdout | docs/architecture/raptor3-evidence/g4/root-review-probes/C/public-surface.review.test.ts > Area C1 — the public surface does not carry the route > with a route the ONE divergent answer keeps the shipped identity
+[routed build] QueryEngineError V9001: Operation 'findMany' does not compile to one SQL statement. Execute the operation instead.
+
+ ✓ |g4-root-review-C| docs/architecture/raptor3-evidence/g4/root-review-probes/C/public-surface.review.test.ts (3 tests) 25ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  20:22:39
+   Duration  9.79s (transform 2.93s, setup 29ms, collect 4.53s, tests 25ms, environment 0ms, prepare 91ms)
+
+Vitest resources: 16.16s wall, 434.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

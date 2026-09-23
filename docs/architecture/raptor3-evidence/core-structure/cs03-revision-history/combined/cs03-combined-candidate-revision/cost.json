@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "status": "candidate-a-b-feature-only-checkpoint-complete",
+  "method": {
+    "codeBearingLines": "Distinct lines containing parser-owned TypeScript token starts; comments, JSDoc, blank lines, and EOF are excluded.",
+    "actualParserTokens": "Parser-owned TypeScript leaf tokens, excluding JSDoc and EOF.",
+    "sourceBytes": "Whole-file byte count.",
+    "ownerScopes": {
+      "core": "The same 12 Raptor command and shared owners used by the accepted CS-02 candidate census.",
+      "broader": "The same 28 complete production owners used by the accepted CS-02 candidate census; no new production owner was added."
+    }
+  },
+  "scopeBaseline": {
+    "productionIdentity": "f151ae5892627324cd95a4e71655c7bf8e27f1aabecd890c920e610b219ae70d",
+    "core": { "files": 12, "codeBearingLines": 6489, "actualParserTokens": 40505, "sourceBytes": 215249 },
+    "broader": { "files": 28, "codeBearingLines": 10563, "actualParserTokens": 65129, "sourceBytes": 448296 }
+  },
+  "candidateAB": {
+    "productionIdentity": "14cbc7caf5083ccb5532a71f64e7bca4bf884a20cc3d5210be1f847b6db6a700",
+    "runtime": "v24.21.0",
+    "core": { "files": 12, "codeBearingLines": 6592, "actualParserTokens": 41175, "sourceBytes": 218806 },
+    "broader": { "files": 28, "codeBearingLines": 10666, "actualParserTokens": 65799, "sourceBytes": 451853 }
+  },
+  "delta": {
+    "core": { "files": 0, "codeBearingLines": 103, "actualParserTokens": 670, "sourceBytes": 3557 },
+    "broader": { "files": 0, "codeBearingLines": 103, "actualParserTokens": 670, "sourceBytes": 3557 }
+  },
+  "standalone": {
+    "candidateA": { "codeBearingLines": 57, "actualParserTokens": 286, "sourceBytes": 1921 },
+    "candidateB": { "codeBearingLines": 47, "actualParserTokens": 377, "sourceBytes": 1612 }
+  },
+  "referenceAB": {
+    "core": { "files": 12, "codeBearingLines": 6172, "actualParserTokens": 39218, "sourceBytes": 206007 },
+    "broader": { "files": 28, "codeBearingLines": 10246, "actualParserTokens": 63842, "sourceBytes": 439054 },
+    "delta": { "codeBearingLines": 100, "actualParserTokens": 680, "sourceBytes": 3488 }
+  },
+  "claim": "Feature-only candidate extensions A+B cost +103 code-bearing lines, +670 actual parser tokens, and +3557 source bytes from the accepted candidate scope baseline. The formatter-contaminated +68-line receipt is excluded from comparison; no material marginal extension-cost advantage is demonstrated."
+}

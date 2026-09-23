@@ -1,0 +1,227 @@
+{
+  "mode": "g2-transport-seeds",
+  "identity": {
+    "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+    "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "campaign": {
+    "firstSeed": 2000,
+    "seedCount": 5000,
+    "batchSize": 100,
+    "replayCount": 3,
+    "completionLimit": 5000,
+    "profiles": [
+      "scripted-returning-weak",
+      "scripted-returning-ack"
+    ]
+  },
+  "batches": [
+    {
+      "firstSeed": 2000,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-iaTRfx"
+    },
+    {
+      "firstSeed": 2100,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5DaipC"
+    },
+    {
+      "firstSeed": 2200,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-0Qbu6d"
+    },
+    {
+      "firstSeed": 2300,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-aoPqoz"
+    },
+    {
+      "firstSeed": 2400,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tDsPx0"
+    },
+    {
+      "firstSeed": 2500,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DAcATG"
+    },
+    {
+      "firstSeed": 2600,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-COLpak"
+    },
+    {
+      "firstSeed": 2700,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5jKNyY"
+    },
+    {
+      "firstSeed": 2800,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-g2gBO3"
+    },
+    {
+      "firstSeed": 2900,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-TLJCMU"
+    },
+    {
+      "firstSeed": 3000,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-76RwDJ"
+    },
+    {
+      "firstSeed": 3100,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Vsrv1Y"
+    },
+    {
+      "firstSeed": 3200,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-TSwAk7"
+    },
+    {
+      "firstSeed": 3300,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5xbrOz"
+    },
+    {
+      "firstSeed": 3400,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-eGDYeA"
+    },
+    {
+      "firstSeed": 3500,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-hTqumg"
+    },
+    {
+      "firstSeed": 3600,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-F0BkVp"
+    },
+    {
+      "firstSeed": 3700,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6dTx8p"
+    },
+    {
+      "firstSeed": 3800,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-p9Z66m"
+    },
+    {
+      "firstSeed": 3900,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-J9V7gN"
+    },
+    {
+      "firstSeed": 4000,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JAps2v"
+    },
+    {
+      "firstSeed": 4100,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ZJSu1z"
+    },
+    {
+      "firstSeed": 4200,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ey8Hdo"
+    },
+    {
+      "firstSeed": 4300,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-zWbLTI"
+    },
+    {
+      "firstSeed": 4400,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-B4v1Kk"
+    },
+    {
+      "firstSeed": 4500,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8EfQzG"
+    },
+    {
+      "firstSeed": 4600,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-LTCkkh"
+    },
+    {
+      "firstSeed": 4700,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ItMXfg"
+    },
+    {
+      "firstSeed": 4800,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-wXoNnp"
+    },
+    {
+      "firstSeed": 4900,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-p4TEup"
+    },
+    {
+      "firstSeed": 5000,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xkALjP"
+    },
+    {
+      "firstSeed": 5100,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-zrrYTt"
+    },
+    {
+      "firstSeed": 5200,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-QbmbFE"
+    },
+    {
+      "firstSeed": 5300,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FDTZMj"
+    },
+    {
+      "firstSeed": 5400,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-cdLOf8"
+    },
+    {
+      "firstSeed": 5500,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-c2JQFW"
+    },
+    {
+      "firstSeed": 5600,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tZZzRD"
+    },
+    {
+      "firstSeed": 5700,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-cJ6NpN"
+    },
+    {
+      "firstSeed": 5800,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-imCw3f"
+    },
+    {
+      "firstSeed": 5900,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-nXNQSB"
+    },
+    {
+      "firstSeed": 6000,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3Le0W0"
+    },
+    {
+      "firstSeed": 6100,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-reXArE"
+    },
+    {
+      "firstSeed": 6200,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ypo4WH"
+    },
+    {
+      "firstSeed": 6300,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-LDgQe5"
+    },
+    {
+      "firstSeed": 6400,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-t3jyOW"
+    },
+    {
+      "firstSeed": 6500,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-0YbrUO"
+    },
+    {
+      "firstSeed": 6600,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-RWaVsw"
+    },
+    {
+      "firstSeed": 6700,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FlW1eL"
+    },
+    {
+      "firstSeed": 6800,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-txepgH"
+    },
+    {
+      "firstSeed": 6900,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-X638eQ"
+    }
+  ]
+}

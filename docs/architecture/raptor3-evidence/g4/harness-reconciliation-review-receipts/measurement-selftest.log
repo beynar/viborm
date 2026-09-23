@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/core-structure/measurement/measurement-selftest.test.ts (7 tests) 11ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  13:50:28
+   Duration  267ms (transform 35ms, setup 12ms, collect 77ms, tests 11ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.76s wall, 376.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

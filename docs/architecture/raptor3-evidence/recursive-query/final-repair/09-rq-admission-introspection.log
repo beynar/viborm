@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/public-client/relation-types.test.ts (13 tests) 894ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/recursive-query.core.test.ts (22 tests) 16ms
+ ✓ |coverage-client| tests/contracts/public-client/schema-introspection.core.test.ts (13 tests) 28ms
+ ✓ |layer-client| tests/contracts/public-client/schema-introspection.core.test.ts (13 tests) 28ms
+
+ Test Files  4 passed (4)
+      Tests  61 passed (61)
+   Start at  11:59:38
+   Duration  6.54s (transform 2.98s, setup 30ms, collect 4.68s, tests 966ms, environment 0ms, prepare 147ms)
+
+Vitest resources: 8.92s wall, 1470.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

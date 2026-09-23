@@ -1,0 +1,1544 @@
+--- a/scripts/raptor3-manifest.mjs
++++ b/scripts/raptor3-manifest.mjs
+@@ -17,7 +17,7 @@
+   "tests/raptor3/candidate-pagination.test.ts": 8,
+ });
+ export const G1_COMPARISON_TESTS = Object.freeze(
+-  Object.keys(G1_COMPARISON_COUNTS),
++  Object.keys(G1_COMPARISON_COUNTS)
+ );
+ export const G1_BASELINE_COUNTS = Object.freeze({
+   "tests/raptor3/expanded/variant-identity-legacy.test.ts": 42,
+@@ -74,202 +74,209 @@
+   "tests/raptor3/transitions/diagnostics.test.ts": 2,
+ });
+ export const G2_DIAGNOSTIC_TESTS = Object.freeze(
+-  Object.keys(G2_DIAGNOSTIC_COUNTS),
++  Object.keys(G2_DIAGNOSTIC_COUNTS)
+ );
+ export const G25_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/polish/commands.test.ts": 6,
+ });
+ export const G25_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G25_CONTRACT_COUNTS),
++  Object.keys(G25_CONTRACT_COUNTS)
+ );
+ export const G25_PG_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/polish/recovery-live.test.ts": 2,
+ });
+ export const G25_PG_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G25_PG_CONTRACT_COUNTS),
++  Object.keys(G25_PG_CONTRACT_COUNTS)
+ );
+ export const G27_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/ownership/commands.test.ts": 6,
+ });
+ export const G27_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G27_CONTRACT_COUNTS),
++  Object.keys(G27_CONTRACT_COUNTS)
+ );
+ export const G27_PROVIDER_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/ownership/live.test.ts": 1,
+ });
+ export const G27_PG_CONTRACT_COUNTS = G27_PROVIDER_CONTRACT_COUNTS;
+ export const G27_PG_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G27_PG_CONTRACT_COUNTS),
++  Object.keys(G27_PG_CONTRACT_COUNTS)
+ );
+ export const G27_MYSQL_CONTRACT_COUNTS = G27_PROVIDER_CONTRACT_COUNTS;
+ export const G27_MYSQL_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G27_MYSQL_CONTRACT_COUNTS),
++  Object.keys(G27_MYSQL_CONTRACT_COUNTS)
+ );
+ export const G3P02_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/transport.test.ts": 4,
+ });
+ export const G3P02_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P02_CONTRACT_COUNTS),
++  Object.keys(G3P02_CONTRACT_COUNTS)
+ );
+ export const G3P02_PROVIDER_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/prep/native-constraint-ownership.test.ts": 5,
+ });
+ export const G3P02_PG_CONTRACT_COUNTS = G3P02_PROVIDER_CONTRACT_COUNTS;
+ export const G3P02_PG_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P02_PG_CONTRACT_COUNTS),
++  Object.keys(G3P02_PG_CONTRACT_COUNTS)
+ );
+ export const G3P02_MYSQL_CONTRACT_COUNTS = G3P02_PROVIDER_CONTRACT_COUNTS;
+ export const G3P02_MYSQL_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P02_MYSQL_CONTRACT_COUNTS),
++  Object.keys(G3P02_MYSQL_CONTRACT_COUNTS)
+ );
+ export const G3P03_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/prep/set-preparation.test.ts": 6,
+ });
+ export const G3P03_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P03_CONTRACT_COUNTS),
++  Object.keys(G3P03_CONTRACT_COUNTS)
+ );
+ export const G3P03_PROVIDER_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/prep/native-set-preparation.test.ts": 3,
+ });
+ export const G3P03_PG_CONTRACT_COUNTS = G3P03_PROVIDER_CONTRACT_COUNTS;
+ export const G3P03_PG_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P03_PG_CONTRACT_COUNTS),
++  Object.keys(G3P03_PG_CONTRACT_COUNTS)
+ );
+ export const G3P03_MYSQL_CONTRACT_COUNTS = G3P03_PROVIDER_CONTRACT_COUNTS;
+ export const G3P03_MYSQL_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P03_MYSQL_CONTRACT_COUNTS),
++  Object.keys(G3P03_MYSQL_CONTRACT_COUNTS)
+ );
+ export const G3P04_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/prep/suppression-replay.test.ts": 5,
+ });
+ export const G3P04_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P04_CONTRACT_COUNTS),
++  Object.keys(G3P04_CONTRACT_COUNTS)
+ );
+ export const G3P04_REVIEW_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/prep/g3p04-review-regressions.test.ts": 5,
+ });
+ export const G3P04_REVIEW_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P04_REVIEW_CONTRACT_COUNTS),
++  Object.keys(G3P04_REVIEW_CONTRACT_COUNTS)
+ );
+ export const G3P04_PROVIDER_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/prep/native-suppression-replay.test.ts": 4,
+ });
+ export const G3P04_PG_CONTRACT_COUNTS = G3P04_PROVIDER_CONTRACT_COUNTS;
+ export const G3P04_PG_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P04_PG_CONTRACT_COUNTS),
++  Object.keys(G3P04_PG_CONTRACT_COUNTS)
+ );
+ export const G3P04_MYSQL_CONTRACT_COUNTS = G3P04_PROVIDER_CONTRACT_COUNTS;
+ export const G3P04_MYSQL_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P04_MYSQL_CONTRACT_COUNTS),
++  Object.keys(G3P04_MYSQL_CONTRACT_COUNTS)
+ );
+ export const G3P05_SELECTOR_DEPENDENCY_COUNTS = Object.freeze({
+   "tests/raptor3/prep/selector-dependencies.test.ts": 11,
+ });
+ export const G3P05_SELECTOR_DEPENDENCY_TESTS = Object.freeze(
+-  Object.keys(G3P05_SELECTOR_DEPENDENCY_COUNTS),
++  Object.keys(G3P05_SELECTOR_DEPENDENCY_COUNTS)
+ );
+ export const G3P05_VARIANT_COLLECTION_ORDER_COUNTS = Object.freeze({
+   "tests/raptor3/prep/variant-collection-order.test.ts": 4,
+ });
+ export const G3P05_VARIANT_COLLECTION_ORDER_TESTS = Object.freeze(
+-  Object.keys(G3P05_VARIANT_COLLECTION_ORDER_COUNTS),
++  Object.keys(G3P05_VARIANT_COLLECTION_ORDER_COUNTS)
+ );
+ export const G3P05_RECURSIVE_READ_FIT_COUNTS = Object.freeze({
+   "tests/raptor3/prep/recursive-read-fit.test.ts": 6,
+ });
+ export const G3P05_RECURSIVE_READ_FIT_TESTS = Object.freeze(
+-  Object.keys(G3P05_RECURSIVE_READ_FIT_COUNTS),
++  Object.keys(G3P05_RECURSIVE_READ_FIT_COUNTS)
+ );
+ export const POST_G3_CLEARABILITY_CONTRACT_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/clearability-consumption.test.ts": 4,
+ });
+ export const POST_G3_CLEARABILITY_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(POST_G3_CLEARABILITY_CONTRACT_COUNTS),
++  Object.keys(POST_G3_CLEARABILITY_CONTRACT_COUNTS)
+ );
+ export const POST_G3_SCHEMA_VIEW_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/schema-view-reuse.test.ts": 1,
+ });
+ export const POST_G3_SCHEMA_VIEW_TESTS = Object.freeze(
+-  Object.keys(POST_G3_SCHEMA_VIEW_COUNTS),
++  Object.keys(POST_G3_SCHEMA_VIEW_COUNTS)
+ );
+ export const POST_G3_PROJECTION_PREPARATION_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/projection-preparation.test.ts": 4,
+ });
+ export const POST_G3_PROJECTION_PREPARATION_TESTS = Object.freeze(
+-  Object.keys(POST_G3_PROJECTION_PREPARATION_COUNTS),
++  Object.keys(POST_G3_PROJECTION_PREPARATION_COUNTS)
+ );
+ export const POST_G3_SELECTOR_PREPARATION_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/selector-preparation.test.ts": 4,
+ });
+ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
+-  Object.keys(POST_G3_SELECTOR_PREPARATION_COUNTS),
++  Object.keys(POST_G3_SELECTOR_PREPARATION_COUNTS)
+ );
+ export const POST_G3_HISTORY_ANALYSIS_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/history-analysis.test.ts": 4,
+ });
+ export const POST_G3_HISTORY_ANALYSIS_TESTS = Object.freeze(
+-  Object.keys(POST_G3_HISTORY_ANALYSIS_COUNTS),
++  Object.keys(POST_G3_HISTORY_ANALYSIS_COUNTS)
+ );
+ export const G29_MEMBER_DEPENDENCY_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/g29-member-dependency.test.ts": 14,
+ });
+ export const G29_MEMBER_DEPENDENCY_TESTS = Object.freeze(
+-  Object.keys(G29_MEMBER_DEPENDENCY_COUNTS),
++  Object.keys(G29_MEMBER_DEPENDENCY_COUNTS)
+ );
+ export const G29_DEPENDENCY_BOUNDARY_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/g29-dependency-boundaries.test.ts": 4,
+ });
+ export const G29_DEPENDENCY_BOUNDARY_TESTS = Object.freeze(
+-  Object.keys(G29_DEPENDENCY_BOUNDARY_COUNTS),
++  Object.keys(G29_DEPENDENCY_BOUNDARY_COUNTS)
+ );
+ export const G29_DEPENDENCY_CHOICE_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/g29-dependency-choices.test.ts": 10,
+ });
+ export const G29_DEPENDENCY_CHOICE_TESTS = Object.freeze(
+-  Object.keys(G29_DEPENDENCY_CHOICE_COUNTS),
++  Object.keys(G29_DEPENDENCY_CHOICE_COUNTS)
+ );
+ export const G29_RESULT_PROGRESS_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/g29-result-progress.test.ts": 2,
+ });
+ export const G29_RESULT_PROGRESS_TESTS = Object.freeze(
+-  Object.keys(G29_RESULT_PROGRESS_COUNTS),
++  Object.keys(G29_RESULT_PROGRESS_COUNTS)
+ );
+ export const CS01_STRUCTURAL_REFERENCE_COUNTS = Object.freeze({
+   "tests/raptor3/core-structure/structural-reference.test.ts": 10,
+ });
+ export const CS01_STRUCTURAL_REFERENCE_TESTS = Object.freeze(
+-  Object.keys(CS01_STRUCTURAL_REFERENCE_COUNTS),
++  Object.keys(CS01_STRUCTURAL_REFERENCE_COUNTS)
+ );
+ export const CS01_EXTENSION_A_COUNTS = Object.freeze({
+   "tests/raptor3/core-structure/extension-a.contract.test.ts": 5,
+ });
+ export const CS01_EXTENSION_A_TESTS = Object.freeze(
+-  Object.keys(CS01_EXTENSION_A_COUNTS),
++  Object.keys(CS01_EXTENSION_A_COUNTS)
+ );
+ export const CS01_EXTENSION_B_COUNTS = Object.freeze({
+   "tests/raptor3/core-structure/extension-b.contract.test.ts": 4,
+ });
+ export const CS01_EXTENSION_B_TESTS = Object.freeze(
+-  Object.keys(CS01_EXTENSION_B_COUNTS),
++  Object.keys(CS01_EXTENSION_B_COUNTS)
+ );
+ export const CS01_EXTENSION_COMPOSITION_COUNTS = Object.freeze({
+   "tests/raptor3/core-structure/extension-composition.contract.test.ts": 4,
+ });
+ export const CS01_EXTENSION_COMPOSITION_TESTS = Object.freeze(
+-  Object.keys(CS01_EXTENSION_COMPOSITION_COUNTS),
++  Object.keys(CS01_EXTENSION_COMPOSITION_COUNTS)
+ );
++export const CS02_STRUCTURE_MEASUREMENT_COUNTS = Object.freeze({
++  "tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts": 1,
++  "tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts": 3,
++});
++export const CS02_STRUCTURE_MEASUREMENT_TESTS = Object.freeze(
++  Object.keys(CS02_STRUCTURE_MEASUREMENT_COUNTS)
++);
+ export const G29_MEMBER_DEPENDENCY_PROVIDER_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/native-g29-member-dependency.test.ts": 2,
+ });
+ export const G29_MEMBER_DEPENDENCY_PG_COUNTS =
+   G29_MEMBER_DEPENDENCY_PROVIDER_COUNTS;
+ export const G29_MEMBER_DEPENDENCY_PG_TESTS = Object.freeze(
+-  Object.keys(G29_MEMBER_DEPENDENCY_PG_COUNTS),
++  Object.keys(G29_MEMBER_DEPENDENCY_PG_COUNTS)
+ );
+ export const G29_MEMBER_DEPENDENCY_MYSQL_COUNTS =
+   G29_MEMBER_DEPENDENCY_PROVIDER_COUNTS;
+ export const G29_MEMBER_DEPENDENCY_MYSQL_TESTS = Object.freeze(
+-  Object.keys(G29_MEMBER_DEPENDENCY_MYSQL_COUNTS),
++  Object.keys(G29_MEMBER_DEPENDENCY_MYSQL_COUNTS)
+ );
+ export const POST_G3_CLEARABILITY_PROVIDER_COUNTS = Object.freeze({
+   "tests/raptor3/prep/native-clearability-ownership.test.ts": 2,
+@@ -277,12 +284,12 @@
+ export const POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS =
+   POST_G3_CLEARABILITY_PROVIDER_COUNTS;
+ export const POST_G3_CLEARABILITY_PG_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS),
++  Object.keys(POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS)
+ );
+ export const POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS =
+   POST_G3_CLEARABILITY_PROVIDER_COUNTS;
+ export const POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS),
++  Object.keys(POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS)
+ );
+ export const G3P05_CONTRACT_COUNTS = Object.freeze({
+   ...G3P05_SELECTOR_DEPENDENCY_COUNTS,
+@@ -290,7 +297,7 @@
+   ...G3P05_RECURSIVE_READ_FIT_COUNTS,
+ });
+ export const G3P05_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G3P05_CONTRACT_COUNTS),
++  Object.keys(G3P05_CONTRACT_COUNTS)
+ );
+ export const G2_BASELINE_TESTS = Object.freeze(Object.keys(G2_BASELINE_COUNTS));
+ export const G2_CONTRACT_TESTS = Object.freeze(Object.keys(G2_CONTRACT_COUNTS));
+@@ -325,29 +332,29 @@
+   "tests/raptor3/transitions/junction-races-live-commands.test.ts": 2,
+ });
+ export const G2_MYSQL_BASELINE_TESTS = Object.freeze(
+-  Object.keys(G2_MYSQL_BASELINE_COUNTS),
++  Object.keys(G2_MYSQL_BASELINE_COUNTS)
+ );
+ export const G2_MYSQL_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G2_MYSQL_CONTRACT_COUNTS),
++  Object.keys(G2_MYSQL_CONTRACT_COUNTS)
+ );
+ export const G2_PG_BASELINE_TESTS = Object.freeze(
+-  Object.keys(G2_PG_BASELINE_COUNTS),
++  Object.keys(G2_PG_BASELINE_COUNTS)
+ );
+ export const G2_PG_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G2_PG_CONTRACT_COUNTS),
++  Object.keys(G2_PG_CONTRACT_COUNTS)
+ );
+ export const G2_PROVIDER_BASELINE_TESTS = Object.freeze(
+-  Object.keys(G2_PROVIDER_BASELINE_COUNTS),
++  Object.keys(G2_PROVIDER_BASELINE_COUNTS)
+ );
+ export const G2_PROVIDER_CONTRACT_TESTS = Object.freeze(
+-  Object.keys(G2_PROVIDER_CONTRACT_COUNTS),
++  Object.keys(G2_PROVIDER_CONTRACT_COUNTS)
+ );
+ export const G1_GENERATED_COUNTS = Object.freeze({
+   "tests/raptor3/generated-smoke.test.ts": 32,
+   "tests/raptor3/generated-gate.test.ts": 3,
+ });
+ export const G1_GENERATED_TESTS = Object.freeze(
+-  Object.keys(G1_GENERATED_COUNTS),
++  Object.keys(G1_GENERATED_COUNTS)
+ );
+ export const G1_CAMPAIGN_TESTS = Object.freeze([
+   "tests/raptor3/generated-campaign.test.ts",
+@@ -375,13 +382,13 @@
+   "tests/raptor3/g2-harness.test.ts": 6,
+ });
+ export const G2_GENERATED_TESTS = Object.freeze(
+-  Object.keys(G2_GENERATED_COUNTS),
++  Object.keys(G2_GENERATED_COUNTS)
+ );
+ export const G1_TRANSPORT_COUNTS = Object.freeze({
+   "tests/raptor3/transport.test.ts": 44,
+ });
+ export const G1_TRANSPORT_TESTS = Object.freeze(
+-  Object.keys(G1_TRANSPORT_COUNTS),
++  Object.keys(G1_TRANSPORT_COUNTS)
+ );
+ export const G1_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
+   "tests/raptor3/transport-campaign.test.ts",
+@@ -394,7 +401,7 @@
+   "tests/raptor3/g2-transport.test.ts": 16,
+ });
+ export const G2_TRANSPORT_TESTS = Object.freeze(
+-  Object.keys(G2_TRANSPORT_COUNTS),
++  Object.keys(G2_TRANSPORT_COUNTS)
+ );
+ export const G2_TRANSPORT_CAMPAIGN_TESTS = G1_TRANSPORT_CAMPAIGN_TESTS;
+ export const G2_TRANSPORT_CAMPAIGN = Object.freeze({
+@@ -516,12 +523,12 @@
+ 
+ export function assertRaptor3Identity(
+   expected,
+-  actual = captureRaptor3Identity(),
++  actual = captureRaptor3Identity()
+ ) {
+   assert.deepEqual(
+     actual,
+     expected,
+-    "Stale Raptor 3 evidence: executed source or runtime changed",
++    "Stale Raptor 3 evidence: executed source or runtime changed"
+   );
+ }
+ 
+@@ -529,26 +536,26 @@
+   assert.deepEqual(
+     receipt.campaign,
+     G0_CAMPAIGN,
+-    "Incomplete or changed G0 campaign",
++    "Incomplete or changed G0 campaign"
+   );
+   assert.equal(receipt.fixedCells, 24, "Missing required G0 profile/case");
+   assert.equal(receipt.seededCells, 200, "Missing G0 schedule seeds");
+   assert.equal(
+     receipt.replays,
+-    (receipt.fixedCells + receipt.seededCells) * G0_CAMPAIGN.replayCount,
++    (receipt.fixedCells + receipt.seededCells) * G0_CAMPAIGN.replayCount
+   );
+   assert.equal(receipt.skipped, 0, "Required G0 cells cannot be skipped");
+   assert.deepEqual(
+     [...receipt.falsifiers].sort(),
+     [...G0_FALSIFIERS].sort(),
+-    "Missing or duplicate G0 harness falsifier",
++    "Missing or duplicate G0 harness falsifier"
+   );
+ }
+ 
+ export function assertGeneratedBatchReceipt(
+   receipt,
+   firstSeed,
+-  campaign = G1_CAMPAIGN,
++  campaign = G1_CAMPAIGN
+ ) {
+   assert.equal(receipt.firstSeed, firstSeed);
+   assert.equal(receipt.seedCount, campaign.batchSize);
+@@ -556,30 +563,30 @@
+   assert.equal(receipt.skipped, 0);
+   assert.equal(
+     receipt.replays,
+-    campaign.batchSize * campaign.profiles.length * campaign.replayCount,
++    campaign.batchSize * campaign.profiles.length * campaign.replayCount
+   );
+   const expected = campaign.profiles
+     .flatMap((profile) =>
+       Array.from(
+         { length: campaign.batchSize },
+-        (_, offset) => `${profile}:${firstSeed + offset}`,
+-      ),
++        (_, offset) => `${profile}:${firstSeed + offset}`
++      )
+     )
+     .sort();
+   assert.deepEqual(
+     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+     expected,
+-    "Incomplete or duplicated generated batch",
++    "Incomplete or duplicated generated batch"
+   );
+   for (const profile of campaign.profiles) {
+     const cells = receipt.completed.filter((cell) => cell.profile === profile);
+     assert(
+       cells.filter((cell) => cell.actors === 2).length >= 20,
+-      "Missing two-actor quota",
++      "Missing two-actor quota"
+     );
+     assert(
+       cells.filter((cell) => cell.faults > 0).length >= 20,
+-      "Missing actually injected fault quota",
++      "Missing actually injected fault quota"
+     );
+   }
+ }
+--- a/scripts/run-raptor3.mjs
++++ b/scripts/run-raptor3.mjs
+@@ -82,6 +82,8 @@
+   CS01_EXTENSION_B_TESTS,
+   CS01_EXTENSION_COMPOSITION_COUNTS,
+   CS01_EXTENSION_COMPOSITION_TESTS,
++  CS02_STRUCTURE_MEASUREMENT_COUNTS,
++  CS02_STRUCTURE_MEASUREMENT_TESTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   G29_MEMBER_DEPENDENCY_PG_COUNTS,
+@@ -126,6 +128,44 @@
+   assertRaptor3Identity,
+   assertG0CampaignReceipt,
+ } from "./raptor3-manifest.mjs";
++function structuralMeasurementContext(mode, instrumentedIdentity) {
++  if (mode !== "cs02-structure-measure") return undefined;
++  const baseIdentityFile = process.env.VIBORM_RAPTOR3_MEASUREMENT_BASE_IDENTITY;
++  const instrumentationPatchFile = process.env.VIBORM_RAPTOR3_MEASUREMENT_PATCH;
++  const alternative = process.env.VIBORM_RAPTOR3_MEASUREMENT_ALTERNATIVE;
++  assert(
++    baseIdentityFile,
++    "Structural measurement requires its base identity file"
++  );
++  assert(
++    instrumentationPatchFile,
++    "Structural measurement requires its instrumentation patch"
++  );
++  assert(
++    alternative === "flat-history-reference" ||
++      alternative === "shared-occurrence-candidate",
++    "Structural measurement requires one named alternative"
++  );
++  const resolvedBaseIdentity = resolve(baseIdentityFile);
++  const resolvedPatch = resolve(instrumentationPatchFile);
++  assert(
++    existsSync(resolvedBaseIdentity),
++    "Structural measurement base identity is missing"
++  );
++  assert(existsSync(resolvedPatch), "Structural measurement patch is missing");
++  const baseIdentity = JSON.parse(readFileSync(resolvedBaseIdentity, "utf8"));
++  assert.notDeepEqual(
++    baseIdentity,
++    instrumentedIdentity,
++    "Structural measurement instrumentation did not change the executed identity"
++  );
++  return {
++    alternative,
++    baseIdentity,
++    instrumentedIdentity,
++    instrumentationPatchFile: resolvedPatch,
++  };
++}
+ 
+ function campaignFor(mode) {
+   const campaigns = mode.startsWith("g3p06-")
+@@ -141,7 +181,7 @@
+ 
+ export function parseRaptor3Request(arguments_) {
+   const limitArguments = arguments_.filter((argument) =>
+-    argument.startsWith("--wall-limit-ms="),
++    argument.startsWith("--wall-limit-ms=")
+   );
+   assert(limitArguments.length <= 1, "Wall limit may be specified only once");
+   const wallMs =
+@@ -150,10 +190,10 @@
+       : Number(limitArguments[0].slice("--wall-limit-ms=".length));
+   assert(
+     Number.isSafeInteger(wallMs) && wallMs > 0 && wallMs <= G0_RESOURCES.wallMs,
+-    "Wall limit can only lower the G0 ceiling",
++    "Wall limit can only lower the G0 ceiling"
+   );
+   const positional = arguments_.filter(
+-    (argument) => !limitArguments.includes(argument),
++    (argument) => !limitArguments.includes(argument)
+   );
+   if (
+     positional.length === 1 &&
+@@ -202,6 +242,7 @@
+       "cs01-extension-a",
+       "cs01-extension-b",
+       "cs01-extension-composition",
++      "cs02-structure-measure",
+       "g29-member-dependency-pg",
+       "g29-member-dependency-mysql",
+       "g3p06-seeds",
+@@ -237,7 +278,7 @@
+         firstSeed + campaign.batchSize <=
+           campaign.firstSeed + campaign.seedCount &&
+         (firstSeed - campaign.firstSeed) % campaign.batchSize === 0,
+-      "Generated batch must start at an exact frozen boundary",
++      "Generated batch must start at an exact frozen boundary"
+     );
+     return { mode: positional[0], firstSeed, wallMs };
+   }
+@@ -247,7 +288,7 @@
+     return { mode: "replay", path, wallMs };
+   }
+   throw new Error(
+-    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered.",
++    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
+   );
+ }
+ 
+@@ -257,17 +298,17 @@
+   assert.equal(
+     report.numPendingTests,
+     0,
+-    "Required Raptor 3 tests were skipped",
++    "Required Raptor 3 tests were skipped"
+   );
+   assert.deepEqual(
+     report.testResults.map((suite) => suite.name).sort(),
+     files.map((file) => resolve(RAPTOR3_ROOT, file)).sort(),
+-    "Missing required Raptor 3 test file",
++    "Missing required Raptor 3 test file"
+   );
+   for (const suite of report.testResults) {
+     assert(
+       suite.assertionResults.length > 0,
+-      "Empty required Raptor 3 test file",
++      "Empty required Raptor 3 test file"
+     );
+     for (const test of suite.assertionResults)
+       assert.equal(test.status, "passed");
+@@ -276,10 +317,11 @@
+ 
+ async function run(request) {
+   const identity = captureRaptor3Identity();
++  const measurement = structuralMeasurementContext(request.mode, identity);
+   const campaign = campaignFor(request.mode);
+   if (request.mode.endsWith("-seeds")) {
+     const directory = mkdtempSync(
+-      join(tmpdir(), `viborm-raptor3-${request.mode}-`),
++      join(tmpdir(), `viborm-raptor3-${request.mode}-`)
+     );
+     const batches = [];
+     for (
+@@ -301,11 +343,11 @@
+       JSON.stringify(
+         { mode: request.mode, identity, campaign, batches },
+         null,
+-        2,
+-      ),
++        2
++      )
+     );
+     process.stdout.write(
+-      `Raptor 3 ${request.mode} campaign verified (not the full milestone). Evidence: ${directory}\n`,
++      `Raptor 3 ${request.mode} campaign verified (not the full milestone). Evidence: ${directory}\n`
+     );
+     return directory;
+   }
+@@ -361,6 +403,7 @@
+     "cs01-extension-a": CS01_EXTENSION_A_TESTS,
+     "cs01-extension-b": CS01_EXTENSION_B_TESTS,
+     "cs01-extension-composition": CS01_EXTENSION_COMPOSITION_TESTS,
++    "cs02-structure-measure": CS02_STRUCTURE_MEASUREMENT_TESTS,
+     "g29-member-dependency-pg": G29_MEMBER_DEPENDENCY_PG_TESTS,
+     "g29-member-dependency-mysql": G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+     "g2-diagnostics": G2_DIAGNOSTIC_TESTS,
+@@ -383,7 +426,7 @@
+   for (const file of files)
+     assert(
+       existsSync(resolve(RAPTOR3_ROOT, file)),
+-      `Missing required test ${file}`,
++      `Missing required test ${file}`
+     );
+   const reportPath = join(directory, "vitest.json");
+   const environment = { ...process.env };
+@@ -420,7 +463,7 @@
+       `--outputFile=${reportPath}`,
+       ...files,
+     ],
+-    { cwd: RAPTOR3_ROOT, env: environment, stdio: "inherit" },
++    { cwd: RAPTOR3_ROOT, env: environment, stdio: "inherit" }
+   );
+   let interrupted = false;
+   const interrupt = (signal) => {
+@@ -437,7 +480,7 @@
+     });
+     assert(
+       !interrupted && exitCode === 0,
+-      `Raptor 3 verification failed; diagnostics: ${directory}`,
++      `Raptor 3 verification failed; diagnostics: ${directory}`
+     );
+     assertRaptor3Identity(identity);
+     const report = JSON.parse(readFileSync(reportPath, "utf8"));
+@@ -484,6 +527,7 @@
+       "cs01-extension-a": CS01_EXTENSION_A_COUNTS,
+       "cs01-extension-b": CS01_EXTENSION_B_COUNTS,
+       "cs01-extension-composition": CS01_EXTENSION_COMPOSITION_COUNTS,
++      "cs02-structure-measure": CS02_STRUCTURE_MEASUREMENT_COUNTS,
+       "g29-member-dependency-pg": G29_MEMBER_DEPENDENCY_PG_COUNTS,
+       "g29-member-dependency-mysql": G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
+       "g2-diagnostics": G2_DIAGNOSTIC_COUNTS,
+@@ -511,12 +555,12 @@
+     if (expectedCounts) {
+       for (const [file, expected] of Object.entries(expectedCounts)) {
+         const comparison = report.testResults.find(
+-          (suite) => suite.name === resolve(RAPTOR3_ROOT, file),
++          (suite) => suite.name === resolve(RAPTOR3_ROOT, file)
+         );
+         assert.equal(
+           comparison.assertionResults.length,
+           expected,
+-          `Missing candidate/profile/scenario cell in ${file}`,
++          `Missing candidate/profile/scenario cell in ${file}`
+         );
+       }
+     }
+@@ -526,12 +570,12 @@
+           .update(readFileSync(replayInput.path))
+           .digest("hex"),
+         replayInput.sha256,
+-        "Replay input changed during verification",
++        "Replay input changed during verification"
+       );
+     }
+     if (request.mode === "g0") {
+       const receipt = JSON.parse(
+-        readFileSync(join(directory, "campaign.json"), "utf8"),
++        readFileSync(join(directory, "campaign.json"), "utf8")
+       );
+       assertRaptor3Identity(receipt.identity, identity);
+       assertG0CampaignReceipt(receipt);
+@@ -539,11 +583,27 @@
+     if (request.mode.endsWith("seed-batch"))
+       assertGeneratedBatchReceipt(
+         JSON.parse(
+-          readFileSync(join(directory, "generated-campaign.json"), "utf8"),
++          readFileSync(join(directory, "generated-campaign.json"), "utf8")
+         ),
+         request.firstSeed,
+-        campaign,
++        campaign
+       );
++    if (measurement) {
++      const receipt = JSON.parse(
++        readFileSync(join(directory, "verified.json"), "utf8")
++      );
++      assert.equal(receipt.mode, request.mode);
++      assert.equal(receipt.alternative, measurement.alternative);
++      assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
++      assert.deepEqual(receipt.instrumentedIdentity, identity);
++      assert.equal(receipt.cases.length, 28);
++      assert.equal(receipt.replays, 60);
++      assert.equal(receipt.skipped, 0);
++      process.stdout.write(
++        `Raptor 3 ${request.mode} measurement verified. Evidence: ${directory}\n`
++      );
++      return directory;
++    }
+     writeFileSync(
+       join(directory, "verified.json"),
+       JSON.stringify(
+@@ -554,11 +614,11 @@
+           resourceBounds: { ...G0_RESOURCES, wallMs: request.wallMs },
+         },
+         null,
+-        2,
+-      ),
++        2
++      )
+     );
+     process.stdout.write(
+-      `Raptor 3 ${request.mode} ${request.mode === "g2-diagnostics" ? "disputed behavior reproduced (not accepted)" : "contract gate verified"}. Evidence: ${directory}\n`,
++      `Raptor 3 ${request.mode} ${request.mode === "g2-diagnostics" ? "disputed behavior reproduced (not accepted)" : "contract gate verified"}. Evidence: ${directory}\n`
+     );
+     return directory;
+   } finally {
+@@ -574,7 +634,7 @@
+     await run(parseRaptor3Request(process.argv.slice(2)));
+   } catch (failure) {
+     process.stderr.write(
+-      `${failure instanceof Error ? failure.message : String(failure)}\n`,
++      `${failure instanceof Error ? failure.message : String(failure)}\n`
+     );
+     process.exitCode = 1;
+   }
+--- a/vitest.workspace.ts
++++ b/vitest.workspace.ts
+@@ -39,6 +39,7 @@
+   CS01_EXTENSION_A_TESTS,
+   CS01_EXTENSION_B_TESTS,
+   CS01_EXTENSION_COMPOSITION_TESTS,
++  CS02_STRUCTURE_MEASUREMENT_TESTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   G29_MEMBER_DEPENDENCY_PG_TESTS,
+   G2_DIAGNOSTIC_TESTS,
+@@ -122,6 +123,7 @@
+         ...CS01_EXTENSION_A_TESTS,
+         ...CS01_EXTENSION_B_TESTS,
+         ...CS01_EXTENSION_COMPOSITION_TESTS,
++        ...CS02_STRUCTURE_MEASUREMENT_TESTS,
+         ...G2_DIAGNOSTIC_TESTS,
+         ...G1_GENERATED_TESTS,
+         ...G1_CAMPAIGN_TESTS,
+--- a/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
++++ b/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
+@@ -6,11 +6,11 @@
+ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+ import { NestedWriteError, NotFoundError, VibORMErrorCode } from "@errors";
+ import {
+-  type Command,
++  type CommandOccurrence,
+   Commands,
++  isRecordOccurrence,
+   type Choose,
+   type RecordCommand,
+-  type Selection,
+   type SelectedSeries,
+ } from "@query-engine/raptor3/commands/commands";
+ import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
+@@ -37,7 +37,6 @@
+   captureStructuralMeasurement,
+   type CapturedMemberBinding,
+   SemanticInventoryBindings,
+-  structuralMeasurementHooks,
+ } from "./hooks";
+ import {
+   type MeasurementCase,
+@@ -184,12 +183,11 @@
+   bindings: SemanticInventoryBindings,
+   caseId: string,
+   path: string,
+-  occurrence: object,
++  occurrence: CommandOccurrence,
+   selection?: { readonly value: object; readonly path: string },
+-  write = true,
+-  command: object = occurrence
++  write = true
+ ): void {
+-  bindings.bindCommand(command, semanticId("command", caseId, path));
++  bindings.bindCommand(occurrence.command, semanticId("command", caseId, path));
+   if (selection)
+     bindings.bindSelection(
+       selection.value,
+@@ -198,7 +196,7 @@
+   bindings.bindOccurrence(
+     occurrence,
+     semanticId("occurrence", caseId, path),
+-    command,
++    occurrence.command,
+     selection?.value
+   );
+   if (write)
+@@ -212,27 +210,15 @@
+ function bindUnconditional(
+   bindings: SemanticInventoryBindings,
+   caseId: string,
+-  occurrence: object
++  occurrence: CommandOccurrence
+ ): void {
+   bindings.bindActivationState(
+     occurrence,
+     "unconditional",
+     semanticId("activation", caseId, "attempt/0/unconditional")
+   );
+-}
+-
+-function measureConstruction(occurrence: object): void {
+-  structuralMeasurementHooks()?.deferOccurrenceVisit({
+-    analysisEpoch: "epoch:initial",
+-    occurrence,
+-    phase: "construct",
+-  });
+ }
+ 
+-function commandsOf(record: RecordCommand): readonly Command[] {
+-  return [...record.before, ...record.after];
+-}
+-
+ async function migrate<S extends Record<string, AnyModel>>(
+   schema: S,
+   driver: MeasurementSQLiteDriver
+@@ -250,25 +236,18 @@
+   root: RecordCommand,
+   kind: "depth-create" | "width-create"
+ ): void {
+-  bindOccurrence(bindings, caseId, "root", root);
+-  bindUnconditional(bindings, caseId, root);
++  bindings.bindCommand(root, semanticId("command", caseId, "root"));
+   const bindChildren = (record: RecordCommand, path: string): void => {
+-    const children = commandsOf(record).filter(
+-      (command): command is RecordCommand => command.kind === "record"
+-    );
++    const children = record.body.filter(isRecordOccurrence);
+     for (const [index, child] of children.entries()) {
+       const childPath = `${path}/children/${index}`;
+       bindOccurrence(bindings, caseId, childPath, child);
+-      bindUnconditional(bindings, caseId, child);
+-      bindChildren(child, childPath);
++      bindChildren(child.command, childPath);
+     }
+   };
+   bindChildren(root, "root");
+-  const rootRecords = commandsOf(root).filter(
+-    (command) => command.kind === "record"
+-  );
+-  const expectedChildren = kind === "depth-create" ? 1 : rootRecords.length;
+-  assert.equal(rootRecords.length, expectedChildren);
++  const expectedChildren = kind === "depth-create" ? 1 : root.body.length;
++  assert.equal(root.body.filter(isRecordOccurrence).length, expectedChildren);
+ }
+ 
+ function createCommands(data: Input): {
+@@ -323,10 +302,10 @@
+   readonly commands: Commands;
+   readonly context: OperationContext;
+   readonly root: RecordCommand;
+-  readonly writers: readonly RecordCommand[];
++  readonly writers: readonly CommandOccurrence<RecordCommand>[];
+   readonly readers: readonly {
+-    readonly capture: Extract<Command, { kind: "captureSeries" }>;
+-    readonly target: SelectedSeries;
++    readonly capture: CommandOccurrence;
++    readonly target: CommandOccurrence;
+   }[];
+ } {
+   const schema = overlapSchema();
+@@ -358,13 +337,14 @@
+     );
+     const origin = commands.createOrigin("kids", "upsert");
+     child.origin = origin;
+-    root.after.push(child);
++    const occurrence = commands.place(root, child, "after", origin);
+     commands.assignMembership(edge, child.fields, root.fields, {
+-      owner: child,
++      owner: occurrence,
+       origin,
+       scope: edge.scope,
++      identity: located.facts,
+     });
+-    return child;
++    return occurrence;
+   });
+   const readers = recipe.readers.map(({ selector }, index) => {
+     const memberRaw: Arguments = {
+@@ -394,26 +374,22 @@
+       true
+     );
+     analysis.origin = origin;
+-    const target: SelectedSeries = {
+-      selection,
+-      analysis,
+-      mutation: { kind: "update", raw: memberRaw.data },
+-    };
+-    measureConstruction(target);
+-    const capture: Extract<Command, { kind: "captureSeries" }> = {
+-      kind: "captureSeries",
+-      series: target,
+-    };
+-    measureConstruction(capture);
+-    const firstEffect = root.after.findIndex(
+-      (command) => command.kind !== "captureSeries"
++    const target = commands.place(
++      root,
++      commands.selectedSeries({
++        selection,
++        analysis,
++        mutation: { kind: "update", raw: memberRaw.data },
++      }),
++      "after",
++      origin
+     );
+-    root.after.splice(
+-      firstEffect < 0 ? root.after.length : firstEffect,
+-      0,
+-      capture
++    const capture = commands.place(
++      root,
++      { kind: "captureSeries", target },
++      "capture",
++      origin
+     );
+-    root.after.push({ kind: "series", series: target });
+     return { capture, target };
+   });
+   for (const field of engineSchema.keys(schema.pair)) root.fields.field(field);
+@@ -425,28 +401,32 @@
+   recipe: Extract<StructuralRecipe, { kind: "width-overlap" }>,
+   built: ReturnType<typeof overlapCommands>
+ ): void {
+-  bindOccurrence(bindings, recipe.caseId, "root", built.root);
+-  bindUnconditional(bindings, recipe.caseId, built.root);
++  bindings.bindCommand(
++    built.root,
++    semanticId("command", recipe.caseId, "root")
++  );
+   for (const [index, writer] of built.writers.entries()) {
+     bindOccurrence(bindings, recipe.caseId, `root/writer/${index}`, writer);
+     bindUnconditional(bindings, recipe.caseId, writer);
+   }
+   for (const [index, reader] of built.readers.entries()) {
+     const path = `root/reader/${index}`;
++    const selection = reader.target.command;
++    assert.equal(selection.kind, "selectedSeries");
+     bindOccurrence(
+       bindings,
+       recipe.caseId,
+       path,
+       reader.target,
+-      { value: reader.target.selection, path },
++      { value: selection.series.selection, path },
+       false
+     );
+     bindOccurrence(
+       bindings,
+       recipe.caseId,
+       `${path}/template`,
+-      reader.target.analysis,
+-      { value: reader.target.selection, path }
++      selection.template,
++      { value: selection.series.selection, path }
+     );
+     bindOccurrence(
+       bindings,
+@@ -457,7 +437,7 @@
+       false
+     );
+     bindUnconditional(bindings, recipe.caseId, reader.target);
+-    bindUnconditional(bindings, recipe.caseId, reader.target.analysis);
++    bindUnconditional(bindings, recipe.caseId, selection.template);
+     bindUnconditional(bindings, recipe.caseId, reader.capture);
+   }
+ }
+@@ -474,11 +454,11 @@
+       const driver = new MeasurementSQLiteDriver(database, recorder);
+       const built = overlapCommands(recipe, driver);
+       bindOverlapTree(bindings, recipe, built);
+-      built.commands.analyze(built.root);
++      const occurrence = built.commands.analyze(built.root);
+       let failure: unknown;
+       try {
+         await built.context.run(() =>
+-          built.commands.execution.complete(built.root, built.admitted)
++          built.commands.execution.complete(occurrence, built.admitted)
+         );
+       } catch (caught) {
+         failure = caught;
+@@ -619,38 +599,28 @@
+ }
+ 
+ function requireChoice(root: RecordCommand, relation: string): Choose {
+-  const choice = commandsOf(root).find(
+-    (command): command is Choose =>
+-      command.kind === "choose" && command.lookup.origin?.relation === relation
++  const occurrence = root.body.find(
++    (candidate) =>
++      candidate.command.kind === "choose" &&
++      candidate.command.lookup.origin?.relation === relation
+   );
+-  assert(choice);
+-  return choice;
++  assert(occurrence?.command.kind === "choose");
++  return occurrence.command;
+ }
+ 
+-function requireCommand(
++function requireOccurrence(
+   parent: RecordCommand,
+-  predicate: (command: Command) => boolean
+-): Command {
+-  const command = commandsOf(parent).find(predicate);
+-  assert(command);
+-  return command;
++  predicate: (occurrence: CommandOccurrence) => boolean
++): CommandOccurrence {
++  const occurrence = parent.body.find(predicate);
++  assert(occurrence);
++  return occurrence;
+ }
+ 
+-function isRecordCommand(command: object): command is RecordCommand {
+-  return (
+-    "kind" in command &&
+-    command.kind === "record" &&
+-    "before" in command &&
+-    Array.isArray(command.before) &&
+-    "after" in command &&
+-    Array.isArray(command.after)
+-  );
+-}
+-
+ function bindChoiceActivation(
+   bindings: SemanticInventoryBindings,
+   caseId: string,
+-  occurrence: object,
++  occurrence: CommandOccurrence,
+   path: "root/choice/early" | "root/choice/late",
+   observation: 0 | 1,
+   selected: "found" | "missing"
+@@ -682,33 +652,28 @@
+     { kind: "series-choice-found" | "series-choice-missing" }
+   >,
+   root: RecordCommand,
+-  earlyGuard: Selection,
+-  lateGuard: Selection
++  earlyGuard: CommandOccurrence,
++  lateGuard: CommandOccurrence
+ ): void {
+   const { caseId } = recipe;
+-  bindOccurrence(bindings, caseId, "root", root);
+-  bindUnconditional(bindings, caseId, root);
+-  const seriesCommand = requireCommand(
++  bindings.bindCommand(root, semanticId("command", caseId, "root"));
++  const series = requireOccurrence(
+     root,
+-    (command) => command.kind === "series" && "series" in command
++    ({ command }) => command.kind === "selectedSeries"
+   );
+-  assert.equal(seriesCommand.kind, "series");
+-  assert("series" in seriesCommand);
+-  const series = seriesCommand.series;
+-  const capture = requireCommand(
++  assert.equal(series.command.kind, "selectedSeries");
++  const capture = requireOccurrence(
+     root,
+-    (command) => command.kind === "captureSeries"
++    ({ command }) => command.kind === "captureSeries"
+   );
+-  assert.equal(capture.kind, "captureSeries");
+   bindOccurrence(
+     bindings,
+     caseId,
+     "root/series",
+     series,
+-    { value: series.selection, path: "root/series" },
++    { value: series.command.series.selection, path: "root/series" },
+     false
+   );
+-  bindUnconditional(bindings, caseId, series);
+   bindOccurrence(
+     bindings,
+     caseId,
+@@ -717,18 +682,20 @@
+     undefined,
+     false
+   );
+-  bindOccurrence(bindings, caseId, "root/series/template", series.analysis, {
+-    value: series.selection,
+-    path: "root/series",
+-  });
+-  const template = series.analysis;
++  bindOccurrence(
++    bindings,
++    caseId,
++    "root/series/template",
++    series.command.template,
++    { value: series.command.series.selection, path: "root/series" }
++  );
++  const template = series.command.template.command;
+   assert.equal(template.kind, "record");
+-  const templateTicket = requireCommand(
++  const templateTicket = requireOccurrence(
+     template,
+-    (command) =>
++    ({ command }) =>
+       command.kind === "record" && command.origin?.relation === "tickets"
+   );
+-  assert.equal(templateTicket.kind, "record");
+   bindOccurrence(
+     bindings,
+     caseId,
+@@ -739,18 +706,18 @@
+   const bindOuterChoice = (
+     outerPath: "root/choice/early" | "root/choice/late",
+     relation: "earlyHolders" | "lateHolders",
+-    guard: Selection,
++    guard: CommandOccurrence,
+     selected: "found" | "missing",
+     observation: 0 | 1
+   ): void => {
+-    const outer = requireCommand(
++    const outer = requireOccurrence(
+       root,
+-      (command) =>
++      ({ command }) =>
+         command.kind === "choose" &&
+         command.lookup.origin?.relation === relation
+     );
+-    assert.equal(outer.kind, "choose");
+-    const selection = outer.lookup;
++    assert.equal(outer.command.kind, "choose");
++    const selection = outer.command.lookup;
+     const guardPath =
+       outerPath === "root/choice/early"
+         ? "root/guard/early"
+@@ -771,24 +738,33 @@
+       { value: selection, path: guardPath },
+       false
+     );
+-    const found = outer.foundRecord;
++    const found = outer.command.found;
+     assert(found);
+     bindOccurrence(bindings, caseId, `${outerPath}/found`, found, {
+       value: selection,
+       path: guardPath,
+     });
+-    const inner = requireCommand(found, (command) => command.kind === "choose");
+-    assert.equal(inner.kind, "choose");
++    const foundRecord = found.command;
++    const inner = requireOccurrence(
++      foundRecord,
++      ({ command }) => command.kind === "choose"
++    );
++    assert.equal(inner.command.kind, "choose");
+     const innerPath =
+       outerPath === "root/choice/early"
+         ? `${outerPath}/found/earlyTicket/connect`
+         : `${outerPath}/found/lateTicket/connect`;
+     bindOccurrence(bindings, caseId, innerPath, inner, {
+-      value: inner.lookup,
++      value: inner.command.lookup,
+       path: innerPath,
+     });
+-    if (outer.missing)
+-      bindOccurrence(bindings, caseId, `${outerPath}/missing`, outer.missing);
++    if (outer.command.missing)
++      bindOccurrence(
++        bindings,
++        caseId,
++        `${outerPath}/missing`,
++        outer.command.missing
++      );
+     bindChoiceActivation(
+       bindings,
+       caseId,
+@@ -818,25 +794,38 @@
+     .slice("occurrence:".length + caseId.length + 1);
+   assert.equal(parentPath, "root/series");
+   const path = `${parentPath}/member/${event.captureOrdinal}`;
++  assert(isCommandOccurrence(event.occurrence));
+   const occurrence = event.occurrence;
+-  assert.equal(event.command, occurrence);
++  assert.equal(event.command, occurrence.command);
+   assert(event.selection);
+   bindOccurrence(bindings, caseId, path, occurrence, {
+     value: event.selection,
+     path,
+   });
+-  bindUnconditional(bindings, caseId, occurrence);
+-  const member = event.command;
+-  assert(isRecordCommand(member));
+-  const ticket = requireCommand(
++  const member = occurrence.command;
++  assert.equal(member.kind, "record");
++  const ticket = requireOccurrence(
+     member,
+-    (command) =>
++    ({ command }) =>
+       command.kind === "record" && command.origin?.relation === "tickets"
+   );
+-  assert.equal(ticket.kind, "record");
+   bindOccurrence(bindings, caseId, `${path}/ticket/create`, ticket);
+ }
+ 
++function isCommandOccurrence(value: object): value is CommandOccurrence {
++  return (
++    "kind" in value &&
++    value.kind === "occurrence" &&
++    "command" in value &&
++    typeof value.command === "object" &&
++    value.command !== null &&
++    "placement" in value &&
++    "order" in value &&
++    "memberships" in value &&
++    Array.isArray(value.memberships)
++  );
++}
++
+ function seriesCommands(
+   schema: ReturnType<typeof seriesSchema>,
+   driver: MeasurementSQLiteDriver,
+@@ -873,12 +862,13 @@
+ }
+ 
+ async function measureSeriesChoice(
+-  recipe: Extract<
+-    StructuralRecipe,
+-    { kind: "series-choice-found" | "series-choice-missing" }
+-  >,
++  recipe: StructuralRecipe,
+   replay?: ReplayTape
+ ): Promise<MeasuredCase> {
++  assert(
++    recipe.kind === "series-choice-found" ||
++      recipe.kind === "series-choice-missing"
++  );
+   const recorder = new Recorder(
+     recipe.size + (recipe.kind === "series-choice-found" ? 100 : 200),
+     replay
+@@ -936,17 +926,22 @@
+           );
+           const earlyChoice = requireChoice(built.root, "earlyHolders");
+           const lateChoice = requireChoice(built.root, "lateHolders");
+-          const earlyGuard = earlyChoice.lookup;
+-          const lateGuard = lateChoice.lookup;
+-          measureConstruction(earlyGuard);
+-          measureConstruction(lateGuard);
+-          built.root.before.push(earlyGuard, lateGuard);
++          const earlyGuard = built.commands.place(
++            built.root,
++            earlyChoice.lookup,
++            "before"
++          );
++          const lateGuard = built.commands.place(
++            built.root,
++            lateChoice.lookup,
++            "before"
++          );
+           bindSeriesTree(bindings, recipe, built.root, earlyGuard, lateGuard);
+-          built.commands.analyze(built.root);
++          const occurrence = built.commands.analyze(built.root);
+           let failure: unknown;
+           try {
+             await built.context.run(() =>
+-              built.commands.execution.complete(built.root, built.admitted)
++              built.commands.execution.complete(occurrence, built.admitted)
+             );
+           } catch (caught) {
+             failure = caught;
+@@ -1041,7 +1036,8 @@
+     () => {
+       const { commands, root } = createCommands(record(recipe.data));
+       bindCreateTree(bindings, recipe.caseId, root, recipe.kind);
+-      commands.analyze(root);
++      const occurrence = commands.analyze(root);
++      assert.equal(occurrence.command, root);
+       return { outcome: "accepted", logicalOrder: recipe.oracle.logicalOrder };
+     }
+   );
+@@ -1077,6 +1073,11 @@
+     return measureCreate(recipe);
+   }
+   if (recipe.kind === "width-overlap") return measureOverlap(recipe, replay);
++  if (
++    recipe.kind === "series-choice-found" ||
++    recipe.kind === "series-choice-missing"
++  )
++    return measureSeriesChoice(recipe, replay);
+   return measureSeriesChoice(recipe, replay);
+ }
+ 
+--- a/tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts
++++ b/tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts
+@@ -0,0 +1,272 @@
++import assert from "node:assert/strict";
++import type { QueryExecutionContext, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { Assignments } from "@query-engine/raptor3/commands/assignments";
++import {
++  type Choose,
++  type CommandOccurrence,
++  Commands,
++  type RecordCommand,
++  type Selection,
++} from "@query-engine/raptor3/commands/commands";
++import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
++import {
++  type Arguments,
++  EngineSchema,
++} from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++const rootModel = s
++  .model({ id: s.string().id(), label: s.string() })
++  .map("cs02_repeated_roots");
++const targetModel = s
++  .model({ id: s.string().id(), label: s.string() })
++  .map("cs02_repeated_targets");
++
++const engineSchema = new EngineSchema({ rootModel, targetModel });
++
++class RecordingSQLiteDriver extends SQLite3Driver {
++  readonly statements: string[] = [];
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[],
++    _context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push(statement);
++    return super.execute<T>(client, statement, parameters);
++  }
++}
++
++function rootCommands(driver: SQLite3Driver): {
++  readonly commands: Commands;
++  readonly context: OperationContext;
++  readonly root: RecordCommand;
++} {
++  const raw: Arguments = { data: { id: "root", label: "root" } };
++  const admitted = engineSchema.admit(rootModel, "create", raw);
++  const context = new OperationContext(
++    engineSchema,
++    driver,
++    "rootModel",
++    "create"
++  );
++  const commands = new Commands(context);
++  return {
++    commands,
++    context,
++    root: commands.create(rootModel, admitted.data, raw.data),
++  };
++}
++
++function targetSelection(commands: Commands): Selection {
++  return commands.lookup(targetModel, {
++    kind: "query",
++    where: { id: "target" },
++  });
++}
++
++function choiceWithBothArms(commands: Commands, lookup: Selection): Choose {
++  const found = commands.occurrence(
++    commands.update(lookup, { label: "found" }, { label: "found" }, true)
++  );
++  const missing = commands.occurrence(
++    commands.create(
++      targetModel,
++      { id: "missing", label: "missing" },
++      { id: "missing", label: "missing" }
++    )
++  );
++  return {
++    kind: "choose",
++    model: targetModel,
++    lookup,
++    fields: new Assignments(targetModel, "select"),
++    found,
++    missing,
++  };
++}
++
++function choices(
++  occurrence: CommandOccurrence<RecordCommand>
++): CommandOccurrence<Choose>[] {
++  return occurrence.children.filter(
++    (child): child is CommandOccurrence<Choose> =>
++      child.command.kind === "choose"
++  );
++}
++
++function createDatabase(): Database.Database {
++  const database = new Database(":memory:");
++  database.exec(`
++    CREATE TABLE cs02_repeated_roots(
++      id TEXT PRIMARY KEY,
++      label TEXT NOT NULL
++    );
++    CREATE TABLE cs02_repeated_targets(
++      id TEXT PRIMARY KEY,
++      label TEXT NOT NULL
++    );
++  `);
++  return database;
++}
++
++describe("CS-02 repeated command occurrence ownership", () => {
++  it("gives each placement of one Choice its own complete arm ancestry", () => {
++    const { commands, root } = rootCommands(new SQLite3Driver());
++    const lookup = targetSelection(commands);
++    const choice = choiceWithBothArms(commands, lookup);
++    commands.place(root, choice, "after");
++    commands.place(root, choice, "after");
++
++    const analyzed = commands.analyze(root);
++    const [first, second] = choices(analyzed);
++    assert(first);
++    assert(second);
++    assert.notEqual(first, second);
++    assert.equal(first.command, second.command);
++    assert.equal(first.command.lookup, lookup);
++    assert.equal(second.command.lookup, lookup);
++
++    const firstFound = commands.choiceArm(first, "found");
++    const firstMissing = commands.choiceArm(first, "missing");
++    const secondFound = commands.choiceArm(second, "found");
++    const secondMissing = commands.choiceArm(second, "missing");
++    assert(firstFound);
++    assert(firstMissing);
++    assert(secondFound);
++    assert(secondMissing);
++    assert.notEqual(firstFound, secondFound);
++    assert.notEqual(firstMissing, secondMissing);
++    assert.equal(firstFound.command, secondFound.command);
++    assert.equal(firstMissing.command, secondMissing.command);
++    assert.equal(firstFound.parent, first);
++    assert.equal(firstMissing.parent, first);
++    assert.equal(secondFound.parent, second);
++    assert.equal(secondMissing.parent, second);
++    assert.deepEqual(commands.childrenOf(first), [firstFound, firstMissing]);
++    assert.deepEqual(commands.childrenOf(second), [secondFound, secondMissing]);
++  });
++
++  it("reuses shared presence but reobserves shared absence per Choice placement", async () => {
++    for (const present of [true, false]) {
++      const database = createDatabase();
++      if (present)
++        database.exec(
++          "INSERT INTO cs02_repeated_targets VALUES('target','existing')"
++        );
++      const driver = new RecordingSQLiteDriver({ client: database });
++      try {
++        const { commands, context, root } = rootCommands(driver);
++        const lookup = targetSelection(commands);
++        const choice: Choose = {
++          kind: "choose",
++          model: targetModel,
++          lookup,
++          fields: new Assignments(targetModel, "select"),
++        };
++        commands.place(root, choice, "before");
++        commands.place(root, choice, "after");
++        const analyzed = commands.analyze(root);
++        const [first, second] = choices(analyzed);
++        assert(first);
++        assert(second);
++        assert.notEqual(first, second);
++        assert.equal(first.command.lookup, second.command.lookup);
++
++        await context.run(() => commands.execution.run(analyzed));
++
++        const targetReads = driver.statements.filter(
++          (statement) =>
++            /^SELECT\b/.test(statement) &&
++            statement.includes("cs02_repeated_targets")
++        );
++        assert.equal(targetReads.length, present ? 1 : 2);
++        assert.equal(commands.execution.attempt.rows.has(lookup), present);
++      } finally {
++        await driver.disconnect();
++        database.close();
++      }
++    }
++  });
++
++  it("keeps repeated selected-series expansion and attempt state occurrence-owned", async () => {
++    const database = createDatabase();
++    database.exec(
++      "INSERT INTO cs02_repeated_targets VALUES('target','existing')"
++    );
++    const driver = new RecordingSQLiteDriver({ client: database });
++    try {
++      const { commands, context, root } = rootCommands(driver);
++      const selection = targetSelection(commands);
++      const analysis = commands.update(
++        selection,
++        { label: "updated" },
++        { label: "updated" },
++        true
++      );
++      const series = commands.selectedSeries({
++        selection,
++        analysis,
++        mutation: { kind: "update", raw: { label: "updated" } },
++      });
++      const firstSeries = commands.place(root, series, "after");
++      const firstCapture = commands.place(
++        root,
++        { kind: "captureSeries", target: firstSeries },
++        "capture"
++      );
++      const secondSeries = commands.place(root, series, "after");
++      const secondCapture = commands.place(
++        root,
++        { kind: "captureSeries", target: secondSeries },
++        "capture"
++      );
++
++      const analyzed = commands.analyze(root);
++      assert.equal(firstSeries.command, secondSeries.command);
++      assert.notEqual(firstSeries, secondSeries);
++      assert.equal(firstSeries.command.series.selection, selection);
++      assert.equal(secondSeries.command.series.selection, selection);
++      assert.equal(commands.seriesCaptureTarget(firstCapture), firstSeries);
++      assert.equal(commands.seriesCaptureTarget(secondCapture), secondSeries);
++
++      const [firstTemplate] = commands.childrenOf(firstSeries);
++      const [secondTemplate] = commands.childrenOf(secondSeries);
++      assert(firstTemplate);
++      assert(secondTemplate);
++      assert.notEqual(firstTemplate, secondTemplate);
++      assert.equal(firstTemplate.command, secondTemplate.command);
++      assert.equal(firstTemplate.parent, firstSeries);
++      assert.equal(secondTemplate.parent, secondSeries);
++
++      await context.run(() => commands.execution.run(analyzed));
++
++      const firstState = commands.execution.attempt.series.get(firstSeries);
++      const secondState = commands.execution.attempt.series.get(secondSeries);
++      assert(firstState);
++      assert(secondState);
++      assert.notEqual(firstState, secondState);
++      assert.equal(commands.execution.attempt.series.size, 2);
++      const [firstMember] = commands.seriesMembers(firstSeries);
++      const [secondMember] = commands.seriesMembers(secondSeries);
++      assert(firstMember);
++      assert(secondMember);
++      assert.notEqual(firstMember, secondMember);
++      assert.equal(firstMember.parent, firstSeries);
++      assert.equal(secondMember.parent, secondSeries);
++      assert.deepEqual(firstState.members, [firstMember]);
++      assert.deepEqual(secondState.members, [secondMember]);
++      assert.deepEqual(
++        database.prepare("SELECT id,label FROM cs02_repeated_targets").get(),
++        { id: "target", label: "updated" }
++      );
++    } finally {
++      await driver.disconnect();
++      database.close();
++    }
++  });
++});

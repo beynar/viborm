@@ -1,0 +1,560 @@
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   assembleAdapterSelect,
+  > 3 │   getAdapterInternals
+  > 4 │ } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5 │ import type { AnyDriver } from "@drivers";
+    6 │ import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      33   33 │   import {
+      34   34 │     InvalidScalarResult,
+      35      │ - ··Queries,
+      36      │ - ··type·PreparedProjection,
+           35 │ + ··type·PreparedProjection,
+      37   36 │     type PreparedSelector,
+      38      │ - ··type·Query,
+           37 │ + ··Queries,
+           38 │ + ··type·Query,
+      39   39 │     type Read,
+      40   40 │     returningSafeProjection
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:166:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    164 │   );
+    165 │   constructor(
+  > 166 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    167 │     factoryDriver: AnyDriver,
+    168 │     readonly modelName: string,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:168:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    166 │     readonly schema: EngineSchema,
+    167 │     factoryDriver: AnyDriver,
+  > 168 │     readonly modelName: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    169 │     readonly operation: Operation,
+    170 │     binding?: ExecutionBinding,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:169:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    167 │     factoryDriver: AnyDriver,
+    168 │     readonly modelName: string,
+  > 169 │     readonly operation: Operation,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    170 │     binding?: ExecutionBinding,
+    171 │     prepareBatch = false,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:179:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    177 │      * attribution (g4/unit03/note.md B-4).
+    178 │      */
+  > 179 │     private readonly callerAttribution?: QueryExecutionContext
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    180 │   ) {
+    181 │     if (binding?.kind === "atomic-array") {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       1    1 │   import {
+       2    2 │     assembleAdapterSelect,
+       3      │ - ··getAdapterInternals
+            3 │ + ··getAdapterInternals,
+       4    4 │   } from "@adapters/adapter-internals";
+       5    5 │   import type { AnyDriver } from "@drivers";
+    ········· │ 
+       9    9 │     BatchQuery,
+      10   10 │     QueryExecutionContext,
+      11      │ - ··QueryResult
+           11 │ + ··QueryResult,
+      12   12 │   } from "@drivers/types";
+      13   13 │   import {
+    ········· │ 
+      19   19 │     TransactionError,
+      20   20 │     UniqueConstraintError,
+      21      │ - ··UnsupportedOperationError
+           21 │ + ··UnsupportedOperationError,
+      22   22 │   } from "@errors";
+      23   23 │   import type { AnyModel } from "@schema/model";
+    ········· │ 
+      25   25 │   import {
+      26   26 │     compileBindBudgetChunks,
+      27      │ - ··normalizedBindParameterLimit
+           27 │ + ··normalizedBindParameterLimit,
+      28   28 │   } from "../../bind-budget";
+      29      │ - import·type·{
+      30      │ - ··PreparedBatchGuard,
+      31      │ - ··PreparedBatchOperation
+      32      │ - }·from·"../../types";
+           29 │ + import·type·{·PreparedBatchGuard,·PreparedBatchOperation·}·from·"../../types";
+      33   30 │   import {
+      34   31 │     InvalidScalarResult,
+    ········· │ 
+      38   35 │     type Query,
+      39   36 │     type Read,
+      40      │ - ··returningSafeProjection
+           37 │ + ··returningSafeProjection,
+      41   38 │   } from "./query";
+      42   39 │   import {
+    ········· │ 
+      45   42 │     isReadOperation,
+      46   43 │     type Operation,
+      47      │ - ··record
+           44 │ + ··record,
+      48   45 │   } from "./schema";
+      49   46 │   import { type Membership, physicalField } from "./storage";
+    ········· │ 
+     187  184 │               model: modelName,
+     188  185 │               operation,
+     189      │ - ············method:·"$transaction([...])"
+     190      │ - ··········}
+          186 │ + ············method:·"$transaction([...])",
+          187 │ + ··········},
+     191  188 │           }
+     192  189 │         );
+    ········· │ 
+     217  214 │           model: this.modelName,
+     218  215 │           operation: this.operation,
+     219      │ - ········correlationId:·this.correlationId
+          216 │ + ········correlationId:·this.correlationId,
+     220  217 │         }
+     221  218 │       );
+    ········· │ 
+     230  227 │         model: this.modelName,
+     231  228 │         operation: this.operation,
+     232      │ - ······correlationId:·this.correlationId
+          229 │ + ······correlationId:·this.correlationId,
+     233  230 │       };
+     234  231 │     }
+    ········· │ 
+     263  260 │       const query = {
+     264  261 │         ...this.transport._prepare(statement, context),
+     265      │ - ······context
+          262 │ + ······context,
+     266  263 │       };
+     267  264 │       this.attempt.pending.push(query);
+    ········· │ 
+     344  341 │     }
+     345  342 │     suppressionRefusal(): TransactionError | undefined {
+     346      │ - ····return·(this.ownership·===·"borrowed-transaction"·&&·!this.memberRollback)·||
+          343 │ + ····return·(this.ownership·===·"borrowed-transaction"·&&
+          344 │ + ······!this.memberRollback)·||
+     347  345 │         this.ownership === "batch-preparation" ||
+     348  346 │         this.usesBatch
+    ········· │ 
+     353  351 │                 driver: this.driver.driverName,
+     354  352 │                 model: this.modelName,
+     355      │ - ··············operation:·this.operation
+     356      │ - ············}
+          353 │ + ··············operation:·this.operation,
+          354 │ + ············},
+     357  355 │             }
+     358  356 │           )
+    ········· │ 
+     368  366 │       member?: Member
+     369  367 │     ): unknown {
+     370      │ - ····if·(typeof·error·===·"object"·&&·error·!==·null·&&·this.premiseFailures.has(error))
+          368 │ + ····if·(
+          369 │ + ······typeof·error·===·"object"·&&
+          370 │ + ······error·!==·null·&&
+          371 │ + ······this.premiseFailures.has(error)
+          372 │ + ····)
+     371  373 │         return error;
+     372  374 │       let failure = error;
+    ········· │ 
+     411  413 │             ...(this.mayHaveCommittedSegment
+     412  414 │               ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
+     413      │ - ············:·{})
+          415 │ + ············:·{}),
+     414  416 │           })
+     415  417 │         : failure;
+    ········· │ 
+     449  451 │     /** Run the operation inside the one region it owns. */
+     450  452 │     private async withinRegion<T>(
+     451      │ - ····region:·(execute:·(driver:·AnyDriver)·=>·Promise<unknown>)·=>·Promise<unknown>,
+          453 │ + ····region:·(
+          454 │ + ······execute:·(driver:·AnyDriver)·=>·Promise<unknown>
+          455 │ + ····)·=>·Promise<unknown>,
+     452  456 │       body: () => Promise<T>
+     453  457 │     ): Promise<T> {
+    ········· │ 
+     606  610 │         sql: adapter.clauses.select(
+     607  611 │           sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
+     608      │ - ······)
+          612 │ + ······),
+     609  613 │       };
+     610  614 │     }
+    ········· │ 
+     670  674 │             context
+     671  675 │           ),
+     672      │ - ········context
+          676 │ + ········context,
+     673  677 │         };
+     674  678 │       });
+    ········· │ 
+     685  689 │             `Created record '${this.continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+     686  690 │             { meta: { model: this.modelName, operation: this.operation } }
+     687      │ - ········)
+          691 │ + ········),
+     688  692 │         });
+     689  693 │       const members = [...attempt.pendingMembers];
+    ········· │ 
+     701  705 │             undefined,
+     702  706 │             this.attribution,
+     703      │ - ··········this.driver.supportsOrderedCommittedSegments·?·acknowledged·:·undefined
+          707 │ + ··········this.driver.supportsOrderedCommittedSegments
+          708 │ + ············?·acknowledged
+          709 │ + ············:·undefined
+     704  710 │           )
+     705  711 │         );
+    ········· │ 
+     863  869 │           select: Object.fromEntries(
+     864  870 │             this.schema.keys(model).map((field) => [field, true])
+     865      │ - ········)
+          871 │ + ········),
+     866  872 │         },
+     867  873 │         undefined,
+    ········· │ 
+     880  886 │           // verb is what makes two guards of the same shape agree.
+     881  887 │           message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+     882      │ - ········raceable:·false
+          888 │ + ········raceable:·false,
+     883  889 │         },
+     884  890 │         model: model["~"].names.ts!,
+     885      │ - ······operation:·this.operation
+          891 │ + ······operation:·this.operation,
+     886  892 │       });
+     887  893 │       this.queue(
+    ········· │ 
+     999 1005 │           sql: query.sql,
+  195 more lines truncated
+  
+
+tests/raptor3/g4/unit02/lone-statement-transport.test.ts:157:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    155 │   name: string;
+    156 │ } {
+  > 157 │   assert.ok(
+        │   ^^^^^^
+    158 │     failure instanceof VibORMError,
+    159 │     `not a VibORMError: ${String(failure)}`
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/lone-statement-transport.test.ts:188:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    186 │   const driver = new BeforeDispatchDriver({ client: database });
+    187 │   const client = createClient({ schema, driver });
+  > 188 │   assert.equal((await syncLiveSchema(client)).applied, true);
+        │   ^^^^^^
+    189 │   const publicClient = client as unknown as Record<
+    190 │     string,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/lone-statement-transport.test.ts:229:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    227 │   const driver = new BeforeDispatchDriver({ client: database });
+    228 │   const client = createClient({ schema, driver });
+  > 229 │   assert.equal((await syncLiveSchema(client)).applied, true);
+        │   ^^^^^^
+    230 │   const publicClient = client as unknown as Record<
+    231 │     string,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:145:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    143 │   name: string;
+    144 │ } {
+  > 145 │   assert.ok(
+        │   ^^^^^^
+    146 │     failure instanceof VibORMError,
+    147 │     `not a VibORMError: ${String(failure)}`
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:166:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    164 │   const driver = new BeforeDispatchDriver({ client: database });
+    165 │   const client = createClient({ schema, driver });
+  > 166 │   assert.equal((await syncLiveSchema(client)).applied, true);
+        │   ^^^^^^
+    167 │   try {
+    168 │     return await drive({
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:207:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    205 │       : VibORM.create(config, createCandidateRoute)
+    206 │   ) as VibORMClient<typeof config>;
+  > 207 │   assert.equal((await syncLiveSchema(base)).applied, true);
+        │   ^^^^^^
+    208 │   const cacheDriver = new RecordingCache();
+    209 │   const background: Promise<unknown>[] = [];
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress-pglite.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import assert from "node:assert/strict";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { createClient } from "@client/client";
+    3 │ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      2   2 │   import { createClient } from "@client/client";
+      3   3 │   import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+      4     │ - import·{·QueryEngineError,·VibORMErrorCode·}·from·"@errors";
+      5     │ - import·{·createCommandEngine·}·from·"@query-engine/raptor3/commands";
+      6     │ - import·{·s·}·from·"@schema";
+      7     │ - import·{·BatchOnlyPGliteDriver·}·from·"@tests/fixtures/drivers/pglite";
+      8     │ - import·{·syncLiveSchema·}·from·"@tests/fixtures/sync-schema";
+      9     │ - import·{·isRecord·}·from·"@validation/value-guards";
+     10     │ - import·{·PGlite,·type·Transaction·}·from·"@electric-sql/pglite";
+          4 │ + import·{·PGlite,·type·Transaction·}·from·"@electric-sql/pglite";
+          5 │ + import·{·QueryEngineError,·VibORMErrorCode·}·from·"@errors";
+          6 │ + import·{·createCommandEngine·}·from·"@query-engine/raptor3/commands";
+          7 │ + import·{·s·}·from·"@schema";
+          8 │ + import·{·BatchOnlyPGliteDriver·}·from·"@tests/fixtures/drivers/pglite";
+          9 │ + import·{·syncLiveSchema·}·from·"@tests/fixtures/sync-schema";
+         10 │ + import·{·isRecord·}·from·"@validation/value-guards";
+     11  11 │   import { describe, it } from "vitest";
+     12  12 │   
+  
+
+tests/raptor3/post-prep/g29-result-progress-pglite.test.ts:49:11 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    47 │     if (!this.corruptionArmed) return response;
+    48 │     for (const row of response.rows) {
+  > 49 │       if (!isRecord(row) || !Object.hasOwn(row, "id")) continue;
+       │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    50 │       Reflect.set(row, "id", "not-an-integer");
+    51 │       this.corrupted = true;
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+     47  47 │       if (!this.corruptionArmed) return response;
+     48  48 │       for (const row of response.rows) {
+     49     │ - ······if·(!isRecord(row)·||·!Object.hasOwn(row,·"id"))·continue;
+         49 │ + ······if·(!(isRecord(row)·&&·Object.hasOwn(row,·"id")))·continue;
+     50  50 │         Reflect.set(row, "id", "not-an-integer");
+     51  51 │         this.corrupted = true;
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:148:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    146 │ ): void {
+    147 │   assert(failure instanceof QueryEngineError, diagnostic);
+  > 148 │   assert.equal(failure.code, VibORMErrorCode.INTERNAL_ERROR, diagnostic);
+        │   ^^^^^^
+    149 │   assert.equal(
+    150 │     failure.message,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:149:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    147 │   assert(failure instanceof QueryEngineError, diagnostic);
+    148 │   assert.equal(failure.code, VibORMErrorCode.INTERNAL_ERROR, diagnostic);
+  > 149 │   assert.equal(
+        │   ^^^^^^
+    150 │     failure.message,
+    151 │     `Driver "sqlite3" returned a malformed int scalar for operation "${operation}": the value is not a canonical integer.`,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:154:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    152 │     diagnostic
+    153 │   );
+  > 154 │   assert.deepEqual(
+        │   ^^^^^^
+    155 │     { ...failure.meta },
+    156 │     {
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:178:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    176 │   const client = createClient({ schema, driver });
+    177 │   const migration = await syncLiveSchema(client);
+  > 178 │   assert.equal(migration.applied, true);
+        │   ^^^^^^
+    179 │   try {
+    180 │     driver.resetAndArm();
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:232:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    230 │     );
+    231 │ 
+  > 232 │     assert.equal(value, undefined, diagnostic);
+        │     ^^^^^^
+    233 │     assert.equal(driver.corrupted, true, diagnostic);
+    234 │     assert.equal(driver.insertDispatches, 1, diagnostic);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:233:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    232 │     assert.equal(value, undefined, diagnostic);
+  > 233 │     assert.equal(driver.corrupted, true, diagnostic);
+        │     ^^^^^^
+    234 │     assert.equal(driver.insertDispatches, 1, diagnostic);
+    235 │     assertMalformedResultFailure(failure, "create", undefined, diagnostic);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:234:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    232 │     assert.equal(value, undefined, diagnostic);
+    233 │     assert.equal(driver.corrupted, true, diagnostic);
+  > 234 │     assert.equal(driver.insertDispatches, 1, diagnostic);
+        │     ^^^^^^
+    235 │     assertMalformedResultFailure(failure, "create", undefined, diagnostic);
+    236 │     if (driver instanceof CorruptingBatchSQLiteDriver) {
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:241:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    239 │       // reaches `_executeBatch` — the shipped transport rule, and the reason
+    240 │       // this operation now answers the shipped meta exactly.
+  > 241 │       assert.equal(driver.acknowledgedInsertBatches, 0, diagnostic);
+        │       ^^^^^^
+    242 │     }
+    243 │     // The row is durable on BOTH profiles now: a statement-atomic write commits
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/post-prep/g29-result-progress.test.ts:249:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    247 │     // measured in `g4/unit02/receipts/phase2/shipped-malformed-result.log`. The
+    248 │     // rolled-back form of this cut is cell 1 of the split specimen named above.
+  > 249 │     assert.deepEqual(finalDatabase, [{ id: 1, label: "written" }], diagnostic);
+        │     ^^^^^^
+    250 │   });
+    251 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+Checked 6 files in 27ms. No fixes applied.
+Found 23 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

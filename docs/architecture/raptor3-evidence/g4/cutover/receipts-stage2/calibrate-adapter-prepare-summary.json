@@ -1,0 +1,103 @@
+{
+ "noiseResolved": false,
+ "adoptionEligible": false,
+ "commit": "e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0",
+ "sourceIdentity": "ed42a5e98a1220b7b5223c5b9a7c97b1ee7a9690e9c1314b05cb387f1b4037aa",
+ "protocol": "6716a2229286205dac80b62ed962483ff26804f5580f614730be0d1fbd33089d",
+ "cells": [
+  {
+   "workload": "scalar-find-unique",
+   "stage": "prepare",
+   "mode": "cpu",
+   "metrics": {
+    "cpuMicrosecondsPerOperation": {
+     "baselineMedian": 13.612,
+     "signedDelta": -0.32200000000000095,
+     "twoMad": 0.8539999999999992,
+     "budget": 0.6806000000000001,
+     "absDeltaPlusE": 1.1760000000000002,
+     "noiseResolved": false
+    },
+    "wallMicrosecondsPerOperation": {
+     "baselineMedian": 6.910816600000004,
+     "signedDelta": -0.0881166000000011,
+     "twoMad": 0.38141680000001266,
+     "budget": 0.34554083000000024,
+     "absDeltaPlusE": 0.46953340000001376,
+     "noiseResolved": false
+    }
+   },
+   "peakRssBytes": {
+    "baseline": [
+     120881152,
+     133382144,
+     122208256,
+     119406592,
+     129155072
+    ],
+    "candidate": [
+     117604352,
+     119930880,
+     120684544,
+     123863040,
+     135413760
+    ]
+   },
+   "preparationSeam": {
+    "baseline": "package",
+    "candidate": "package"
+   },
+   "statementCount": {
+    "baseline": 1,
+    "candidate": 1
+   }
+  },
+  {
+   "workload": "fixed-collection-rowref-20",
+   "stage": "prepare",
+   "mode": "cpu",
+   "metrics": {
+    "cpuMicrosecondsPerOperation": {
+     "baselineMedian": 27.8796,
+     "signedDelta": -0.17040000000000077,
+     "twoMad": 0.6880000000000024,
+     "budget": 1.39398,
+     "absDeltaPlusE": 0.8584000000000032,
+     "noiseResolved": true
+    },
+    "wallMicrosecondsPerOperation": {
+     "baselineMedian": 12.785149999999998,
+     "signedDelta": -0.11171679999999284,
+     "twoMad": 0.3207999999999984,
+     "budget": 0.6392574999999999,
+     "absDeltaPlusE": 0.43251679999999126,
+     "noiseResolved": true
+    }
+   },
+   "peakRssBytes": {
+    "baseline": [
+     127025152,
+     126730240,
+     123551744,
+     124551168,
+     125943808
+    ],
+    "candidate": [
+     125829120,
+     126124032,
+     125452288,
+     127139840,
+     125091840
+    ]
+   },
+   "preparationSeam": {
+    "baseline": "package",
+    "candidate": "package"
+   },
+   "statementCount": {
+    "baseline": 1,
+    "candidate": 1
+   }
+  }
+ ]
+}

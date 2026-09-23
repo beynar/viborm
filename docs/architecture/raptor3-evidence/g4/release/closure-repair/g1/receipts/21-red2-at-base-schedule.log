@@ -1,0 +1,54 @@
+LOCK WAIT  {
+  "waiting_trx": 21377,
+  "blocking_trx": 21374,
+  "lock_type": "RECORD",
+  "lock_mode": "X,REC_NOT_GAP",
+  "object_name": "atomic_mysql_items",
+  "index_name": "PRIMARY",
+  "lock_data": "'upsert'",
+  "waiting_query": "SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`atomic_mysql_items` AS `q0` WHERE (`q0`.`email` = 'upsert@test.com' AND `q0`.`id` = 'upsert') ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE",
+  "blocking_query": null,
+  "blocking_state": "RUNNING"
+}
+vitest exit code 1
+--- vitest output (tail) ---
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert update branch may rewrite the unique where field
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert supports select on both branches
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert with include returns the relation payload on both branches
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > delete with include returns the relation payload
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+   ↓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing updates return their own writes while sharing one connection per operation
+   ↓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a replacement row survives a delete that locked and deleted the captured PK
+   ↓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > interleaved auto-increment creates refetch their own inserted identities
+   × MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing upserts identify their branches and refetch their own updates 30132ms
+     → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ↓ MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+   ↓ MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+   ↓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx)
+   ↓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing upserts identify their branches and refetch their own updates
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior.ts:278:5
+    276|     );
+    277| 
+    278|     test(
+       |     ^
+    279|       "competing upserts identify their branches and refetch their own…
+    280|       { timeout: 30_000 },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 91 skipped (92)
+   Start at  21:27:30
+   Duration  31.40s (transform 807ms, setup 8ms, collect 1.14s, tests 30.13s, environment 0ms, prepare 29ms)
+
+Vitest resources: 33.06s wall, 525.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+

@@ -122,7 +122,19 @@ export interface AdapterResultParser {
   nativeScalarPassthrough?: boolean;
 
   /**
-   * Parse operation result (count, aggregate, etc.)
+   * One OPERATION's raw result, once, before it is decoded.
+   *
+   * This dialect's chance to reshape what the provider answered for a verb,
+   * asked exactly once per operation by `Queries.decodeResult` (Arnaud's D-28)
+   * with the operation's own rows — never per statement and never per member.
+   * It is a REQUIRED member, and every adapter the estate ships installs the
+   * one {@link passThroughParseResult} below for it: a result's MEANING belongs
+   * to the engine's decoder, which asks for its own aliases and reads them
+   * back, and a VALUE's meaning to {@link AdapterResultParser.parseField} and
+   * the scalar codecs one level down. Arnaud's D-40 deleted the two legs that
+   * decided otherwise (MySQL's count-column normalisation, PostgreSQL's bigint
+   * conversion) after measuring both answering `undefined` on every live
+   * operation.
    *
    * @param raw - Raw database result
    * @param operation - Query operation type
@@ -133,14 +145,8 @@ export interface AdapterResultParser {
    * @returns Parsed result or result of `next()`
    *
    * @example
-   * // Normalize COUNT(*) column name
-   * parseResult: (raw, op, next) => {
-   *   if (op === 'count') {
-   *     const normalized = normalizeCountResult(raw);
-   *     if (normalized) return next(normalized);
-   *   }
-   *   return next();
-   * }
+   * // Every shipped adapter: the result is the decoder's.
+   * parseResult: passThroughParseResult
    */
   parseResult: (
     raw: unknown,
@@ -195,3 +201,29 @@ export interface AdapterResultParser {
     next: (value?: unknown) => unknown
   ) => unknown;
 }
+
+/**
+ * The `parseResult` every adapter this estate ships installs: the contract's
+ * shape, deciding nothing.
+ *
+ * ONE object, referenced by the SQLite, MySQL and PostgreSQL adapters, so the
+ * answer "this dialect decides nothing about a RESULT" has a single owner
+ * rather than three byte-identical members in three files (Arnaud's D-43). It
+ * lives beside the member it implements because this is the file where the
+ * contract's shape is declared: the required signature and the do-nothing
+ * answer to it are then one fact in one place, and the doc above cannot drift
+ * from the value below it.
+ *
+ * It does NOT close the seam. `Queries.decodeResult` still asks the adapter's
+ * own `parseResult` once per operation, so an adapter from outside this estate
+ * that installs its own — to recover a result whose transport reshaped it —
+ * is still asked and still honoured (Arnaud's D-42: the member stays a public
+ * extension point). Both facts are pinned together by "the three shipped
+ * adapters share one pass-through, and a custom adapter's own is still asked"
+ * in `tests/contracts/engine/query/parity-decoding.core.test.ts`.
+ */
+export const passThroughParseResult: AdapterResultParser["parseResult"] = (
+  _raw,
+  _operation,
+  next
+) => next();

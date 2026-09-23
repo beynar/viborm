@@ -1,0 +1,11 @@
+--- contract-round2.mjs	2026-09-16 12:18:05
++++ variant-D-third-answer.mjs	2026-09-16 12:19:19
+@@ -45,7 +45,7 @@
+   }),
+   Object.freeze({
+     engine: "candidate",
+-    admissionsPerMember: 1,
++    admissionsPerMember: 4,
+     statements: 3,
+     children: Object.freeze([
+       Object.freeze({ id: "series_child_2", parentId: 5000 }),

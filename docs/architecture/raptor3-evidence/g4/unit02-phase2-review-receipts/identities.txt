@@ -1,0 +1,25 @@
+G4-02 phase-2 independent review — source identities at review time
+(verified before and after every falsification swap)
+
+src/query-engine/raptor3/shared/query.ts              2feddf986b71a074320581ca3c321f7da2fa568c5c3420097465f440f97d2861
+src/query-engine/raptor3/shared/operation-context.ts  96222de950ee2e76b8610a891bb9eb16ed9193bc71e8b1aad5098aead5052016
+src/query-engine/raptor3/commands/commands.ts         e7f8858dea762382f41d8ec247b4592e8199a618f6431818e929cb809408a65a
+src/query-engine/raptor3/commands/index.ts            f551151f6d279eb783a911e6c1f7794af141704df40cd202c334fc6d4c7c3be9
+src/query-engine/raptor3/commands/execution.ts        54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2
+src/query-engine/raptor3/commands/assignments.ts      1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102
+src/query-engine/raptor3/shared/schema.ts             c7a58c9c61d6781c6a885c81a3eb4126a9f2c99e91f8866ea56aeea0c0c10166
+src/query-engine/raptor3/shared/storage.ts            752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2
+src/query-engine/raptor3/program/index.ts             4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd
+
+production-phase2.patch  17e8632626da4aefc10e468a2576eecc565794f2fc7840a647d26c72db935dcc  (reverse-applies cleanly)
+tests-phase2.patch       496a9b30d981d8d0ef9e7c05f167f6cfc256a1768d6db89a8938bb4564c1b273  (reverse-applies cleanly)
+
+Reverse-applying production-phase2.patch reproduces the phase-1 accepted identities EXACTLY:
+  query.ts             6f39f82a161b6f3cbc5bc78a550048abf9564396cb950a6d6b96c073358e31a7
+  operation-context.ts 65aa6f5b0b1248b9b62ef737dbcf60f5ec39da9821a7254c0c44054cbb1e0e08
+  commands.ts          12442b94ac00c25b6edd42a20c4c454998966a9a78035bf74dcad1536fecdf7d
+  index.ts             546adce4cfdc25b30ced0921abb6e45decdcc2f35704130efbc0e7ccca0f033c
+
+Native providers: viborm-raptor3-g3-pg-20260914 127.0.0.1:65504 (up 10h),
+                  viborm-raptor3-g3-mysql-20260914 127.0.0.1:65515 (up 10h)
+Runtime: node v24.21.0, vitest 3.1.4. No run was refused with "Stale Raptor 3 evidence".

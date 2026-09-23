@@ -1,0 +1,37 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ❯ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (6 tests | 1 failed) 38ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the live route, once per value 17ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output for a create's RETURNING row 2ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the prepared route, once per value 4ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence 3ms
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a document the schema rejects inside an array transaction, as the decoder's other refusals are refused there 7ms
+     → expected 'undefined' to be 'TypeError: Invalid provider json' // Object.is equality
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > materializes a cached read from its snapshot without a second run 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a document the schema rejects inside an array transaction, as the decoder's other refusals are refused there
+AssertionError: expected 'undefined' to be 'TypeError: Invalid provider json' // Object.is equality
+
+Expected: [32m"TypeError: Invalid provider json"[39m
+Received: [31m"undefined"[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:277:57
+    275|       expect((refusal as QueryError).message).toBe("Query execution fa…
+    276|     }
+    277|     expect(String((schemaRefusal as QueryError).cause)).toBe(
+       |                                                         ^
+    278|       "TypeError: Invalid provider json"
+    279|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  21:21:09
+   Duration  1.55s (transform 902ms, setup 9ms, collect 1.36s, tests 38ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 3.58s wall, 461.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

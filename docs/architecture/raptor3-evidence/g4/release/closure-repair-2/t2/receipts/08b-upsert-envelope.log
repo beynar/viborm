@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ✓ |extended-local| tests/contracts/engine/write/upsert-envelope-parse-boundary.test.ts (6 tests) 639ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  00:28:12
+   Duration  2.27s (transform 902ms, setup 9ms, collect 1.36s, tests 639ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.06s wall, 1472.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

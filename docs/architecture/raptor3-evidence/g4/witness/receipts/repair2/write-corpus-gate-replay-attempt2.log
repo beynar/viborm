@@ -1,0 +1,4 @@
+1e1d4736b05c8c926603475c09389a93a2345e74ae1c137c91b8acb91d20d2b6  /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/tmp.9LBmfC17J1/generated-corpus.json
+Test command refused: Vitest (PID 2563) already owns this workspace.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-NHxTMt
+replay exit=1

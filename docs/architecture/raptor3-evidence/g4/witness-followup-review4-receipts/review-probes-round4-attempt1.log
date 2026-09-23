@@ -1,0 +1,97 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-witness-followup4| tests/raptor3/g4/review/witness-followup4/corpus-snapshot.review.test.ts (4 tests) 18ms
+ ✓ |g4-review-witness-followup4| tests/raptor3/g4/review/witness-followup4/repair2-identity.review.test.ts (5 tests) 8ms
+ ❯ |g4-review-witness-followup4| tests/raptor3/g4/review/witness-followup4/record-consistency.review.test.ts (3 tests | 2 failed) 6ms
+   ✓ review probe (round 4): §16 after the correction > withdraws its stated reason and names the identity its rows belong to 1ms
+   × review probe (round 4): §16 after the correction > nowhere tells a reader that its own numbers are the numbers at the closing identity 3ms
+     → a sentence in §16 still attributes §16's rows to the closing identity
++ actual - expected
+
++ [
++   '1717: the numbers above are a snapshot at `a830d713…`, not a frozen identity.'
++ ]
+- []
+
+   × review probe (round 4): §16 after the correction > points a reader at the section that actually holds the round-4 measurements 1ms
+     → §16 sends the reader to a section other than §17.4 for this round's measurements
++ actual - expected
+
++ [
++   '1616: `a830d713…`". Those numbers are in §17.3 and in the round-3 reviewer\'s own',
++   '1705: identity since §14 (62,116,444 B raw, 1,192,711 B gzip — §17.3). Its transport',
++   '1709: at `a830d713…` in §17.3. Until integrator request 5 closes and a transport child'
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-witness-followup4| tests/raptor3/g4/review/witness-followup4/record-consistency.review.test.ts > review probe (round 4): §16 after the correction > nowhere tells a reader that its own numbers are the numbers at the closing identity
+AssertionError: a sentence in §16 still attributes §16's rows to the closing identity
++ actual - expected
+
++ [
++   '1717: the numbers above are a snapshot at `a830d713…`, not a frozen identity.'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "1717: the numbers above are a snapshot at `a830d713…`, not a frozen identity.",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/witness-followup4/record-consistency.review.test.ts:68:12
+     66|         /the numbers above|these numbers|the numbers here/i.test(line.…
+     67|     );
+     68|     assert.deepEqual(
+       |            ^
+     69|       offenders.map((line) => `${line.number}: ${line.text.trim()}`),
+     70|       [],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-witness-followup4| tests/raptor3/g4/review/witness-followup4/record-consistency.review.test.ts > review probe (round 4): §16 after the correction > points a reader at the section that actually holds the round-4 measurements
+AssertionError: §16 sends the reader to a section other than §17.4 for this round's measurements
++ actual - expected
+
++ [
++   '1616: `a830d713…`". Those numbers are in §17.3 and in the round-3 reviewer\'s own',
++   '1705: identity since §14 (62,116,444 B raw, 1,192,711 B gzip — §17.3). Its transport',
++   '1709: at `a830d713…` in §17.3. Until integrator request 5 closes and a transport child'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "1616: `a830d713…`\". Those numbers are in §17.3 and in the round-3 reviewer's own",[39m
+[31m+   "1705: identity since §14 (62,116,444 B raw, 1,192,711 B gzip — §17.3). Its transport",[39m
+[31m+   "1709: at `a830d713…` in §17.3. Until integrator request 5 closes and a transport child",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/witness-followup4/record-consistency.review.test.ts:92:12
+     90|           /Those numbers are in/.test(line.text))
+     91|     );
+     92|     assert.deepEqual(
+       |            ^
+     93|       misdirected.map((line) => `${line.number}: ${line.text.trim()}`),
+     94|       [],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 10 passed (12)
+   Start at  09:10:31
+   Duration  244ms (transform 20ms, setup 11ms, collect 19ms, tests 31ms, environment 0ms, prepare 45ms)
+
+Vitest resources: 0.86s wall, 229.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

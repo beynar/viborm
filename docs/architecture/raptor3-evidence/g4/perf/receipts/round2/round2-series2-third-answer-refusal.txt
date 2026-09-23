@@ -1,0 +1,9 @@
+QueryError: Query execution failed
+QueryError: Query execution failed
+    at Ue (file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/ab/after/dist/normalized-result-D41D-QMO.mjs:1:8562)
+    at He (file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/ab/after/dist/normalized-result-D41D-QMO.mjs:1:6721)
+    at e.normalizeStatementFailure (file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/ab/after/dist/driver-DRq6Hq7s.mjs:1:10748)
+    at e.executeNormalizedStatement (file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/ab/after/dist/driver-DRq6Hq7s.mjs:1:11025)
+    at async file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/ab/after/dist/driver-DRq6Hq7s.mjs:1:37465
+    at async file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/ab/after/dist/driver-DRq6Hq7s.mjs:1:3631
+    at async Oe.flush (file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/ab/after/dist/driver-DRq6Hq7s.mjs:1:3851)

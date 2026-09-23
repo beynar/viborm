@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/g2-transport.test.ts (16 tests) 1134ms
+   ✓ G2 key-transition transport: scripted-returning-weak > queues both selected records and explores both first actors  326ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  20:50:37
+   Duration  4.65s (transform 2.02s, setup 17ms, collect 3.13s, tests 1.13s, environment 0ms, prepare 64ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-wGj5Me/vitest.json
+Vitest resources: 8.77s wall, 660.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-wGj5Me

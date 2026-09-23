@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "unit": "CS03-SCOPE",
+  "status": "behavior-qualified-typecheck-historical-red",
+  "accountingDefinition": {
+    "loc": "distinct lines containing parser-owned TypeScript token starts",
+    "parserTokens": "parser-owned TypeScript leaf tokens, excluding EOF",
+    "bytes": "UTF-8 source bytes",
+    "wholeOwnerRule": "Every affected production owner is charged whole; this unit changes one existing owner"
+  },
+  "rule": "Each static or selected series member is analyzed against the pre-series prefix and its own within-member history. Member suffixes are published to the enclosing union for later surrounding reads. A later expansion replaces every already-published provisional segment, including member prefix copies prepared before execution.",
+  "productionOwners": [
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "owner": "Commands series dependency analysis and flat-history publication",
+      "baseline": {
+        "sha256": "98b8eb7ddc0a9e5a357f5bfc672bc8da44e0b4c89323a3a36349718d8ada316b",
+        "tokenLines": 824,
+        "parserTokens": 5208,
+        "bytes": 28015,
+        "physicalLines": 833
+      },
+      "final": {
+        "sha256": "32cbea9ae3851f4a1443bdb8b09417c888283431798580fa35d882f1aa7578dc",
+        "tokenLines": 865,
+        "parserTokens": 5585,
+        "bytes": 30057,
+        "physicalLines": 873
+      },
+      "delta": {
+        "tokenLines": 41,
+        "parserTokens": 377,
+        "bytes": 2042,
+        "physicalLines": 40
+      }
+    }
+  ],
+  "totals": {
+    "core": {
+      "baseline": { "tokenLines": 6031, "parserTokens": 38161, "bytes": 200477 },
+      "final": { "tokenLines": 6072, "parserTokens": 38538, "bytes": 202519 },
+      "delta": { "tokenLines": 41, "parserTokens": 377, "bytes": 2042 }
+    },
+    "broader": {
+      "baseline": { "tokenLines": 10105, "parserTokens": 62785, "bytes": 433524 },
+      "final": { "tokenLines": 10146, "parserTokens": 63162, "bytes": 435566 },
+      "delta": { "tokenLines": 41, "parserTokens": 377, "bytes": 2042 }
+    }
+  },
+  "artifacts": {
+    "patch": {
+      "path": "/tmp/viborm-cs03-reference.dRRksW/patches/scope-final.patch",
+      "sha256": "731acbf84c8a6bf590445480783998a564e03eb740f22cbfc4a60b0edc9386b1"
+    },
+    "scopeWitness": {
+      "path": "tests/raptor3/core-structure/member-scope.contract.test.ts",
+      "sha256": "824e33bc06b97891d240124b545efa3d8209f4d6cee4d36cf3c96a4ad996d265"
+    },
+    "historyWitness": {
+      "path": "tests/raptor3/post-prep/history-analysis.test.ts",
+      "sha256": "7e87cae17219cde33f3c28c7d26ea240998b22199d3a6c75b19a15b4af5607bf"
+    },
+    "taskHarnessRepair": {
+      "path": "tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts",
+      "rule": "A local type guard restores exhaustive recipe routing without changing any executed measurement route.",
+      "baseline": {
+        "sha256": "4353e0ee5eefa7619c51c5bb8a84712964d7b2e857362076352382f993ae615a",
+        "tokenLines": 1150,
+        "parserTokens": 6893,
+        "bytes": 36833,
+        "physicalLines": 1191
+      },
+      "final": {
+        "sha256": "a736b1ddda4ff0de4fb8e668979f0356000c5fad7c7f159384cce479091bcaa2",
+        "tokenLines": 1159,
+        "parserTokens": 6923,
+        "bytes": 37057,
+        "physicalLines": 1201
+      },
+      "delta": {
+        "tokenLines": 9,
+        "parserTokens": 30,
+        "bytes": 224,
+        "physicalLines": 10
+      }
+    }
+  },
+  "validation": {
+    "runtime": "v24.21.0",
+    "baselineScope": { "passed": 2, "total": 8, "receipt": "TyPWl9" },
+    "firstRepairScope": { "passed": 6, "total": 8, "receipt": "Xiig94" },
+    "finalScope": { "passed": 8, "total": 8, "receipt": "Yq7yfv" },
+    "g2Contracts": { "passed": 216, "total": 216, "receipt": "1HdK5l" },
+    "focused": {
+      "structuralReference": { "passed": 10, "total": 10, "receipt": "29YjCJ" },
+      "history": { "passed": 5, "total": 5, "receipt": "fnEeLk" },
+      "memberDependency": { "passed": 14, "total": 14, "receipt": "ztHm18" },
+      "dependencyChoices": { "passed": 10, "total": 10, "receipt": "BnlKyS" },
+      "dependencyBoundaries": { "passed": 4, "total": 4, "receipt": "rVJWQ9" },
+      "resultProgress": { "passed": 2, "total": 2, "receipt": "9CzTTH" }
+    },
+    "typecheck": {
+      "status": "failed outside changed owner",
+      "errors": [
+        "src/query-engine/pattern/pack.ts TS2345 at 1443 and 2633",
+        "tests/pattern/pack/program-dump.ts TS2532 at 131"
+      ]
+    }
+  }
+}

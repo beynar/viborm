@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/tagged-quantifier.review.test.ts (18 tests) 119ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  08:56:09
+   Duration  2.17s (transform 1.27s, setup 9ms, collect 1.86s, tests 119ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.66s wall, 479.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

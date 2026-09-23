@@ -1,0 +1,760 @@
+{
+  "formatVersion": 1,
+  "status": "author-qualification-evidence-complete-independent-and-root-acceptance-pending",
+  "baselineCommit": "cf2cbc4e6eed445816e70b0d98ca117db90c86b0",
+  "frozenIdentity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "fixed": [
+    {
+      "mode": "cs01-extension-a",
+      "receipt": "fixed/cs01-extension-a.receipt",
+      "testFiles": 1,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "cs01-extension-b",
+      "receipt": "fixed/cs01-extension-b.receipt",
+      "testFiles": 1,
+      "tests": 4,
+      "status": "passed"
+    },
+    {
+      "mode": "cs01-extension-composition",
+      "receipt": "fixed/cs01-extension-composition.receipt",
+      "testFiles": 1,
+      "tests": 4,
+      "status": "passed"
+    },
+    {
+      "mode": "cs01-structural-reference",
+      "receipt": "fixed/cs01-structural-reference.receipt",
+      "testFiles": 4,
+      "tests": 10,
+      "status": "passed"
+    },
+    {
+      "mode": "cs03-member-scope",
+      "receipt": "fixed/cs03-member-scope.receipt",
+      "testFiles": 3,
+      "tests": 8,
+      "status": "passed"
+    },
+    {
+      "mode": "g0",
+      "receipt": "fixed/g0.receipt",
+      "testFiles": 5,
+      "tests": 33,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-baseline",
+      "receipt": "fixed/g1-baseline.receipt",
+      "testFiles": 11,
+      "tests": 141,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-compare",
+      "receipt": "fixed/g1-compare.receipt",
+      "testFiles": 14,
+      "tests": 66,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-contracts",
+      "receipt": "fixed/g1-contracts.receipt",
+      "testFiles": 14,
+      "tests": 143,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-generated",
+      "receipt": "fixed/g1-generated.receipt",
+      "testFiles": 4,
+      "tests": 35,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-transport",
+      "receipt": "fixed/g1-transport.receipt",
+      "testFiles": 3,
+      "tests": 44,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-baseline",
+      "receipt": "fixed/g2-baseline.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-contracts",
+      "receipt": "fixed/g2-contracts.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-generated",
+      "receipt": "fixed/g2-generated.receipt",
+      "testFiles": 2,
+      "tests": 52,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-transport",
+      "receipt": "fixed/g2-transport.receipt",
+      "testFiles": 3,
+      "tests": 16,
+      "status": "passed"
+    },
+    {
+      "mode": "g25-contracts",
+      "receipt": "fixed/g25-contracts.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "g27-contracts",
+      "receipt": "fixed/g27-contracts.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-dependency-boundaries",
+      "receipt": "fixed/g29-dependency-boundaries.receipt",
+      "testFiles": 3,
+      "tests": 4,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-dependency-choices",
+      "receipt": "fixed/g29-dependency-choices.receipt",
+      "testFiles": 5,
+      "tests": 10,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-member-dependency",
+      "receipt": "fixed/g29-member-dependency.receipt",
+      "testFiles": 9,
+      "tests": 14,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-result-progress",
+      "receipt": "fixed/g29-result-progress.receipt",
+      "testFiles": 3,
+      "tests": 2,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-author-execution-regressions",
+      "receipt": "fixed/g3-author-execution-regressions.receipt",
+      "testFiles": 2,
+      "tests": 3,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-bulk-result-boundary",
+      "receipt": "fixed/g3-bulk-result-boundary.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-bulk-series",
+      "receipt": "fixed/g3-bulk-series.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-depth-recurrence",
+      "receipt": "fixed/g3-depth-recurrence.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-execution-review",
+      "receipt": "fixed/g3-execution-review.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-minimization",
+      "receipt": "fixed/g3-generated-minimization.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-smoke",
+      "receipt": "fixed/g3-generated-smoke.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-transport-smoke",
+      "receipt": "fixed/g3-generated-transport-smoke.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-scope-failure",
+      "receipt": "fixed/g3-scope-failure.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-suppression-retry",
+      "receipt": "fixed/g3-suppression-retry.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-transaction-array",
+      "receipt": "fixed/g3-transaction-array.receipt",
+      "testFiles": 3,
+      "tests": 4,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p02-contracts",
+      "receipt": "fixed/g3p02-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p03-contracts",
+      "receipt": "fixed/g3p03-contracts.receipt",
+      "testFiles": 4,
+      "tests": 6,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p04-contracts",
+      "receipt": "fixed/g3p04-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p04-review-contracts",
+      "receipt": "fixed/g3p04-review-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-contracts",
+      "receipt": "fixed/g3p05-contracts.receipt",
+      "testFiles": 6,
+      "tests": 21,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-clearability-contracts",
+      "receipt": "fixed/post-g3-clearability-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-history-analysis",
+      "receipt": "fixed/post-g3-history-analysis.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-projection-preparation",
+      "receipt": "fixed/post-g3-projection-preparation.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-schema-views",
+      "receipt": "fixed/post-g3-schema-views.receipt",
+      "testFiles": 2,
+      "tests": 1,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-selector-preparation",
+      "receipt": "fixed/post-g3-selector-preparation.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed"
+    }
+  ],
+  "logOnlySelectors": "selector-launch-provenance.json",
+  "native": {
+    "postgres": [
+      {
+        "mode": "g2-pg-baseline",
+        "receipt": "native-pg/g2-pg-baseline.receipt",
+        "testFiles": 12,
+        "tests": 17,
+        "status": "passed"
+      },
+      {
+        "mode": "g2-pg-contracts",
+        "receipt": "native-pg/g2-pg-contracts.receipt",
+        "testFiles": 12,
+        "tests": 18,
+        "status": "passed"
+      },
+      {
+        "mode": "g25-pg-contracts",
+        "receipt": "native-pg/g25-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "status": "passed"
+      },
+      {
+        "mode": "g27-pg-contracts",
+        "receipt": "native-pg/g27-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 1,
+        "status": "passed"
+      },
+      {
+        "mode": "g29-member-dependency-pg",
+        "receipt": "native-pg/g29-member-dependency-pg.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "status": "passed"
+      },
+      {
+        "mode": "g3-scope-composition-pg",
+        "receipt": "native-pg/g3-scope-composition-pg.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p02-pg-contracts",
+        "receipt": "native-pg/g3p02-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p03-pg-contracts",
+        "receipt": "native-pg/g3p03-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p04-pg-contracts",
+        "receipt": "native-pg/g3p04-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 4,
+        "status": "passed"
+      },
+      {
+        "mode": "post-g3-clearability-pg-contracts",
+        "receipt": "native-pg/post-g3-clearability-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "status": "passed"
+      }
+    ],
+    "mysql": [
+      {
+        "mode": "g2-mysql-baseline",
+        "receipt": "native-mysql/g2-mysql-baseline.receipt",
+        "testFiles": 8,
+        "tests": 13,
+        "status": "passed"
+      },
+      {
+        "mode": "g2-mysql-contracts",
+        "receipt": "native-mysql/g2-mysql-contracts.receipt",
+        "testFiles": 8,
+        "tests": 13,
+        "status": "passed"
+      },
+      {
+        "mode": "g27-mysql-contracts",
+        "receipt": "native-mysql/g27-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 1,
+        "status": "passed"
+      },
+      {
+        "mode": "g29-member-dependency-mysql",
+        "receipt": "native-mysql/g29-member-dependency-mysql.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "status": "passed"
+      },
+      {
+        "mode": "g3-scope-composition-mysql",
+        "receipt": "native-mysql/g3-scope-composition-mysql.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p02-mysql-contracts",
+        "receipt": "native-mysql/g3p02-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p03-mysql-contracts",
+        "receipt": "native-mysql/g3p03-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p04-mysql-contracts",
+        "receipt": "native-mysql/g3p04-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 4,
+        "status": "passed"
+      },
+      {
+        "mode": "post-g3-clearability-mysql-contracts",
+        "receipt": "native-mysql/post-g3-clearability-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "status": "passed"
+      }
+    ]
+  },
+  "campaigns": [
+    {
+      "mode": "cs03-extension-a-seeds",
+      "receipt": "campaigns/cs03-extension-a-seeds.receipt",
+      "firstSeed": 7100,
+      "lastSeed": 7199,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retainedChildReceipts": 0,
+      "retentionBoundary": "single parent receipt retains the full extension campaign and corpus",
+      "status": "passed"
+    },
+    {
+      "mode": "cs03-extension-b-seeds",
+      "receipt": "campaigns/cs03-extension-b-seeds.receipt",
+      "firstSeed": 7200,
+      "lastSeed": 7299,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retainedChildReceipts": 0,
+      "retentionBoundary": "single parent receipt retains the full extension campaign and corpus",
+      "status": "passed"
+    },
+    {
+      "mode": "cs03-extension-composition-seeds",
+      "receipt": "campaigns/cs03-extension-composition-seeds.receipt",
+      "firstSeed": 7300,
+      "lastSeed": 7399,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retainedChildReceipts": 0,
+      "retentionBoundary": "single parent receipt retains the full extension campaign and corpus",
+      "status": "passed"
+    },
+    {
+      "mode": "g2-seeds",
+      "receipt": "campaigns/g2-seeds.receipt",
+      "firstSeed": 2000,
+      "lastSeed": 6999,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 10000,
+      "exactReplays": 30000,
+      "skipped": 0,
+      "reportedBatches": 50,
+      "retainedChildReceipts": 50,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g2-transport-seeds",
+      "receipt": "campaigns/g2-transport-seeds.receipt",
+      "firstSeed": 2000,
+      "lastSeed": 6999,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 10000,
+      "exactReplays": 30000,
+      "skipped": 0,
+      "reportedBatches": 50,
+      "retainedChildReceipts": 50,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g3p06-seeds",
+      "receipt": "campaigns/g3p06-seeds.receipt",
+      "firstSeed": 7000,
+      "lastSeed": 7099,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retainedChildReceipts": 1,
+      "retentionBoundary": "parent attempt/verified receipt and log plus the required compact child verified/Vitest/generated-campaign receipt",
+      "status": "passed"
+    },
+    {
+      "mode": "g3p06-transport-seeds",
+      "receipt": "campaigns/g3p06-transport-seeds.receipt",
+      "firstSeed": 7000,
+      "lastSeed": 7099,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retainedChildReceipts": 1,
+      "retentionBoundary": "parent attempt/verified receipt and log plus the required compact child verified/Vitest/generated-campaign receipt",
+      "status": "passed"
+    },
+    {
+      "mode": "g3-seeds",
+      "receipt": "campaigns/g3-seeds.receipt",
+      "firstSeed": 8000,
+      "lastSeed": 17999,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 20000,
+      "exactReplays": 60000,
+      "skipped": 0,
+      "reportedBatches": 100,
+      "retainedChildReceipts": 100,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g3-transport-seeds",
+      "receipt": "campaigns/g3-transport-seeds.receipt",
+      "firstSeed": 8000,
+      "lastSeed": 17999,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 20000,
+      "exactReplays": 60000,
+      "skipped": 0,
+      "reportedBatches": 100,
+      "retainedChildReceipts": 100,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    }
+  ],
+  "replay": {
+    "passed": [
+      {
+        "name": "cs03-extension-a",
+        "receipt": "replays/receipts/cs03-extension-a.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "cs03-extension-b",
+        "receipt": "replays/receipts/cs03-extension-b.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "cs03-extension-composition",
+        "receipt": "replays/receipts/cs03-extension-composition.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g2-conditional-upsert",
+        "receipt": "replays/receipts/g2-conditional-upsert.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g25-polish",
+        "receipt": "replays/receipts/g25-polish.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g3-sqlite-8000",
+        "receipt": "replays/receipts/g3-sqlite-8000.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g3-transport-8000",
+        "receipt": "replays/receipts/g3-transport-8000.receipt",
+        "status": "passed"
+      }
+    ],
+    "staleIdentityRefusals": [
+      {
+        "name": "historical-g2-conditional-upsert-stale",
+        "evidence": "replays/historical-g2-conditional-upsert-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "historical-g25-polish-stale",
+        "evidence": "replays/historical-g25-polish-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      }
+    ]
+  },
+  "support": {
+    "driverIntegration": {
+      "files": 2,
+      "tests": 16,
+      "evidence": "support/driver-integration.vitest.json"
+    },
+    "receiptSelftests": {
+      "tests": 34,
+      "evidence": "support/campaign-receipts.log"
+    },
+    "cli": {
+      "tests": 7,
+      "evidence": "support/cli.log"
+    },
+    "typecheck": {
+      "exitCode": 1,
+      "historicalDiagnosticsOnly": true,
+      "diagnostics": [
+        "src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.",
+        "src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'."
+      ],
+      "evidence": "support/typecheck.log"
+    }
+  },
+  "structure": {
+    "cases": 28,
+    "exactReplays": 60,
+    "skipped": 0,
+    "alternative": "shared-occurrence-candidate",
+    "instrumentationRestored": true,
+    "evidence": "structural-measurement/receipt/verified.json"
+  },
+  "source": {
+    "cost": "support/source-cost.json",
+    "parserTokenCensus": "support/parser-token-census.json",
+    "frozenIdentityManifest": "support/frozen-identity-manifest.json",
+    "allowlist": "source-allowlist.json",
+    "patch": "source.patch",
+    "current": {
+      "core": {
+        "tokenLines": 6927,
+        "parserTokens": 43383,
+        "bytes": 230397
+      },
+      "whole": {
+        "tokenLines": 11849,
+        "parserTokens": 72385,
+        "bytes": 499927
+      }
+    },
+    "deltaFromUnit04": {
+      "tokenLines": -28,
+      "parserTokens": -74,
+      "bytes": -1121
+    },
+    "claimBoundary": "source cost only; no runtime or bundle improvement claim"
+  },
+  "retention": {
+    "audit": "support/retained-corpora-audit.json",
+    "retainedCorpora": 300,
+    "archiveBytes": 320838589,
+    "originalBytes": 16111971762,
+    "g3Corpora": 200,
+    "g3ArchiveBytes": 297206436,
+    "g3OriginalBytes": 15412150694,
+    "interruptedAttempt": {
+      "path": "campaigns/g3-transport-seeds.incomplete",
+      "status": "diagnostic-only-enospc-never-pass",
+      "completedChildren": 52,
+      "failedFirstSeed": 13200
+    },
+    "campaignArtifactBoundary": {
+      "g3p06": "Both G3P06 parent manifests bind first seed 7000, 100 seeds, two profiles, and three replays. Each retains its one required compact child verified.json, vitest.json, and generated-campaign.json receipt.",
+      "currentG3": "Both full G3 campaigns retain all 100 compressed child receipts and their parent receipts.",
+      "g2": "Both G2 campaigns retain all 50 compressed child receipts and their parent receipts."
+    },
+    "retainedFiles": "retained-files.json",
+    "checksums": "SHA256SUMS",
+    "taskCommitAllowlist": "task-commit-allowlist.json"
+  },
+  "evidenceBoundaries": {
+    "preparedGeneratedKeyWitness": "SQLite3-derived batch-only test driver; not a native PostgreSQL/MySQL claim",
+    "nativeSuites": "Current-source PostgreSQL and MySQL inherited provider modes only",
+    "bindPartition": "Low-cap correctness witness; extra physical chunks are an explicit trade-off, not a speed claim",
+    "acceptance": "Independent and root review attestations are external to this sealed author tree"
+  },
+  "totals": {
+    "fixedModes": 42,
+    "fixedTestExecutions": 1137,
+    "postgresModes": 10,
+    "postgresTests": 58,
+    "mysqlModes": 9,
+    "mysqlTests": 47,
+    "campaignModes": 9,
+    "campaignCells": 61000,
+    "campaignExactReplays": 183000,
+    "campaignSkips": 0,
+    "selectedReplays": 7,
+    "staleIdentityRefusals": 2
+  }
+}

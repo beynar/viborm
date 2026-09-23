@@ -1,0 +1,371 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-x
+
+ ❯ |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts (150 tests | 8 failed | 1 skipped) 456ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > equals matches case-insensitively 31ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > insensitive equality and set filters fold ASCII only 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > equals stays case-sensitive without mode 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > not stays case-sensitive without mode 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > in stays case-sensitive without mode 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > notIn stays case-sensitive without mode 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > insensitive equals does not treat % as a wildcard 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > not excludes case-insensitively 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > in matches case-insensitively 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > insensitive in does not treat % as a wildcard 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > insensitive in with empty list matches nothing 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > insensitive mode on equality filters > notIn excludes case-insensitively 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > contains stays case-sensitive without mode 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > startsWith stays case-sensitive without mode 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > endsWith stays case-sensitive without mode 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > default substring filters treat wildcard characters literally 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > default substring filters handle empty and non-ASCII values exactly 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > startsWith matches case-insensitively 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > endsWith matches case-insensitively 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > insensitive endsWith matches every case variant 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > insensitive substring filters fold ASCII only 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > insensitive startsWith does not treat % as a wildcard 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > string substring filters > insensitive endsWith does not treat % as a wildcard 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > top-level NOT excludes matching rows 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > NOT {contains} does not match NULL rows (Prisma parity) 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > NOT with equality also skips NULL rows 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > NOT combines with AND 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > NOT combines with OR 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > nested NOT double-negates but still skips NULL rows 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > NOT array negates each condition and ANDs them (Prisma parity) 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > OR of two scalar predicates 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > NOT and OR combinators > OR with a null check matches NULL rows via IS NULL 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > enum in/notIn filters > enum equals matches a single value 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > enum in/notIn filters > enum in matches listed values and skips NULL rows 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > enum in/notIn filters > enum in with empty list matches nothing 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > enum in/notIn filters > enum notIn excludes listed values and NULL rows 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > enum in/notIn filters > enum notIn with empty list matches every row 2ms
+   × SQLite3 Driver > SQLite3 Prisma parity > empty select rejection > empty select object throws 7ms
+     → expected [Function] to throw error matching /needs at least one truthy value/ but got 'Query execution failed'
+   × SQLite3 Driver > SQLite3 Prisma parity > empty select rejection > all-false select throws 3ms
+     → expected [Function] to throw error matching /needs at least one truthy value/ but got 'Query execution failed'
+   × SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected 3ms
+     → promise resolved "[ { authorId: 'u1' }, …(1) ]" instead of rejecting
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy a grouped column still works 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy _count on a field 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy _count _all 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy _sum 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate in filter 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate in with empty list matches nothing 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate notIn with empty list matches everything 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate equals null uses IS NULL 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate not null uses IS NOT NULL 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > where filters rows before grouping 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > take with orderBy limits groups 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > take and skip with orderBy window the groups 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > take and skip with aggregate orderBy window the groups 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > multi-field by groups on the field combination 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > multi-field by supports having on aggregates 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > OR of two single-group conditions matches both groups 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > OR with a single unmatchable arm keeps only the other 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND of the same two conditions matches nothing 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND accepts a bare object as well as an array 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR evaluates the inner conjunction 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR fails the arm when one conjunct misses 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of an aggregate condition selects the complement 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array negates each arm and ANDs the negations (Prisma parity) 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array with one unmatchable arm keeps the other complement 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array on a `by` field agrees with the same NOT array in where 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array of a single item matches the object form 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of a multi-key object negates that object's conjunction 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT inside OR restores the excluded group 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > a combinator conjoins with sibling field-keyed conditions 4ms
+   × SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by` 2ms
+     → promise resolved "[ { authorId: 'u1' } ]" instead of rejecting
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR matches no group, exactly like empty OR in where 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR is false, not absent, when conjoined with a sibling 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in AND poisons the conjunction 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in OR contributes nothing but is not vacuous 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR under NOT is true and keeps every group 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND and empty NOT stay true and keep every group 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND still conjoins its sibling rather than erasing it 1ms
+   ✓ SQLite3 Driver > SQLite3 optional-relation Prisma parity > create succeeds with all optional relations omitted 2ms
+   ✓ SQLite3 Driver > SQLite3 optional-relation Prisma parity > nested create does not demand other optional relations 4ms
+   ✓ SQLite3 Driver > SQLite3 optional-relation Prisma parity > where: { relation: null } matches rows with a null FK 3ms
+   ✓ SQLite3 Driver > SQLite3 optional-relation Prisma parity > include: { rel: false } omits the relation 2ms
+   ✓ SQLite3 Driver > SQLite3 optional-relation Prisma parity > select > include chains down the relation tree 3ms
+   ✓ SQLite3 Driver > SQLite3 optional-relation Prisma parity > nested select+include on the same node is rejected 2ms
+   ✓ SQLite3 Driver > SQLite3 optional-relation Prisma parity > create with nested writes returns scalars only without include 2ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic relations > direct writes preserve the generated private storage pair 7ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic relations > inverse create publishes a generated parent identity 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic relations > direct and inverse reads correlate exact variants without N+1 10ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic relations > target-local omit subtracts from polymorphic select 3ms
+   ↓ SQLite3 Driver > SQLite3 polymorphic relations > inverse reads use the generated discriminator/id index
+   × SQLite3 Driver > SQLite3 polymorphic relations > empty storage is optional but orphaned membership is invalid 5ms
+     → promise resolved "{ id: 2, body: 'optional orphan', …(1) }" instead of rejecting
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > an empty collection reads as a fresh empty array, never null 6ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > equal ids in two target tables return two correctly tagged rows 2ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > order, window and distinct stay ARM-LOCAL 2ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > a negative arm take restores the logical order 2ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > only narrows the returned variants without reordering 2ms
+   × SQLite3 Driver > SQLite3 polymorphic collection reads > total and filtered counts, and count ordering 5ms
+     → Raptor 3 G1 physical field is not implemented: type
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table 4ms
+   × SQLite3 Driver > SQLite3 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 4ms
+     → promise resolved "{ id: 1, name: 'main', …(1) }" instead of rejecting
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 4ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement 4ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > a fresh owner writes memberships across several variants at once 5ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > connect is idempotent for the same owner and target 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > a plural member admits SEVERAL owners for one target 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > connectOrCreate finds, then creates, without doubling either 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > `set` clears every configured variant once, then refills 8ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row 5ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > `set: []` empties every variant and deletes no target 4ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > disconnect removes this owner's membership and nothing else 3ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > update and updateMany reach only the connected targets 6ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > upsert creates then updates, scoped to this owner's membership 5ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > createMany writes one bulk group per variant 4ms
+   × SQLite3 Driver > SQLite3 polymorphic collection writes > duplicate singular createMany targets transfer once 6ms
+     → expected [ 't1/left/eu/111' ] to deeply equal [ 't1/right/eu/111' ]
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership 5ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it 5ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER 5ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner 5ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > a singular inverse upsert takes both arms through the membership 4ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote 4ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > plain upsert creates the row when missing 2ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > plain upsert updates the row when present 3ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > does not take the update branch for a conflict outside the requested target 8ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces 3ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > plain upsert returns the row when the update is a no-op 2ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > plain upsert create branch resolves auto-increment ids 2ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > upsert update branch may rewrite the unique where field 3ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > upsert supports select on both branches 2ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > upsert with include returns the relation payload on both branches 2ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > delete with include returns the relation payload 2ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed 2ms
+   ✓ SQLite3 Driver > SQLite3 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed 2ms
+   ✓ SQLite3 Driver > transactional nested update divides an integer PK and propagates it 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > generated parent ID feeds to-many child FK 6ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > generated parent ID feeds nested createMany child FKs 4ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > generated child ID feeds to-one parent FK 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > generated parent ID feeds multiple sibling relation branches 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > generated parent, child, and grandchild IDs flow through recursive create 2ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes PK with direct literal and nested create uses it 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes PK with set operation and nested create uses it 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with increment and nested create uses it 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with decrement and nested create uses it 4ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with multiply and nested create uses it 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level update changes numeric PK with divide and nested create uses it 4ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > top-level upsert update branch changes PK before nested create 6ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > failure after generated refs rolls back parent and children 6ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > unsupported compound primary-key dataflow rejects before parent mutation 3ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch primary-key dataflow > unsafe PK update shape rejects before parent mutation 2ms
+   ✓ SQLite3 Driver > SQLite3 batch-only batch refs > stores and reads an exact reference inside one batch 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 Prisma parity > empty select rejection > empty select object throws
+AssertionError: expected [Function] to throw error matching /needs at least one truthy value/ but got 'Query execution failed'
+
+[32m- Expected:[39m 
+/needs at least one truthy value/
+
+[31m+ Received:[39m 
+"Query execution failed"
+
+ ❯ tests/contracts/drivers/behaviors/prisma-parity-behavior.ts:458:9
+    456|     describe("empty select rejection", () => {
+    457|       test("empty select object throws", async () => {
+    458|         await expect(
+       |         ^
+    459|           requireClient(client).user.findMany({ select: {} })
+    460|         ).rejects.toThrow(EMPTY_SELECT_REFUSAL);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 Prisma parity > empty select rejection > all-false select throws
+AssertionError: expected [Function] to throw error matching /needs at least one truthy value/ but got 'Query execution failed'
+
+[32m- Expected:[39m 
+/needs at least one truthy value/
+
+[31m+ Received:[39m 
+"Query execution failed"
+
+ ❯ tests/contracts/drivers/behaviors/prisma-parity-behavior.ts:464:9
+    462| 
+    463|       test("all-false select throws", async () => {
+    464|         await expect(
+       |         ^
+    465|           requireClient(client).user.findMany({ select: { id: false } …
+    466|         ).rejects.toThrow(EMPTY_SELECT_REFUSAL);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected
+AssertionError: promise resolved "[ { authorId: 'u1' }, …(1) ]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[
+  {
+    "authorId": "u1",
+  },
+  {
+    "authorId": "u2",
+  },
+]
+
+ ❯ tests/contracts/drivers/behaviors/prisma-parity-behavior.ts:513:9
+    511|             orderBy: { views: "asc" },
+    512|           })
+    513|         ).rejects.toThrow(UNGROUPED_COLUMN_REFUSAL);
+       |         ^
+    514|       });
+    515| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by`
+AssertionError: promise resolved "[ { authorId: 'u1' } ]" instead of rejecting
+
+[32m- Expected:[39m 
+Error {
+  "message": "rejected promise",
+}
+
+[31m+ Received:[39m 
+[
+  {
+    "authorId": "u1",
+  },
+]
+
+ ❯ tests/contracts/drivers/behaviors/prisma-parity-behavior.ts:882:11
+    880|               having: { OR: [{ title: "Post 1" }] },
+    881|             })
+    882|           ).rejects.toThrow(UNGROUPED_COLUMN_REFUSAL);
+       |           ^
+    883|         });
+    884| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 polymorphic relations > empty storage is optional but orphaned membership is invalid
+AssertionError: promise resolved "{ id: 2, body: 'optional orphan', …(1) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "body": "optional orphan",[39m
+[31m+   "commentable": null,[39m
+[31m+   "id": 2,[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-relation-behavior.ts:558:32
+    556|         include: { commentable: true },
+    557|       });
+    558|       await expect(optionalRead).rejects.toBeInstanceOf(QueryEngineErr…
+       |                                ^
+    559|       await expect(optionalRead).rejects.toThrow(
+    560|         "Polymorphic relation 'commentable' references a missing 'post…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 polymorphic collection reads > total and filtered counts, and count ordering
+Error: Raptor 3 G1 physical field is not implemented: type
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:214:9
+    212|     if (field === idColumn.name) return idColumn;
+    213|   }
+    214|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    215| }
+    216| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:542:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:193:17
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:1177:17
+ ❯ src/query-engine/raptor3/shared/query.ts:1156:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:1128:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:978:16
+ ❯ Queries.prepareCounts src/query-engine/raptor3/shared/query.ts:3250:20
+ ❯ Queries.prepareProjection src/query-engine/raptor3/shared/query.ts:3079:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+AssertionError: promise resolved "{ id: 1, name: 'main', …(1) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "id": 1,[39m
+[31m+   "items": [[39m
+[31m+     {[39m
+[31m+       "data": {[39m
+[31m+         "id": 1,[39m
+[31m+         "rank": 1,[39m
+[31m+         "sectionId": null,[39m
+[31m+         "title": "first",[39m
+[31m+       },[39m
+[31m+       "type": "article",[39m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "data": {[39m
+[31m+         "id": 2,[39m
+[31m+         "rank": 2,[39m
+[31m+         "sectionId": null,[39m
+[31m+         "title": "second",[39m
+[31m+       },[39m
+[31m+       "type": "article",[39m
+[31m+     },[39m
+[31m+   ],[39m
+[31m+   "name": "main",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior.ts:453:24
+    451|         include: { items: true },
+    452|       });
+    453|       await expect(full).rejects.toBeInstanceOf(QueryEngineError);
+       |                        ^
+    454|       await expect(full).rejects.toThrow(
+    455|         "Polymorphic relation 'items' references a missing 'clip' reco…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 polymorphic collection writes > duplicate singular createMany targets transfer once
+AssertionError: expected [ 't1/left/eu/111' ] to deeply equal [ 't1/right/eu/111' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "t1/right/eu/111",[39m
+[31m+   "t1/left/eu/111",[39m
+[2m  ][22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts:567:35
+    565|       });
+    566| 
+    567|       expect(await bookMembers()).toEqual(["t1/right/eu/111"]);
+       |                                   ^
+    568|     });
+    569| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 141 passed | 1 skipped (150)
+   Start at  11:01:50
+   Duration  2.24s (transform 1.07s, setup 10ms, collect 1.62s, tests 456ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 4.28s wall, 592.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

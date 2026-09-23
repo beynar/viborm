@@ -1,0 +1,36 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+(node:22324) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (10 tests | 2 failed) 1700ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted 212ms
+   × pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: the same schedule deletes a row that had stopped being a member before the write executed 189ms
+     → deleteMany selected-row cardinality changed during its locked mutation.
+   × pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row that stops matching between the last premise and the first write is still deleted 161ms
+     → deleteMany selected-row cardinality changed during its locked mutation.
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts 117ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing 128ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing 196ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges 260ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added between the complement premise and the first write is silently missed 148ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a captured member that stops matching the filter in the same window is still deleted 146ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing 112ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: the same schedule deletes a row that had stopped being a member before the write executed
+TransactionError: deleteMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row that stops matching between the last premise and the first write is still deleted
+TransactionError: deleteMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 8 passed (10)
+   Start at  11:14:52
+   Duration  4.39s (transform 1.65s, setup 19ms, collect 2.50s, tests 1.70s, environment 0ms, prepare 60ms)
+
+Vitest resources: 6.36s wall, 460.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 61ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 27ms
+ ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 66ms
+ ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 31ms
+
+ Test Files  4 passed (4)
+      Tests  36 passed (36)
+   Start at  22:12:42
+   Duration  4.39s (transform 2.38s, setup 21ms, collect 3.70s, tests 184ms, environment 0ms, prepare 71ms)
+
+Vitest resources: 6.88s wall, 576.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

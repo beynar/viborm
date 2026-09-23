@@ -1,0 +1,42 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (93 tests) 23442ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > rejects default-only createMany duplicate skipping before writing  329ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > rejects nested default-only duplicate skipping before the parent write  369ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > create connects and connect-or-creates nullable children  331ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update disconnects and sets nullable children  324ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update and updateMany keep child mutations parent-correlated  367ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete and deleteMany keep child mutations parent-correlated  443ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one upsert creates and updates the current target  331ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true deletes the related row  490ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author  339ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives  423ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > explicit join rows work as a practical many-to-many case  458ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > unsupported nested create keys reject before parent mutation  349ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested child failures roll back parent and prior children  784ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-many updates cannot target another parent's child  389ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > non-nullable child foreign keys reject disconnect atomically  357ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested create propagates foreign keys through mapped columns  448ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested create derives mapped foreign keys for createMany and connect  371ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set keeping all required-FK children is a no-op and succeeds  380ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set on required-FK children rejects only when rows would be orphaned  421ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set disconnects only nullable-FK children leaving the set  381ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > connect with a list of targets reparents every one of them  663ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a connect list with one absent target writes nothing  884ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > disconnect with a list nulls every one of them  494ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing  423ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a create tree's connect list reparents every one of them  469ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone  405ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone  455ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > the `include` spelling is unaffected  433ms
+   ✓ MySQL2 Driver > MySQL2 advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes  404ms
+   ✓ MySQL2 Driver > MySQL2 advanced nested write behavior > top-level upsert guards gate nested update branch  357ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a competing upsert waits on the held row and consumes the committed row, not the one it probed  1119ms
+
+ Test Files  1 passed (1)
+      Tests  93 passed (93)
+   Start at  13:28:16
+   Duration  25.47s (transform 1.25s, setup 12ms, collect 1.85s, tests 23.44s, environment 0ms, prepare 38ms)
+
+Vitest resources: 27.54s wall, 630.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

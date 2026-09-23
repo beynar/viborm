@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-witness-followup2| tests/raptor3/g4/review/witness-followup2/pool-background-failure.review.test.ts (1 test) 115ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  08:38:44
+   Duration  1.55s (transform 899ms, setup 9ms, collect 1.31s, tests 115ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 2.07s wall, 442.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

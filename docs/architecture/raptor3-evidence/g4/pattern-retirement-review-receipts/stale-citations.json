@@ -1,0 +1,170 @@
+[
+  {
+    "file": "src/query-engine/raptor3/shared/schema.ts",
+    "line": 120,
+    "ref": "operations/mutation-identity.ts",
+    "text": "* (`operations/mutation-identity.ts` `assertPortablePrimaryKeyUpdateInput`),"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/schema.ts",
+    "line": 313,
+    "ref": "operations/mutation-identity.ts",
+    "text": "* `operations/mutation-identity.ts:357`), reached from the `UpsertOperation`"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/schema.ts",
+    "line": 340,
+    "ref": "write-engine/shared.ts",
+    "text": "*   `pinnedTargetValues` entries (`write-engine/shared.ts:154-166`) — never"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 65,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "* segment's own acknowledgement (`write-engine/OperationExecutor.ts:974-990`)"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 183,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "* holds it in exactly the same place (`write-engine/OperationExecutor.ts`"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 218,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "* (`write-engine/OperationExecutor.ts:1306-1309`, `:1336-1343`), while the"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 491,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "// (`write-engine/OperationExecutor.ts:1031-1072`; `attachProgress` :2308"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 838,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "// (`write-engine/OperationExecutor.ts:1306-1309`)."
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 933,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "* (`write-engine/OperationExecutor.ts:1332-1343`): the answer is decoded"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 1221,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "// envelope (`write-engine/OperationExecutor.ts` `canExecuteDirectly` at"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "line": 1259,
+    "ref": "write-engine/OperationExecutor.ts",
+    "text": "* (`write-engine/OperationExecutor.ts:1558-1645`): no envelope, so this"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 218,
+    "ref": "write-engine/shared.ts",
+    "text": "* (`write-engine/shared.ts:154-166`). An extended `where`'s filter half, an"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 261,
+    "ref": "builders/where-unique-builder.ts",
+    "text": "* equality (`buildUniqueEquality`, `builders/where-unique-builder.ts:213`)"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 297,
+    "ref": "builders/where-builder.ts",
+    "text": "* (`builders/where-builder.ts:217-308`, `operations/groupby-having.ts:77-173`)."
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 297,
+    "ref": "operations/groupby-having.ts",
+    "text": "* (`builders/where-builder.ts:217-308`, `operations/groupby-having.ts:77-173`)."
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 333,
+    "ref": "operations/find-pagination.ts",
+    "text": "* (`operations/find-pagination.ts:131-151`) and `buildDistanceOrder` then"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 334,
+    "ref": "builders/sort-order-builder.ts",
+    "text": "* re-emits `nullsLast(distance, …)` (`builders/sort-order-builder.ts:36-45`)."
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 581,
+    "ref": "builders/values-builder.ts",
+    "text": "// (`builders/values-builder.ts` has no vector case at all). The"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 844,
+    "ref": "builders/set-builder.ts",
+    "text": "// operator (`builders/set-builder.ts:217-219`), identity included: the one"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 1879,
+    "ref": "builders/distance-builder.ts",
+    "text": "// shipped words (`builders/distance-builder.ts:142-188`): a nullable"
+  },
+  {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "line": 2421,
+    "ref": "operations/find-common.ts",
+    "text": "// one whose owner runs first. `buildFind` (`operations/find-common.ts`)"
+  },
+  {
+    "file": "src/query-engine/raptor3/commands/selection.ts",
+    "line": 82,
+    "ref": "write-engine/shared.ts",
+    "text": "*   through `uniqueSelectorConjuncts` (`write-engine/shared.ts:671`, reached"
+  },
+  {
+    "file": "src/adapters/databases/mysql/mysql-adapter.ts",
+    "line": 886,
+    "ref": "query-engine/builders/many-to-many-utils.ts",
+    "text": "// in `query-engine/builders/many-to-many-utils.ts`."
+  },
+  {
+    "file": "src/adapters/database-adapter.ts",
+    "line": 664,
+    "ref": "query-engine/builders/many-to-many-utils.ts",
+    "text": "* `query-engine/builders/many-to-many-utils.ts`; do not route it back here."
+  },
+  {
+    "file": "src/adapters/adapter-capabilities.ts",
+    "line": 42,
+    "ref": "query-engine/operations/bulk-limit.ts",
+    "text": "* See `buildBulkLimitWhere` in query-engine/operations/bulk-limit.ts."
+  },
+  {
+    "file": "src/schema/field-ref.ts",
+    "line": 31,
+    "ref": "query-engine/builders/where-builder.ts",
+    "text": "*    Decided by the where-builder ({@link file://../query-engine/builders/where-builder.ts}),"
+  },
+  {
+    "file": "src/validation/relations/order-by.ts",
+    "line": 75,
+    "ref": "query-engine/builders/relation-orderby-builder.ts",
+    "text": "* while building joins (`query-engine/builders/relation-orderby-builder.ts`)"
+  },
+  {
+    "file": "src/validation/scalars/negatable-filter.ts",
+    "line": 12,
+    "ref": "query-engine/builders/where-builder.ts",
+    "text": "* ({@link file://../../query-engine/builders/where-builder.ts}). Before this,"
+  }
+]

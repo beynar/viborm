@@ -1,0 +1,139 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-q
+
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/update.core.test.ts (90 tests) 15ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/nested-args.core.test.ts (71 tests) 7ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic.core.test.ts (18 tests) 7ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/select-include.core.test.ts (54 tests) 6ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/create/relation-create.core.test.ts (53 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/find-args.core.test.ts (66 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/mutation-args.core.test.ts (58 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/create.core.test.ts (41 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/filter.core.test.ts (46 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/aggregate-args.core.test.ts (65 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-many.core.test.ts (64 tests) 3ms
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > simple model schema creation
+  Simple Model: avg=0.001ms, p95=0.000ms, min=0.000ms, max=0.072ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > medium model schema creation
+  Medium Model: avg=0.001ms, p95=0.000ms, min=0.000ms, max=0.044ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > complex model with relations schema creation
+  Complex Model (Author): avg=0.001ms, p95=0.001ms, min=0.000ms, max=0.032ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > model with deep relations schema creation
+  Deep Relations (Post): avg=0.000ms, p95=0.000ms, min=0.000ms, max=0.023ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Simple Queries > findUnique - simple ID lookup
+  findUnique (simple): avg=0.004ms, p95=0.007ms, min=0.001ms, max=0.270ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Simple Queries > findFirst - with simple filter
+  findFirst (simple filter): avg=0.003ms, p95=0.007ms, min=0.001ms, max=0.098ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Filtered Queries > findMany - with complex where
+  findMany (complex where): avg=0.016ms, p95=0.040ms, min=0.006ms, max=0.443ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Filtered Queries > findMany - with OR/AND filters
+  findMany (OR/AND): avg=0.008ms, p95=0.015ms, min=0.004ms, max=0.116ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 1-level include
+  Include (1-level): avg=0.004ms, p95=0.004ms, min=0.002ms, max=0.155ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 2-level include
+  Include (2-level): avg=0.006ms, p95=0.008ms, min=0.003ms, max=0.146ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 3-level include with filters
+  Include (3-level + filters): avg=0.009ms, p95=0.014ms, min=0.006ms, max=0.081ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Create Operations > simple create
+  Create (simple): avg=0.003ms, p95=0.002ms, min=0.001ms, max=0.171ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Create Operations > create with nested relation
+  Create (nested): avg=0.005ms, p95=0.010ms, min=0.002ms, max=0.124ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Update Operations > simple update
+  Update (simple): avg=0.003ms, p95=0.004ms, min=0.001ms, max=0.102ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Update Operations > update with nested operations
+  Update (nested): avg=0.004ms, p95=0.006ms, min=0.003ms, max=0.070ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findUnique - full request
+  findUnique (full): avg=0.001ms, p95=0.002ms, min=0.001ms, max=0.013ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findMany with filters - full request
+  findMany filtered (full): avg=0.003ms, p95=0.004ms, min=0.002ms, max=0.084ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findMany with nested include - full request
+  findMany + include (full): avg=0.011ms, p95=0.059ms, min=0.004ms, max=0.143ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > create with nested - full request
+  create nested (full): avg=0.003ms, p95=0.009ms, min=0.001ms, max=0.033ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > update with complex operations - full request
+  update complex (full): avg=0.003ms, p95=0.005ms, min=0.002ms, max=0.036ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Post Model (Deep Relations) > findMany with 3-level include - full request
+  Post findMany 3-level (full): avg=0.012ms, p95=0.043ms, min=0.004ms, max=0.285ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Performance Summary > generate summary report
+
+=== PERFORMANCE SUMMARY ===
+
+Schema Creation:
+  Schema: Simple: avg=0.000ms, p95=0.001ms, min=0.000ms, max=0.005ms
+  Schema: Complex: avg=0.000ms, p95=0.000ms, min=0.000ms, max=0.004ms
+
+Validation (pre-built schema):
+  Validate: Simple Query: avg=0.001ms, p95=0.002ms, min=0.001ms, max=0.011ms
+  Validate: Complex Query: avg=0.004ms, p95=0.005ms, min=0.002ms, max=0.021ms
+
+Full Serverless Request (schema + validation):
+  Full Request: Simple: avg=0.001ms, p95=0.002ms, min=0.001ms, max=0.011ms
+  Full Request: Complex: avg=0.003ms, p95=0.005ms, min=0.002ms, max=0.012ms
+
+=== END SUMMARY ===
+
+
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/speed.core.test.ts (22 tests) 14ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-mutation.core.test.ts (16 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/decimal-update-union.core.test.ts (49 tests) 11ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one.core.test.ts (40 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-selection.core.test.ts (19 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one-composition-lattice.core.test.ts (33 tests) 6ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-omission.core.test.ts (11 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/update/relation-update.core.test.ts (36 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/omit-validation.core.test.ts (19 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-having-operands.core.test.ts (25 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/orderby.core.test.ts (22 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/nested-data-projection.core.test.ts (8 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/wrapper-delegation.core.test.ts (6 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/scalar-filter.core.test.ts (21 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/geopoint-known-negatives.core.test.ts (28 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/include.core.test.ts (20 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/select.core.test.ts (18 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-filter.core.test.ts (19 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/polymorphic-create-many.core.test.ts (7 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/update.core.test.ts (18 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/where.core.test.ts (20 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/compound-constraint-filter.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/prisma-parity-validation.core.test.ts (12 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/vector-orderby.core.test.ts (13 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-list-known-negatives.core.test.ts (54 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/where-unique.core.test.ts (17 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/orderby.core.test.ts (14 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/unique-filter.core.test.ts (13 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/vector-select.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/create.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/update/scalar-update.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/relation-filter.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/create/scalar-create.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/compound-id-filter.core.test.ts (8 tests) 0ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one-update-form.core.test.ts (6 tests) 0ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-list-orderby.core.test.ts (4 tests) 2ms
+
+ Test Files  47 passed (47)
+      Tests  1290 passed (1290)
+   Start at  12:34:48
+   Duration  3.00s (transform 678ms, setup 46ms, collect 2.56s, tests 152ms, environment 0ms, prepare 47ms)
+
+Vitest resources: 5.54s wall, 580.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

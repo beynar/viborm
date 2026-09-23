@@ -1,7 +1,7 @@
 /** Fresh database construction and immutable seed data for pipeline workloads. */
 
 import { createClient } from "../dist/index.mjs";
-import { push } from "../dist/migrations.mjs";
+import { createMigrationClient } from "../dist/migrations.mjs";
 import { s } from "../dist/schema.mjs";
 import { SQLite3Driver } from "../dist/sqlite3.mjs";
 
@@ -226,21 +226,22 @@ async function insertRows(driver, dialect, table, columns, rows) {
   }
 }
 
-/** Builds the fixture's tables, through the schema driver when there is one. */
+/** History-free setup on a fresh fixture; destructive changes are not consented. */
 async function buildSchema(schema, driver, schemaDriver) {
   if (!schemaDriver) {
-    await push(createClient({ schema, driver }), { force: true });
+    await createMigrationClient(createClient({ schema, driver })).push();
     return;
   }
   try {
-    await push(createClient({ schema, driver: schemaDriver }), { force: true });
+    await createMigrationClient(
+      createClient({ schema, driver: schemaDriver })
+    ).push();
   } finally {
     await schemaDriver.disconnect();
   }
 }
 
-async function setupCoreFixture(substrate, extensionArm, providerName) {
-  const dialect = PROVIDER_DIALECTS[providerName];
+function coreSchema(nextChildId) {
   const user = s
     .model({
       id: s.string().id(),
@@ -280,13 +281,14 @@ async function setupCoreFixture(substrate, extensionArm, providerName) {
     .map("bench_generated_parents");
   const generatedChild = s
     .model({
-      id: s.string().id(),
+      id: s.string().id().default(nextChildId),
       parentId: s.int(),
       label: s.string(),
       parent: s
         .toOne(() => generatedParent)
         .fields("parentId")
-        .references("id"),
+        .references("id")
+        .onUpdate("cascade"),
     })
     .map("bench_generated_children");
   const enumRecord = s
@@ -297,7 +299,7 @@ async function setupCoreFixture(substrate, extensionArm, providerName) {
       visibility: s.enum(["private", "team", "public"]),
     })
     .map("bench_enum_records");
-  const schema = {
+  return {
     user,
     post,
     generated,
@@ -305,6 +307,19 @@ async function setupCoreFixture(substrate, extensionArm, providerName) {
     generatedChild,
     enumRecord,
   };
+}
+
+async function setupCoreFixture(substrate, extensionArm, providerName) {
+  const dialect = PROVIDER_DIALECTS[providerName];
+  const defaults = [];
+  let childSequence = 0;
+  let recordDefaults = false;
+  const nextChildId = () => {
+    const value = `series_child_${++childSequence}`;
+    if (recordDefaults) defaults.push({ name: "generatedChild.id", value });
+    return value;
+  };
+  const schema = coreSchema(nextChildId);
   const { driver, schemaDriver } = await createDriver(substrate, providerName);
   const baseClient = createClient({ schema, driver });
   await buildSchema(schema, driver, schemaDriver);
@@ -346,23 +361,80 @@ async function setupCoreFixture(substrate, extensionArm, providerName) {
       ["private", "team", "public"][index % 3],
     ])
   );
-  await baseClient.user.create({
-    data: {
-      id: "update_target",
-      name: "Update",
-      email: "update@example.com",
-      age: 1,
+  await insertRows(
+    driver,
+    dialect,
+    "bench_users",
+    ["id", "name", "email", "age"],
+    [
+      ["update_target", "Update", "update@example.com", 1],
+      [
+        "relation_update_target",
+        "Relation update",
+        "relation-update@example.com",
+        1,
+      ],
+    ]
+  );
+  await insertRows(
+    driver,
+    dialect,
+    "bench_generated_parents",
+    ["id", "label"],
+    [
+      [5000, "series-first"],
+      [6000, "series-second"],
+      [10000, "transition"],
+    ]
+  );
+  await insertRows(
+    driver,
+    dialect,
+    "bench_generated_children",
+    ["id", "parentId", "label"],
+    [
+      ["conditional_found", 5000, "existing-child"],
+      ["transition_child", 10000, "cascade-child"],
+    ]
+  );
+  const stateTables = [
+    "bench_users",
+    "bench_posts",
+    "bench_generated",
+    "bench_generated_parents",
+    "bench_generated_children",
+    "bench_enum_records",
+  ];
+  return {
+    client: applyExtensionArm(baseClient, extensionArm),
+    driver,
+    defaults,
+    observeDefaults(active) {
+      recordDefaults = active;
     },
-  });
-  await baseClient.user.create({
-    data: {
-      id: "relation_update_target",
-      name: "Relation update",
-      email: "relation-update@example.com",
-      age: 1,
+    createColdClient: () =>
+      applyExtensionArm(
+        createClient({ schema: coreSchema(nextChildId), driver }),
+        extensionArm
+      ),
+    async readRawState() {
+      const state = {};
+      for (const table of stateTables) {
+        state[table] = (
+          await driver._executeRaw(
+            `SELECT * FROM ${quoteIdentifier(dialect, table)} ORDER BY ${quoteIdentifier(dialect, "id")}`
+          )
+        ).rows;
+      }
+      if (dialect === "sqlite")
+        state.sqlite_sequence = (
+          await driver._executeRaw(
+            "SELECT name,seq FROM sqlite_sequence ORDER BY name"
+          )
+        ).rows;
+      return state;
     },
-  });
-  return { client: applyExtensionArm(baseClient, extensionArm), driver };
+  };
 }
 
 async function setupVariantFixture(substrate, providerName) {

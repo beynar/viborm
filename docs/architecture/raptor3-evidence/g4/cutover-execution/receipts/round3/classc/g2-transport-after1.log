@@ -1,0 +1,217 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g2-transport.test.ts (16 tests | 5 failed) 508ms
+   ✓ G2 key-transition transport: scripted-returning-weak > publishes the final key and reference to the consumer 29ms
+   ✓ G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected and completes a healthy later call 18ms
+   ✓ G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected-after-commit and completes a healthy later call 14ms
+   × G2 key-transition transport: scripted-returning-weak > preserves consumer-malformed and completes a healthy later call 6ms
+     → Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'result'
++ }
+- undefined
+
+   ✓ G2 key-transition transport: scripted-returning-weak > queues both selected records and explores both first actors 158ms
+   ✓ G2 key-transition transport: scripted-returning-weak > preserves two failed calls and a healthy third call 15ms
+   ✓ G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-publication 10ms
+   ✓ G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-attribution 16ms
+   ✓ G2 key-transition transport: scripted-returning-ack > publishes the final key and reference to the consumer 7ms
+   ✓ G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected and completes a healthy later call 8ms
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected-after-commit and completes a healthy later call 2ms
+     → Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'member'
++ }
+- undefined
+
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-malformed and completes a healthy later call 2ms
+     → Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'result'
++ }
+- undefined
+
+   ✓ G2 key-transition transport: scripted-returning-ack > queues both selected records and explores both first actors 133ms
+   × G2 key-transition transport: scripted-returning-ack > preserves two failed calls and a healthy third call 3ms
+     → Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'member'
++ }
+- undefined
+
+   ✓ G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-publication 9ms
+   × G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-attribution 2ms
+     → Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'member'
++ }
+- undefined
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves consumer-malformed and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-malformed and completes a healthy later call
+AssertionError: Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'result'
++ }
+- undefined
+
+
+simple
+
+ ❯ assertActorOutcome tests/raptor3/transport/world.ts:416:12
+    414|           }
+    415|         : undefined;
+    416|     assert.deepEqual(
+       |            ^
+    417|       meta.recordSeriesProgress,
+    418|       progress,
+ ❯ tests/raptor3/transport/world.ts:753:11
+ ❯ Object.assert tests/raptor3/transport/world.ts:752:16
+ ❯ verifyTransportPair tests/raptor3/transport/world.ts:887:20
+ ❯ checked tests/raptor3/g2-transport.test.ts:54:3
+ ❯ tests/raptor3/g2-transport.test.ts:138:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected-after-commit and completes a healthy later call
+AssertionError: Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'member'
++ }
+- undefined
+
+
+simple
+
+ ❯ assertActorOutcome tests/raptor3/transport/world.ts:416:12
+    414|           }
+    415|         : undefined;
+    416|     assert.deepEqual(
+       |            ^
+    417|       meta.recordSeriesProgress,
+    418|       progress,
+ ❯ tests/raptor3/transport/world.ts:753:11
+ ❯ Object.assert tests/raptor3/transport/world.ts:752:16
+ ❯ verifyTransportPair tests/raptor3/transport/world.ts:887:20
+ ❯ checked tests/raptor3/g2-transport.test.ts:54:3
+ ❯ tests/raptor3/g2-transport.test.ts:138:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves two failed calls and a healthy third call
+AssertionError: Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'member'
++ }
+- undefined
+
+
+simple
+
+ ❯ assertActorOutcome tests/raptor3/transport/world.ts:416:12
+    414|           }
+    415|         : undefined;
+    416|     assert.deepEqual(
+       |            ^
+    417|       meta.recordSeriesProgress,
+    418|       progress,
+ ❯ tests/raptor3/transport/world.ts:753:11
+ ❯ Object.assert tests/raptor3/transport/world.ts:752:16
+ ❯ verifyTransportPair tests/raptor3/transport/world.ts:887:20
+ ❯ checked tests/raptor3/g2-transport.test.ts:54:3
+ ❯ tests/raptor3/g2-transport.test.ts:157:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-attribution
+AssertionError: Legacy ordinary UPDATE retains its prior no-progress contract
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 1,
++   committedWriteMembers: 1,
++   completedMembers: 0,
++   phase: 'member'
++ }
+- undefined
+
+
+simple
+
+ ❯ assertActorOutcome tests/raptor3/transport/world.ts:416:12
+    414|           }
+    415|         : undefined;
+    416|     assert.deepEqual(
+       |            ^
+    417|       meta.recordSeriesProgress,
+    418|       progress,
+ ❯ tests/raptor3/transport/world.ts:753:11
+ ❯ Object.assert tests/raptor3/transport/world.ts:752:16
+ ❯ verifyTransportPair tests/raptor3/transport/world.ts:887:20
+ ❯ checked tests/raptor3/g2-transport.test.ts:54:3
+ ❯ tests/raptor3/g2-transport.test.ts:168:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 11 passed (16)
+   Start at  23:18:01
+   Duration  2.05s (transform 876ms, setup 10ms, collect 1.37s, tests 508ms, environment 0ms, prepare 35ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-BhUKA1/vitest.json
+Vitest resources: 4.25s wall, 637.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-BhUKA1

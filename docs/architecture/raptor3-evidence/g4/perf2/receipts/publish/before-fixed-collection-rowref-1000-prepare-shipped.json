@@ -1,0 +1,25 @@
+{
+ "workload": "fixed-collection-rowref-1000",
+ "stage": "prepare",
+ "engine": "shipped",
+ "checks": [
+  311,
+  311,
+  311,
+  311
+ ],
+ "preparation": {
+  "statementCount": 1,
+  "statements": [
+   {
+    "sql": "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?",
+    "params": [
+     "title",
+     "user_*",
+     1000
+    ]
+   }
+  ],
+  "preparationSeam": "package"
+ }
+}

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g4/generation/harness.selftest.test.ts (6 tests) 132ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  15:34:05
+   Duration  1.58s (transform 868ms, setup 10ms, collect 1.30s, tests 132ms, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-sizPLe/vitest.json
+Vitest resources: 3.59s wall, 495.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-generation-selftests contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-sizPLe

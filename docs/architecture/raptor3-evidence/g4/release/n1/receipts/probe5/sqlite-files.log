@@ -1,0 +1,12 @@
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 112ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 55ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 71ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 219ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 124ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 104ms
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 45ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 68ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 254ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 121ms
+ Test Files  10 passed (10)
+      Tests  140 passed (140)

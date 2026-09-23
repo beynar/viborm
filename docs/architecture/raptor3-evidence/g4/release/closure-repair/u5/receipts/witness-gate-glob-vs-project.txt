@@ -1,0 +1,36 @@
+# The failing witness, red at bc18b4e23: the frozen gate's own MySQL enumeration
+# (frozen-gate-r.sh line 35) against the project it reported a result for.
+
+## the gate's glob, expanded in this tree (zsh null_glob, same order):
+  tests/providers/docker/mysql2-cascaded-identity.test.ts
+  tests/providers/docker/mysql2-concurrency-policy.test.ts
+  tests/providers/docker/mysql2-generated-key.test.ts
+  tests/providers/docker/mysql2-read-surface.test.ts
+  tests/providers/docker/mysql2-reference-representability.test.ts
+  tests/providers/docker/mysql2-relations-ddl.test.ts
+  tests/providers/docker/mysql2-scalars.test.ts
+  tests/providers/docker/mysql2-schema-attestation.test.ts
+  tests/providers/docker/mysql2-writes-raw.test.ts
+  tests/providers/docker/mysql2.test.ts
+  tests/unit/migrations/mysql-strict-mode-docker.test.ts
+  -> 11 files
+
+## provider-mysql2 as vitest.workspace.ts registers it:
+  tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts
+  tests/providers/docker/mysql2-cascaded-identity.test.ts
+  tests/providers/docker/mysql2-concurrency-policy.test.ts
+  tests/providers/docker/mysql2-generated-key.test.ts
+  tests/providers/docker/mysql2-read-surface.test.ts
+  tests/providers/docker/mysql2-reference-representability.test.ts
+  tests/providers/docker/mysql2-relations-ddl.test.ts
+  tests/providers/docker/mysql2-scalars.test.ts
+  tests/providers/docker/mysql2-schema-attestation.test.ts
+  tests/providers/docker/mysql2-writes-raw.test.ts
+  tests/providers/docker/mysql2.test.ts
+  tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts
+  tests/unit/migrations/mysql-strict-mode-docker.test.ts
+  -> 13 files
+
+## registered and NOT reached by the gate glob:
+  tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts
+  tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/statement-atomic-parity.review.test.ts (5 tests) 35ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  08:55:43
+   Duration  2.02s (transform 1.25s, setup 9ms, collect 1.78s, tests 35ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 2.54s wall, 457.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

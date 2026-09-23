@@ -1,0 +1,15 @@
+Result (215 files): 
+- 324 errors
+- 0 warnings
+- 16 hints
+
+
+[blume]  ERROR  Type check failed.
+
+architecture/raptor3-evidence/g3/unit03/review-oracles/bulk-scenario.before.ts
+architecture/raptor3-evidence/g3/unit03/review-oracles/transaction-array-scenario.before.ts
+architecture/raptor3-evidence/g4/cutover-execution/receipts/preserved-unrelated-dirty/tests_pattern_match_decode-malformed.core.test.ts
+architecture/raptor3-evidence/g4/cutover-execution/receipts/preserved-unrelated-dirty/tests_pattern_pack_program-dump.ts
+architecture/raptor3-evidence/g4/release/d46/review-receipts/repro-scripts/zzz-review-d46-scope.test.ts
+ 325 architecture
+  11 content

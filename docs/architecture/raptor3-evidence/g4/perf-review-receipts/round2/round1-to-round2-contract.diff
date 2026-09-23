@@ -1,0 +1,41 @@
+--- contract-round1.mjs	2026-09-16 12:18:05
++++ contract-round2.mjs	2026-09-16 12:18:05
+@@ -306,9 +306,16 @@
+           ]),
+         });
+         assert.equal(statements, ledger.statements);
+-        // "Every member was admitted before the first effect" stated without
+-        // either engine's constant: the ledger stopped growing at the cut.
+-        assert.equal(admissionsBeforeFirstEffect, defaults.length);
++        // Every member was admitted before the first effect. The count is
++        // recorded ONCE, at the statement where the first child became
++        // visible, and compared here with the FINAL ledger this engine's own
++        // total selects: an admission that happened after an effect leaves the
++        // recorded count short and fails. Neither engine's constant appears.
++        assert.equal(
++          admissionsBeforeFirstEffect,
++          seriesAdmissions(seriesLedger(defaults.length)),
++          "series effects started before every member was admitted"
++        );
+         assert.deepEqual(reachedCuts, [
+           "selected-roots-captured",
+           "first-member-visible",
+@@ -340,13 +347,12 @@
+           )
+           .all();
+         if (children.length > 0) {
++          // `seriesLedger` carries the real cut here: an admission count that
++          // explains neither engine fails inside it. The count itself is
++          // recorded once and adjudicated against the final ledger in
++          // `verify`, where a late admission is still visible.
+           const ledger = seriesLedger(defaults.length);
+-          assert.equal(
+-            defaults.length,
+-            seriesAdmissions(ledger),
+-            "series effects started before every member was admitted"
+-          );
+-          admissionsBeforeFirstEffect = defaults.length;
++          admissionsBeforeFirstEffect ??= defaults.length;
+           assert.deepEqual(children[0], ledger.children[0]);
+           cuts.push("first-member-visible");
+         }

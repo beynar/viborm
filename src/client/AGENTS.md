@@ -126,7 +126,9 @@ The package root and `viborm/client` expose four schema-bound utilities:
 - `validateOperationPayload(schema, model, operation, payload)` delegates to
   `SchemaRegistry` and returns the normalized operation-schema output;
 - `renderOperationResultType(schema, model, operation, payload)` validates one
-  concrete payload, then renders the result from `buildExpectedResultShape`;
+  concrete payload, then renders the result from `buildExpectedResultShape` (a
+  recursive relation slot renders as named declarations; see the function's
+  JSDoc);
 - `renderSchemaType(schema)` renders the complete model graph as one recursive
   `VibORMSchema` declaration.
 

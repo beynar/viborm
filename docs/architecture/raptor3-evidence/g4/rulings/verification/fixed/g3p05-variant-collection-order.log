@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 63ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  22:11:11
+   Duration  1.40s (transform 809ms, setup 9ms, collect 1.19s, tests 63ms, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-p1eUeQ/vitest.json
+Vitest resources: 3.31s wall, 467.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p05-variant-collection-order contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-p1eUeQ

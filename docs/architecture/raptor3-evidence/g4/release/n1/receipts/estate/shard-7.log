@@ -1,0 +1,49 @@
+[test:all] extended-local shared-family shard 7/8 (14 suites)
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts (30 tests) 1100ms
+ ❯ |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts (56 tests | 10 failed) 1807ms
+ ✓ |extended-local| tests/contracts/engine/write/fields-less-to-one-create.test.ts (8 tests) 684ms
+ ✓ |extended-local| tests/contracts/engine/query/m4-flat-atomic-scope.test.ts (6 tests) 523ms
+ ✓ |extended-local| tests/contracts/public-client/decimal-provider-limits.test.ts (11 tests) 464ms
+ ❯ |extended-local| tests/contracts/engine/write/vacate-then-supply-pair-lattice.test.ts (3 tests | 2 failed) 592ms
+ ❯ |extended-local| tests/contracts/engine/write/combined-depth-stress.test.ts (2 tests | 1 failed) 487ms
+ ✓ |extended-local| tests/contracts/public-client/optional-projection-keys.test.ts (12 tests) 457ms
+ ❯ |extended-local| tests/contracts/engine/write/nested-semantic-stability.test.ts (3 tests | 2 failed) 453ms
+ ✓ |extended-local| tests/contracts/engine/query/relation-key-update-legality-referenced-column.test.ts (4 tests) 609ms
+ ✓ |extended-local| tests/unit/cache/operand-callback-keys.test.ts (3 tests) 517ms
+ ✓ |extended-local| tests/unit/migrations/relation-ddl-preservation.test.ts (34 tests) 3238ms
+ ❯ |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts (71 tests | 16 failed) 1780ms
+ ✓ |extended-local| tests/contracts/engine/write/junction-upsert-arm-probe.test.ts (10 tests) 663ms
+ FAIL  |extended-local| tests/contracts/engine/write/combined-depth-stress.test.ts > X1b combined depth stress — four mechanisms in one >=6-level tree > batch composes the same four mechanisms
+ FAIL  |extended-local| tests/contracts/engine/write/nested-semantic-stability.test.ts > X1 semantic stability — own-write 'split these operations' at depth > depth-1 root create rejects with the ow
+ FAIL  |extended-local| tests/contracts/engine/write/nested-semantic-stability.test.ts > X1 semantic stability — own-write 'split these operations' at depth > depth-4 lifted create-context chain rej
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite transaction parent-held to-one lookup (E1 U1/U2) > a located target whose referenced NULLABLE unique is NULL re
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite atomic batch parent-held to-one lookup (E1 U1/U2) > a located target whose referenced NULLABLE unique is NULL r
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite transaction before-root target subtree (E1 U3) > a null referenced field in the target's create data stays refu
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite atomic batch before-root target subtree (E1 U3) > a null referenced field in the target's create data stays ref
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite transaction parent-held upsert arm relations (E1 U4) > a same-update FK rebind makes the arm correlate on the F
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > PGlite atomic batch parent-held upsert arm relations (E1 U4) > a same-update FK rebind makes the arm correlate on the 
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U1 — the lookup fold's provenance > the written key comes from the LOOKUP, not from the probe row
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U1 — the lookup fold's provenance > a probe row whose required referenced column reads NULL fails typed parsing
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U1 — the guard→UPDATE vanish window > a target deleted between planning and the batch aborts typed, writing not
+ FAIL  |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts > E1 U4 — the delegated upsert arm's staleness window > a target that vanishes before the batch aborts with the upsert
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > upsert FOUND publishes the target's post-update referenced k
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > upsert FOUND publishes a relation-folded non-primary referen
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > update publishes the target's post-update key before descend
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > a partial compound shared edge publishes every transitioned 
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > fresh create publishes the complete selected compound tuple
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite transaction) > update publishes a nested relation-folded non-primary refere
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > update publishes a nested relation-folded non-primary refer
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > update publishes a nested relation-folded non-primary referenced
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > update publishes the target's post-update key before descen
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > a partial compound shared edge publishes every transitioned
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > fresh create publishes the complete selected compound tuple
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > upsert FOUND publishes the target's post-update referenced key
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > upsert FOUND publishes a relation-folded non-primary referenced 
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > update publishes the target's post-update key before descendant 
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > a partial compound shared edge publishes every transitioned memb
+ FAIL  |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts > Package E shared-PK update root (better-sqlite3) > fresh create publishes the complete selected compound tuple
+ FAIL  |extended-local| tests/contracts/engine/write/vacate-then-supply-pair-lattice.test.ts > E6.5 the enumeration of every update-root to-one pair > the six vacate + supplier + modify triples land w
+ FAIL  |extended-local| tests/contracts/engine/write/vacate-then-supply-pair-lattice.test.ts > Package H — the composed modify declares every field its probe reads > a sibling write to the wrapper f
+ Test Files  5 failed | 9 passed (14)
+      Tests  31 failed | 222 passed (253)
+[test:all] extended-local shared-family shard 7/8 (14 suites): 17.55s wall, 1842.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

@@ -1,0 +1,5 @@
+PostgreSQL image: sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b; server 16.14.
+PostgreSQL container: 83832d1ca7a75d65b6b354359e05d6b80eec0c7b25e7517c09c54ed158f42972; random loopback port 65232; 2 CPUs; 1 GiB; tmpfs provider data; no host mount; OOMKilled false; restart count 0; removed by exact ID.
+MySQL image: sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb; server 8.4.11.
+MySQL container: da7696d2cb52cfb3c60052924279b5da021bb6c102ba696cfb15f260149a8886; random loopback port 49581; 2 CPUs; 1 GiB; tmpfs provider data; no host mount; OOMKilled false; restart count 0; removed by exact ID.
+Both used the task-owned G2.9 qualification label. Final task-label census: empty.

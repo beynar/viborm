@@ -1,0 +1,73 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+(node:71400) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-polymorphism-ddl.test.ts (60 tests) 84526ms
+   ✓ pg Driver > pg foreign-key index > push creates an index over the manyToOne FK column  1003ms
+   ✓ pg Driver > pg foreign-key index > re-pushing the schema is not an index change  1160ms
+   ✓ pg Driver > pg foreign-key index > re-pushing the schema is not a foreign-key change  1327ms
+   ✓ pg Driver > pg foreign-key index > a declared .index() on the FK column is not duplicated  1198ms
+   ✓ pg Driver > pg foreign-key index > a wider declared index over the FK columns replaces it in one push  1283ms
+   ✓ pg Driver > pg foreign-key index > a compound unique over the FK columns replaces it in one push  1284ms
+   ✓ pg Driver > pg declared index on a mapped field > push creates the index over the mapped column names  946ms
+   ✓ pg Driver > pg declared index on a mapped field > re-pushing the schema is not an index change  1106ms
+   ✓ pg Driver > pg declared index on a mapped field > the declared index leaves the FK index nothing to add  934ms
+   ✓ pg Driver > pg compound junction storage > round-trips two complete string-key sides and their cascade  1203ms
+   ✓ pg Driver > pg polymorphic member junction storage > creates, enforces and converges the member tables  1302ms
+   ✓ pg Driver > pg partial index predicate churn > re-pushing the same declaration is not an index change  1211ms
+   ✓ pg Driver > pg partial index predicate churn > the same predicate in another spelling is not an index change  1242ms
+   ✓ pg Driver > pg partial index predicate churn > a real predicate change is still an index change  1357ms
+   ✓ pg Driver > pg partial index predicate churn > a canonicalization that fails answers nothing, and the change stands  1132ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips  935ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > multi-model forward chain: push + create through the chain  947ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > self reference: push + parent/child round-trip  917ms
+   ✓ pg Driver > pg (tx) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables  1115ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips  943ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > multi-model forward chain: push + create through the chain  1049ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > self reference: push + parent/child round-trip  975ms
+   ✓ pg Driver > pg (batch) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables  1142ms
+   ✓ pg Driver > pg polymorphic relations > direct writes preserve the generated private storage pair  1119ms
+   ✓ pg Driver > pg polymorphic relations > inverse create publishes a generated parent identity  1361ms
+   ✓ pg Driver > pg polymorphic relations > direct and inverse reads correlate exact variants without N+1  1307ms
+   ✓ pg Driver > pg polymorphic relations > target-local omit subtracts from polymorphic select  1346ms
+   ✓ pg Driver > pg polymorphic relations > inverse reads use the generated discriminator/id index  1417ms
+   ✓ pg Driver > pg polymorphic relations > empty storage is optional but orphaned membership is invalid  1252ms
+   ✓ pg Driver > pg polymorphic collection reads > an empty collection reads as a fresh empty array, never null  1090ms
+   ✓ pg Driver > pg polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly  1132ms
+   ✓ pg Driver > pg polymorphic collection reads > equal ids in two target tables return two correctly tagged rows  1166ms
+   ✓ pg Driver > pg polymorphic collection reads > order, window and distinct stay ARM-LOCAL  1142ms
+   ✓ pg Driver > pg polymorphic collection reads > a negative arm take restores the logical order  1171ms
+   ✓ pg Driver > pg polymorphic collection reads > only narrows the returned variants without reordering  1340ms
+   ✓ pg Driver > pg polymorphic collection reads > total and filtered counts, and count ordering  1733ms
+   ✓ pg Driver > pg polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table  5461ms
+   ✓ pg Driver > pg polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only  1295ms
+   ✓ pg Driver > pg polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array  1245ms
+   ✓ pg Driver > pg polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT  1245ms
+   ✓ pg Driver > pg polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement  1261ms
+   ✓ pg Driver > pg polymorphic collection writes > a fresh owner writes memberships across several variants at once  1234ms
+   ✓ pg Driver > pg polymorphic collection writes > connect is idempotent for the same owner and target  1241ms
+   ✓ pg Driver > pg polymorphic collection writes > a plural member admits SEVERAL owners for one target  1263ms
+   ✓ pg Driver > pg polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it  1313ms
+   ✓ pg Driver > pg polymorphic collection writes > connectOrCreate finds, then creates, without doubling either  1229ms
+   ✓ pg Driver > pg polymorphic collection writes > `set` clears every configured variant once, then refills  1322ms
+   ✓ pg Driver > pg polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row  1331ms
+   ✓ pg Driver > pg polymorphic collection writes > `set: []` empties every variant and deletes no target  1274ms
+   ✓ pg Driver > pg polymorphic collection writes > disconnect removes this owner's membership and nothing else  1342ms
+   ✓ pg Driver > pg polymorphic collection writes > update and updateMany reach only the connected targets  1580ms
+   ✓ pg Driver > pg polymorphic collection writes > upsert creates then updates, scoped to this owner's membership  2171ms
+   ✓ pg Driver > pg polymorphic collection writes > createMany writes one bulk group per variant  2294ms
+   ✓ pg Driver > pg polymorphic collection writes > duplicate singular createMany targets transfer once  2134ms
+   ✓ pg Driver > pg polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership  2151ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it  1848ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER  1477ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner  1331ms
+   ✓ pg Driver > pg polymorphic collection writes > a singular inverse upsert takes both arms through the membership  1353ms
+   ✓ pg Driver > pg polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote  3844ms
+
+ Test Files  1 passed (1)
+      Tests  60 passed (60)
+   Start at  01:35:08
+   Duration  86.10s (transform 949ms, setup 8ms, collect 1.43s, tests 84.53s, environment 0ms, prepare 33ms)
+
+Vitest resources: 87.94s wall, 510.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

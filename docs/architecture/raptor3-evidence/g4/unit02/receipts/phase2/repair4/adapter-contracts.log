@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-adapters| tests/contracts/adapters/dialect-vocabulary.core.test.ts (34 tests) 19ms
+ ✓ |layer-adapters| tests/contracts/adapters/internals-and-geo.core.test.ts (20 tests) 6ms
+ ✓ |layer-adapters| tests/contracts/adapters/namespace-table-rendering.core.test.ts (21 tests) 2ms
+ ✓ |layer-adapters| tests/contracts/adapters/namespace-binding.core.test.ts (35 tests) 3ms
+ ✓ |layer-adapters| tests/contracts/adapters/result-parsing.core.test.ts (26 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/sql-fragments.core.test.ts (12 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/identifier-escaping.core.test.ts (15 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/json-parameter-text.core.test.ts (12 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/vector-capabilities.core.test.ts (7 tests) 2ms
+
+ Test Files  9 passed (9)
+      Tests  182 passed (182)
+   Start at  12:32:14
+   Duration  2.37s (transform 1.18s, setup 20ms, collect 1.98s, tests 34ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 4.97s wall, 613.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

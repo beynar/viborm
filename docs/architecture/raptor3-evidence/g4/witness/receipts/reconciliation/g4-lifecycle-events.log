@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/lifecycle-events.test.ts (3 tests) 22ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  12:36:25
+   Duration  2.01s (transform 1.24s, setup 10ms, collect 1.85s, tests 22ms, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4xFxaB/vitest.json
+Vitest resources: 4.05s wall, 508.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-lifecycle-events contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4xFxaB

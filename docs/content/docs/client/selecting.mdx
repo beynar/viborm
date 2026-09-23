@@ -131,6 +131,78 @@ const users = await client.user.findMany({
 });
 ```
 
+## Recursive relations
+
+A self-relation — a model that relates to itself — can be projected
+recursively with `recurse` on its relation node. The node's projection is
+repeated at every level, so a tree, a chain or a graph comes back as one
+nested value from **one provider statement**, whatever its depth.
+
+```ts
+const tree = await client.category.findUnique({
+  where: { id: "root" },
+  select: {
+    name: true,
+    children: {
+      recurse: { depth: 3 },
+      where: { published: true },
+      orderBy: { position: "asc" },
+      select: { name: true },
+    },
+  },
+});
+// Type: { name: string; children: { name: string; children?: … }[] } | null
+```
+
+`recurse` is admitted on an ordinary self-relation whose target has a complete
+primary key: a foreign-key owning side (`parent`), its proven one-to-one
+inverse, a child-held collection (`children`), or a paired junction graph
+(`friends` through a join table). Bulk `createMany`/`updateMany`/`deleteMany`
+results, `count`, `exist`, `aggregate` and `groupBy` do not take it.
+
+| Form | Meaning |
+| --- | --- |
+| `recurse: true` or `recurse: {}` | follow the relation to depth **100** |
+| `recurse: { depth: n }` | follow it `n` levels, `1 ≤ n ≤ 1000` |
+| `recurse: { depth: false }` | **exhaustive**: follow it until the data ends |
+| `recurse: { preventCycles: false }` | graph relations only, with a bounded depth: unfold a cycle instead of pruning it |
+
+At a numeric cutoff the repeated key is **absent** from the deepest occurrence
+(that is why it is optional in the type); where the data ends before the
+cutoff the key is present and holds `[]` for a collection or `null` for a
+nullable singular. With `depth: false` the key is always present. A foreign-key
+cycle inside the traversed window is refused with a `QueryEngineError` naming
+the relation (`Recursive relation 'parent' contains a cycle.`); this is a
+property of the data, not an engine defect; a graph cycle is pruned
+path-locally by default. Filters prune every hop, each level keeps its own
+`orderBy`, and the node's `select`/`include`/`omit` — including other
+relations and another recursive slot — repeat at every level. Results
+compose with the cache, `omit`, extensions, arrays and callback transactions
+like any other relation projection. A provider may cap an exhaustive
+traversal with its own recursion limit. MySQL's `cte_max_recursion_depth`
+defaults to 1,000. That failure surfaces as the driver's error, never as a
+truncated result. On MySQL the error has `meta.providerErrno` 3636
+(`ER_CTE_MAX_RECURSION_DEPTH`), and the provider's message is redacted.
+
+Output grows with paths, not rows: a graph can return exponentially more
+occurrences than it stores, even with cycle prevention, so depth 100 is not a
+size bound. `take`, `skip`, `cursor` and `distinct` cannot be combined with
+`recurse`, and a singular recursive node accepts only `select`, `include` and
+`omit`. `recurse: false` is refused; leave `recurse` out for an ordinary node.
+The recursive key cannot be spelled again inside its own node's `select` or
+`include`, because `recurse` already produces it. A relation named
+`_distance` cannot be projected beside a point's `_distance` result: the
+output key has one producer. A node filter must be deterministic across the
+traversal: a volatile raw expression (such as `random()`) can make the
+provider's answer disagree with itself, which is refused as an invalid
+provider result rather than decoded. The operation then rejects with the
+`QueryEngineError` (`V9001`) of a malformed driver answer, such as
+`Driver "…" returned a malformed recursive depth scalar for operation "…": ….`,
+and its `meta.scalarType` names the kind of check that refused the answer;
+inside a `$transaction([...])` array on a batch-only driver (D1, neon-http)
+the failure surfaces instead as `QueryError` (`V2001`), as it does for an
+ordinary malformed member.
+
 ## Filtering Relations
 
 Apply filters to included relations:

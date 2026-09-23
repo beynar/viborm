@@ -1,0 +1,4 @@
+PostgreSQL container eb7d0fa9c597292c2f9ecd7e9b79ca8915d9109af96e59138319a7952ac04430: OOMKilled=false RestartCount=0 Status=running before exact removal.
+MySQL container 262beb99a2d23c2baa5197ab413fea4a036c9c5730e695c792078e4de39eff44: OOMKilled=false RestartCount=0 Status=running before exact removal.
+
+Both used the original G3P-06 cached image IDs, random loopback ports, tmpfs, 2 CPUs, 1 GiB, no host mount, and label viborm.test=raptor3-g3p06-repair. Final label census: empty.

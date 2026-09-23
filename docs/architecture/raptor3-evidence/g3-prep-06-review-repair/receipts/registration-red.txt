@@ -1,0 +1,14 @@
+Current-production reproduction before repair:
+
+Import EXTENDED_LOCAL_TESTS from scripts/credential-free-test-manifest.mjs and test membership for the following paths.
+
+tests/raptor3/ownership/commands.test.ts: true
+tests/raptor3/ownership/live.test.ts: true
+tests/raptor3/prep/suppression-replay.test.ts: true
+tests/raptor3/prep/g3p04-review-regressions.test.ts: true
+tests/raptor3/prep/native-suppression-replay.test.ts: true
+tests/raptor3/prep/selector-dependencies.test.ts: true
+tests/raptor3/prep/variant-collection-order.test.ts: true
+tests/raptor3/prep/recursive-read-fit.test.ts: true
+
+This proves both defects: native suites entered ordinary credential-free discovery, and local fixed suites depended on accidental discovery rather than the intentional fixed stage.

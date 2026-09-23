@@ -451,6 +451,9 @@ export type NodeSelect<Node> = NodeKey<Node, "select">;
 
 export type NodeInclude<Node> = NodeKey<Node, "include">;
 
+/** The public recurrence request stated by one admitted relation node. */
+type NodeRecurse<Node> = NodeKey<Node, "recurse">;
+
 /** The two keys of a polymorphic COLLECTION projection envelope. */
 type NodeOnly<Projection> = NodeKey<Projection, "only">;
 type NodeVariants<Projection> = NodeKey<Projection, "variants">;
@@ -525,6 +528,54 @@ type WrapRelationNode<S extends ModelState, K, R extends AnyRelation, T> = [
 ] extends [never]
   ? never
   : WrapRelation<S, K, R, T>;
+
+/**
+ * One finite named wrapper for an ordinary inferred node. The wrapper recurs
+ * only through its relation property, so the ordinary projection is inferred
+ * once rather than expanded once per requested depth. The repeated key is
+ * wrapped by {@link WrapRelation}, the same cardinality and emptiness rule as
+ * the outer slot, and its arguments are the same at every level.
+ */
+type RecursiveRelationNode<
+  Node,
+  S extends ModelState,
+  K,
+  R extends AnyRelation,
+  Exhaustive extends boolean,
+> = Node &
+  (Exhaustive extends true
+    ? {
+        [Field in Extract<K, PropertyKey>]: WrapRelation<
+          S,
+          K,
+          R,
+          RecursiveRelationNode<Node, S, K, R, Exhaustive>
+        >;
+      }
+    : {
+        [Field in Extract<K, PropertyKey>]?: WrapRelation<
+          S,
+          K,
+          R,
+          RecursiveRelationNode<Node, S, K, R, Exhaustive>
+        >;
+      });
+
+type IsExhaustiveRecurrence<Node> = [NodeRecurse<Node>] extends [
+  { readonly depth: false },
+]
+  ? true
+  : false;
+
+type ApplyRecurrence<
+  S extends ModelState,
+  K,
+  R extends AnyRelation,
+  Node,
+  Inferred,
+> = [NodeRecurse<Node>] extends [undefined]
+  ? Inferred
+  : RecursiveRelationNode<Inferred, S, K, R, IsExhaustiveRecurrence<Node>>;
 
 export type InferRelationResult<
   S extends ModelState,
@@ -1008,15 +1059,21 @@ type InferRelationNodeResult<
   S,
   K,
   R,
-  InferSelectInclude<
-    GetTargetModelState<R>,
+  ApplyRecurrence<
+    S,
+    K,
+    R,
     Node,
-    NodeSelect<Node>,
-    MergeClientOmit<
-      ResolveClientOmit<GetTargetModel<R>, ClientDefaults>,
-      NodeOmit<Node>
-    >,
-    ClientDefaults
+    InferSelectInclude<
+      GetTargetModelState<R>,
+      Node,
+      NodeSelect<Node>,
+      MergeClientOmit<
+        ResolveClientOmit<GetTargetModel<R>, ClientDefaults>,
+        NodeOmit<Node>
+      >,
+      ClientDefaults
+    >
   >
 >;
 

@@ -1,0 +1,11 @@
+FC-06 Biome per changed file — base copy (git show HEAD:<file>) vs after
+
+FILE                                                 BASE                         AFTER
+scripts/raptor3-refusal-census.mjs                   0 errors fmt=0               0 errors fmt=0
+scripts/raptor3-manifest.mjs                         70 errors fmt=0              72 errors fmt=0
+scripts/raptor3-campaign-receipts.test.mjs           53 errors fmt=1              53 errors fmt=1
+scripts/run-raptor3.mjs                              37 errors fmt=1              37 errors fmt=1
+package.json                                         0 errors fmt=0               0 errors fmt=0
+
+new file: scripts/raptor3-refusal-census.test.mjs — 0 errors, formatted with biome format --write (new files may be)
+other changed files (.md, .mdx, .yml, package.json): no Biome diagnostics either side

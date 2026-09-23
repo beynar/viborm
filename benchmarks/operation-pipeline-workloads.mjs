@@ -32,11 +32,13 @@ export async function createWorkloadHarness(
   }
   const [
     { buildBatchWorkload },
+    { buildContractWorkload },
     { createBenchmarkFixture },
     { buildMutationWorkload },
     { buildReadWorkload },
   ] = await Promise.all([
     import("./operation-pipeline-batch-workloads.mjs"),
+    import("./operation-pipeline-contract-workloads.mjs"),
     import("./operation-pipeline-fixtures.mjs"),
     import("./operation-pipeline-mutation-workloads.mjs"),
     import("./operation-pipeline-read-workloads.mjs"),
@@ -54,6 +56,7 @@ export async function createWorkloadHarness(
     providerName
   );
   const harness =
+    (await buildContractWorkload(workloadName, fixture, semanticFixture)) ??
     (await buildReadWorkload(workloadName, fixture, semanticFixture)) ??
     (await buildMutationWorkload(
       workloadName,

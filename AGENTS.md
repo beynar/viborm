@@ -7,6 +7,10 @@ Type-safe ORM with zero codegen. Types inferred from validation schemas, not gen
 
 See `FEATURE_IMPLEMENTATION_TEMPLATE.md` for detailed layer-by-layer implementation guidance.
 
+[ELEGANCE.md](ELEGANCE.md) is the shared design and review standard for semantic
+ownership, lifetimes, composition and measured compression. Apply it within the
+requested scope; layer guides and active plans own exact contracts and gates.
+
 ---
 
 ## Why This Architecture Exists
@@ -92,6 +96,14 @@ classes `StringField`, `IntField`, etc. The concrete classes are
 ---
 
 ## Critical Architectural Rules
+
+### Authoritative facts and admission scope
+
+Establish immutable facts once at their authoritative owner. Resolve admitted
+operation meaning once within its admission scope. Consumers use those answers
+instead of reconstructing them. Reobserve facts when their truth can change,
+and validate at each genuine trust boundary. Every additional derivation or
+check must name the distinct fact or boundary it owns.
 
 ### Rule 1: Query Engine / Adapter Separation ⭐ MOST IMPORTANT
 
@@ -601,12 +613,11 @@ pnpm test:coverage:errors # Error subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapter subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
 
-# The other six are APPROVED EXCEPTIONS below 100 and do NOT share one number.
+# The other five are APPROVED EXCEPTIONS below 100 and do NOT share one number.
 # The floors below are statements / branches / functions / lines exactly as
 # scripts/coverage-policy.mjs enforces them, each with its measured evidence
 # recorded beside it there.
-pnpm test:coverage:query-engine-core # 98 / 97.9 / 98 / 98 - two `if (!row)` arms typecheck but are unreachable
-pnpm test:coverage:write-engine # 82 / 80.5 / 92 / 82 - the live-provider write suites belong to test:all
+pnpm test:coverage:query-engine-core # 87 / 91 / 90 / 87 - the whole engine is in scope, measured by its own deterministic test tree (coverage-raptor3) beside the contract layers
 pnpm test:coverage:drivers # 96 / 92.5 / 96 / 96 - per-provider index.ts needs a live connection this lane must not open
 pnpm test:coverage:client # 96 / 94 / 96 / 96 - `default:` arms over closed unions, and functions with no public caller
 pnpm test:coverage:cache # 98 / 98 / 98 / 98
@@ -684,6 +695,91 @@ Both halves of the engine are fast layers, not coverage-only lanes:
 `pnpm test:core` and `pnpm test:all` run both. The `coverage-write-engine-core`
 project re-reads those same 56 write files only so the query-core report can
 merge them; it is not their only home.
+
+A qualification gate enumerates a Vitest project BY THE PROJECT, never by a
+shell glob over the directory its files usually live in. `vitest.workspace.ts`
+owns what a project registers, and `node scripts/closure-final-inventory.mjs`
+expands those include patterns against the test tree: `providers` prints each
+provider project's registered file list, `plan` prints every gate stage with
+its files, and `credential-free` prints the unkeyed file stages. The final
+local closure's gate globbed `tests/providers/docker/mysql2*.test.ts` plus
+`tests/unit/migrations/mysql*docker*.test.ts`, ran eleven of `provider-mysql2`'s
+thirteen registered files and reported the number as the project's; the two
+files whose names matched neither spelling were simply absent. The command also
+lists test files no project registers, so a witness placed outside every
+include pattern is visible instead of quietly unrun, and it prints the
+symmetric omission beside it: per project, which stages cover its registered
+files and how many no enumerated stage covers — a file a project DOES register
+and no stage runs is exactly how the eleven-of-thirteen lane passed. The registered list and the unregistered list are pinned by
+`tests/contracts/architecture/gate-inventory-census.core.test.ts`; the
+stage-coverage reading is printed by the command and asserted by no cell. A stage's
+reported `Tests`
+total is executed cells across PROJECT EXECUTIONS — a file registered in two
+projects executes twice — and is not a count of distinct declared cases.
+
+Raptor 3 fixed public contracts and harness falsifiers have one explicit
+admission owner, `scripts/raptor3-manifest.mjs`, and their own `raptor3` Vitest
+project. `pnpm test:all` runs that fixed lane once; it clears replay/specimen
+environment selectors so they cannot replace the required tests. These tests
+open real in-process SQLite and do not belong in a provider-free core layer.
+`pnpm test:raptor3` additionally runs the fixed old-versus-old campaign with
+100 schedule IDs per profile and three replays per saved run. The public replay
+command is `node scripts/run-raptor3.mjs replay <corpus.json>`; saved files must
+match the executed source/runtime identity. A passing contract command is not
+the complete milestone or a candidate adoption decision: size, benchmark and
+provider obligations remain in the central implementation plan. The separate
+command-boundary falsifiers run with
+`node scripts/run-node-safe.mjs 768 600000 scripts/raptor3-cli.test.mjs`.
+`pnpm test:raptor3:compare` runs the bounded G1-01 private representation
+comparison on the same fixed scenarios. It has its own explicit file list in
+the existing manifest/project and is also admitted once by `test:all`. The
+scenario invocation optionally accepts a private engine factory; fixture-owned
+raw-state/default/error assertions remain independent, and exact event replay
+is within a candidate rather than across representations. Cross-engine error
+comparison may rename only an outer observed error's own valid correlation ID;
+causes and every other outcome/state/default field remain exact. This comparison is
+not the full G1 milestone or a public engine selector. The central plan owns
+the experimental and adoption gates; `src/query-engine/raptor3/AGENTS.md` owns
+the candidate's local boundaries.
+`pnpm test:raptor3:contracts` runs the selected command engine's expanded fixed
+SQLite contracts. `pnpm test:raptor3:generated` runs independent generated smoke
+cases and shrinking/fault falsifiers. `pnpm test:raptor3:seeds` runs the explicit
+1,000-seed SQLite campaign as ten serial children, each with 100 distinct seeds,
+both transport profiles, exact case receipts and three candidate replays. This
+is real-provider boundary DST (lane B), not the separate transport simulator.
+`pnpm test:raptor3:transport` runs the explicit-response transport fixtures
+(lane A); `pnpm test:raptor3:transport:seeds` runs their own ten bounded
+100-seed children. The two profiles distinguish a successful response from an
+ordered commit acknowledgement. Their driver never evaluates SQL or invents a
+reply: fixtures supply each result, queued operations are released by the seeded
+recorder, and the oracle checks exact physical parameters as well as public
+outcomes and progress. Both actors must actually be pending before the first
+release. These models are not claims about named hosted drivers or SQL truth.
+The same replay format records the candidate and any deliberate world specimen;
+replaying a known-bad specimen must reproduce its named property failure.
+Subsequent operations' outcomes are compared alongside final raw state.
+The `raptor3-provider` project uses the existing PGlite schema-family fixture and
+isolated live-provider stage. Ordinary Raptor 3 limits remain unchanged. The full
+seed campaign is an explicit command, not another copy inside `test:all`.
+Cleanup evidence separates the protected transaction boundary's ordered native
+aggregate from the public error boundary's deliberate cause redaction. The
+rollback witness rejects only after a real successful rollback and records both
+boundaries through the same replay protocol. Never change disclosure policy to
+make a harness assertion pass. An interactive lifecycle aggregate first passes
+its complete independent oracle, including ordering and shared correlation;
+only then may its two actual lifecycle errors be compared individually through
+the existing outer-error rule. This does not authorize recursive normalization
+of opaque causes. Recorder snapshots use the existing lossless value codec,
+preserving null-prototype metadata; the first replay fault remains authoritative.
+`benchmarks/operation-pipeline-evidence.mjs` owns the shared lossless value codec
+for replay and measured benchmark reports. Measured worker/report JSON uses the
+explicit `viborm-evidence-v1` envelope in both strict and semantic modes; decode
+it with `parseEvidenceReport` before reading metrics. Metadata-only control
+output stays plain JSON. Replay owns its record-level admission, while the codec
+owns value transport. Do not stringify native values or use a digest as an
+exact comparison. Transport regression runs through the existing bounded Node
+launcher with `benchmarks/operation-pipeline-transport.test.mjs`.
+
 Cache coverage admits every cache core file plus its four deterministic public
 client contracts and rejects resource-owning provider imports. Migration
 coverage uses `scripts/migration-test-manifest.mjs` for deterministic core and

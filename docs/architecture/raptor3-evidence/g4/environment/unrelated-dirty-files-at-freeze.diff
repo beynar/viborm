@@ -1,0 +1,438 @@
+diff --git a/CONTEXT.md b/CONTEXT.md
+index 68be8784..ab7982b2 100644
+--- a/CONTEXT.md
++++ b/CONTEXT.md
+@@ -81,6 +81,11 @@ An ordered unique key that a public unique selector can use to name one record.
+ A model can have several addressable keys.
+ _Avoid_: Identity fields, unique field set
+ 
++**Compound selector**:
++The model-local public query name for a compound ID or compound unique tuple.
++It names the tuple in unique selectors and is not a model field.
++_Avoid_: Compound field
++
+ **Reference key**:
+ The ordered target fields to which a relation points. A reference key can differ
+ from the target's row key, such as when a relation references a compound unique
+@@ -142,6 +147,28 @@ membership. Distinguishing delete-and-reinsert of the same key requires an
+ explicit version fact.
+ _Avoid_: Same ID, old ID/new ID
+ 
++**Record occurrence**:
++One position at which an operation selects, produces, or returns a record.
++Equal row keys alone do not make two occurrences interchangeable.
++_Avoid_: Record identity when the position or its observation matters
++
++**Record selection**:
++The instructions that identify the record an occurrence may consume, through a
++query or an exact earlier record output. Selection is not proof of existence.
++_Avoid_: Captured record when only the selection instructions are known
++
++**Record observation**:
++What a selection observed at a particular execution point: an absent target or
++one exact captured record. An earlier absence does not settle every later use
++of the same selection.
++_Avoid_: Selection, reusable absence
++
++**Retained requirement**:
++A captured identity, membership or condition that must remain true when later
++work consumes it. The initial observation and its continuing requirement are
++different facts.
++_Avoid_: Input validation, selection filter when continuing truth is meant
++
+ ## Write-execution language
+ 
+ **Record tree**:
+diff --git a/memory.md b/memory.md
+index 19dae51b..3993e157 100644
+--- a/memory.md
++++ b/memory.md
+@@ -8,6 +8,10 @@
+   derive the search root from that scope. Scan all relevant tracked and
+   untracked files, then report the exact root and file count used for
+   verification.
++- In a dirty worktree, untracked or modified status does not establish task
++  ownership. Before staging, derive an explicit allowlist from file content,
++  task evidence, and recorded owners; verify every entry against the explicit
++  exclusions. Leave uncertain files unstaged until ownership is proved.
+ - When Blume development owns `.blume`, run isolated checks directly with
+   `pnpm exec blume check --isolated`; do not pass `--isolated` through the pnpm
+   script separator because Blume receives the separator as an argument.
+@@ -19,6 +23,11 @@
+   the selected tests can import. Directory ownership does not isolate the
+   runtime graph: a write test can transform a result module mid-edit. Wait for
+   a stable tree, then run every bounded check serially.
++- Distinguish a shared validation-resource lock from shared imported source.
++  When another Git worktree holds the common lock, verify its source root.
++  Continue edits in the isolated worktree when imports cannot cross; serialize
++  validation and freeze its own imported graph before running. Do not freeze
++  independent implementation merely because both worktrees share a resource lock.
+ - A process-group teardown falsifier must actually let its group leader exit.
+   When that leader spawns the descendant under test, call `unref()` on the
+   child; otherwise the witness measures the wall timeout instead of orphan
+@@ -40,6 +49,18 @@
+   verify the process table again before trusting its completion. In a Vitest
+   workspace, pin focused file runs to one project or overlapping projects can
+   execute the same file twice.
++- When qualifying an archived source snapshot, set that snapshot's absolute
++  working directory on every validation call. A preceding copy command does not
++  change the next command's directory. Reject a run started in a changing tree;
++  verify the printed project root and source identity before using its receipt.
++- A negative eligibility witness must satisfy every unrelated prerequisite and
++  traverse the owner that applies the eligibility rule. An operation that is
++  intrinsically ineligible can stay red for the wrong reason and does not prove
++  that the guarded owner ran.
++- When configuration files participate in both source and harness fingerprints,
++  describe an archived-code/current-harness composition with both exact hashes
++  and byte provenance. Never manufacture an old-source/current-harness identity
++  pair that the fingerprint function cannot produce.
+ - Do not place an observational `ps` command before a test in the same shell
+   sequence. Either inspect in a separate tool call or make the shell exit when
+   any test process is found; otherwise an occupied machine falls through into
+@@ -51,10 +72,56 @@
+ - Before a focused Vitest run, read `vitest.workspace.ts` and use the declared
+   project name exactly. Do not infer a project name from a package or directory
+   label; a misspelled filter fails before collecting the intended witness.
++- Before a native matrix, prove that the selected project collects the expected
++  nonzero test count, then prove the exact provider substrate is cached, ready,
++  and reports its runtime version. A selection or setup failure is not engine
++  evidence.
++- A regression for a shared helper must execute at least one real producing
++  caller. A helper-only assertion does not prove that the caller uses the rule
++  and can leave the original defect untouched.
++- Never print an unfiltered process command-line inventory: unrelated process
++  arguments can contain credentials. Inspect command arguments internally only
++  to classify verification processes; emit process IDs and tool names, not the
++  original argument strings. Use the bounded launcher's existing preflight when
++  it already establishes the required clean process estate.
+ - Before invoking a formatter through a package runner, verify the repository's
+   configured formatter and that its installed entry point resolves. If one
+   formatter shim points at a missing package, use the already-installed project
+   formatter instead of changing dependencies merely to format the task diff.
++- Before repairing missing error metadata, trace it through construction,
++  sanitization and the existing materialization owner. Verify the observed
++  public error on every affected transport; a property in a constructor input
++  is not proof that it survives that boundary.
++- A private ownership refactor does not authorize a public output-shape change.
++  Preserve existing output assertions unless that exact compatibility decision
++  is approved, and project the private expectation onto the established public
++  representation instead.
++- Verify a suspected duplicate or structural defect in one exact, numbered
++  source excerpt before editing. Overlapping, concatenated, or truncated views
++  can make separate declarations look duplicated; a display artifact is not a
++  source defect.
++- A diagnostic trace must record statement entry before dispatch and mark
++  completion only after the provider acknowledges it. Recording only successful
++  statements hides the failing statement. Preserve both states in evidence.
++- Do not strengthen a test transport's capabilities to eliminate a candidate
++  failure. Preserve its original evidence limits. A post-rollback diagnostic
++  describes current state, not the original failing statement; test the case
++  where rollback or an external actor restores the violated condition.
++- Do not turn a historical selection observation into a continuing requirement
++  during an ownership refactor. Pair each stale-state refusal with a legal
++  change that must still succeed. Verify both through the existing public
++  boundary before encoding the distinction in a shared owner.
++- A race barrier must identify the semantic observation, not just matching
++  parameter values. A later assertion can query the same key and return a
++  different carrier. Use the actual response and transaction phase; verify
++  that the unchanged baseline reaches the intended cut exactly once. A capture
++  can address its row through a unique-locator subquery instead of literal key
++  parameters; inspect that provenance before declaring its semantic cut absent.
++- When checking effect order rather than injecting a fault, record a sticky
++  deviation in observation callbacks and assert it after the raw run is saved.
++  Throwing from the observer changes the engine's outcome and can discard the
++  very trace needed to explain the defect. Keep deliberate broken-observer
++  harness falsifiers separate from these semantic observations.
+ - When a coverage score drops after test-tier reclassification, compare the
+   files selected by the coverage project with the full owning-layer inventory
+   before adding tests. Measure the full safe selection first; fix coverage
+@@ -90,6 +157,10 @@
+   grows into whatever headroom it is given, so sizing the bar from observed
+   maxima is circular.
+   Describe a polling threshold as sampled, not as an OS-enforced hard limit.
++- Before declaring a validation check blocked by budgets, distinguish the
++  documented allowance for its aggregate runner from each subordinate child's
++  deadline. Consult the established command; do not apply a child ceiling to
++  its parent or invent a higher limit.
+ - A green full type-check can hide a layer-specific type-memory regression
+   because its heap is larger. Run the owning layer after adding a recursive
+   mapped union. If the same structural type is instantiated throughout a model
+@@ -230,6 +301,82 @@
+   the origin is reachable, but it can bypass the user's DNS, TLS, and network
+   policy boundary; when the two disagree, inspect the local denial response and
+   report that boundary explicitly.
++- Reuse the highest applicable validation boundary and trust its parsed values
++  throughout the subtree. Do not recheck internal argument/program/context
++  shapes or add defensive fallbacks. Allow narrow TypeScript assertions for
++  facts already established by admission, construction, or control flow instead
++  of adding runtime checks or elaborate types solely to avoid a cast. Verify
++  malformed input at the actual admission boundary, not through fabricated bad
++  internal calls. Keep new external-boundary checks and database correctness
++  obligations with their single real owner.
++- In a first-principles redesign, derive the required distinctions and their
++  composition from working behavior before selecting a representation family.
++  Treat existing machinery as evidence, not as a requirement; classify suspected
++  implementation artifacts separately and preserve observable contracts unless
++  their change is authorized. Before freezing a language, enumerate pairs of
++  inputs that reach a similar final state but differ in required transition
++  semantics. Require the candidate to keep each distinction without recovering
++  the source syntax downstream. Greater abstraction depth is not evidence of
++  compression; verify that shared rules permit a real old owner to be deleted.
++  For an explicitly clean-sheet rewrite, do not quietly preserve the executor,
++  intermediate language, or helper ownership as design constraints. Derive from
++  public capabilities and falsifying examples first; let existing code return
++  only through an independently demonstrated need. Separate a conservative
++  migration estimate from a claim about the achievable compression limit.
++  Absorb adversarial counterexamples by identifying the missing fact and its
++  existing semantic owner, not by adding a handler or flag per example. Verify
++  the repaired rule in another applicable position or representation. Preserve
++  genuine semantic branches; a universal representation is not itself a gain.
++  When borrowing from another system, distinguish a mechanism's obligations
++  from a maintainer's criticism of its representation. Inspect the relevant
++  source and test the obligation before declaring the machinery dispensable;
++  a TODO or a superficially smaller public API is not that proof.
++- Separate an incomplete prototype from proof that its representation cannot
++  express the contract. Inspect the actual representation before contrasting
++  design labels, and count construction, analysis, lowering, and retained
++  dependencies when assessing compression. Before implementation, rank the
++  plausible shapes and forecast gains from named rule/owner eliminations. State
++  confidence and the smallest falsifier: lack of measurement limits precision,
++  not reasoned anticipation. Treat size forecasts as hypotheses until a complete
++  replacement slice is measured. For a multi-objective rewrite,
++  use proxy targets such as LOC reduction as review checkpoints, not automatic
++  abandonment rules, unless the user explicitly makes that target a minimum.
++  Separate rollout blockers, limits on autonomous experimentation, and the
++  decision to abandon. Verify behavior, whole-system cost, and concrete changes
++  in semantic ownership or change impact before deciding whether to keep it.
++- Match measurement units before applying a design gate. Per-field or per-case
++  differential failures are not counts of independent implementation exceptions.
++  Inspect the comparator and the exercised state model before treating a trace
++  dashboard as evidence of database or concurrency equivalence.
++- Reuse an existing structural census before writing another measurement. For
++  TypeScript token counts, traverse parser-owned tokens; a standalone scanner
++  without template rescanning can consume later source as a template tail.
++  Verify definitions and a known file before publishing a count.
++- Treat differential dashboards and milestone gates as different tools. A
++  reporting test that always passes cannot validate parity. Run the strict gate
++  and the type-check against the actual checkout at every integration point,
++  and stop when a predeclared threshold fails instead of revising the threshold
++  after seeing the result. Parallelize implementation only after the shared
++  semantic contracts pass their falsifiers; a wrong frozen contract multiplies
++  rework across every stream. A trivial seed cannot establish interfaces for
++  conditional, repeated or correlated work: exercise those distinctions before
++  splitting consumers. Start with fixed independent state/outcome checks and
++  replay, then grow generation/shrinking with the verified feature scope.
++  Compare contracts across rewrites, not identical SQL or fault boundaries an
++  atomic strategy can legally remove; require evidence for removed cuts and
++  preserve physical repeatability checks within each implementation. When a
++  diagnostic position is relative to a physical plan, first prove that it names
++  the correct submitted effect in each implementation, then compare its meaning.
++  Preserve the original metadata prototype and every other field when making
++  that test-only projection. An observer may report several causal facts at one
++  completion; record them all before fault injection, and preserve its first
++  failure across subsequent calls instead of replacing it with a later symptom.
++  After changing fault-cut semantics, run every consumer, including disputed
++  behavior probes, before freezing source for a long campaign. A transaction
++  event is not a later statement-completion event. If a fault belongs to that
++  later completion, emit its own fixture-owned cut there; do not restore sticky
++  global matching. Verify the original failure, rollback, restoration and exact
++  injection order. Historical green evidence does not qualify changed observers.
+ - A new path alias is incomplete until every standalone resolver and config has
+   been audited and its isolated project collects. A green main TypeScript or
+   Vitest run does not prove that D1, worker, or other separately configured
+@@ -291,6 +438,14 @@
+   when stronger execution evidence is absent. If an error carries a complete
+   but mismatched correlation context, reject that stale context instead of
+   letting cardinality overwrite the contradiction.
++- Preserve confirmed commits and unacknowledged-dispatch uncertainty as separate
++  facts. Translating a provider error into a domain error does not prove rollback.
++  Derive progress at the dispatch/acknowledgement boundary, retain its earliest
++  trusted failure phase, and verify the full public metadata as well as rows.
++  First establish whether the public operation owns a progressive boundary at
++  all: an ordinary atomic failure need not expose a record-series envelope.
++  Classify that distinction against the existing public path before imposing
++  a shared scripted-fault oracle on a new operation shape.
+ - When a transport close rejects, retain its exact handle only for cleanup
+   retry; do not infer that it remains queryable. Some providers close admission
+   before a later connection cleanup fails. Quarantine the handle, refuse new
+@@ -321,3 +476,160 @@
+   from one-time control-plane setup and name both before the first release.
+ - When Arnaud says to merge a completed branch, finish the operation by pushing
+   the resulting target branch unless he explicitly asks for a local-only merge.
++- Establish default timing by tracing every public admission boundary, not by
++  assuming the desired number of evaluations. Use distinct callback values to
++  separate envelope admission, captured-member admission, and actual effects;
++  test a later-member refusal so the witness proves whether earlier members
++  have already executed.
++  When a user approves one evaluation per admitted input, remove repeated
++  evaluation within each scope; do not silently merge template and captured
++  occurrence admission. Pin the ordered ledger at both boundaries and prove
++  that retry does not extend it. Verify the installed schema before approving
++  a total callback count.
++- Match a gate to the decision it protects. A bounded architecture experiment
++  needs trustworthy correctness evidence; production adoption also needs full
++  performance qualification. Do not let small timing uncertainty consume the
++  experiment before testing its central hypothesis. When the user approves
++  deferral, update the milestone rule and status while preserving raw receipts,
++  inconclusive verdicts and the later qualification obligation.
++- A differential harness must prove that the requested implementation actually
++  ran; accepting a factory argument does not prove the fixture used it. Keep
++  this proof outside application-error capture, and falsify it with a real
++  fixture that ignores the requested entry. Admit the exact case/profile
++  inventory through one shared rule: cardinality alone cannot detect a
++  duplicate replacing a missing case.
++- Validation does not imply canonical object-key order. Before replacing
++  semantic phase ordering with an object visitor, inspect the actual admitted
++  representation: fast parsers may retain caller insertion order and may
++  normalize scalar shorthand into operator envelopes. Structural witnesses
++  must derive their expected private shape from that admitted representation;
++  behavior remains pinned against an independent result oracle. Keep phase
++  order with its semantic owner and pin reordered public keys against the same
++  oracle.
++- Before attributing a regression to a branch, reread the exact public fixture
++  and saved outcome. A surviving analysis marker does not prove that a guard
++  still checks the same facts: trace added restrictions through disjointness
++  and short-circuit logic. Review the smallest actual counterexample, not a
++  similar recipe remembered from a prior handoff.
++- Persist replay scenarios with an honest catalog identity and serialized fault
++  configuration. Verify the saved file through the same external replay command,
++  not only an in-memory closure. A deliberate world mutation that creates a
++  falsifier is also part of that identity: save it with both original and reduced
++  traces, reconstruct it through the shared replay entry, and require the same
++  named property failure after exact replay comparison. A lossless codec must preserve admitted value
++  kinds and observable key order across realms; a validator's shaped copy can
++  change that order even when it accepts the value. Exercise the actual worker
++  to coordinator to saved-report path for every new workload before long paired
++  measurements: native values can pass in-process comparison and then fail or
++  lose their types at JSON transport. Share the codec across evidence consumers;
++  refuse unsupported representations at that boundary instead of silently
++  coercing them. Keep a real native-value transport regression.
++- Test nondeterminism control with a real escaping source, not a corrupted tape
++  alone. Clock control must cover construction as well as `Date.now`; keep
++  watchdog clocks independent. Record transaction outcomes from successful or
++  failed native control calls, never infer rollback from a rejected operation.
++- Treat benchmark instrumentation as a possible execution-path change. Restore
++  exact driver surfaces before timing, record which ownership path the untimed
++  oracle exercised, and do not claim that it qualified a different timed path.
++  Assert row order only where the public operation promises it. A pre-parser
++  provider observer must match that transport's scalar types, not the decoded
++  public types or a raw query's different conversion settings. Inspect the
++  actual boundary before widening a missed-observation predicate.
++- Fault injection must act on an owned representation. Provider requests can be
++  frozen; make the specimen's own wire projection instead of mutating borrowed
++  inputs. Require the intended property to fail, not an incidental TypeError.
++  Error evidence also has boundaries: inspect the existing disclosure policy
++  before asserting raw causes. Record preserved native cleanup evidence before
++  normalization and assert the public redacted contract separately; never
++  weaken disclosure to satisfy a test.
++- A recorder must preserve the same value distinctions as its saved replay
++  codec. Generic cloning can erase prototypes while leaving in-process equality
++  green. Capture through the existing lossless codec, then verify disk replay.
++  Keep the first recorder mismatch authoritative so later cleanup events cannot
++  replace the evidence of the original divergence.
++- When compressing dependency checks, compare complete domain identity rather
++  than incidental shared fields. Reuse the existing resolved owner instead of
++  reconstructing a key signature. Pair the overlap refusal with a successful
++  case that shares one field but has a different owner, and a reversed-order
++  success control. Verify both against the public baseline before accepting
++  the compressed check.
++- When an analyzer consumes an execution IR, inventory every executable variant
++  that can carry the same semantic effect. A direct record path passing does not
++  qualify selected or bulk series unless they publish their admitted meaning to
++  that same analyzer. For recursive UNION queries, keep branch syntax minimal
++  and lower promised root ordering at the final projection; test both ordered
++  and absent-order inputs so the placement repair does not break ordinary seeds.
++- For a caller-path regression, execute one real caller with a valid minimal
++  fixture; a helper-only check or invalid fixture can stay red for the wrong
++  reason. Before a native matrix, verify that manifest and project selection
++  collect the intended tests, then provision and probe the exact provider port
++  and version; zero collection and setup failures are not behavior evidence.
++  Qualification must also exercise ordinary discovery and the real aggregate
++  entrypoint: a task-specific runner can be correct while default discovery
++  silently admits native-provider files or loses explicitly owned local tests.
++  Prove both exclusion and retained inclusion through the actual manifest and
++  stage selector before provider execution.
++  Resolve the workspace project name from its registration instead of guessing.
++  If a legacy owner exceeds the fixed RSS ceiling, do not raise the ceiling:
++  first reduce its heap budget or select the exact owning cases. Report skipped
++  cases as unqualified support, never as a full-file pass.
++- After any harness edit, typecheck and run the focused comparison, replay, and
++  caller smoke checks before expensive source-bound campaigns. A test-only
++  typing correction still changes the harness identity and invalidates earlier
++  final-identity receipts. Remove formatter-only or other presentation churn
++  before declaring the freeze; cleaning it after validation creates another
++  harness identity and invalidates otherwise useful receipts. Qualification
++  must compare the receipt's runtime with the requested pin, not only compare
++  base and instrumented identities; isolated worktrees use the fixed versioned
++  Node binary and pass its directory to child processes instead of trusting an
++  ambient shell or dispatcher. Audit equivalent
++  callbacks together: use assertion functions that genuinely narrow provider
++  rows, preserve fixture-driver subtypes through generic returns, and match the
++  concrete override signature. Audit each
++  provider's public metadata and redaction policy in the same pass so a fixture
++  does not demand diagnostics that the production boundary deliberately hides.
++- Preserve the exact pre-review source or patch for each bounded handoff. A hash
++  identifies an intermediate repair but cannot reconstruct its diff after the
++  shared worktree moves; verify review findings against the archived source and
++  bind subsequent receipts only to the identity that actually ran. At a later
++  unit boundary, compare the worktree with that unit's newest whole identity
++  and per-file manifest, not the preceding unit's accepted hashes; an authorized
++  next-unit change is not drift.
++- Inspect the admitted and provider representation before asserting a private
++  fixture shape. When preparation is reusable but lowering is statement-local,
++  count the one prepared meaning separately from every required alias-bound
++  lowering; do not turn removal of repeated preparation into removal of a real
++  statement or decode.
++- When a differential test fails, resolve the stack to the exact assertion and
++  specimen before attributing the defect. A shared oracle cannot impose an
++  approved candidate-only contract on an unchanged baseline; verify the
++  candidate identity and call site separately before changing production.
++- Before shared-source validation, require every writer to acknowledge NO EDITS
++  to production, tests (including unregistered files), generated scenarios,
++  scripts, registrations, and instrumentation until release. Pausing validators
++  is not pausing writes. Finish intended registration changes before the freeze,
++  then recapture identity at the command boundary. If writes overlap a run, keep
++  its diagnostics but do not accept it as stable-source evidence; revalidate the
++  affected gate after repair on one acknowledged source-and-harness pair.
++- Before starting a costly qualification command, configure its durable output
++  owner to persist the raw identity, case counts, and resource receipt. A
++  terminal summary is coordination evidence, not an archive. After the command,
++  verify the raw artifact exists and is checksummed before releasing the run
++  slot or sealing the package.
++- Before accepting a review demand for missing behavior, check its milestone
++  assignment and the exact failing boundary. An explicit pre-dispatch refusal
++  for a deferred feature is not evidence of an incorrect post-write result.
++  Preserve the diagnostic, correct its scope, and test the supported behavior.
++- In expected-failure transaction tests, assert at the boundary that owns the
++  failure. Catching a statement rejection inside a callback does not make a
++  rollback-only transaction successful. Activate artificial provider limits
++  after ordinary fixture setup; isolate the failing subpath before changing
++  production or attributing a setup failure.
++- When replacing an awaited result with a returned promise, inspect the local
++  catch and finally boundaries first. Preserve `return await` when that owner
++  must observe rejection for recovery or cleanup. Verify a rejection from the
++  final asynchronous dispatch, not only a failure before the return.
++- Removing an execution-time refusal can expose a previously unreachable
++  preparation path. Before broad qualification, test each result mode and the
++  lifetime of generated values across nested siblings. Verify that nested
++  work cannot publish the operation result or clean up its shared scratch state.
+diff --git a/tests/pattern/pack/program-dump.ts b/tests/pattern/pack/program-dump.ts
+index 74c08cd9..26024ad9 100644
+--- a/tests/pattern/pack/program-dump.ts
++++ b/tests/pattern/pack/program-dump.ts
+@@ -127,11 +127,13 @@ function alignById(
+     new Array<number>(columns + 1).fill(0)
+   );
+   for (let i = rows - 1; i >= 0; i--) {
++    const row = table[i];
++    if (!row) continue;
+     for (let j = columns - 1; j >= 0; j--) {
+-      table[i][j] =
++      row[j] =
+         oracle[i]?.id === mine[j]?.id
+           ? (table[i + 1]?.[j + 1] ?? 0) + 1
+-          : Math.max(table[i + 1]?.[j] ?? 0, table[i]?.[j + 1] ?? 0);
++          : Math.max(table[i + 1]?.[j] ?? 0, row[j + 1] ?? 0);
+     }
+   }
+   const pairs: { oracle?: DumpStep; mine?: DumpStep; position: number }[] = [];

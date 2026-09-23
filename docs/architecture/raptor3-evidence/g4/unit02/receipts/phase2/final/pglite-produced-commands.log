@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/expanded/produced-commands.test.ts (3 tests) 758ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  08:17:18
+   Duration  2.63s (transform 1.17s, setup 9ms, collect 1.71s, tests 758ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 4.79s wall, 1535.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

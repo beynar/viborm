@@ -1,0 +1,22 @@
+{
+  "formatVersion": 1,
+  "source": "generated-corpus.json",
+  "file": "generated-corpus.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 324201,
+  "originalSha256": "9bfdc729b9d886b9b3a69ce0536410caae6753c61b36587cc21cc6e6caf1e938",
+  "archiveBytes": 10908,
+  "archiveSha256": "bcebc79872bd3756bebd9298c2f9b155ca7cb6bd34b90014ad9cf708d726fd9b",
+  "identity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
+  },
+  "role": "G4 read child reproduction",
+  "campaign": "g4-transport-seeds",
+  "firstSeed": 50000,
+  "reproducesRetainedChild": "../../../campaigns/g4-transport-seeds/seed-50000.receipt",
+  "byteIdenticalToRetainedChild": true,
+  "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+  "restoreCommand": "g4_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g4_corpus_restore_dir/generated-corpus.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm\"; node scripts/run-raptor3.mjs g4-transport-seed-batch 50000 --subject=candidate"
+}

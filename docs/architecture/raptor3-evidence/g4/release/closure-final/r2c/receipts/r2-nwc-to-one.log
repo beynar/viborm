@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-to-one.test.ts (19 tests) 1093ms
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  11:20:07
+   Duration  2.57s (transform 839ms, setup 9ms, collect 1.29s, tests 1.09s, environment 0ms, prepare 54ms)
+
+Vitest resources: 4.23s wall, 1595.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

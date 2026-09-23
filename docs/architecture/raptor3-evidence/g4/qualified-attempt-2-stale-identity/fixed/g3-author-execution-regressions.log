@@ -1,0 +1,35 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 1 failed) 56ms
+   × G3-02 author execution regressions > reports a malformed result after its atomic batch was acknowledged 30ms
+     → Missing expected rejection.
+   ✓ G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking 18ms
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > reports a malformed result after its atomic batch was acknowledged
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g3/author-execution-regressions.test.ts:138:7
+    136|     driver.batchCalls = 0;
+    137|     try {
+    138|       await assert.rejects(
+       |       ^
+    139|         candidate.execute("record", "createMany", {
+    140|           data: [
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  01:13:23
+   Duration  5.21s (transform 1.89s, setup 14ms, collect 2.83s, tests 56ms, environment 0ms, prepare 57ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-u1Ij28/vitest.json
+Vitest resources: 14.19s wall, 532.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-u1Ij28

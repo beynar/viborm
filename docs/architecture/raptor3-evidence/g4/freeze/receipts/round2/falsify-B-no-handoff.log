@@ -1,0 +1,85 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests | 1 failed) 220ms
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested child update whose key names set beside an operator 59ms
+   × G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested child upsert whose key names set beside an operator 46ms
+     → candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":11,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
+      {
++       id: 11,
+-       id: 10,
+        name: 'i',
+        ownerId: 1
+      }
+    ],
+    nitems: [
+
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested updateMany member whose key names set beside an operator 20ms
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > answers the arity sentence when a nested child key names nothing 15ms
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > keeps the refusal inside the shipped predicate's SHAPE and POSITIONS 68ms
+   ✓ G4-02 — R-D2 (c) at the nested sites (decisions round 2) > answers the shipped sentence for a relation-free root upsert whose key names nothing 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts > G4-02 — R-D2 (c) at the nested sites (decisions round 2) > refuses a nested child upsert whose key names set beside an operator
+AssertionError: candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[{"id":11,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[{"id":10,"name":"i","ownerId":1}],"owners":[{"id":1,"label":"o"}],"nitems":[{"id":10,"name":"i","ownerId":1}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
+      {
++       id: 11,
+-       id: 10,
+        name: 'i',
+        ownerId: 1
+      }
+    ],
+    nitems: [
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,10 +1,10 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",[39m
+[31m+   "answer": "ok:{\"id\":1,\"label\":\"o\"}",[39m
+[2m    "items": [[22m
+[2m      {[22m
+[32m-       "id": 10,[39m
+[31m+       "id": 11,[39m
+[2m        "name": "i",[22m
+[2m        "ownerId": 1,[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "nitems": [[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/nested-key-refusal.test.ts:159:10
+    157|   const candidate = await run("candidate", model, operation, args);
+    158|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    159|   assert.deepEqual(
+       |          ^
+    160|     candidate,
+    161|     shipped,
+ ❯ tests/raptor3/g4/unit02/nested-key-refusal.test.ts:198:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  19:23:58
+   Duration  5.55s (transform 3.31s, setup 19ms, collect 5.04s, tests 220ms, environment 0ms, prepare 83ms)
+
+Vitest resources: 6.60s wall, 467.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

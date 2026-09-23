@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-perf-review| tests/raptor3/g4/review/perf/deferred-failure-identity.review.test.ts (6 tests) 92ms
+ ✓ |g4-perf-review| tests/raptor3/g4/review/perf/alias-scope.review.test.ts (3 tests) 44ms
+ ✓ |g4-perf-review| tests/raptor3/g4/review/perf/sentinel-and-scalars.review.test.ts (5 tests) 17ms
+
+ Test Files  3 passed (3)
+      Tests  14 passed (14)
+   Start at  12:21:52
+   Duration  3.30s (transform 1.82s, setup 12ms, collect 2.91s, tests 152ms, environment 0ms, prepare 46ms)
+
+Vitest resources: 3.93s wall, 631.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

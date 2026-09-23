@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fcpg
+
+(node:89597) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-nested-write-races.test.ts (95 tests | 94 skipped) 1835ms
+   ✓ pg Driver > pg filtered m2m deleteMany staleness > a member added after the plan-time read aborts the guard, then the retry converges  1834ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 94 skipped (95)
+   Start at  22:13:38
+   Duration  4.77s (transform 1.74s, setup 14ms, collect 2.74s, tests 1.84s, environment 0ms, prepare 47ms)
+
+Vitest resources: 7.61s wall, 493.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

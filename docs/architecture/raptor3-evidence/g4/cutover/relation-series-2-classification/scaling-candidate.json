@@ -1,0 +1,219 @@
+{
+ "root": "/private/tmp/viborm-g4-perf-candidate",
+ "report": [
+  {
+   "case": "roots-2-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 2
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2",
+    "series_child_3"
+   ],
+   "defaultCount": 3,
+   "statementCount": 3,
+   "inserts": [
+    [
+     "series_child_2",
+     "s",
+     5000
+    ],
+    [
+     "series_child_3",
+     "s",
+     6000
+    ]
+   ],
+   "selects": [
+    "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"bench_generated_parents\" AS \"q0\" WHERE \"q0\".\"id\" IN (?, ?) ORDER BY \"q0\".\"id\" ASC :: [5000,6000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_2",
+     "parentId": 5000,
+     "label": "s"
+    },
+    {
+     "id": "series_child_3",
+     "parentId": 6000,
+     "label": "s"
+    }
+   ]
+  },
+  {
+   "case": "roots-3-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 3
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2",
+    "series_child_3",
+    "series_child_4"
+   ],
+   "defaultCount": 4,
+   "statementCount": 4,
+   "inserts": [
+    [
+     "series_child_2",
+     "s",
+     5000
+    ],
+    [
+     "series_child_3",
+     "s",
+     6000
+    ],
+    [
+     "series_child_4",
+     "s",
+     10000
+    ]
+   ],
+   "selects": [
+    "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"bench_generated_parents\" AS \"q0\" WHERE \"q0\".\"id\" IN (?, ?, ?) ORDER BY \"q0\".\"id\" ASC :: [5000,6000,10000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_2",
+     "parentId": 5000,
+     "label": "s"
+    },
+    {
+     "id": "series_child_3",
+     "parentId": 6000,
+     "label": "s"
+    },
+    {
+     "id": "series_child_4",
+     "parentId": 10000,
+     "label": "s"
+    }
+   ]
+  },
+  {
+   "case": "roots-2-array-2",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 2
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2",
+    "series_child_3",
+    "series_child_4",
+    "series_child_5",
+    "series_child_6"
+   ],
+   "defaultCount": 6,
+   "statementCount": 5,
+   "inserts": [
+    [
+     "series_child_3",
+     "a",
+     5000
+    ],
+    [
+     "series_child_4",
+     "b",
+     5000
+    ],
+    [
+     "series_child_5",
+     "a",
+     6000
+    ],
+    [
+     "series_child_6",
+     "b",
+     6000
+    ]
+   ],
+   "selects": [
+    "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"bench_generated_parents\" AS \"q0\" WHERE \"q0\".\"id\" IN (?, ?) ORDER BY \"q0\".\"id\" ASC :: [5000,6000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_3",
+     "parentId": 5000,
+     "label": "a"
+    },
+    {
+     "id": "series_child_4",
+     "parentId": 5000,
+     "label": "b"
+    },
+    {
+     "id": "series_child_5",
+     "parentId": 6000,
+     "label": "a"
+    },
+    {
+     "id": "series_child_6",
+     "parentId": 6000,
+     "label": "b"
+    }
+   ]
+  },
+  {
+   "case": "roots-1-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 1
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2"
+   ],
+   "defaultCount": 2,
+   "statementCount": 2,
+   "inserts": [
+    [
+     "series_child_2",
+     "s",
+     5000
+    ]
+   ],
+   "selects": [
+    "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"bench_generated_parents\" AS \"q0\" WHERE \"q0\".\"id\" IN (?) ORDER BY \"q0\".\"id\" ASC :: [5000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_2",
+     "parentId": 5000,
+     "label": "s"
+    }
+   ]
+  },
+  {
+   "case": "roots-0-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 0
+    }
+   },
+   "defaults": [
+    "series_child_1"
+   ],
+   "defaultCount": 1,
+   "statementCount": 1,
+   "inserts": [],
+   "selects": [
+    "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"bench_generated_parents\" AS \"q0\" WHERE \"q0\".\"id\" IN (?) ORDER BY \"q0\".\"id\" ASC :: [1]"
+   ],
+   "persisted": []
+  }
+ ]
+}

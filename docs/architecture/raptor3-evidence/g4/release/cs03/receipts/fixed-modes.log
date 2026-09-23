@@ -1,0 +1,24 @@
+Each run: TMPDIR=/private/tmp/viborm-cs03-tmp node scripts/run-raptor3.mjs <mode>
+Structured identity/resource records: mode-<name>.verified.json,
+mode-<name>.vitest.json (the mode runner's own evidence output, copied out of
+TMPDIR).
+
+$ node scripts/run-raptor3.mjs cs01-extension-a
+ ✓ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests) 33ms
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+Raptor 3 cs01-extension-a contract gate verified.
+
+$ node scripts/run-raptor3.mjs cs03-member-scope
+ ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 39ms
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+Raptor 3 cs03-member-scope contract gate verified.
+
+$ node scripts/run-raptor3.mjs g2-baseline
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+Raptor 3 g2-baseline contract gate verified.
+
+All three unchanged from their registered counts (216/216 for g2-baseline
+matches the count independently recorded in g4/release/d46/note.md).

@@ -1,0 +1,30 @@
+{
+  "reference": {
+    "receiptId": "JzSNb2",
+    "base": {
+      "production": "5502c7cf9e1ea16c6c00d3548f8eb8f030e921df1cb0b6710de3c58458f79a3e",
+      "harness": "af14a1c9b611f07cb76545f035261f9f5ee236972df8793c282f6603e037dd2e"
+    },
+    "instrumented": {
+      "production": "f0811391cd84bfce364c1cf04535f27b90357abbf6dff82051839296f3eb3a67",
+      "harness": "af14a1c9b611f07cb76545f035261f9f5ee236972df8793c282f6603e037dd2e"
+    },
+    "instrumentationPatchSha256": "5e4f9d61dfa486d65dca2ed949ea1178188fe55b75ad978674a7adcf2a1cfd4c",
+    "eventsSha256": "41970ac80f207286692c00f9053c4e7236e5422aa2770c00f875a10665a581e5"
+  },
+  "base": {
+    "production": "36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377",
+    "harness": "87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e"
+  },
+  "instrumented": {
+    "production": "dd86a5e623088ef0a95ba7de7b440891c9f67c45ebd1b2e9d54379f90e86d968",
+    "harness": "87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e"
+  },
+  "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sqliteDriver": "12.6.0",
+    "vitest": "3.1.4"
+  }
+}

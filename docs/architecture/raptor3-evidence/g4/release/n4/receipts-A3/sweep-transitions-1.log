@@ -1,0 +1,110 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |coverage-raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 112ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 68ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 23ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 60ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 42ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 170ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 60ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 68ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 91ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-legacy.test.ts (8 tests) 37ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts (8 tests) 46ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 44ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/own-write-legacy.test.ts (18 tests) 21ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junction-identity-legacy.test.ts (2 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junctions-legacy.test.ts (26 tests) 34ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/keys-legacy.test.ts (14 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/occupied-keys-legacy.test.ts (8 tests) 15ms
+ ✓ |raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 106ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 69ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 23ms
+ ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 61ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 41ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 168ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 62ms
+ ✓ |raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 73ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 95ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-legacy.test.ts (8 tests) 36ms
+ ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts (8 tests) 48ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 45ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-legacy.test.ts (18 tests) 22ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-legacy.test.ts (2 tests) 6ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-legacy.test.ts (26 tests) 33ms
+ ✓ |raptor3| tests/raptor3/transitions/keys-legacy.test.ts (14 tests) 17ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-legacy.test.ts (8 tests) 15ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts [ tests/raptor3/transitions/junction-races-live-commands.test.ts ]
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-legacy.test.ts [ tests/raptor3/transitions/junction-races-live-legacy.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/transitions/junction-races-live.ts:21:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts [ tests/raptor3/transitions/keys-live-commands.test.ts ]
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/keys-live-legacy.test.ts [ tests/raptor3/transitions/keys-live-legacy.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/transitions/keys-live.ts:5:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts [ tests/raptor3/transitions/occupancy-live-commands.test.ts ]
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-legacy.test.ts [ tests/raptor3/transitions/occupancy-live-legacy.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/transitions/occupancy-live.ts:12:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+
+ Test Files  6 failed | 34 passed (40)
+      Tests  384 passed (384)
+   Start at  07:54:51
+   Duration  7.62s (transform 2.22s, setup 43ms, collect 4.04s, tests 1.83s, environment 0ms, prepare 73ms)
+
+Vitest resources: 9.40s wall, 814.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

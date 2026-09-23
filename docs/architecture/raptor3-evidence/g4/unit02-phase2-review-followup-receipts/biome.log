@@ -1,0 +1,409 @@
+src/query-engine/raptor3/commands/assignments.ts:47:5 lint/style/noParameterProperties ━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    45 │   private refusal?: Error;
+    46 │   constructor(
+  > 47 │     readonly model: AnyModel,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^
+    48 │     readonly operation: "create" | "update" | "select",
+    49 │     values: Input = {},
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/assignments.ts:48:5 lint/style/noParameterProperties ━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    46 │   constructor(
+    47 │     readonly model: AnyModel,
+  > 48 │     readonly operation: "create" | "update" | "select",
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    49 │     values: Input = {},
+    50 │     explicit: Input = values,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/assignments.ts:51:5 lint/style/noParameterProperties ━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    49 │     values: Input = {},
+    50 │     explicit: Input = values,
+  > 51 │     readonly captured?: Assignments,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    52 │     private readonly forwarded: Assignments[] = [],
+    53 │     readonly deferred = false
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/assignments.ts:52:5 lint/style/noParameterProperties ━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    50 │     explicit: Input = values,
+    51 │     readonly captured?: Assignments,
+  > 52 │     private readonly forwarded: Assignments[] = [],
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    53 │     readonly deferred = false
+    54 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/assignments.ts:53:5 lint/style/noParameterProperties ━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    51 │     readonly captured?: Assignments,
+    52 │     private readonly forwarded: Assignments[] = [],
+  > 53 │     readonly deferred = false
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+    54 │   ) {
+    55 │     for (const [field, value] of Object.entries(values)) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/commands.ts:229:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    227 │   private nextMutation = 0;
+    228 │   readonly execution: CommandExecution;
+  > 229 │   constructor(readonly context: OperationContext) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    230 │     this.execution = new CommandExecution(this);
+    231 │   }
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/commands.ts:935:7 lint/style/noParameterAssign ━━━━━━━━━━━━━━━━━━━
+
+  × Assigning a function parameter is confusing.
+  
+    933 │       }
+    934 │       current = parent;
+  > 935 │       branch = parentBranch;
+        │       ^^^^^^
+    936 │     }
+    937 │     return false;
+  
+  i The parameter is declared here:
+  
+    908 │     target: CommandOccurrence,
+    909 │     visit: (read: ReadVisit) => "stop" | void,
+  > 910 │     branch: BranchPath | undefined
+        │     ^^^^^^
+    911 │   ): boolean {
+    912 │     let current = target;
+  
+  i Developers usually expect function parameters to be readonly. To align with this expectation, use a local variable instead.
+  
+
+src/query-engine/raptor3/commands/commands.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       7    7 │   import type { AnyModel } from "@schema/model";
+       8    8 │   import type { OperationContext } from "../shared/operation-context";
+       9      │ - import·{
+      10      │ - ··returningSafeProjection,
+      11      │ - ··type·SelectorFacts,
+      12      │ - }·from·"../shared/query";
+            9 │ + import·{·returningSafeProjection,·type·SelectorFacts·}·from·"../shared/query";
+      13   10 │   import { type Arguments, entries, type Input, record } from "../shared/schema";
+      14   11 │   import { type Membership, physicalField } from "../shared/storage";
+    ········· │ 
+    1042 1039 │       const selector = ctx.queries.prepareSelector(model, args.where);
+    1043 1040 │       return () =>
+    1044      │ - ······ctx.updateMany(model,·selector,·values,·undefined,·projection,·()·=>
+    1045      │ - ········new·NotFoundError(model["~"].names.ts!,·"update")
+         1041 │ + ······ctx.updateMany(
+         1042 │ + ········model,
+         1043 │ + ········selector,
+         1044 │ + ········values,
+         1045 │ + ········undefined,
+         1046 │ + ········projection,
+         1047 │ + ········()·=>·new·NotFoundError(model["~"].names.ts!,·"update")
+    1046 1048 │         );
+    1047 1049 │     }
+    ········· │ 
+    1128 1130 │         // construction's own answer, enforced at `OperationContext.dispatch`.
+    1129 1131 │         return {
+    1130      │ - ········single:·values.length·===·0·||·(!recoverableSkip·&&·(!projection·||·returning)),
+         1132 │ + ········single:
+         1133 │ + ··········values.length·===·0·||
+         1134 │ + ··········(!recoverableSkip·&&·(!projection·||·returning)),
+    1131 1135 │           run: () =>
+    1132 1136 │             ctx.createMany(model, values, projection, args.skipDuplicates),
+    ········· │ 
+    1136 1140 │         const projection = bulkProjection(ctx, model, args);
+    1137 1141 │         if (args.limit === 0)
+    1138      │ - ········return·{·single:·true,·run:·async·()·=>·ctx.emptyBulkResult(projection)·};
+         1142 │ + ········return·{
+         1143 │ + ··········single:·true,
+         1144 │ + ··········run:·async·()·=>·ctx.emptyBulkResult(projection),
+         1145 │ + ········};
+    1139 1146 │         const selector = ctx.queries.prepareSelector(model, args.where);
+    1140 1147 │         return {
+    1141      │ - ········single:·!projection·||·(returning·&&·returningSafeProjection(projection)),
+         1148 │ + ········single:
+         1149 │ + ··········!projection·||·(returning·&&·returningSafeProjection(projection)),
+    1142 1150 │           run: () => ctx.deleteMany(model, selector, args.limit, projection),
+    1143 1151 │         };
+    ········· │ 
+    1153 1161 │           single: returning && returningSafeProjection(projection),
+    1154 1162 │           run: () =>
+    1155      │ - ··········ctx.deleteMany(model,·selector,·undefined,·projection,·()·=>
+    1156      │ - ············new·NotFoundError(model["~"].names.ts!,·"delete")
+         1163 │ + ··········ctx.deleteMany(
+         1164 │ + ············model,
+         1165 │ + ············selector,
+         1166 │ + ············undefined,
+         1167 │ + ············projection,
+         1168 │ + ············()·=>·new·NotFoundError(model["~"].names.ts!,·"delete")
+    1157 1169 │             ),
+    1158 1170 │         };
+  
+
+src/query-engine/raptor3/commands/execution.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { getAdapterInternals } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import {
+    3 │   NestedWriteError,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     11  11 │   import type { Assignments } from "./assignments";
+     12  12 │   import { CommandAttempt } from "./command-attempt";
+     13     │ - import·{·isRecordOccurrence,·isSeriesOccurrence·}·from·"./commands";
+     14     │ - import·type·{
+     15     │ - ··Choose,
+     16     │ - ··CommandOccurrence,
+     17     │ - ··Commands,
+     18     │ - ··RecordCommand,
+     19     │ - ··SelectedSeriesMember,
+     20     │ - ··SeriesOccurrence,
+     21     │ - }·from·"./commands";
+         13 │ + import·type·{
+         14 │ + ··Choose,
+         15 │ + ··CommandOccurrence,
+         16 │ + ··Commands,
+         17 │ + ··RecordCommand,
+         18 │ + ··SelectedSeriesMember,
+         19 │ + ··SeriesOccurrence,
+         20 │ + }·from·"./commands";
+         21 │ + import·{·isRecordOccurrence,·isSeriesOccurrence·}·from·"./commands";
+     22  22 │   import { membershipFields, type Selection } from "./selection";
+     23  23 │   
+  
+
+src/query-engine/raptor3/commands/execution.ts:29:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    27 │   private currentAttempt: CommandAttempt;
+    28 │   private recovered = false;
+  > 29 │   constructor(readonly commands: Commands) {
+       │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    30 │     this.context = commands.context;
+    31 │     this.currentAttempt = new CommandAttempt(this.context.transportAttempt);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/execution.ts:257:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    255 │     const attempt = this.attempt;
+    256 │     const command = occurrence.command;
+  > 257 │     switch (command.kind) {
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+  > 258 │       case "record": {
+         ...
+  > 534 │         return;
+  > 535 │     }
+        │     ^
+    536 │   }
+    537 │   async records(
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/commands/execution.ts:575:68 lint/complexity/noCommaOperator ━━━━━━━━━━━━━━
+
+  × The comma operator is disallowed.
+  
+    573 │             command
+    574 │           )
+  > 575 │         : (await ctx.executeMember(() => this.run(record), command), true);
+        │                                                                    ^
+    576 │       if (!completed) continue;
+    577 │       count++;
+  
+  i Its use is often confusing and obscures side effects.
+  
+
+src/query-engine/raptor3/commands/index.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    129 129 │       const admitted = admittedOperation(operation);
+    130 130 │       if (!admitted)
+    131     │ - ······throw·new·Error(
+    132     │ - ········`Raptor·3·G1·operation·is·not·implemented:·${operation}`
+    133     │ - ······);
+        131 │ + ······throw·new·Error(`Raptor·3·G1·operation·is·not·implemented:·${operation}`);
+    134 132 │       return admitted;
+    135 133 │     };
+    ······· │ 
+    153 151 │         requested === operation
+    154 152 │           ? undefined
+    155     │ - ········:·()·=>
+    156     │ - ············new·NotFoundError(model["~"].names.ts·??·"unknown",·requested);
+        153 │ + ········:·()·=>·new·NotFoundError(model["~"].names.ts·??·"unknown",·requested);
+    157 154 │       const body = (context: OperationContext) => {
+    158 155 │         const value = read();
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   assembleAdapterSelect,
+  > 3 │   getAdapterInternals
+  > 4 │ } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5 │ import type { AnyDriver } from "@drivers";
+    6 │ import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      33   33 │   import {
+      34   34 │     InvalidScalarResult,
+      35      │ - ··Queries,
+      36      │ - ··type·PreparedProjection,
+           35 │ + ··type·PreparedProjection,
+      37   36 │     type PreparedSelector,
+      38      │ - ··type·Query,
+           37 │ + ··Queries,
+           38 │ + ··type·Query,
+      39   39 │     type Read,
+      40   40 │     returningSafeProjection
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:124:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    122 │   );
+    123 │   constructor(
+  > 124 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    125 │     factoryDriver: AnyDriver,
+    126 │     readonly modelName: string,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:126:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    124 │     readonly schema: EngineSchema,
+    125 │     factoryDriver: AnyDriver,
+  > 126 │     readonly modelName: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    127 │     readonly operation: Operation,
+    128 │     binding?: ExecutionBinding,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:127:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    125 │     factoryDriver: AnyDriver,
+    126 │     readonly modelName: string,
+  > 127 │     readonly operation: Operation,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    128 │     binding?: ExecutionBinding,
+    129 │     prepareBatch = false,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/schema.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { AnyDriver } from "@drivers";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { QueryEngineError } from "@errors";
+    3 │ import { hydrateSchemaNames, type Schema } from "@schema/hydration";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      7   7 │     type ClearableMembership,
+      8   8 │   } from "@schema/relation/clearability";
+      9     │ - import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     10     │ - import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+          9 │ + import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+         10 │ + import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     11  11 │   import { createResolvedSchemaRegistry } from "@validation/builder";
+     12  12 │   import { isRecord } from "@validation/value-guards";
+  
+
+src/query-engine/raptor3/shared/schema.ts:134:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    132 │     ClearableMembership
+    133 │   >();
+  > 134 │   constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^
+    135 │     if (resolved) {
+    136 │       this.index = resolved.index;
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/schema.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    132 132 │       ClearableMembership
+    133 133 │     >();
+    134     │ - ··constructor(readonly·schema:·Schema,·resolved?:·ResolvedSchemaViews)·{
+        134 │ + ··constructor(
+        135 │ + ····readonly·schema:·Schema,
+        136 │ + ····resolved?:·ResolvedSchemaViews
+        137 │ + ··)·{
+    135 138 │       if (resolved) {
+    136 139 │         this.index = resolved.index;
+  
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 18.
+Checked 13 files in 74ms. No fixes applied.
+Found 37 errors.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

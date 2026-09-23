@@ -1,0 +1,22 @@
+   × G4 regression review — neighbouring uncertain-outcome shapes > P1 a root update rejected before dispatch answers the shipped failure 32ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P2 a nested write inside a root create rejected before dispatch answers the shipped failure 8ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P3 an array member rejected before dispatch answers the shipped failure 4ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P4 createMany rejected before dispatch publishes no progress on either engine 6ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P5 updateMany rejected before dispatch publishes no progress on either engine 3ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P6 deleteMany rejected before dispatch publishes no progress on either engine 2ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on both routes 3ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P8 a committed set window with a malformed result still publishes progress on the candidate only 2ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.1 a relation-bearing root create faulted after 1 dispatched statement(s) 3ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.2 a relation-bearing root create faulted after 2 dispatched statement(s) 3ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.3 a relation-bearing root create faulted after 3 dispatched statement(s) 3ms
+   ✓ G4 seam round review — the cache rail's neighbours > S1 a rolled-back root create invalidates on neither engine 7ms
+   ✓ G4 seam round review — the cache rail's neighbours > S2 a successful root create on a transaction-capable driver invalidates exactly once 4ms
+   ✓ G4 seam round review — the cache rail's neighbours > S3 a failed root create on a transaction-capable driver invalidates on neither engine 3ms
+   ✓ G4 seam round review — the cache rail's neighbours > S4 a multi-segment write notifies the same number of times on both engines 3ms
+   ✓ G4 seam round review — the cache rail's neighbours > S5 a write inside $transaction(callback) invalidates the same on both engines 3ms
+   × G4 seam round review — the cache rail's neighbours > S6 a throwing cache invalidation on the uncertain root create answers the same on both engines 4ms
+   ✓ G4 seam round review — the cache rail's neighbours > S8 a guard-aborted atomic batch invalidates the same on both engines 7ms
+   ✓ G4 seam round review — the cache rail's neighbours > S7 a throwing cache invalidation on a SUCCESSFUL write answers the same on both engines 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed (2)
+      Tests  6 failed | 13 passed (19)

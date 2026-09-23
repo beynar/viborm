@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 85ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  15:32:25
+   Duration  1.55s (transform 858ms, setup 9ms, collect 1.31s, tests 85ms, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ia707v/vitest.json
+Vitest resources: 3.58s wall, 470.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g25-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-ia707v

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc05
+
+ ✓ |coverage-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 10ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 10ms
+ ✓ |coverage-extensions| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 10ms
+
+ Test Files  3 passed (3)
+      Tests  129 passed (129)
+   Start at  23:13:46
+   Duration  732ms (transform 148ms, setup 23ms, collect 202ms, tests 30ms, environment 0ms, prepare 82ms)
+
+Vitest resources: 2.63s wall, 438.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

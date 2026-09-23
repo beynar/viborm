@@ -1,0 +1,17 @@
+# The captured mutation's own pins (credential-free), on the final source
+
+
+ RUN  v3.1.4 /private/tmp/viborm-se
+
+ ✓ |extended-local| tests/contracts/engine/write/upsert-arm-referenced-edge.test.ts (18 tests) 1386ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 106ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 31ms
+ ✓ |raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 85ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 30ms
+
+ Test Files  5 passed (5)
+      Tests  50 passed (50)
+   Start at  19:12:09
+   Duration  7.94s (transform 3.54s, setup 29ms, collect 5.60s, tests 1.64s, environment 0ms, prepare 114ms)
+
+Vitest resources: 10.09s wall, 1235.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

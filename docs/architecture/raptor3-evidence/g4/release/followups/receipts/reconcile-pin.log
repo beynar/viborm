@@ -1,0 +1,61 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+
+ ❯ |extended-local| tests/raptor3/g4/parity/upsert-array-route.test.ts (6 tests | 1 failed) 37ms
+   ✓ D-46 — an upsert on the array route of a batch-only transport > probe-first, create arm: the locate runs at preparation and the arm is ONE INSERT … RETURNING in the batch 17ms
+   ✓ D-46 — an upsert on the array route of a batch-only transport > probe-first, found arm: the arm is ONE UPDATE … RETURNING by the captured key, and the batch pins the row's presence 3ms
+   ✓ D-46 — an upsert on the array route of a batch-only transport > probe-first, found arm: a row deleted between the locate and the batch fails the batch instead of updating nothing 4ms
+   ✓ D-46 — an upsert on the array route of a batch-only transport > the ON CONFLICT fold: a where naming one constraint the create spells is ONE statement, inserting then updating 2ms
+   ✓ D-46 — an upsert on the array route of a batch-only transport > outside both paths, the route keeps its existing answer: an empty update is still unbatchable here 3ms
+   × D-46 — an upsert on the array route of a batch-only transport > the boundary the review measured: a relation-bearing member elsewhere in the array keeps the unbatchable refusal, never a false absence 6ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+NestedWriteError: Cannot connect relation 'shelf': target record was not found.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/upsert-array-route.test.ts > D-46 — an upsert on the array route of a batch-only transport > the boundary the review measured: a relation-bearing member elsewhere in the array keeps the unbatchable refusal, never a false absence
+AssertionError: The validation function is expected to return "true". Received false
+
+Caught error:
+
+NestedWriteError: Cannot connect relation 'shelf': target record was not found.
+
+[32m- Expected:[39m 
+[Function anonymous]
+
+[31m+ Received:[39m 
+NestedWriteError {
+  "message": "Cannot connect relation 'shelf': target record was not found.",
+  "code": "V7001",
+  "originalCause": undefined,
+  "meta": {
+    "correlationId": "ff30e0e6-d0ac-4529-9fb1-c90ac05a23e5",
+    "driver": "sqlite3",
+    "model": "book",
+    "operation": "update",
+    "relation": "shelf",
+  },
+  "timestamp": 2026-09-19T17:11:07.524Z,
+  "name": "NestedWriteError",
+}
+
+ ❯ tests/raptor3/g4/parity/upsert-array-route.test.ts:340:5
+    338|     const { client, database } = world;
+    339|     await client.book.create({ data: { id: "b1", title: "one" } });
+    340|     await assert.rejects(
+       |     ^
+    341|       client.$transaction([
+    342|         client.shelf.create({ data: { id: "s1", label: "fiction" } }),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  19:11:06
+   Duration  1.21s (transform 716ms, setup 8ms, collect 1.03s, tests 37ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 2.94s wall, 463.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

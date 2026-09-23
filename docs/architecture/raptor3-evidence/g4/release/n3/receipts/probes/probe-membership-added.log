@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-perf
+
+BATCH #1: SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || INSERT INTO "suite_1"."probe_owner_tags" ("owner_ref", "tag_ref") VALUES ($1, $2) ON CONFL || SELECT "q0"."id" AS "id", "q0"."name" AS "name" FROM "suite_1"."probe_owners" AS "q0" WHER
+BATCH #2: SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || SELECT 1 / CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."code" AS "code" FROM "sui || SELECT 1 / CASE WHEN EXISTS (SELECT "q0"."id" AS "id" FROM "suite_1"."probe_owners" AS "q0 || DELETE FROM "suite_1"."probe_tags" WHERE "id" = $1
+BATCH ERROR error code=22012 division by zero meta=undefined
+PROBE attribution: failure=NestedWriteError:Cannot delete relation 'tags': a member was added after the  statementIndex=undefined assertions=4 supportsBatch=true committedProgress=true commitCertainty=undefined raceable=true
+PROBE recoveryRejection: ownership=standalone committedProgress=true sameAsAtomic=false errorClass=NestedWriteError
+PROBE batchAttempt caught NestedWriteError: Cannot delete relation 'tags': a member was added after the plan-time read; retr
+PROBE recoveryRejection: ownership=standalone committedProgress=true sameAsAtomic=false errorClass=NestedWriteError
+SURFACED NestedWriteError code=V7001 Cannot delete relation 'tags': a member was added after the plan-time read; retry to converge. meta={"relation":"tags","raceable":true,"recordSeriesProgress":{"atomicity":"segment","phase":"member","committedSegments":0,"completedMembers":0,"committedWriteMembers":0,"mayHaveCommittedSegment":true,"memberPath":[0],"totalMembers":1}}
+ ✓ |extended-local| tests/contracts/engine/query/probe-membership-race.test.ts (1 test) 644ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:19:41
+   Duration  2.02s (transform 840ms, setup 8ms, collect 1.22s, tests 644ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 3.73s wall, 1457.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

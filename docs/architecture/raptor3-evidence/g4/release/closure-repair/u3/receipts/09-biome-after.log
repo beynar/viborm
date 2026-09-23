@@ -1,0 +1,272 @@
+# Biome, per changed file, on the final source (U3)
+
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   assembleAdapterSelect,
+  > 3 │   getAdapterInternals
+  > 4 │ } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5 │ import type { AnyDriver } from "@drivers";
+    6 │ import { attachCommitCertainty } from "@drivers/driver-error-context";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      41   41 │   import {
+      42   42 │     InvalidScalarResult,
+      43      │ - ··Queries,
+      44      │ - ··type·PreparedProjection,
+           43 │ + ··type·PreparedProjection,
+      45   44 │     type PreparedSelector,
+      46   45 │     type ProjectionShape,
+      47      │ - ··type·Query,
+           46 │ + ··Queries,
+           47 │ + ··type·Query,
+      48   48 │     type Read,
+      49   49 │     returningSafeProjection,
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:384:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    382 │   }
+    383 │   constructor(
+  > 384 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    385 │     factoryDriver: AnyDriver,
+    386 │     readonly modelName: string,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:386:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    384 │     readonly schema: EngineSchema,
+    385 │     factoryDriver: AnyDriver,
+  > 386 │     readonly modelName: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    387 │     readonly operation: Operation,
+    388 │     binding?: ExecutionBinding,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:387:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    385 │     factoryDriver: AnyDriver,
+    386 │     readonly modelName: string,
+  > 387 │     readonly operation: Operation,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    388 │     binding?: ExecutionBinding,
+    389 │     prepareBatch = false,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:397:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    395 │      * attribution (g4/unit03/note.md B-4).
+    396 │      */
+  > 397 │     private readonly callerAttribution?: QueryExecutionContext
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    398 │   ) {
+    399 │     this.ownership = prepareBatch
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       1    1 │   import {
+       2    2 │     assembleAdapterSelect,
+       3      │ - ··getAdapterInternals
+            3 │ + ··getAdapterInternals,
+       4    4 │   } from "@adapters/adapter-internals";
+       5    5 │   import type { AnyDriver } from "@drivers";
+    ········· │ 
+       8    8 │   import {
+       9    9 │     bindExecutionTransactionPhases,
+      10      │ - ··deriveStatementExecutionContext
+           10 │ + ··deriveStatementExecutionContext,
+      11   11 │   } from "@drivers/execution-context";
+      12   12 │   import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
+    ········· │ 
+      14   14 │     BatchQuery,
+      15   15 │     QueryExecutionContext,
+      16      │ - ··QueryResult
+           16 │ + ··QueryResult,
+      17   17 │   } from "@drivers/types";
+      18   18 │   import {
+    ········· │ 
+      27   27 │     TransactionError,
+      28   28 │     UniqueConstraintError,
+      29      │ - ··VibORMErrorCode
+           29 │ + ··VibORMErrorCode,
+      30   30 │   } from "@errors";
+      31   31 │   import type { AnyModel } from "@schema/model";
+    ········· │ 
+      33   33 │   import {
+      34   34 │     compileBindBudgetChunks,
+      35      │ - ··normalizedBindParameterLimit
+           35 │ + ··normalizedBindParameterLimit,
+      36   36 │   } from "../../bind-budget";
+      37      │ - import·type·{
+      38      │ - ··PreparedBatchGuard,
+      39      │ - ··PreparedBatchOperation
+      40      │ - }·from·"../../types";
+           37 │ + import·type·{·PreparedBatchGuard,·PreparedBatchOperation·}·from·"../../types";
+      41   38 │   import {
+      42   39 │     InvalidScalarResult,
+    ········· │ 
+      55   52 │     isReadOperation,
+      56   53 │     type Operation,
+      57      │ - ··record
+           54 │ + ··record,
+      58   55 │   } from "./schema";
+      59   56 │   import { type Membership, physicalField } from "./storage";
+    ········· │ 
+      70   67 │     "update",
+      71   68 │     "delete",
+      72      │ - ··"upsert"
+           69 │ + ··"upsert",
+      73   70 │   ]);
+      74   71 │   
+    ········· │ 
+     422  419 │           model: this.modelName,
+     423  420 │           operation: this.operation,
+     424      │ - ········correlationId:·this.correlationId
+          421 │ + ········correlationId:·this.correlationId,
+     425  422 │         }
+     426  423 │       );
+    ········· │ 
+     435  432 │         model: this.modelName,
+     436  433 │         operation: this.operation,
+     437      │ - ······correlationId:·this.correlationId
+          434 │ + ······correlationId:·this.correlationId,
+     438  435 │       };
+     439  436 │     }
+    ········· │ 
+     475  472 │       const query = transferPreparedStatement(prepared, {
+     476  473 │         ...prepared,
+     477      │ - ······context
+          474 │ + ······context,
+     478  475 │       });
+     479  476 │       this.attempt.pending.push(query);
+    ········· │ 
+     601  598 │     }
+     602  599 │     suppressionRefusal(): TransactionError | undefined {
+     603      │ - ····return·(this.ownership·===·"borrowed-transaction"·&&·!this.memberRollback)·||
+          600 │ + ····return·(this.ownership·===·"borrowed-transaction"·&&
+          601 │ + ······!this.memberRollback)·||
+     604  602 │         this.ownership === "batch-preparation" ||
+     605  603 │         this.usesBatch
+    ········· │ 
+     610  608 │                 driver: this.driver.driverName,
+     611  609 │                 model: this.modelName,
+     612      │ - ··············operation:·this.operation
+     613      │ - ············}
+          610 │ + ··············operation:·this.operation,
+          611 │ + ············},
+     614  612 │             }
+     615  613 │           )
+    ········· │ 
+     674  672 │             ...(this.mayHaveCommittedSegment
+     675  673 │               ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
+     676      │ - ············:·{})
+          674 │ + ············:·{}),
+     677  675 │           })
+     678  676 │         : failure;
+    ········· │ 
+     732  730 │     /** Run the operation inside the one region it owns. */
+     733  731 │     private async withinRegion<T>(
+     734      │ - ····region:·(execute:·(driver:·AnyDriver)·=>·Promise<unknown>)·=>·Promise<unknown>,
+          732 │ + ····region:·(
+          733 │ + ······execute:·(driver:·AnyDriver)·=>·Promise<unknown>
+          734 │ + ····)·=>·Promise<unknown>,
+     735  735 │       body: () => Promise<T>
+     736  736 │     ): Promise<T> {
+    ········· │ 
+    1356 1356 │             undefined,
+    1357 1357 │             this.attribution,
+    1358      │ - ··········this.driver.supportsOrderedCommittedSegments·?·acknowledged·:·undefined
+         1358 │ + ··········this.driver.supportsOrderedCommittedSegments
+         1359 │ + ············?·acknowledged
+         1360 │ + ············:·undefined
+    1359 1361 │           )
+    1360 1362 │         );
+    ········· │ 
+    1561 1563 │             {
+    1562 1564 │               code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+    1563      │ - ············cause:·error
+         1565 │ + ············cause:·error,
+    1564 1566 │             }
+    1565 1567 │           );
+    ········· │ 
+    1714 1716 │           select: Object.fromEntries(
+    1715 1717 │             this.schema.keys(model).map((field) => [field, true])
+    1716      │ - ········)
+         1718 │ + ········),
+    1717 1719 │         },
+    1718 1720 │         undefined,
+    ········· │ 
+    1731 1733 │           // verb is what makes two guards of the same shape agree.
+    1732 1734 │           message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+    1733      │ - ········raceable:·false
+         1735 │ + ········raceable:·false,
+    1734 1736 │         },
+    1735 1737 │         model: model["~"].names.ts!,
+    1736      │ - ······operation:·this.operation
+         1738 │ + ······operation:·this.operation,
+    1737 1739 │       });
+    1738 1740 │       this.queue(
+    ········· │ 
+    1849 1851 │             sql: query.sql,
+    1850 1852 │             params: query.params ?? [],
+    1851      │ - ··········context:·query.context·??·this.attribution
+         1853 │ + ··········context:·query.context·??·this.attribution,
+    1852 1854 │           })
+    1853 1855 │         ),
+    ········· │ 
+    1855 1857 │           ? { guards: this.preparedGuardList }
+    1856 1858 │           : {}),
+    1857      │ - ······parseResult:·this.preparedParser
+         1859 │ + ······parseResult:·this.preparedParser,
+    1858 1860 │       };
+    1859 1861 │     }
+    ········· │ 
+    2088 2090 │         (projection && !adapter.capabilities.supportsReturning)
+    2089 2091 │       ) {
+    2090      │ - ······if·(this.ownership·===·"batch-preparation")·throw·this.incompletePreparation;
+         2092 │ + ······if·(this.ownership·===·"batch-preparation")
+         2093 │ + ········throw·this.incompletePreparation;
+    2091 2094 │         if (recoverableSkip) this.requireSuppression();
+    2092 2095 │         const identityPlans = projection
+    ········· │ 
+    2139 2142 │           const generated = identityPlans[index];
+    2140 2143 │           if (generated && response.insertId === undefined)
+    2141      │ - ··········throw·new·TypeError("INSERT·did·not·produce·the·required·record·identity");
+         2144 │ + ··········throw·new·TypeError(
+         2145 │ + ············"INSERT·did·not·produce·the·required·record·identity"
+         2146 │ + ··········);
+  167 more lines truncated
+  
+
+Checked 2 files in 46ms. No fixes applied.
+Found 6 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -228,11 +228,16 @@ describe("provider row-count normalization", () => {
     expect(result.insertId).toBe(9_007_199_254_740_993n);
   });
 
-  test("PlanetScale preview sends GeoPoint SQL through its SDK formatter", async () => {
+  test("PlanetScale preview decodes a GeoPoint projection through its SDK formatter", async () => {
+    // The pin that quoted the whole shipped SELECT — aliases, ST_ calls and
+    // predicate text — was the deleted engine's SQL and went with it. What the
+    // cell is named for is one-sided and is the base's assertion, unchanged:
+    // a GeoPoint projection built by the engine crosses the PlanetScale SDK's
+    // own formatter and comes back as the row this driver decodes.
     const location = { longitude: 12.5, latitude: -7.25 };
     const locationText = JSON.stringify(location);
     const encodedLocation = btoa(locationText);
-    const response = createPlanetScaleFetch({
+    const fetch = createPlanetScaleFetch({
       result: {
         fields: [{ name: "location", type: "VARCHAR" }],
         rows: [
@@ -240,11 +245,6 @@ describe("provider row-count normalization", () => {
         ],
       },
     });
-    let requestBody: unknown;
-    const fetch: NonNullable<Config["fetch"]> = async (input, init) => {
-      requestBody = init?.body;
-      return response(input, init);
-    };
     const place = s.model({
       id: s.string().id(),
       location: s.point(),
@@ -267,14 +267,6 @@ describe("provider row-count normalization", () => {
     } finally {
       await driver.disconnect();
     }
-
-    if (typeof requestBody !== "string") {
-      throw new Error("Expected the PlanetScale SDK request body");
-    }
-    const request = JSON.parse(requestBody);
-    expect(request.query).toBe(
-      "SELECT JSON_OBJECT('longitude', ST_Longitude(`t0`.`location`), 'latitude', ST_Latitude(`t0`.`location`)) AS `location` FROM `place` AS `t0` WHERE (ST_Longitude(`t0`.`location`) = 12.5 AND ST_Latitude(`t0`.`location`) = -7.25)"
-    );
   });
 
   test("PlanetScale validates the wrapped response text consumer path", async () => {

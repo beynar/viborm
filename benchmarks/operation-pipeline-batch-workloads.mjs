@@ -1,9 +1,11 @@
 /** Atomic batch and implicit-returning bulk workload construction. */
 
+import assert from "node:assert/strict";
 import {
   batchWitness,
   benchmarkOperation,
   consumeScalarRows,
+  observeBenchmarkContract,
   prepareOperationPlan,
   witnessChecksum,
 } from "./operation-pipeline-harness.mjs";
@@ -59,7 +61,28 @@ export async function buildBatchWorkload(name, fixture, fullFixture) {
       fixture,
       fullFixture,
       makeOperation,
-      (rows) => consumeScalarRows(rows, "age")
+      (rows) => rows.length,
+      ({ outcome, initial, final, defaults }) => {
+        const selected = new Set(ids);
+        const users = initial.bench_users.map((user) =>
+          selected.has(user.id) ? { ...user, age: user.age + 1 } : user
+        );
+        assert.deepEqual(final, { ...initial, bench_users: users });
+        const actual = outcome.value;
+        assert.equal(outcome.kind, "success");
+        assert.equal(actual.length, 100);
+        // RETURNING row order remains observable across engines. Membership
+        // and values are checked separately without inventing a row order.
+        assert.deepEqual(
+          new Map(actual.map((user) => [user.id, user.age])),
+          new Map(
+            users
+              .filter((user) => selected.has(user.id))
+              .map((user) => [user.id, user.age])
+          )
+        );
+        assert.deepEqual(defaults, []);
+      }
     );
   }
   if (name === "variant-row-storage-create-many-100") {
@@ -150,7 +173,8 @@ async function createPreparedBatchHarness(
   fixture,
   fullFixture,
   makeOperation,
-  parsedConsumer
+  parsedConsumer,
+  verifyContract
 ) {
   const fixtureOperation = makeOperation(fixture.client);
   const fixturePlan = await prepareOperationPlan(
@@ -162,7 +186,16 @@ async function createPreparedBatchHarness(
   );
   const parsedFixture = fixturePlan.parseResult(rawFixture);
   parsedConsumer(parsedFixture);
-  const fullSemantic = await makeOperation(fullFixture.client);
+  const contract = verifyContract
+    ? await observeBenchmarkContract(
+        fullFixture,
+        () => makeOperation(fullFixture.client),
+        verifyContract
+      )
+    : undefined;
+  const fullSemantic = contract
+    ? contract.contractObservation.outcome.value
+    : await makeOperation(fullFixture.client);
   parsedConsumer(fullSemantic);
   const digest = assertSemanticDigest(
     "prepared batch versus public full",
@@ -173,6 +206,14 @@ async function createPreparedBatchHarness(
   return {
     witness,
     semanticDigest: digest,
+    ...contract,
+    "cold-prepare": async () => {
+      const plan = await prepareOperationPlan(
+        makeOperation(fixture.createColdClient()),
+        fixture.driver
+      );
+      return witnessChecksum(batchWitness(plan.queries));
+    },
     prepare: async () => {
       const plan = await prepareOperationPlan(makeOperation(), fixture.driver);
       return witnessChecksum(batchWitness(plan.queries));

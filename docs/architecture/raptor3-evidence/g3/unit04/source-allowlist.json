@@ -1,0 +1,358 @@
+{
+  "formatVersion": 1,
+  "baselineCommit": "26e4f78378e5f545c694c8bc3789201db7f5926a",
+  "frozenIdentity": {
+    "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+    "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44"
+  },
+  "scope": "Exact G3 task production, harness, runner, registration, tests, and the task-local architecture guide change. Evidence, root-owned plans/status, unrelated Pattern work, CONTEXT.md, and memory.md are excluded.",
+  "files": [
+    {
+      "file": "scripts/credential-free-test-manifest.mjs",
+      "baseline": "tracked",
+      "bytes": 15434,
+      "sha256": "0c40de70214bfa71a44d80f3ed708f1d8f484438e1e501f9f199c67f9b30c463"
+    },
+    {
+      "file": "scripts/measure-raptor3-baseline.mjs",
+      "baseline": "tracked",
+      "bytes": 23275,
+      "sha256": "db56aefd3929817f8663b789905d1cfe56f5da84bbc30b9f8528d28e3e64c886"
+    },
+    {
+      "file": "scripts/raptor3-campaign-receipts.test.mjs",
+      "baseline": "tracked",
+      "bytes": 27291,
+      "sha256": "8cfcc78152bd2c5f0c0a764b0456e78b2098ee45f3cfdec73a33869a40dfbb22"
+    },
+    {
+      "file": "scripts/raptor3-cli.test.mjs",
+      "baseline": "tracked",
+      "bytes": 7103,
+      "sha256": "5c55e336ca1c949a6c2fbbd616376395bd46a7b5db39479bb1dd33a1aefd19fc"
+    },
+    {
+      "file": "scripts/raptor3-manifest.mjs",
+      "baseline": "tracked",
+      "bytes": 33318,
+      "sha256": "e2b3bbd4850d34b3c565199ec129cc06ef5302d405a869041cce57c5f63bf21e"
+    },
+    {
+      "file": "scripts/run-raptor3.mjs",
+      "baseline": "tracked",
+      "bytes": 34114,
+      "sha256": "53ed23b6dc545f7286da2c1c2c19a53e07baca5d61374e0081b292f660949d54"
+    },
+    {
+      "file": "src/drivers/driver-instrumentation.ts",
+      "baseline": "tracked",
+      "bytes": 34476,
+      "sha256": "2edd1b7d77e7836314b3f3aaeae677c490f75a3dceffa45d6db0e1f85e9f7e74"
+    },
+    {
+      "file": "src/query-engine/raptor3/AGENTS.md",
+      "baseline": "tracked",
+      "bytes": 25940,
+      "sha256": "4867e7e031386a78d66f1951174792c3b4974366d092f3ce5f7848ebbf3ffbb6"
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "baseline": "tracked",
+      "bytes": 37887,
+      "sha256": "20f07393b7ea4aebca3f5f75ca12731b19917e6db07bb30962f86cf67be0016a"
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "baseline": "tracked",
+      "bytes": 25678,
+      "sha256": "5d4c6f08bb6c6df2a6ddc757aefb3ee9cb959c4465fa8d6e50fefa822192865c"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "baseline": "tracked",
+      "bytes": 54905,
+      "sha256": "4190d3d64cbc68881950f38573e2fd3dda2c5c0a3e17b3623c801f02a89aec27"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "baseline": "tracked",
+      "bytes": 54015,
+      "sha256": "497291b5a66cc5f9c03bb21d3d36d16e69f4ca71a9798e57f8bfa0f9f56da902"
+    },
+    {
+      "file": "tests/raptor3/candidate-handoff.test.ts",
+      "baseline": "tracked",
+      "bytes": 5202,
+      "sha256": "5dbb915d6fe853c20cf1167ab5551471b0b69150a7d5454f9d4bd41529d6bfa0"
+    },
+    {
+      "file": "tests/raptor3/candidate-ordering.test.ts",
+      "baseline": "tracked",
+      "bytes": 2405,
+      "sha256": "0bba1f4048da9dc86ed72ae9ca264ce4dc2de163d4f7fef232d426797469480c"
+    },
+    {
+      "file": "tests/raptor3/candidate-pagination.test.ts",
+      "baseline": "tracked",
+      "bytes": 2857,
+      "sha256": "135710f46b836285d3acb131b98481e7e59f9b31301a999471ea5ec722ee06d1"
+    },
+    {
+      "file": "tests/raptor3/candidate.test.ts",
+      "baseline": "tracked",
+      "bytes": 4671,
+      "sha256": "462300711ef573dc870b99935ada1a127f634409635aa8db86cb4c4034085c88"
+    },
+    {
+      "file": "tests/raptor3/contracts.ts",
+      "baseline": "tracked",
+      "bytes": 11396,
+      "sha256": "f080a6c8d0c2ba3a69946aa954fed9f09191328136b951309653071cf164bc6c"
+    },
+    {
+      "file": "tests/raptor3/core-structure/extension-a.contract.test.ts",
+      "baseline": "tracked",
+      "bytes": 11605,
+      "sha256": "2fab81342f27a514b311c39911dadca323779777273eb2dec00256bd087fb129"
+    },
+    {
+      "file": "tests/raptor3/expanded/batch-produced.ts",
+      "baseline": "tracked",
+      "bytes": 7836,
+      "sha256": "d63545b44184e8d68c36e43b0e753b17a61a2f1d65af691f6294a40df362b285"
+    },
+    {
+      "file": "tests/raptor3/expanded/produced.ts",
+      "baseline": "tracked",
+      "bytes": 8612,
+      "sha256": "ba253e21a68354fe6fc4ee1a6ebf23ef799feffdff35f7697dba355f89e97633"
+    },
+    {
+      "file": "tests/raptor3/g3/author-execution-regressions.test.ts",
+      "baseline": "new",
+      "bytes": 6445,
+      "sha256": "d78075f994c9007e1fa02eb2b78b64c6848afd6e128b5fee2f088eb230e9a00a"
+    },
+    {
+      "file": "tests/raptor3/g3/bulk-result-boundary.test.ts",
+      "baseline": "new",
+      "bytes": 6572,
+      "sha256": "8c41456cfb76d0de22019d9d73e65f297020cac29ae34c026b47f3d079e1dfa7"
+    },
+    {
+      "file": "tests/raptor3/g3/bulk-series-contract.test.ts",
+      "baseline": "new",
+      "bytes": 9143,
+      "sha256": "fffc7eae23415cde3eae235628d3c7a775c04cabce10e8fd06b2efe773707818"
+    },
+    {
+      "file": "tests/raptor3/g3/depth-recurrence-contract.test.ts",
+      "baseline": "new",
+      "bytes": 8124,
+      "sha256": "acd4f0c7c603f0fd643dbcc12054e16079633bcf252c4b5cdbb242591dcc647b"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/bulk-scenario.ts",
+      "baseline": "new",
+      "bytes": 17397,
+      "sha256": "e8baaf8f7c72f3fb25692b7cbfe6d87288c1253869503b53a87a687dbaca0c2d"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/failure-minimization.test.ts",
+      "baseline": "new",
+      "bytes": 2419,
+      "sha256": "4c97f7b6b0ee0edf58f0f0ecb43e8cb5a79ff3ec38cb65a68a5c375aa0d0cded"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/failure-minimization.ts",
+      "baseline": "new",
+      "bytes": 3901,
+      "sha256": "6136d3202ba5c883cf34d35a51095bfdea6162210cc9a7c6b3adc192e3bac1cd"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/generated-smoke.test.ts",
+      "baseline": "new",
+      "bytes": 8200,
+      "sha256": "909bbaa07d693d7303727904062b4e837127c1963eae868409d10376e14ab849"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/generated-transport-smoke.test.ts",
+      "baseline": "new",
+      "bytes": 4399,
+      "sha256": "96b09f661926825cb2cf9ed7dfecf9b8aa504b8dd2698c9042e8398cde3542cf"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/recipe.ts",
+      "baseline": "new",
+      "bytes": 6691,
+      "sha256": "c754f63fb59c6c3b17943d24424453e4fd12b70bb4a96c41ddc774f60599e6ce"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/recurrence-compound-world.ts",
+      "baseline": "new",
+      "bytes": 6302,
+      "sha256": "3bf6951d5830ee0f8e10ef424f393f82a83836a06e55cea3969cfa9e484b5dc9"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/recurrence-ordinary-world.ts",
+      "baseline": "new",
+      "bytes": 3420,
+      "sha256": "8c4a52b78a3467512ae781248c9863198720db66e33920dee107415d07cbf078"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/recurrence-scenario.ts",
+      "baseline": "new",
+      "bytes": 5349,
+      "sha256": "455b6bfcf0a7786fffcb4f7042f4dcf7838ef2bd039712ab9ab70056db4a664a"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/recurrence-variant-world.ts",
+      "baseline": "new",
+      "bytes": 6848,
+      "sha256": "bcfb7774842f817aee03c1c7e918d35cdf62608097425ecc478b0c0a4ae6db7f"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/recurrence-world.ts",
+      "baseline": "new",
+      "bytes": 830,
+      "sha256": "8d1d24e9d195745274f4b4deece9e6f0d32bbafdb1f41094205d944c48d886de"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/sqlite-campaign.test.ts",
+      "baseline": "new",
+      "bytes": 803,
+      "sha256": "a8d3e25722281e106fcd34069e34a06433c9fa4918d0c54ea894fb412bb0f981"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/sqlite-campaign.ts",
+      "baseline": "new",
+      "bytes": 8693,
+      "sha256": "12acafd19ef72ac2fd885e07892a38a904f574b84c0d4471d9b2ea68fe3de809"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/suppression-scenario.ts",
+      "baseline": "new",
+      "bytes": 14072,
+      "sha256": "4d59583391ceafe5bc609ddd75762005bd8737e1f557861cb79dd6e5761f550b"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/transaction-array-scenario.ts",
+      "baseline": "new",
+      "bytes": 12534,
+      "sha256": "aa2ba6b402d7ba3a9d8c67f7b0adaf669b3112f29c8873966266a1f8f6fc86da"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/transport-campaign.test.ts",
+      "baseline": "new",
+      "bytes": 845,
+      "sha256": "10bba125b703c5cf5a5ef1e1a4313badddb60b244ebbe907367c79661f8240a2"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/transport-campaign.ts",
+      "baseline": "new",
+      "bytes": 7669,
+      "sha256": "055a792d45b178896a8759c8a738e192593766ddcd421c02d04ff5bdf777ba0d"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/transport-plans.ts",
+      "baseline": "new",
+      "bytes": 22940,
+      "sha256": "fdcb2f8129c906530d526eb25cf03b48b3748a8254fce6f7897fbec4d252d3b5"
+    },
+    {
+      "file": "tests/raptor3/g3/generation/transport-scenario.ts",
+      "baseline": "new",
+      "bytes": 5349,
+      "sha256": "4e01039fc8c4b09f651160bc0c287f29e083f454b37a643d2084d6f0fa93094c"
+    },
+    {
+      "file": "tests/raptor3/g3/review-execution-boundaries.test.ts",
+      "baseline": "new",
+      "bytes": 8304,
+      "sha256": "c89a44b6d85d59e8954d0982de3443196ead55da0756f50a8702d1ec1a637b6b"
+    },
+    {
+      "file": "tests/raptor3/g3/scope-composition-native.test.ts",
+      "baseline": "new",
+      "bytes": 14466,
+      "sha256": "871387674d93d63064aed61581879d62cf38a443886ad096a4a3365bf80f93e0"
+    },
+    {
+      "file": "tests/raptor3/g3/scope-failure-contract.test.ts",
+      "baseline": "new",
+      "bytes": 11989,
+      "sha256": "cbaf0abea85b36f7f0b331af3665f3af67f554d7d158d72909c979b8f56f6f47"
+    },
+    {
+      "file": "tests/raptor3/g3/suppression-retry-contract.test.ts",
+      "baseline": "new",
+      "bytes": 8687,
+      "sha256": "577f664b9b0151c1fd8c0632bc09b306dc577be91780bfc44480748677874695"
+    },
+    {
+      "file": "tests/raptor3/g3/transaction-array-contract.test.ts",
+      "baseline": "new",
+      "bytes": 11270,
+      "sha256": "d85a0f4b6b13230ee3c171cd1ac10361163d2bf11857ca701fab4793bcdcbf78"
+    },
+    {
+      "file": "tests/raptor3/harness/protocol.ts",
+      "baseline": "tracked",
+      "bytes": 5341,
+      "sha256": "52d2fbdffceaddef250dcd931e8777d6d10436f4c141960a13bd8e5685ab7205"
+    },
+    {
+      "file": "tests/raptor3/harness/recorder.ts",
+      "baseline": "tracked",
+      "bytes": 5697,
+      "sha256": "2e4a238c77d9bef7e33b9f464ff01517329e87cf55bcf0c0a8abc78213a4e33e"
+    },
+    {
+      "file": "tests/raptor3/harness/replay.ts",
+      "baseline": "tracked",
+      "bytes": 13862,
+      "sha256": "31278bd44a3c75d6242ee5935cd4952bd05e43c607ff6058e2c88c4495be8ae1"
+    },
+    {
+      "file": "tests/raptor3/harness/sqlite-world.ts",
+      "baseline": "tracked",
+      "bytes": 13264,
+      "sha256": "3d1ac768f28b72e0b512b87fb1d7760df1c54bbe91bd21782fbf20f06349c1b1"
+    },
+    {
+      "file": "tests/raptor3/prep/set-preparation.test.ts",
+      "baseline": "tracked",
+      "bytes": 16401,
+      "sha256": "73df2eaa51e0fd34db361424610c7e708917fc67a2b8eb9f96faf0d40d6b785b"
+    },
+    {
+      "file": "tests/raptor3/transitions/live-world.ts",
+      "baseline": "tracked",
+      "bytes": 18689,
+      "sha256": "9eeb6923f09b8142c9004fc1dc58b69d1559b9a0ddedb1d0929f5fa30eda0976"
+    },
+    {
+      "file": "tests/raptor3/transport.test.ts",
+      "baseline": "tracked",
+      "bytes": 12593,
+      "sha256": "ccc939db31accd4338781fe349bc7148c8a79273aa0c09aaeab147627a804ea1"
+    },
+    {
+      "file": "tests/raptor3/transport/driver.ts",
+      "baseline": "tracked",
+      "bytes": 11067,
+      "sha256": "4c92937c91b87c74142557f821e639f0f8dd8a689766d6ca5f7fda69649ab053"
+    },
+    {
+      "file": "vitest.workspace.ts",
+      "baseline": "tracked",
+      "bytes": 13600,
+      "sha256": "03a25f92449a1a4c717ace1b699945578189f706e772ab07bc0c87fd28b2c323"
+    }
+  ],
+  "sourcePatch": {
+    "file": "source.patch",
+    "bytes": 354115,
+    "sha256": "4e3c0057b7f184eeb7c687c3acb30216ae8405ca0b1bcf7596905cb5822bfab4"
+  }
+}

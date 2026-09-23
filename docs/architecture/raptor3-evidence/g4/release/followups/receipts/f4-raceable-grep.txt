@@ -1,0 +1,18 @@
+# F-4: is meta.raceable read?  (grep receipt, 2026-09-17T23:09:24Z)
+
+## Writers
+src/query-engine/types.ts:74:  readonly raceable: boolean;
+src/query-engine/raptor3/commands/commands.ts:1218:        skip.meta.raceable = true;
+src/query-engine/batch-error-attribution.ts:28:      error.meta.raceable = true;
+src/query-engine/batch-error-attribution.ts:39:    error.meta.raceable = true;
+src/query-engine/raptor3/shared/operation-context.ts:1411:        raceable: false
+src/query-engine/raptor3/shared/operation-context.ts:2491:          failure.meta.raceable = true;
+src/query-engine/raptor3/shared/operation-context.ts:2585:      failure.meta.raceable = true;
+src/query-engine/raptor3/commands/execution.ts:127:      if (ctx.usesBatch) failure.meta.raceable = true;
+src/query-engine/raptor3/commands/execution.ts:743:    failure.meta.raceable = true;
+
+## Readers
+src/query-engine/raptor3/shared/operation-context.ts:1268:            failure.meta.raceable === true
+src/query-engine/batch-error-attribution.ts:27:    if (failure.raceable) {
+src/query-engine/batch-error-attribution.ts:38:  if (failure.raceable) {
+src/query-engine/batch-error-attribution.ts:136:    guard.failure.raceable === other.failure.raceable

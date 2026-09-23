@@ -1,0 +1,100 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+(node:53044) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (16 tests | 4 failed) 1553ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > default native route: nothing is captured, and the statement removes exactly the rows it still matches 159ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted 146ms
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route, lock held: the captured row that stopped matching survives the write, and the shortfall is the cardinality sentence 175ms
+     → expected 'undefined' to contain 'deleteMany selected-row cardinality c…'
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported 81ms
+     → expected 'undefined' to contain 'deleteMany selected-row cardinality c…'
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back 76ms
+     → expected 'undefined' to contain 'updateMany selected-row cardinality c…'
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts 69ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a LIMITED capture claims no complement, and a newly eligible row outside its slice is not mutated 78ms
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a COMPOUND captured identity is carried completely, and only the row that still matches is deleted 81ms
+     → expected 'undefined' to contain 'deleteMany selected-row cardinality c…'
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing 83ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing 78ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges 102ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added after that boundary stays outside the captured worklist 81ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: the initial filter selected the worklist and is not re-asked at each member's own write 79ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member whose required membership was reassigned is not deleted for the parent that no longer holds it 97ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: an earlier member's own write does not invalidate the worklist a sibling was selected into 73ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing 83ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route, lock held: the captured row that stopped matching survives the write, and the shortfall is the cardinality sentence
+AssertionError: expected 'undefined' to contain 'deleteMany selected-row cardinality c…'
+
+Expected: [32m"deleteMany selected-row cardinality changed during its locked mutation."[39m
+Received: [31m"undefined"[39m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:620:41
+    618|         // rows it did not reach are the cardinality error — not a pub…
+    619|         // success over the captured set.
+    620|         expect(messageOf(result.error)).toContain(CHANGED("deleteMany"…
+       |                                         ^
+    621|         expect(result.value).toBeUndefined();
+    622|         // Commit is the other fact: this batch ACKNOWLEDGED, so what …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported
+AssertionError: expected 'undefined' to contain 'deleteMany selected-row cardinality c…'
+
+Expected: [32m"deleteMany selected-row cardinality changed during its locked mutation."[39m
+Received: [31m"undefined"[39m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:680:35
+    678|         // position, and the WRITE re-tested the selector at its own. …
+    679|         // deleted; n2, which still matched, is — and the batch acknow…
+    680|         expect(messageOf(raised)).toContain(CHANGED("deleteMany"));
+       |                                   ^
+    681|         expect(await noteIds(seeder)).toEqual(["n1", "n3"]);
+    682|         expect(progressOf(raised)).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back
+AssertionError: expected 'undefined' to contain 'updateMany selected-row cardinality c…'
+
+Expected: [32m"u[7mpdateMany selected-row cardinality changed during its locked mutation.[27m"[39m
+Received: [31m"u[7mndefined[27m"[39m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:725:35
+    723| 
+    724|         expect(driver.shape).toEqual([4, 3]);
+    725|         expect(messageOf(raised)).toContain(CHANGED("updateMany"));
+       |                                   ^
+    726|         // Both facts, measured: n1 keeps its label (the SET never rea…
+    727|         // and n2 has the committed one. The selected form's read-back…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a COMPOUND captured identity is carried completely, and only the row that still matches is deleted
+AssertionError: expected 'undefined' to contain 'deleteMany selected-row cardinality c…'
+
+Expected: [32m"deleteMany selected-row cardinality changed during its locked mutation."[39m
+Received: [31m"undefined"[39m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:859:35
+    857| 
+    858|         expect(driver.shape).toEqual([4, 3]);
+    859|         expect(messageOf(raised)).toContain(CHANGED("deleteMany"));
+       |                                   ^
+    860|         // t1/a stopped matching and survives with BOTH key components…
+    861|         // t1/b still matched and was deleted; t2/a was never in the s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 12 passed (16)
+   Start at  11:26:13
+   Duration  3.09s (transform 955ms, setup 9ms, collect 1.39s, tests 1.55s, environment 0ms, prepare 36ms)
+
+Vitest resources: 4.88s wall, 533.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

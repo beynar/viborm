@@ -1,0 +1,8 @@
+src/errors/query.ts                                          errors=0   format=0  
+src/extensions/query.ts                                      errors=0   format=0  
+src/client/client.ts                                         errors=1   format=0   1 assist/source/organizeImports;
+src/client/raw.ts                                            errors=0   format=0  
+src/client/array-transaction.ts                              errors=0   format=0  
+src/query-engine/pending-operation.ts                        errors=0   format=0  
+src/query-engine/raptor3/shared/operation-context.ts         errors=6   format=1   1 assist/source/organizeImports; 4 lint/style/noParameterProperties;
+src/query-engine/raptor3/shared/query.ts                     errors=15  format=1   1 assist/source/organizeImports; 4 lint/complexity/useSimplifiedLogicExpression; 3 lint/correctness/noUnusedFunctionParameters; 1 lint/correctness/noUnusedVariables; 4 lint/style/noParameterProperties; 2 lint/style/useDefaultSwitchClause;

@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/post-prep/g29-result-progress-pglite.test.ts (1 test) 669ms
+   ✓ G2.9 generated-result continuation progress [commands] > preserves malformed generated-id translation after one committed segment  669ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  12:33:15
+   Duration  2.81s (transform 1.25s, setup 9ms, collect 1.86s, tests 669ms, environment 0ms, prepare 30ms)
+
+Vitest resources: 5.06s wall, 1530.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,32 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-ci
+
+ ✓ |layer-schema-validation| tests/unit/schema-validation/polymorphic-rules.core.test.ts (34 tests) 27ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/validate.core.test.ts (36 tests) 13ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/model-rules.core.test.ts (35 tests) 6ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/variant-topology-matrix.core.test.ts (18 tests) 7ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/foreign-key-rules.core.test.ts (15 tests) 5ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/validator-boundaries.core.test.ts (16 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-pairing-graph.core.test.ts (15 tests) 5ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/ordinary-topology-matrix.core.test.ts (12 tests) 5ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/junction-configuration.core.test.ts (10 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-rules.core.test.ts (16 tests) 8ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-topology-matrix.core.test.ts (59 tests) 10ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/model-registration-identity.core.test.ts (10 tests) 7ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/namespace-identifier.core.test.ts (65 tests) 8ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/resolved-index-shape.core.test.ts (6 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/inverse-resolution-timing.core.test.ts (19 tests) 5ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-list-key-positions.core.test.ts (7 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/datetime-foreign-key-domain.core.test.ts (10 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-foreign-key-domain.core.test.ts (4 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/junction-rule-skips.core.test.ts (3 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/geopoint-roles.core.test.ts (12 tests) 5ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-polymorphic-storage.core.test.ts (4 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/schema-model-runtime.core.test.ts (3 tests) 2ms
+
+ Test Files  22 passed (22)
+      Tests  409 passed (409)
+   Start at  00:42:06
+   Duration  5.47s (transform 2.29s, setup 43ms, collect 4.94s, tests 131ms, environment 0ms, prepare 52ms)
+
+Vitest resources: 8.07s wall, 604.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

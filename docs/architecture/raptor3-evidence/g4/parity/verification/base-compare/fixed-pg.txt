@@ -1,0 +1,31 @@
+pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs
+pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision
+pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision
+pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table
+pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include
+pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types
+pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused
+pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root
+pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode
+pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored
+pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution
+pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal
+pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution
+pg Driver > pg nested write behavior > delete and deleteMany keep child mutations parent-correlated
+pg Driver > pg nested write behavior > rejects nested default-only duplicate skipping before the parent write
+pg Driver > pg nested write behavior > update and updateMany keep child mutations parent-correlated
+pg Driver > pg nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+pg Driver > pg nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+pg Driver > pg polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT
+pg Driver > pg polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+pg Driver > pg polymorphic collection reads > total and filtered counts, and count ordering
+pg Driver > pg polymorphic collection writes > duplicate singular createMany targets transfer once
+pg Driver > pg polymorphic relations > empty storage is optional but orphaned membership is invalid
+pg Driver > pg relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key)
+pg Driver > pg upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+pg Driver > pg upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed

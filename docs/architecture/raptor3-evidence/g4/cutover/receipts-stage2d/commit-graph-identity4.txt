@@ -1,0 +1,32 @@
+# Stage 2d — commit graph on branch g4-perf-measurement-4
+
+captured: 2026-09-16T16:54:32Z
+
+e05519c2e test(bench): D-8 per-engine ledger for relation-series-2
+af8714cf8 test(bench): G4 cutover preparation phase adapter
+bb0a4d609 test(raptor3): re-sync the harness files identity 4 contradicts
+bb2e09652 chore(raptor3): C-01 cutover for measurement (identity 4, perf pass 2)
+eee0ddfde chore(raptor3): frozen G4 production for measurement (identity 4, perf pass 2)
+a9a482e18 chore(raptor3): frozen G4 production for measurement (identity 3, perf pass)
+cacb28273 chore(raptor3): frozen G4 production for measurement (identity 2)
+be447a3b5 chore(raptor3): candidate test harness for measurement (pre-freeze)
+5c08e840a chore(raptor3): candidate production for measurement (pre-freeze)
+
+## full hashes
+e05519c2ec41c74292a5d6bda65b26a84685db82 test(bench): D-8 per-engine ledger for relation-series-2
+af8714cf8235f06d228cd5fdd600ad6ba9316fce test(bench): G4 cutover preparation phase adapter
+bb0a4d60986413ac2f0321132035169529d898f4 test(raptor3): re-sync the harness files identity 4 contradicts
+bb2e0965295b7cf30b5515dfb475397316b19607 chore(raptor3): C-01 cutover for measurement (identity 4, perf pass 2)
+eee0ddfde2604b31fb2dee6605057e6f7ad4bbf9 chore(raptor3): frozen G4 production for measurement (identity 4, perf pass 2)
+a9a482e18b33a318f2804cd186ff27fa1fbfd819 chore(raptor3): frozen G4 production for measurement (identity 3, perf pass)
+cacb28273db438a91010f2c7c407547caf7c078b chore(raptor3): frozen G4 production for measurement (identity 2)
+
+## git status --porcelain
+(empty above means clean)
+
+## branches in this worktree
++ g4-perf-baseline-overlay
+  g4-perf-measurement
+* g4-perf-measurement-4
+  g4-perf-measurement-stage2a
+  g4-perf-measurement-stage2b

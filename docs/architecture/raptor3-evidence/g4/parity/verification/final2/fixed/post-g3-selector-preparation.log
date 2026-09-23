@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 18ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  16:14:15
+   Duration  1.29s (transform 710ms, setup 9ms, collect 1.07s, tests 18ms, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-sB6Xgg/vitest.json
+Vitest resources: 3.32s wall, 434.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-selector-preparation contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-sB6Xgg

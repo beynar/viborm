@@ -1,6 +1,7 @@
 import type { Sql } from "@sql";
 import type { BatchReferenceSqlAdapter } from "./adapter-core-types";
 import type { QueryParts } from "./adapter-query-parts";
+import type { ConstraintIdentities } from "./constraint-identity";
 import type { DatabaseAdapter } from "./database-adapter";
 
 export type { QueryParts } from "./adapter-query-parts";
@@ -10,6 +11,7 @@ const ADAPTER_INTERNALS: unique symbol = Symbol("viborm.adapterInternals");
 interface AdapterInternals {
   readonly select: (parts: QueryParts) => Sql;
   readonly batchRefs: BatchReferenceSqlAdapter;
+  readonly constraints: ConstraintIdentities;
 }
 
 interface AdapterWithInternals extends DatabaseAdapter {

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "status": "superseded-by-final-review-repair",
+  "candidateReceipt": "candidate-receipt.tar.gz",
+  "candidateInstrumentationPatch": "candidate-instrumentation.patch",
+  "identities": "identities.json",
+  "reducedReferenceComparison": "comparison.json",
+  "candidateCases": 28,
+  "candidateReplays": 60,
+  "candidateSkips": 0,
+  "candidateReceiptSha256": "ade9f8e8751304313ce838039269d9679e1a1a1517b115bf9dde9c6d7afdbba5",
+  "candidateInstrumentationPatchSha256": "81128c593a7870b042eb19f8fadbc1ed0fe0a9a1f1f15590daac6db9f3ea4d08",
+  "archiveRule": "This measurement belongs only to the pre-repair d7f14cc5/4b4783d8 identity."
+}

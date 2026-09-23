@@ -1,0 +1,8 @@
+{
+ "engine": "candidate",
+ "arm": "after",
+ "status": "contract FAILED (QueryError: Query execution failed)",
+ "assertionFailures": [
+  "equal: relation-series-2 evaluated the generated default 3 times, which is neither recorded engine ledger (shipped=5, candidate=9) |  | 0 !== 1"
+ ]
+}

@@ -7,10 +7,6 @@ import {
   DRIVER_COVERAGE_TESTS,
 } from "./driver-test-manifest.mjs";
 import { MIGRATION_COVERAGE_TESTS } from "./migration-test-manifest.mjs";
-import {
-  WRITE_ENGINE_COVERAGE_TEST_GROUPS,
-  WRITE_ENGINE_COVERAGE_TESTS,
-} from "./query-engine-test-manifest.mjs";
 
 export const COVERAGE_PROJECT_ROOT = resolve(
   fileURLToPath(new URL("..", import.meta.url))
@@ -19,7 +15,7 @@ const publicFiles = new Set([
   "src/clock.ts",
   "src/config.ts",
   "src/index.ts",
-  "src/standardSchema.ts",
+  "src/standard-schema-spec.d.ts",
   "src/version.ts",
 ]);
 export const migrationCoverageTests = MIGRATION_COVERAGE_TESTS;
@@ -138,39 +134,38 @@ const definitions = [
   {
     id: "query-engine-core",
     label: "query-engine core",
-    // Two branch arms short of 98: the `if (!row)` guards in
-    // result-count-parser.ts and result-row-parser.ts are required for the code
-    // to typecheck (normalizeResultRows()[0] is T | undefined) but are
-    // unreachable, because both call sites already proved raw.length === 1.
-    target: 98,
-    metricTargets: { branches: 97.9 },
-    root: "src/query-engine/",
-    exceptRoot: "src/query-engine/write-engine/",
-    projects: ["layer-query-engine", "coverage-write-engine-core"],
-  },
-  {
-    id: "write-engine",
-    label: "write-engine",
-    // This lane is provider-free BY DESIGN (see AGENTS.md: "No focused
-    // subsystem executes against a PGlite database; test:all remains the
-    // exhaustive local owner for PGlite behavior"). 100 of the 176 write
-    // contract suites are live-PGlite-bound and therefore excluded, and they
-    // are what exercises OperationExecutor, RecordUpdateCompiler,
-    // CreateOperation and RelationJunctionPart. These floors are what the
-    // provider-free estate actually reaches; raising them would mean
-    // duplicating suites that already exist, not testing anything new.
+    // ONE engine, ONE subsystem. The `write-engine` subsystem that used to sit
+    // beside this one owned `src/query-engine/write-engine/`, which follow-ups
+    // F-2 and F-6 emptied and deleted; its `exceptRoot` here went with it, and
+    // its three coverage projects are now parts of this one so that nothing it
+    // measured stops being measured.
+    //
+    // FLOORS RE-MEASURED (follow-up F-3, receipts under
+    // `docs/architecture/raptor3-evidence/g4/release/followups/receipts/`).
+    // The previous numbers were measured over estates that no longer exist:
+    // the 97.9 branch exception named `result-count-parser.ts` and
+    // `result-row-parser.ts`, deleted by D-15, and the write floors named 18
+    // `write-engine/` files, of which zero remain. Since C-01 the whole
+    // `raptor3/` route is in this scope, and its own deterministic test tree
+    // (`coverage-raptor3`, the fourth part below) is what measures it — the
+    // seeded campaigns and the structural measurements stay with the mode
+    // runner. Measured 2026-09-19 over the four parts: statements 87.38,
+    // branches 91.1, functions 90.48, lines 87.38; the floors are those
+    // numbers rounded DOWN to the half-point, a true ratchet.
     target: 98,
     metricTargets: {
-      statements: 82,
-      branches: 80.5,
-      functions: 92,
-      lines: 82,
+      statements: 87,
+      branches: 91,
+      functions: 90,
+      lines: 87,
     },
-    root: "src/query-engine/write-engine/",
-    projects: ["coverage-write-engine"],
-    tests: WRITE_ENGINE_COVERAGE_TESTS,
-    testGroups: WRITE_ENGINE_COVERAGE_TEST_GROUPS,
-    heapLimitMb: 512,
+    root: "src/query-engine/",
+    projects: [
+      "layer-query-engine",
+      "coverage-write-engine-core",
+      "coverage-write-engine",
+      "coverage-raptor3",
+    ],
   },
   {
     id: "drivers",
@@ -341,9 +336,17 @@ if (ownershipErrors.length) {
  *   - every floor is a ratchet. A real regression in any metric still fails.
  *
  * None of them hides untested behaviour: the suites excluded from the
- * write-engine and drivers lanes are live-provider suites that all execute, and
+ * query-engine and drivers lanes are live-provider suites that all execute, and
  * pass, in `pnpm test:all`. Raising a floor is the goal; lowering one needs the
  * same evidence and the same approval.
+ *
+ * Follow-up F-3 (Arnaud, 2026-09-18) re-measured the query-engine floors on the
+ * tree that deleted `write-engine/` and set them to the measured values rounded
+ * down to the half-point. That LOWERED four numbers, under the rule above: the
+ * evidence is the receipt named beside the subsystem, and the approval is the
+ * ruling. What it lowered was never measured behaviour — the previous numbers
+ * were measured over estates D-15 deleted — so the ratchet now starts from
+ * what the lane covers instead of from what an older estate covered.
  */
 export const coverageSubsystems = Object.freeze(
   definitions.map((definition) =>

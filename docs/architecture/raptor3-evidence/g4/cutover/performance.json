@@ -1,0 +1,5710 @@
+{
+ "unit": "g4-cutover-measurement (stage 2b, frozen identity 2)",
+ "passes": [
+  "pass1",
+  "pass2"
+ ],
+ "generatedAt": "2026-09-16T01:32:57.534Z",
+ "protocol": {
+  "document": "docs/architecture/raptor3-evidence/g4/cutover/protocol.md",
+  "frozenMatrix": "g0.md, Frozen representative calibration version 1 (20 cells)",
+  "replicatesPerSide": 5,
+  "alternating": true,
+  "freshProcessPerSample": true,
+  "provider": "sqlite3",
+  "comparisonMode": "semantic",
+  "oneModePerCommand": true,
+  "timeBudgetFraction": 0.05,
+  "peakMemoryBudgetFraction": 0.1,
+  "uncertainty": "E = 2 x max(MAD_baseline, MAD_candidate)",
+  "gate": "(N - B) + E <= budget",
+  "outlierRemoval": "none",
+  "improvementClaim": "improvement > E"
+ },
+ "commits": {
+  "baselineSource": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "baselineProtocolOverlay": "e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0",
+  "candidateCutover": "0f09f7b6",
+  "candidateCutoverPlusAdapter": "9086ad814173f5babfca32ad9187f4ae4eab508d",
+  "frozenProductionIdentity": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904"
+ },
+ "tally": {
+  "blocks adoption": 11,
+  "pass": 3,
+  "not measurable comparably — end-to-end evidence retained": 2,
+  "inconclusive after the one permitted repeat — blocks adoption": 3,
+  "blocks adoption — required contract divergence": 1
+ },
+ "cells": [
+  {
+   "workload": "scalar-find-unique",
+   "stage": "cold-prepare",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__cold-prepare__cpu.json.gz",
+      "log": "pass1__scalar-find-unique__cold-prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__cold-prepare__retained.json.gz",
+      "log": "pass1__scalar-find-unique__cold-prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 163.7096,
+       "N": 177.4372,
+       "madBaseline": 0.9869999999999948,
+       "madCandidate": 0.5202000000000169,
+       "E": 1.9739999999999895,
+       "budgetFraction": 0.05,
+       "budget": 8.18548,
+       "signedDelta": 13.727599999999995,
+       "ratio": 1.0838533598518352,
+       "deltaPlusE": 15.701599999999985,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        161.5974,
+        162.6742,
+        164.0448,
+        164.6966,
+        163.7096
+       ],
+       "samplesCandidate": [
+        176.7088,
+        176.6552,
+        177.4372,
+        177.9574,
+        177.5366
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 76.75323339999998,
+       "N": 87.33465,
+       "madBaseline": 0.3502251999999828,
+       "madCandidate": 0.4646584000000047,
+       "E": 0.9293168000000094,
+       "budgetFraction": 0.05,
+       "budget": 3.8376616699999992,
+       "signedDelta": 10.581416600000011,
+       "ratio": 1.137862812174373,
+       "deltaPlusE": 11.51073340000002,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        76.75323339999998,
+        76.6549332,
+        76.4030082,
+        77.6312916,
+        78.98190819999998
+       ],
+       "samplesCandidate": [
+        86.86999159999999,
+        86.5262834,
+        87.69143340000001,
+        87.926725,
+        87.33465
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 206159872,
+       "N": 203390976,
+       "madBaseline": 393216,
+       "madCandidate": 442368,
+       "E": 884736,
+       "budgetFraction": 0.1,
+       "budget": 20615987.200000003,
+       "signedDelta": -2768896,
+       "ratio": 0.9865691806405468,
+       "deltaPlusE": -1884160,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        206159872,
+        206618624,
+        205045760,
+        205897728,
+        206553088
+       ],
+       "samplesCandidate": [
+        202948608,
+        207503360,
+        203390976,
+        203046912,
+        207994880
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__cold-prepare__cpu.json.gz",
+      "log": "pass2__scalar-find-unique__cold-prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__cold-prepare__retained.json.gz",
+      "log": "pass2__scalar-find-unique__cold-prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 161.931,
+       "N": 178.104,
+       "madBaseline": 0.3182000000000187,
+       "madCandidate": 0.6229999999999905,
+       "E": 1.245999999999981,
+       "budgetFraction": 0.05,
+       "budget": 8.09655,
+       "signedDelta": 16.173000000000002,
+       "ratio": 1.0998758730570428,
+       "deltaPlusE": 17.418999999999983,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        161.931,
+        162.3848,
+        161.6128,
+        161.8274,
+        162.2522
+       ],
+       "samplesCandidate": [
+        178.104,
+        178.727,
+        176.673,
+        178.111,
+        176.426
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 76.69436679999998,
+       "N": 87.6972418,
+       "madBaseline": 0.4181667999999803,
+       "madCandidate": 0.2803332000000154,
+       "E": 0.8363335999999606,
+       "budgetFraction": 0.05,
+       "budget": 3.8347183399999993,
+       "signedDelta": 11.002875000000017,
+       "ratio": 1.1434639264796698,
+       "deltaPlusE": 11.839208599999978,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        76.73436659999999,
+        78.2954582,
+        75.114275,
+        76.2762,
+        76.69436679999998
+       ],
+       "samplesCandidate": [
+        87.867925,
+        87.97757500000002,
+        86.82295839999999,
+        87.6972418,
+        86.52315000000002
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 206192640,
+       "N": 203538432,
+       "madBaseline": 98304,
+       "madCandidate": 1507328,
+       "E": 3014656,
+       "budgetFraction": 0.1,
+       "budget": 20619264,
+       "signedDelta": -2654208,
+       "ratio": 0.9871275327771156,
+       "deltaPlusE": 360448,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        206028800,
+        206127104,
+        206536704,
+        206192640,
+        206290944
+       ],
+       "samplesCandidate": [
+        207175680,
+        202031104,
+        202702848,
+        203538432,
+        206684160
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "scalar-find-unique",
+   "stage": "prepare",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__prepare__cpu.json.gz",
+      "log": "pass1__scalar-find-unique__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__prepare__retained.json.gz",
+      "log": "pass1__scalar-find-unique__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 13.1364,
+       "N": 28.2924,
+       "madBaseline": 0.08619999999999983,
+       "madCandidate": 0.23719999999999786,
+       "E": 0.4743999999999957,
+       "budgetFraction": 0.05,
+       "budget": 0.6568200000000001,
+       "signedDelta": 15.156,
+       "ratio": 2.153740750890655,
+       "deltaPlusE": 15.630399999999996,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        13.1364,
+        13.0502,
+        13.9988,
+        13.2604,
+        13.0648
+       ],
+       "samplesCandidate": [
+        29.3924,
+        28.118,
+        28.2924,
+        28.5296,
+        28.0236
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 6.6245,
+       "N": 17.4767,
+       "madBaseline": 0.12557499999999777,
+       "madCandidate": 0.00694999999999979,
+       "E": 0.25114999999999554,
+       "budgetFraction": 0.05,
+       "budget": 0.33122500000000005,
+       "signedDelta": 10.8522,
+       "ratio": 2.6381915616272926,
+       "deltaPlusE": 11.103349999999995,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        6.4989250000000025,
+        6.6245,
+        6.994850000000003,
+        6.809616799999998,
+        6.557833399999999
+       ],
+       "samplesCandidate": [
+        18.812283200000003,
+        17.46975,
+        17.4767,
+        17.82475,
+        17.470708200000008
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 104136704,
+       "N": 109772800,
+       "madBaseline": 212992,
+       "madCandidate": 409600,
+       "E": 819200,
+       "budgetFraction": 0.1,
+       "budget": 10413670.4,
+       "signedDelta": 5636096,
+       "ratio": 1.0541220893643801,
+       "deltaPlusE": 6455296,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        103661568,
+        103923712,
+        104480768,
+        104136704,
+        104185856
+       ],
+       "samplesCandidate": [
+        109772800,
+        108445696,
+        110116864,
+        110542848,
+        109363200
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__prepare__cpu.json.gz",
+      "log": "pass2__scalar-find-unique__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__prepare__retained.json.gz",
+      "log": "pass2__scalar-find-unique__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 13.1272,
+       "N": 28.2558,
+       "madBaseline": 0.19299999999999962,
+       "madCandidate": 0.08940000000000126,
+       "E": 0.38599999999999923,
+       "budgetFraction": 0.05,
+       "budget": 0.65636,
+       "signedDelta": 15.1286,
+       "ratio": 2.152462063501737,
+       "deltaPlusE": 15.5146,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        13.1272,
+        12.6186,
+        13.3202,
+        14.0512,
+        13.0594
+       ],
+       "samplesCandidate": [
+        28.1664,
+        28.2108,
+        28.4782,
+        28.5102,
+        28.2558
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 6.598733400000003,
+       "N": 17.6299332,
+       "madBaseline": 0.11442519999999945,
+       "madCandidate": 0.1826247999999957,
+       "E": 0.3652495999999914,
+       "budgetFraction": 0.05,
+       "budget": 0.32993667000000015,
+       "signedDelta": 11.031199799999996,
+       "ratio": 2.6717147263443,
+       "deltaPlusE": 11.396449399999987,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        6.484308200000004,
+        6.6085666,
+        6.598733400000003,
+        7.018833200000001,
+        6.460775000000001
+       ],
+       "samplesCandidate": [
+        17.447308400000004,
+        17.6222084,
+        18.142249999999997,
+        17.9685416,
+        17.6299332
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 104628224,
+       "N": 109871104,
+       "madBaseline": 131072,
+       "madCandidate": 311296,
+       "E": 622592,
+       "budgetFraction": 0.1,
+       "budget": 10462822.4,
+       "signedDelta": 5242880,
+       "ratio": 1.0501096147823363,
+       "deltaPlusE": 5865472,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        104562688,
+        104628224,
+        105594880,
+        104873984,
+        104497152
+       ],
+       "samplesCandidate": [
+        109871104,
+        109428736,
+        109854720,
+        110723072,
+        110182400
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "scalar-find-unique",
+   "stage": "execute",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__execute__cpu.json.gz",
+      "log": "pass1__scalar-find-unique__execute__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__execute__retained.json.gz",
+      "log": "pass1__scalar-find-unique__execute__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 6.341,
+       "N": 6.1038,
+       "madBaseline": 0.17940000000000023,
+       "madCandidate": 0.13680000000000003,
+       "E": 0.35880000000000045,
+       "budgetFraction": 0.05,
+       "budget": 0.31705000000000005,
+       "signedDelta": -0.23720000000000052,
+       "ratio": 0.9625926510014192,
+       "deltaPlusE": 0.12159999999999993,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        6.1616,
+        6.341,
+        6.738,
+        6.139,
+        6.4646
+       ],
+       "samplesCandidate": [
+        6.2406,
+        6.0836,
+        6.3016,
+        6.1038,
+        5.9298
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 6.110458399999999,
+       "N": 5.8959331999999955,
+       "madBaseline": 0.15217480000000005,
+       "madCandidate": 0.16022520000000284,
+       "E": 0.3204504000000057,
+       "budgetFraction": 0.05,
+       "budget": 0.30552292,
+       "signedDelta": -0.2145252000000033,
+       "ratio": 0.9648921265874254,
+       "deltaPlusE": 0.10592520000000238,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        5.960650000000004,
+        6.110458399999999,
+        6.490733399999999,
+        5.907066800000001,
+        6.262633199999999
+       ],
+       "samplesCandidate": [
+        6.056158399999998,
+        5.868166800000001,
+        6.109325000000002,
+        5.8959331999999955,
+        5.7150668
+       ],
+       "verdict": "pass"
+      },
+      "peakRssBytes": {
+       "B": 90177536,
+       "N": 88391680,
+       "madBaseline": 196608,
+       "madCandidate": 98304,
+       "E": 393216,
+       "budgetFraction": 0.1,
+       "budget": 9017753.6,
+       "signedDelta": -1785856,
+       "ratio": 0.9801962209302325,
+       "deltaPlusE": -1392640,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        91013120,
+        90374144,
+        90177536,
+        89964544,
+        90030080
+       ],
+       "samplesCandidate": [
+        88391680,
+        88342528,
+        87818240,
+        88489984,
+        88719360
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "pass",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__execute__cpu.json.gz",
+      "log": "pass2__scalar-find-unique__execute__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__execute__retained.json.gz",
+      "log": "pass2__scalar-find-unique__execute__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 6.1704,
+       "N": 5.9792,
+       "madBaseline": 0.02459999999999951,
+       "madCandidate": 0.12659999999999982,
+       "E": 0.25319999999999965,
+       "budgetFraction": 0.05,
+       "budget": 0.30852,
+       "signedDelta": -0.19120000000000026,
+       "ratio": 0.9690133540775314,
+       "deltaPlusE": 0.06199999999999939,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        6.091,
+        6.1898,
+        6.1458,
+        6.1704,
+        6.2684
+       ],
+       "samplesCandidate": [
+        6.1098,
+        5.9792,
+        5.9944,
+        5.8526,
+        5.8458
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 5.968741599999999,
+       "N": 5.781683199999998,
+       "madBaseline": 0.048066599999998516,
+       "madCandidate": 0.08856680000000061,
+       "E": 0.17713360000000122,
+       "budgetFraction": 0.05,
+       "budget": 0.29843707999999997,
+       "signedDelta": -0.18705840000000062,
+       "ratio": 0.9686603286696143,
+       "deltaPlusE": -0.0099247999999994,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        5.884058400000003,
+        5.969733400000001,
+        5.920675,
+        5.968741599999999,
+        6.066958399999999
+       ],
+       "samplesCandidate": [
+        5.870249999999999,
+        5.781683199999998,
+        5.791124999999999,
+        5.630966599999999,
+        5.6442999999999985
+       ],
+       "verdict": "pass"
+      },
+      "peakRssBytes": {
+       "B": 90095616,
+       "N": 88129536,
+       "madBaseline": 360448,
+       "madCandidate": 229376,
+       "E": 720896,
+       "budgetFraction": 0.1,
+       "budget": 9009561.6,
+       "signedDelta": -1966080,
+       "ratio": 0.9781778505182761,
+       "deltaPlusE": -1245184,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        90570752,
+        89997312,
+        89309184,
+        90095616,
+        90456064
+       ],
+       "samplesCandidate": [
+        88424448,
+        88129536,
+        87736320,
+        88358912,
+        88031232
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "pass",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "pass",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "scalar-find-unique",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__full__cpu.json.gz",
+      "log": "pass1__scalar-find-unique__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__scalar-find-unique__full__retained.json.gz",
+      "log": "pass1__scalar-find-unique__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 27.4902,
+       "N": 36.343,
+       "madBaseline": 0.6458000000000013,
+       "madCandidate": 0.2709999999999937,
+       "E": 1.2916000000000025,
+       "budgetFraction": 0.05,
+       "budget": 1.3745100000000001,
+       "signedDelta": 8.852800000000002,
+       "ratio": 1.322034761478636,
+       "deltaPlusE": 10.144400000000005,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        30.0448,
+        27.4902,
+        27.363,
+        26.8444,
+        30.486
+       ],
+       "samplesCandidate": [
+        35.9046,
+        36.4596,
+        36.614,
+        36.053,
+        36.343
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 16.557941600000003,
+       "N": 25.9895166,
+       "madBaseline": 0.5626998000000061,
+       "madCandidate": 0.1775252000000016,
+       "E": 1.1253996000000122,
+       "budgetFraction": 0.05,
+       "budget": 0.8278970800000002,
+       "signedDelta": 9.431574999999999,
+       "ratio": 1.5696103554321026,
+       "deltaPlusE": 10.55697460000001,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        18.006300000000007,
+        16.557941600000003,
+        16.257883400000004,
+        15.995241799999997,
+        17.9271084
+       ],
+       "samplesCandidate": [
+        25.717649999999995,
+        26.074191799999994,
+        26.167041800000003,
+        25.764158199999997,
+        25.9895166
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 110247936,
+       "N": 108331008,
+       "madBaseline": 196608,
+       "madCandidate": 278528,
+       "E": 557056,
+       "budgetFraction": 0.1,
+       "budget": 11024793.600000001,
+       "signedDelta": -1916928,
+       "ratio": 0.9826125724476148,
+       "deltaPlusE": -1359872,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        109887488,
+        110084096,
+        110804992,
+        110247936,
+        110444544
+       ],
+       "samplesCandidate": [
+        108052480,
+        108314624,
+        109690880,
+        108331008,
+        108773376
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__full__cpu.json.gz",
+      "log": "pass2__scalar-find-unique__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__scalar-find-unique__full__retained.json.gz",
+      "log": "pass2__scalar-find-unique__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 27.0514,
+       "N": 36.3732,
+       "madBaseline": 0.3230000000000004,
+       "madCandidate": 0.15720000000000312,
+       "E": 0.6460000000000008,
+       "budgetFraction": 0.05,
+       "budget": 1.35257,
+       "signedDelta": 9.321799999999996,
+       "ratio": 1.34459584346836,
+       "deltaPlusE": 9.967799999999997,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        29.7116,
+        26.7284,
+        27.1402,
+        26.112,
+        27.0514
+       ],
+       "samplesCandidate": [
+        35.8302,
+        36.301,
+        36.5596,
+        36.3732,
+        36.5304
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 16.094299999999997,
+       "N": 26.047116599999995,
+       "madBaseline": 0.18267499999999437,
+       "madCandidate": 0.14090819999999127,
+       "E": 0.36534999999998874,
+       "budgetFraction": 0.05,
+       "budget": 0.8047149999999998,
+       "signedDelta": 9.952816599999998,
+       "ratio": 1.6184063053379147,
+       "deltaPlusE": 10.318166599999987,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        17.308275000000002,
+        16.094299999999997,
+        16.213175,
+        15.7274582,
+        15.911625000000003
+       ],
+       "samplesCandidate": [
+        26.047116599999995,
+        26.029858400000002,
+        25.906208400000004,
+        26.220225,
+        26.2268918
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 111034368,
+       "N": 108593152,
+       "madBaseline": 147456,
+       "madCandidate": 180224,
+       "E": 360448,
+       "budgetFraction": 0.1,
+       "budget": 11103436.8,
+       "signedDelta": -2441216,
+       "ratio": 0.9780138704441493,
+       "deltaPlusE": -2080768,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        108953600,
+        111738880,
+        111181824,
+        110936064,
+        111034368
+       ],
+       "samplesCandidate": [
+        108363776,
+        108773376,
+        108150784,
+        108593152,
+        108658688
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "flat-scalar-update",
+   "stage": "prepare",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement prepare",
+      "log": "pass1__flat-scalar-update__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement prepare",
+      "log": "pass1__flat-scalar-update__prepare__retained.log"
+     },
+     "status": "refused",
+     "verdict": "refused"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement prepare",
+      "log": "pass2__flat-scalar-update__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement prepare",
+      "log": "pass2__flat-scalar-update__prepare__retained.log"
+     },
+     "status": "refused",
+     "verdict": "refused"
+    }
+   },
+   "preparationSeam": null,
+   "bracketedAtTheSameSeam": null,
+   "observedStatementCount": null,
+   "preparedSql": null,
+   "status": "not measurable comparably",
+   "verdict": "not measurable comparably — end-to-end evidence retained",
+   "reason": "The candidate harness has no isolated 'prepare' stage for this workload: its prepared package holds two statements (an EXISTS premise probe plus the UPDATE), while the shipped side brackets one statement through its 'built-statement' seam. Refusal: Error: Harness flat-scalar-update does not implement prepare",
+   "endToEndEvidence": "flat-scalar-update/full, measured in both passes"
+  },
+  {
+   "workload": "flat-scalar-update",
+   "stage": "execute",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement execute",
+      "log": "pass1__flat-scalar-update__execute__cpu.log"
+     },
+     "retained": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement execute",
+      "log": "pass1__flat-scalar-update__execute__retained.log"
+     },
+     "status": "refused",
+     "verdict": "refused"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement execute",
+      "log": "pass2__flat-scalar-update__execute__cpu.log"
+     },
+     "retained": {
+      "status": "refused",
+      "detail": "Error: Harness flat-scalar-update does not implement execute",
+      "log": "pass2__flat-scalar-update__execute__retained.log"
+     },
+     "status": "refused",
+     "verdict": "refused"
+    }
+   },
+   "preparationSeam": null,
+   "bracketedAtTheSameSeam": null,
+   "observedStatementCount": null,
+   "preparedSql": null,
+   "status": "not measurable comparably",
+   "verdict": "not measurable comparably — end-to-end evidence retained",
+   "reason": "The candidate harness has no isolated 'execute' stage for this workload: its prepared package holds two statements (an EXISTS premise probe plus the UPDATE), while the shipped side brackets one statement through its 'built-statement' seam. Refusal: Error: Harness flat-scalar-update does not implement execute",
+   "endToEndEvidence": "flat-scalar-update/full, measured in both passes"
+  },
+  {
+   "workload": "flat-scalar-update",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__flat-scalar-update__full__cpu.json.gz",
+      "log": "pass1__flat-scalar-update__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__flat-scalar-update__full__retained.json.gz",
+      "log": "pass1__flat-scalar-update__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "built-statement",
+       "statementCount": 1,
+       "packageRefusal": "Step 'user.update' carries a postcondition that is not yet enforced in batch mode."
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 2,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\""
+      ],
+      "candidate": [
+       "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\""
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 40.3952,
+       "N": 40.8022,
+       "madBaseline": 0.14859999999999474,
+       "madCandidate": 0.14699999999999847,
+       "E": 0.2971999999999895,
+       "budgetFraction": 0.05,
+       "budget": 2.01976,
+       "signedDelta": 0.4069999999999965,
+       "ratio": 1.0100754545094466,
+       "deltaPlusE": 0.704199999999986,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        40.3952,
+        40.5438,
+        41.347,
+        39.8776,
+        40.2508
+       ],
+       "samplesCandidate": [
+        40.8022,
+        40.835,
+        40.9492,
+        40.5486,
+        40.048
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 23.478833200000004,
+       "N": 30.781791600000002,
+       "madBaseline": 0.17414160000000578,
+       "madCandidate": 0.09506660000000267,
+       "E": 0.34828320000001156,
+       "budgetFraction": 0.05,
+       "budget": 1.1739416600000003,
+       "signedDelta": 7.302958399999998,
+       "ratio": 1.3110443495122235,
+       "deltaPlusE": 7.651241600000009,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        23.478833200000004,
+        23.503950000000003,
+        23.9938084,
+        22.8225916,
+        23.304691599999998
+       ],
+       "samplesCandidate": [
+        30.781791600000002,
+        30.876858200000004,
+        30.806941600000002,
+        30.593033400000003,
+        30.436433200000007
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 110264320,
+       "N": 104480768,
+       "madBaseline": 458752,
+       "madCandidate": 327680,
+       "E": 917504,
+       "budgetFraction": 0.1,
+       "budget": 11026432,
+       "signedDelta": -5783552,
+       "ratio": 0.9475482912332838,
+       "deltaPlusE": -4866048,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        110723072,
+        110264320,
+        109707264,
+        109871104,
+        110968832
+       ],
+       "samplesCandidate": [
+        103890944,
+        104480768,
+        104988672,
+        104153088,
+        104513536
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__flat-scalar-update__full__cpu.json.gz",
+      "log": "pass2__flat-scalar-update__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__flat-scalar-update__full__retained.json.gz",
+      "log": "pass2__flat-scalar-update__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "built-statement",
+       "statementCount": 1,
+       "packageRefusal": "Step 'user.update' carries a postcondition that is not yet enforced in batch mode."
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 2,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\""
+      ],
+      "candidate": [
+       "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\""
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 40.0784,
+       "N": 40.55,
+       "madBaseline": 0.1687999999999974,
+       "madCandidate": 0.04660000000000508,
+       "E": 0.3375999999999948,
+       "budgetFraction": 0.05,
+       "budget": 2.0039200000000004,
+       "signedDelta": 0.47159999999999513,
+       "ratio": 1.0117669368038642,
+       "deltaPlusE": 0.8091999999999899,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        39.878,
+        40.0324,
+        40.4726,
+        40.0784,
+        40.2472
+       ],
+       "samplesCandidate": [
+        39.8744,
+        42.088,
+        40.5176,
+        40.55,
+        40.5966
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 23.098125000000007,
+       "N": 30.566858400000005,
+       "madBaseline": 0.2197250000000075,
+       "madCandidate": 0.050958400000006066,
+       "E": 0.439450000000015,
+       "budgetFraction": 0.05,
+       "budget": 1.1549062500000005,
+       "signedDelta": 7.468733399999998,
+       "ratio": 1.3233480379900964,
+       "deltaPlusE": 7.908183400000013,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        22.580033199999995,
+        22.8784,
+        23.616083399999997,
+        23.098125000000007,
+        23.186566600000003
+       ],
+       "samplesCandidate": [
+        29.897175,
+        32.3241418,
+        30.5159,
+        30.5971332,
+        30.566858400000005
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 110264320,
+       "N": 104841216,
+       "madBaseline": 229376,
+       "madCandidate": 245760,
+       "E": 491520,
+       "budgetFraction": 0.1,
+       "budget": 11026432,
+       "signedDelta": -5423104,
+       "ratio": 0.950817236255572,
+       "deltaPlusE": -4931584,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        109543424,
+        110493696,
+        110247936,
+        110788608,
+        110264320
+       ],
+       "samplesCandidate": [
+        104349696,
+        105086976,
+        104841216,
+        104497152,
+        105086976
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "built-statement",
+     "statementCount": 1,
+     "packageRefusal": "Step 'user.update' carries a postcondition that is not yet enforced in batch mode."
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 2,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": false,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\""
+    ],
+    "candidate": [
+     "SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\", \"name\" AS \"name\", \"email\" AS \"email\", \"age\" AS \"age\""
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "fixed-collection-rowref-20",
+   "stage": "prepare",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-20__prepare__cpu.json.gz",
+      "log": "pass1__fixed-collection-rowref-20__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-20__prepare__retained.json.gz",
+      "log": "pass1__fixed-collection-rowref-20__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 26.9412,
+       "N": 37.7202,
+       "madBaseline": 0.07219999999999871,
+       "madCandidate": 0.3917999999999964,
+       "E": 0.7835999999999927,
+       "budgetFraction": 0.05,
+       "budget": 1.34706,
+       "signedDelta": 10.779,
+       "ratio": 1.4000935370362122,
+       "deltaPlusE": 11.562599999999993,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        27.158,
+        26.869,
+        26.9412,
+        26.9942,
+        26.7454
+       ],
+       "samplesCandidate": [
+        38.3156,
+        37.3284,
+        37.7202,
+        37.3224,
+        38.0818
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 12.460633399999994,
+       "N": 23.354700000000005,
+       "madBaseline": 0.06446659999999582,
+       "madCandidate": 0.12682500000000374,
+       "E": 0.2536500000000075,
+       "budgetFraction": 0.05,
+       "budget": 0.6230316699999997,
+       "signedDelta": 10.894066600000011,
+       "ratio": 1.8742787184478131,
+       "deltaPlusE": 11.147716600000019,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        12.528674999999993,
+        12.460633399999994,
+        12.396166799999998,
+        12.467366799999995,
+        12.356916800000004
+       ],
+       "samplesCandidate": [
+        23.227875,
+        23.354700000000005,
+        23.897266599999995,
+        23.254408399999996,
+        23.5594084
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 110247936,
+       "N": 110084096,
+       "madBaseline": 147456,
+       "madCandidate": 180224,
+       "E": 360448,
+       "budgetFraction": 0.1,
+       "budget": 11024793.600000001,
+       "signedDelta": -163840,
+       "ratio": 0.9985138950809928,
+       "deltaPlusE": 196608,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        110952448,
+        110247936,
+        110788608,
+        110182400,
+        110100480
+       ],
+       "samplesCandidate": [
+        109821952,
+        110182400,
+        110690304,
+        110084096,
+        109903872
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-20__prepare__cpu.json.gz",
+      "log": "pass2__fixed-collection-rowref-20__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-20__prepare__retained.json.gz",
+      "log": "pass2__fixed-collection-rowref-20__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 26.6856,
+       "N": 37.4336,
+       "madBaseline": 0.1910000000000025,
+       "madCandidate": 0.3132000000000019,
+       "E": 0.6264000000000038,
+       "budgetFraction": 0.05,
+       "budget": 1.3342800000000001,
+       "signedDelta": 10.747999999999998,
+       "ratio": 1.4027640375333512,
+       "deltaPlusE": 11.374400000000001,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        26.3144,
+        26.6856,
+        26.824,
+        26.4946,
+        27.6094
+       ],
+       "samplesCandidate": [
+        36.8502,
+        37.4336,
+        37.1872,
+        37.766,
+        37.7468
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 12.348058400000001,
+       "N": 23.336166600000002,
+       "madBaseline": 0.09590820000000377,
+       "madCandidate": 0.33423320000000345,
+       "E": 0.6684664000000069,
+       "budgetFraction": 0.05,
+       "budget": 0.6174029200000001,
+       "signedDelta": 10.988108200000001,
+       "ratio": 1.8898652601124724,
+       "deltaPlusE": 11.656574600000008,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        12.248308400000008,
+        12.322725000000004,
+        12.443966600000005,
+        12.348058400000001,
+        12.728058200000003
+       ],
+       "samplesCandidate": [
+        22.51065,
+        23.4447666,
+        23.0019334,
+        23.336166600000002,
+        23.726625
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 110067712,
+       "N": 110264320,
+       "madBaseline": 163840,
+       "madCandidate": 180224,
+       "E": 360448,
+       "budgetFraction": 0.1,
+       "budget": 11006771.200000001,
+       "signedDelta": 196608,
+       "ratio": 1.0017862459065199,
+       "deltaPlusE": 557056,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        110084096,
+        110067712,
+        109903872,
+        110231552,
+        109559808
+       ],
+       "samplesCandidate": [
+        110395392,
+        110264320,
+        110444544,
+        109903872,
+        109461504
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "fixed-collection-rowref-20",
+   "stage": "execute",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-20__execute__cpu.json.gz",
+      "log": "pass1__fixed-collection-rowref-20__execute__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-20__execute__retained.json.gz",
+      "log": "pass1__fixed-collection-rowref-20__execute__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 31.102,
+       "N": 31.8708,
+       "madBaseline": 0.12720000000000198,
+       "madCandidate": 0.0730000000000004,
+       "E": 0.25440000000000396,
+       "budgetFraction": 0.05,
+       "budget": 1.5551000000000001,
+       "signedDelta": 0.7687999999999988,
+       "ratio": 1.0247186676098,
+       "deltaPlusE": 1.0232000000000028,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        30.9748,
+        31.102,
+        31.1568,
+        30.8694,
+        31.2864
+       ],
+       "samplesCandidate": [
+        31.7978,
+        31.8708,
+        33.7272,
+        31.6114,
+        31.8758
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 30.9551,
+       "N": 31.744283399999997,
+       "madBaseline": 0.14222500000000338,
+       "madCandidate": 0.085383199999999,
+       "E": 0.28445000000000675,
+       "budgetFraction": 0.05,
+       "budget": 1.5477550000000002,
+       "signedDelta": 0.7891833999999953,
+       "ratio": 1.0254944548717335,
+       "deltaPlusE": 1.073633400000002,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        30.812875,
+        30.9551,
+        31.01115,
+        30.720616799999995,
+        31.151258400000003
+       ],
+       "samplesCandidate": [
+        31.672599999999996,
+        31.829666599999996,
+        34.437641600000006,
+        31.4529582,
+        31.744283399999997
+       ],
+       "verdict": "pass"
+      },
+      "peakRssBytes": {
+       "B": 94896128,
+       "N": 92422144,
+       "madBaseline": 49152,
+       "madCandidate": 212992,
+       "E": 425984,
+       "budgetFraction": 0.1,
+       "budget": 9489612.8,
+       "signedDelta": -2473984,
+       "ratio": 0.9739295580110497,
+       "deltaPlusE": -2048000,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        94928896,
+        94273536,
+        94797824,
+        94945280,
+        94896128
+       ],
+       "samplesCandidate": [
+        92635136,
+        92520448,
+        92422144,
+        91979776,
+        91652096
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "pass",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-20__execute__cpu.json.gz",
+      "log": "pass2__fixed-collection-rowref-20__execute__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-20__execute__retained.json.gz",
+      "log": "pass2__fixed-collection-rowref-20__execute__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 31.3096,
+       "N": 31.5128,
+       "madBaseline": 0.18420000000000059,
+       "madCandidate": 0.22680000000000078,
+       "E": 0.45360000000000156,
+       "budgetFraction": 0.05,
+       "budget": 1.56548,
+       "signedDelta": 0.20319999999999894,
+       "ratio": 1.0064900222296036,
+       "deltaPlusE": 0.6568000000000005,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        30.797,
+        31.4518,
+        31.3096,
+        31.0208,
+        31.4938
+       ],
+       "samplesCandidate": [
+        31.2056,
+        31.5128,
+        31.4718,
+        31.9074,
+        31.7396
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 31.170233400000004,
+       "N": 31.388041799999996,
+       "madBaseline": 0.21811659999999478,
+       "madCandidate": 0.23907480000000092,
+       "E": 0.47814960000000184,
+       "budgetFraction": 0.05,
+       "budget": 1.5585116700000003,
+       "signedDelta": 0.21780839999999202,
+       "ratio": 1.0069877051353742,
+       "deltaPlusE": 0.6959579999999939,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        30.665575000000008,
+        31.318683399999998,
+        31.170233400000004,
+        30.8848,
+        31.38835
+       ],
+       "samplesCandidate": [
+        31.0635834,
+        31.388041799999996,
+        31.301808199999993,
+        31.744333199999993,
+        31.627116599999997
+       ],
+       "verdict": "pass"
+      },
+      "peakRssBytes": {
+       "B": 94732288,
+       "N": 92733440,
+       "madBaseline": 180224,
+       "madCandidate": 32768,
+       "E": 360448,
+       "budgetFraction": 0.1,
+       "budget": 9473228.8,
+       "signedDelta": -1998848,
+       "ratio": 0.9789000345901072,
+       "deltaPlusE": -1638400,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        94912512,
+        94732288,
+        94060544,
+        94846976,
+        94420992
+       ],
+       "samplesCandidate": [
+        92372992,
+        92110848,
+        92733440,
+        92766208,
+        92766208
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "pass",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "pass",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "fixed-collection-rowref-20",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-20__full__cpu.json.gz",
+      "log": "pass1__fixed-collection-rowref-20__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-20__full__retained.json.gz",
+      "log": "pass1__fixed-collection-rowref-20__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 72.2138,
+       "N": 79.6796,
+       "madBaseline": 0.2271999999999963,
+       "madCandidate": 0.9187999999999903,
+       "E": 1.8375999999999806,
+       "budgetFraction": 0.05,
+       "budget": 3.6106900000000004,
+       "signedDelta": 7.465799999999987,
+       "ratio": 1.1033846716278604,
+       "deltaPlusE": 9.303399999999968,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        72.266,
+        71.9118,
+        71.6916,
+        72.441,
+        72.2138
+       ],
+       "samplesCandidate": [
+        78.8684,
+        78.7608,
+        79.6796,
+        81.024,
+        80.6258
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 55.4966584,
+       "N": 67.01744160000001,
+       "madBaseline": 0.1511583999999928,
+       "madCandidate": 0.6895166000000188,
+       "E": 1.3790332000000376,
+       "budgetFraction": 0.05,
+       "budget": 2.77483292,
+       "signedDelta": 11.520783200000011,
+       "ratio": 1.207594178319032,
+       "deltaPlusE": 12.899816400000049,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        55.4966584,
+        55.300841599999984,
+        54.86896680000001,
+        55.56232500000001,
+        55.647816799999994
+       ],
+       "samplesCandidate": [
+        66.327925,
+        66.46614160000001,
+        67.01744160000001,
+        67.808275,
+        67.96656660000001
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 117325824,
+       "N": 110903296,
+       "madBaseline": 131072,
+       "madCandidate": 163840,
+       "E": 327680,
+       "budgetFraction": 0.1,
+       "budget": 11732582.4,
+       "signedDelta": -6422528,
+       "ratio": 0.9452590420332356,
+       "deltaPlusE": -6094848,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        117489664,
+        117161984,
+        117456896,
+        117325824,
+        117243904
+       ],
+       "samplesCandidate": [
+        110936064,
+        111624192,
+        109608960,
+        110903296,
+        110739456
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-20__full__cpu.json.gz",
+      "log": "pass2__fixed-collection-rowref-20__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-20__full__retained.json.gz",
+      "log": "pass2__fixed-collection-rowref-20__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 72.1294,
+       "N": 79.9522,
+       "madBaseline": 0.4718000000000018,
+       "madCandidate": 0.6774000000000058,
+       "E": 1.3548000000000116,
+       "budgetFraction": 0.05,
+       "budget": 3.6064700000000003,
+       "signedDelta": 7.822800000000001,
+       "ratio": 1.1084550821163077,
+       "deltaPlusE": 9.177600000000012,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        72.1294,
+        73.1186,
+        71.698,
+        73.4418,
+        71.6576
+       ],
+       "samplesCandidate": [
+        78.4296,
+        79.2748,
+        79.9522,
+        80.7048,
+        80.5634
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 55.71851660000001,
+       "N": 67.00840000000001,
+       "madBaseline": 0.4474749999999972,
+       "madCandidate": 0.9249584000000084,
+       "E": 1.8499168000000168,
+       "budgetFraction": 0.05,
+       "budget": 2.7859258300000005,
+       "signedDelta": 11.2898834,
+       "ratio": 1.202623545796264,
+       "deltaPlusE": 13.139800200000018,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        55.71851660000001,
+        55.73354160000001,
+        54.7108916,
+        56.165991600000005,
+        54.8794416
+       ],
+       "samplesCandidate": [
+        66.0834416,
+        66.87622499999999,
+        67.00840000000001,
+        67.96012499999999,
+        68.14315
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 117342208,
+       "N": 110755840,
+       "madBaseline": 0,
+       "madCandidate": 163840,
+       "E": 327680,
+       "budgetFraction": 0.1,
+       "budget": 11734220.8,
+       "signedDelta": -6586368,
+       "ratio": 0.9438704272549567,
+       "deltaPlusE": -6258688,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        117800960,
+        117997568,
+        117342208,
+        117342208,
+        117342208
+       ],
+       "samplesCandidate": [
+        110919680,
+        111149056,
+        110755840,
+        110231552,
+        110723072
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "nested-conditional-found",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__nested-conditional-found__full__cpu.json.gz",
+      "log": "pass1__nested-conditional-found__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__nested-conditional-found__full__retained.json.gz",
+      "log": "pass1__nested-conditional-found__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": null,
+      "candidate": null
+     },
+     "observedStatementCount": {
+      "baseline": 4,
+      "candidate": 4
+     },
+     "preparedSql": {
+      "baseline": [],
+      "candidate": []
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 155.5946,
+       "N": 140.0402,
+       "madBaseline": 1.7771999999999935,
+       "madCandidate": 1.409400000000005,
+       "E": 3.554399999999987,
+       "budgetFraction": 0.05,
+       "budget": 7.779730000000001,
+       "signedDelta": -15.554400000000015,
+       "ratio": 0.9000325204088059,
+       "deltaPlusE": -12.000000000000028,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        155.5946,
+        157.3718,
+        156.7174,
+        150.46,
+        151.2154
+       ],
+       "samplesCandidate": [
+        138.1594,
+        140.0402,
+        141.4496,
+        145.6,
+        139.2016
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 92.76599179999998,
+       "N": 108.58795819999999,
+       "madBaseline": 0.34266679999997507,
+       "madCandidate": 0.9497418000000124,
+       "E": 1.8994836000000248,
+       "budgetFraction": 0.05,
+       "budget": 4.638299589999999,
+       "signedDelta": 15.821966400000008,
+       "ratio": 1.1705578315177352,
+       "deltaPlusE": 17.721450000000033,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        92.76599179999998,
+        95.17575,
+        93.4334666,
+        92.6292166,
+        92.423325
+       ],
+       "samplesCandidate": [
+        107.24940000000002,
+        108.58795819999999,
+        109.5377,
+        113.8346166,
+        107.89471679999998
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 142016512,
+       "N": 107921408,
+       "madBaseline": 606208,
+       "madCandidate": 212992,
+       "E": 1212416,
+       "budgetFraction": 0.1,
+       "budget": 14201651.200000001,
+       "signedDelta": -34095104,
+       "ratio": 0.7599215505306876,
+       "deltaPlusE": -32882688,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        142393344,
+        142016512,
+        142622720,
+        140115968,
+        138575872
+       ],
+       "samplesCandidate": [
+        107659264,
+        107970560,
+        107659264,
+        108134400,
+        107921408
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__nested-conditional-found__full__cpu.json.gz",
+      "log": "pass2__nested-conditional-found__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__nested-conditional-found__full__retained.json.gz",
+      "log": "pass2__nested-conditional-found__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": null,
+      "candidate": null
+     },
+     "observedStatementCount": {
+      "baseline": 4,
+      "candidate": 4
+     },
+     "preparedSql": {
+      "baseline": [],
+      "candidate": []
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 158.0576,
+       "N": 138.1082,
+       "madBaseline": 6.887599999999992,
+       "madCandidate": 1.5400000000000205,
+       "E": 13.775199999999984,
+       "budgetFraction": 0.05,
+       "budget": 7.902880000000001,
+       "signedDelta": -19.949399999999997,
+       "ratio": 0.8737839876095803,
+       "deltaPlusE": -6.174200000000013,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        164.9452,
+        148.9384,
+        158.0576,
+        159.2858,
+        148.7928
+       ],
+       "samplesCandidate": [
+        138.1082,
+        141.344,
+        137.4002,
+        143.9872,
+        136.5682
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 93.85991659999999,
+       "N": 107.46385,
+       "madBaseline": 3.105983199999983,
+       "madCandidate": 1.7693333999999936,
+       "E": 6.211966399999966,
+       "budgetFraction": 0.05,
+       "budget": 4.69299583,
+       "signedDelta": 13.603933400000003,
+       "ratio": 1.1449386904739696,
+       "deltaPlusE": 19.81589979999997,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        104.0964832,
+        90.5469916,
+        93.85991659999999,
+        94.94547499999999,
+        90.75393340000001
+       ],
+       "samplesCandidate": [
+        107.46385,
+        110.3878416,
+        106.4612584,
+        115.357625,
+        105.6945166
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 141180928,
+       "N": 107905024,
+       "madBaseline": 1228800,
+       "madCandidate": 65536,
+       "E": 2457600,
+       "budgetFraction": 0.1,
+       "budget": 14118092.8,
+       "signedDelta": -33275904,
+       "ratio": 0.764303121736103,
+       "deltaPlusE": -30818304,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        141180928,
+        142589952,
+        139952128,
+        141836288,
+        138428416
+       ],
+       "samplesCandidate": [
+        107905024,
+        107839488,
+        108396544,
+        107839488,
+        108167168
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": null,
+    "candidate": null
+   },
+   "bracketedAtTheSameSeam": "n/a — end-to-end through the public entry",
+   "observedStatementCount": {
+    "baseline": 4,
+    "candidate": 4
+   },
+   "preparedSql": {
+    "baseline": [],
+    "candidate": []
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "nested-conditional-missing",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__nested-conditional-missing__full__cpu.json.gz",
+      "log": "pass1__nested-conditional-missing__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__nested-conditional-missing__full__retained.json.gz",
+      "log": "pass1__nested-conditional-missing__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": null,
+      "candidate": null
+     },
+     "observedStatementCount": {
+      "baseline": 4,
+      "candidate": 4
+     },
+     "preparedSql": {
+      "baseline": [],
+      "candidate": []
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 153.6118,
+       "N": 138.6928,
+       "madBaseline": 0.974000000000018,
+       "madCandidate": 0.3435999999999808,
+       "E": 1.948000000000036,
+       "budgetFraction": 0.05,
+       "budget": 7.68059,
+       "signedDelta": -14.918999999999983,
+       "ratio": 0.9028785549026833,
+       "deltaPlusE": -12.970999999999947,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        152.7906,
+        152.6054,
+        159.7152,
+        153.6118,
+        154.5858
+       ],
+       "samplesCandidate": [
+        139.0364,
+        138.6928,
+        136.237,
+        138.3462,
+        138.7328
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 89.22858320000002,
+       "N": 108.0179834,
+       "madBaseline": 0.37449160000001314,
+       "madCandidate": 0.3793749999999676,
+       "E": 0.7587499999999352,
+       "budgetFraction": 0.05,
+       "budget": 4.461429160000001,
+       "signedDelta": 18.78940019999999,
+       "ratio": 1.2105760231324618,
+       "deltaPlusE": 19.548150199999924,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        89.22858320000002,
+        88.8540916,
+        94.3103834,
+        89.1910834,
+        90.58991660000002
+       ],
+       "samplesCandidate": [
+        108.0179834,
+        108.39735839999997,
+        106.04260840000002,
+        107.9425416,
+        108.41448340000002
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 140836864,
+       "N": 108691456,
+       "madBaseline": 442368,
+       "madCandidate": 180224,
+       "E": 884736,
+       "budgetFraction": 0.1,
+       "budget": 14083686.4,
+       "signedDelta": -32145408,
+       "ratio": 0.7717543043275942,
+       "deltaPlusE": -31260672,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        138739712,
+        141279232,
+        141033472,
+        138133504,
+        140836864
+       ],
+       "samplesCandidate": [
+        108691456,
+        108691456,
+        106889216,
+        108871680,
+        107954176
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__nested-conditional-missing__full__cpu.json.gz",
+      "log": "pass2__nested-conditional-missing__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__nested-conditional-missing__full__retained.json.gz",
+      "log": "pass2__nested-conditional-missing__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": null,
+      "candidate": null
+     },
+     "observedStatementCount": {
+      "baseline": 4,
+      "candidate": 4
+     },
+     "preparedSql": {
+      "baseline": [],
+      "candidate": []
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 154.0528,
+       "N": 136.5638,
+       "madBaseline": 1.2567999999999984,
+       "madCandidate": 0.33320000000000505,
+       "E": 2.5135999999999967,
+       "budgetFraction": 0.05,
+       "budget": 7.70264,
+       "signedDelta": -17.489000000000004,
+       "ratio": 0.8864739881391315,
+       "deltaPlusE": -14.975400000000008,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        155.5954,
+        153.7026,
+        155.3096,
+        154.0528,
+        151.6108
+       ],
+       "samplesCandidate": [
+        136.897,
+        137.8746,
+        134.9156,
+        136.5638,
+        136.5144
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 89.4901418,
+       "N": 105.9711416,
+       "madBaseline": 1.6788583999999958,
+       "madCandidate": 0.25564179999997805,
+       "E": 3.3577167999999915,
+       "budgetFraction": 0.05,
+       "budget": 4.47450709,
+       "signedDelta": 16.480999799999992,
+       "ratio": 1.1841655345326538,
+       "deltaPlusE": 19.838716599999984,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        91.3950668,
+        89.4901418,
+        91.5032166,
+        89.39510820000001,
+        87.81128340000001
+       ],
+       "samplesCandidate": [
+        106.22678339999997,
+        107.3239416,
+        104.5486,
+        105.9711416,
+        105.908075
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 140902400,
+       "N": 107659264,
+       "madBaseline": 442368,
+       "madCandidate": 278528,
+       "E": 884736,
+       "budgetFraction": 0.1,
+       "budget": 14090240,
+       "signedDelta": -33243136,
+       "ratio": 0.7640697674418605,
+       "deltaPlusE": -32358400,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        141344768,
+        137445376,
+        140640256,
+        141377536,
+        140902400
+       ],
+       "samplesCandidate": [
+        107610112,
+        106807296,
+        108216320,
+        107937792,
+        107659264
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": null,
+    "candidate": null
+   },
+   "bracketedAtTheSameSeam": "n/a — end-to-end through the public entry",
+   "observedStatementCount": {
+    "baseline": 4,
+    "candidate": 4
+   },
+   "preparedSql": {
+    "baseline": [],
+    "candidate": []
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "key-transition-cascade",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__key-transition-cascade__full__cpu.json.gz",
+      "log": "pass1__key-transition-cascade__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__key-transition-cascade__full__retained.json.gz",
+      "log": "pass1__key-transition-cascade__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": null,
+      "candidate": null
+     },
+     "observedStatementCount": {
+      "baseline": 3,
+      "candidate": 3
+     },
+     "preparedSql": {
+      "baseline": [],
+      "candidate": []
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 104.6438,
+       "N": 121.8226,
+       "madBaseline": 0.2557999999999936,
+       "madCandidate": 0.5557999999999907,
+       "E": 1.1115999999999815,
+       "budgetFraction": 0.05,
+       "budget": 5.23219,
+       "signedDelta": 17.178799999999995,
+       "ratio": 1.164164527664324,
+       "deltaPlusE": 18.290399999999977,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        104.388,
+        104.5596,
+        106.3084,
+        104.6438,
+        105.542
+       ],
+       "samplesCandidate": [
+        121.2668,
+        121.4304,
+        123.0612,
+        121.8226,
+        126.7708
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 66.573325,
+       "N": 96.4019082,
+       "madBaseline": 0.1998083999999949,
+       "madCandidate": 0.8315666000000022,
+       "E": 1.6631332000000043,
+       "budgetFraction": 0.05,
+       "budget": 3.32866625,
+       "signedDelta": 29.828583199999997,
+       "ratio": 1.448056082522542,
+       "deltaPlusE": 31.4917164,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        66.332525,
+        66.3735166,
+        67.88676679999999,
+        66.573325,
+        66.6989666
+       ],
+       "samplesCandidate": [
+        96.48758319999999,
+        95.5253916,
+        96.4019082,
+        95.57034159999999,
+        100.78054999999999
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 133513216,
+       "N": 107036672,
+       "madBaseline": 81920,
+       "madCandidate": 344064,
+       "E": 688128,
+       "budgetFraction": 0.1,
+       "budget": 13351321.600000001,
+       "signedDelta": -26476544,
+       "ratio": 0.801693459320162,
+       "deltaPlusE": -25788416,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        134021120,
+        133496832,
+        133251072,
+        133595136,
+        133513216
+       ],
+       "samplesCandidate": [
+        107134976,
+        107528192,
+        106692608,
+        106463232,
+        107036672
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__key-transition-cascade__full__cpu.json.gz",
+      "log": "pass2__key-transition-cascade__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__key-transition-cascade__full__retained.json.gz",
+      "log": "pass2__key-transition-cascade__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 5000,
+      "retained": 500
+     },
+     "warmupIterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": null,
+      "candidate": null
+     },
+     "observedStatementCount": {
+      "baseline": 3,
+      "candidate": 3
+     },
+     "preparedSql": {
+      "baseline": [],
+      "candidate": []
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 103.714,
+       "N": 122.8804,
+       "madBaseline": 0.7617999999999938,
+       "madCandidate": 1.1738,
+       "E": 2.3476,
+       "budgetFraction": 0.05,
+       "budget": 5.185700000000001,
+       "signedDelta": 19.166399999999996,
+       "ratio": 1.1848005090923115,
+       "deltaPlusE": 21.513999999999996,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        103.6816,
+        103.714,
+        102.9522,
+        105.483,
+        104.5524
+       ],
+       "samplesCandidate": [
+        123.3572,
+        124.2614,
+        121.0458,
+        121.7066,
+        122.8804
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 66.61384160000001,
+       "N": 96.40840000000001,
+       "madBaseline": 0.1270832000000297,
+       "madCandidate": 0.33191659999998535,
+       "E": 0.6638331999999707,
+       "budgetFraction": 0.05,
+       "budget": 3.330692080000001,
+       "signedDelta": 29.7945584,
+       "ratio": 1.4472727842196687,
+       "deltaPlusE": 30.45839159999997,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        66.68425839999999,
+        66.48675839999999,
+        65.8948834,
+        67.0484334,
+        66.61384160000001
+       ],
+       "samplesCandidate": [
+        96.7403166,
+        97.39538339999999,
+        96.40840000000001,
+        94.73591680000001,
+        96.2216332
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 133545984,
+       "N": 107069440,
+       "madBaseline": 212992,
+       "madCandidate": 491520,
+       "E": 983040,
+       "budgetFraction": 0.1,
+       "budget": 13354598.4,
+       "signedDelta": -26476544,
+       "ratio": 0.8017421175315912,
+       "deltaPlusE": -25493504,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        133545984,
+        133758976,
+        134070272,
+        133038080,
+        133398528
+       ],
+       "samplesCandidate": [
+        106643456,
+        107986944,
+        107069440,
+        107986944,
+        106577920
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": null,
+    "candidate": null
+   },
+   "bracketedAtTheSameSeam": "n/a — end-to-end through the public entry",
+   "observedStatementCount": {
+    "baseline": 3,
+    "candidate": 3
+   },
+   "preparedSql": {
+    "baseline": [],
+    "candidate": []
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "bulk-update-returning-100",
+   "stage": "prepare",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__bulk-update-returning-100__prepare__cpu.json.gz",
+      "log": "pass1__bulk-update-returning-100__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__bulk-update-returning-100__prepare__retained.json.gz",
+      "log": "pass1__bulk-update-returning-100__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 20
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ],
+      "candidate": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 42.648,
+       "N": 70.64,
+       "madBaseline": 0.22300000000000608,
+       "madCandidate": 0.09399999999999409,
+       "E": 0.44600000000001216,
+       "budgetFraction": 0.05,
+       "budget": 2.1324,
+       "signedDelta": 27.991999999999997,
+       "ratio": 1.6563496529731756,
+       "deltaPlusE": 28.43800000000001,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        42.361,
+        42.425,
+        42.648,
+        43.198,
+        42.719
+       ],
+       "samplesCandidate": [
+        70.64,
+        72.145,
+        72.222,
+        70.546,
+        70.564
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 22.104333999999994,
+       "N": 35.054584000000006,
+       "madBaseline": 0.1690429999999914,
+       "madCandidate": 0.3485419999999806,
+       "E": 0.6970839999999612,
+       "budgetFraction": 0.05,
+       "budget": 1.1052166999999997,
+       "signedDelta": 12.950250000000011,
+       "ratio": 1.5858692688954128,
+       "deltaPlusE": 13.647333999999972,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        22.35579199999998,
+        21.935291000000003,
+        22.076459,
+        22.48112499999999,
+        22.104333999999994
+       ],
+       "samplesCandidate": [
+        35.054584000000006,
+        35.05775000000003,
+        35.52375000000001,
+        34.59895800000001,
+        34.706042000000025
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 91848704,
+       "N": 89686016,
+       "madBaseline": 212992,
+       "madCandidate": 180224,
+       "E": 425984,
+       "budgetFraction": 0.1,
+       "budget": 9184870.4,
+       "signedDelta": -2162688,
+       "ratio": 0.9764537995005351,
+       "deltaPlusE": -1736704,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        91848704,
+        92061696,
+        91996160,
+        91406336,
+        91570176
+       ],
+       "samplesCandidate": [
+        90521600,
+        89505792,
+        89686016,
+        89636864,
+        90341376
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__bulk-update-returning-100__prepare__cpu.json.gz",
+      "log": "pass2__bulk-update-returning-100__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__bulk-update-returning-100__prepare__retained.json.gz",
+      "log": "pass2__bulk-update-returning-100__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 20
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ],
+      "candidate": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 45.025,
+       "N": 72.342,
+       "madBaseline": 1.3530000000000015,
+       "madCandidate": 0.355000000000004,
+       "E": 2.706000000000003,
+       "budgetFraction": 0.05,
+       "budget": 2.25125,
+       "signedDelta": 27.317,
+       "ratio": 1.6067073847862299,
+       "deltaPlusE": 30.023000000000003,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        45.288,
+        43.221,
+        45.025,
+        46.378,
+        42.702
+       ],
+       "samplesCandidate": [
+        71.378,
+        72.342,
+        72.697,
+        72.552,
+        70.653
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 23.01279200000002,
+       "N": 35.218333,
+       "madBaseline": 0.8025840000000244,
+       "madCandidate": 0.5674169999999776,
+       "E": 1.6051680000000488,
+       "budgetFraction": 0.05,
+       "budget": 1.150639600000001,
+       "signedDelta": 12.205540999999982,
+       "ratio": 1.5303807117363235,
+       "deltaPlusE": 13.810709000000031,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        23.01279200000002,
+        22.210207999999994,
+        23.026083999999997,
+        23.96758299999999,
+        22.019542
+       ],
+       "samplesCandidate": [
+        34.24237500000001,
+        35.00437500000001,
+        36.24200000000002,
+        35.78574999999998,
+        35.218333
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 91930624,
+       "N": 89915392,
+       "madBaseline": 180224,
+       "madCandidate": 180224,
+       "E": 360448,
+       "budgetFraction": 0.1,
+       "budget": 9193062.4,
+       "signedDelta": -2015232,
+       "ratio": 0.9780787738371057,
+       "deltaPlusE": -1654784,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        91930624,
+        92028928,
+        92110848,
+        91193344,
+        91357184
+       ],
+       "samplesCandidate": [
+        89358336,
+        89735168,
+        89915392,
+        90193920,
+        89964544
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ],
+    "candidate": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "bulk-update-returning-100",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__bulk-update-returning-100__full__cpu.json.gz",
+      "log": "pass1__bulk-update-returning-100__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__bulk-update-returning-100__full__retained.json.gz",
+      "log": "pass1__bulk-update-returning-100__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 20
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ],
+      "candidate": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 179.84,
+       "N": 161.886,
+       "madBaseline": 3.8959999999999866,
+       "madCandidate": 1.1689999999999827,
+       "E": 7.791999999999973,
+       "budgetFraction": 0.05,
+       "budget": 8.992,
+       "signedDelta": -17.954000000000008,
+       "ratio": 0.9001668149466192,
+       "deltaPlusE": -10.162000000000035,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        175.673,
+        209.588,
+        179.84,
+        176.869,
+        183.736
+       ],
+       "samplesCandidate": [
+        162.57,
+        159.543,
+        161.886,
+        160.717,
+        172.55
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 131.223333,
+       "N": 136.47112500000003,
+       "madBaseline": 2.482708000000031,
+       "madCandidate": 0.8899590000000615,
+       "E": 4.965416000000062,
+       "budgetFraction": 0.05,
+       "budget": 6.5611666500000005,
+       "signedDelta": 5.247792000000032,
+       "ratio": 1.0399913024614307,
+       "deltaPlusE": 10.213208000000094,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        128.74062499999997,
+        155.753375,
+        131.223333,
+        130.474333,
+        134.36966599999997
+       ],
+       "samplesCandidate": [
+        137.24887500000003,
+        134.529791,
+        136.47112500000003,
+        135.58116599999997,
+        138.05308399999998
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "peakRssBytes": {
+       "B": 98664448,
+       "N": 96878592,
+       "madBaseline": 311296,
+       "madCandidate": 344064,
+       "E": 688128,
+       "budgetFraction": 0.1,
+       "budget": 9866444.8,
+       "signedDelta": -1785856,
+       "ratio": 0.9818997010959813,
+       "deltaPlusE": -1097728,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        98942976,
+        98091008,
+        98107392,
+        98664448,
+        98975744
+       ],
+       "samplesCandidate": [
+        96534528,
+        96124928,
+        97026048,
+        97353728,
+        96878592
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "inconclusive-repeat",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__bulk-update-returning-100__full__cpu.json.gz",
+      "log": "pass2__bulk-update-returning-100__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__bulk-update-returning-100__full__retained.json.gz",
+      "log": "pass2__bulk-update-returning-100__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 100
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 20
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ],
+      "candidate": [
+       "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 178.941,
+       "N": 165.55,
+       "madBaseline": 1.4939999999999998,
+       "madCandidate": 3.149000000000001,
+       "E": 6.298000000000002,
+       "budgetFraction": 0.05,
+       "budget": 8.94705,
+       "signedDelta": -13.390999999999991,
+       "ratio": 0.9251652779407739,
+       "deltaPlusE": -7.092999999999989,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        178.941,
+        198.858,
+        177.447,
+        182.571,
+        178.694
+       ],
+       "samplesCandidate": [
+        162.928,
+        178.089,
+        165.55,
+        171.96,
+        162.401
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 130.088458,
+       "N": 137.728375,
+       "madBaseline": 0.3470410000000186,
+       "madCandidate": 1.1414160000000209,
+       "E": 2.2828320000000417,
+       "budgetFraction": 0.05,
+       "budget": 6.504422900000001,
+       "signedDelta": 7.639916999999997,
+       "ratio": 1.0587286306368549,
+       "deltaPlusE": 9.922749000000039,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        130.0445,
+        153.72191700000002,
+        129.74141699999998,
+        131.39179199999998,
+        130.088458
+       ],
+       "samplesCandidate": [
+        136.79408300000003,
+        142.213959,
+        138.86979100000002,
+        137.728375,
+        136.190917
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "peakRssBytes": {
+       "B": 98369536,
+       "N": 96845824,
+       "madBaseline": 196608,
+       "madCandidate": 262144,
+       "E": 524288,
+       "budgetFraction": 0.1,
+       "budget": 9836953.6,
+       "signedDelta": -1523712,
+       "ratio": 0.984510326449034,
+       "deltaPlusE": -999424,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        98467840,
+        98369536,
+        99303424,
+        98123776,
+        98172928
+       ],
+       "samplesCandidate": [
+        97107968,
+        96845824,
+        96681984,
+        96468992,
+        97255424
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "inconclusive-repeat",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"bench_users\".\"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ],
+    "candidate": [
+     "UPDATE \"bench_users\" SET \"age\" = \"age\" + ? WHERE \"id\" COLLATE BINARY IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING \"id\" AS \"id\", \"age\" AS \"age\""
+    ]
+   },
+   "status": "measured",
+   "verdict": "inconclusive after the one permitted repeat — blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "relation-series-2",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "refused",
+      "detail": "i [QueryError]: Query execution failed code: 'V2001', model: 'generatedChild', operation: 'updateMany'",
+      "log": "pass1__relation-series-2__full__cpu.log"
+     },
+     "retained": {
+      "status": "refused",
+      "detail": "i [QueryError]: Query execution failed code: 'V2001', model: 'generatedChild', operation: 'updateMany'",
+      "log": "pass1__relation-series-2__full__retained.log"
+     },
+     "status": "refused",
+     "verdict": "refused"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "refused",
+      "detail": "i [QueryError]: Query execution failed code: 'V2001', model: 'generatedChild', operation: 'updateMany'",
+      "log": "pass2__relation-series-2__full__cpu.log"
+     },
+     "retained": {
+      "status": "refused",
+      "detail": "i [QueryError]: Query execution failed code: 'V2001', model: 'generatedChild', operation: 'updateMany'",
+      "log": "pass2__relation-series-2__full__retained.log"
+     },
+     "status": "refused",
+     "verdict": "refused"
+    }
+   },
+   "preparationSeam": null,
+   "bracketedAtTheSameSeam": "n/a — end-to-end through the public entry",
+   "observedStatementCount": null,
+   "preparedSql": null,
+   "status": "not measured",
+   "verdict": "blocks adoption — required contract divergence",
+   "reason": "The candidate fails this workload's independent contract observation before any timing is taken: i [QueryError]: Query execution failed code: 'V2001', model: 'generatedChild', operation: 'updateMany' (protocol.md §7.4: generatedParent.updateMany with a nested child create persists different child primary keys and evaluates a different number of defaults than the shipped engine).",
+   "endToEndEvidence": "none — the workload cannot complete comparably"
+  },
+  {
+   "workload": "fixed-collection-rowref-1000",
+   "stage": "prepare",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__prepare__cpu.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__prepare__retained.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 40.52,
+       "N": 64.508,
+       "madBaseline": 0.4579999999999984,
+       "madCandidate": 1.0729999999999933,
+       "E": 2.1459999999999866,
+       "budgetFraction": 0.05,
+       "budget": 2.0260000000000002,
+       "signedDelta": 23.987999999999992,
+       "ratio": 1.5920039486673245,
+       "deltaPlusE": 26.13399999999998,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        40.159,
+        40.52,
+        44.455,
+        39.119,
+        40.978
+       ],
+       "samplesCandidate": [
+        63.091,
+        64.508,
+        65.694,
+        65.145,
+        63.435
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 18.728667,
+       "N": 28.641999999999996,
+       "madBaseline": 0.29220900000001393,
+       "madCandidate": 0.07299999999997908,
+       "E": 0.5844180000000279,
+       "budgetFraction": 0.05,
+       "budget": 0.9364333500000002,
+       "signedDelta": 9.913332999999994,
+       "ratio": 1.5293133248618278,
+       "deltaPlusE": 10.497751000000022,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        18.57958400000001,
+        18.728667,
+        21.42741700000002,
+        18.436457999999988,
+        19.470291000000003
+       ],
+       "samplesCandidate": [
+        27.18712499999998,
+        28.641999999999996,
+        28.926041999999995,
+        28.676375000000007,
+        28.569000000000017
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 98123776,
+       "N": 93683712,
+       "madBaseline": 32768,
+       "madCandidate": 131072,
+       "E": 262144,
+       "budgetFraction": 0.1,
+       "budget": 9812377.6,
+       "signedDelta": -4440064,
+       "ratio": 0.9547503756887628,
+       "deltaPlusE": -4177920,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        98058240,
+        98123776,
+        98189312,
+        98156544,
+        98107392
+       ],
+       "samplesCandidate": [
+        93847552,
+        93683712,
+        93569024,
+        93372416,
+        93814784
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__prepare__cpu.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__prepare__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__prepare__retained.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__prepare__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 40.724,
+       "N": 65.825,
+       "madBaseline": 0.4799999999999969,
+       "madCandidate": 0.9170000000000016,
+       "E": 1.8340000000000032,
+       "budgetFraction": 0.05,
+       "budget": 2.0362,
+       "signedDelta": 25.101000000000006,
+       "ratio": 1.6163687260583441,
+       "deltaPlusE": 26.93500000000001,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        42.37,
+        40.244,
+        40.724,
+        40.861,
+        39.547
+       ],
+       "samplesCandidate": [
+        63.964,
+        66.742,
+        66.185,
+        64.026,
+        65.825
+       ],
+       "verdict": "blocks adoption"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 18.673665999999997,
+       "N": 28.858374999999995,
+       "madBaseline": 0.16166599999999676,
+       "madCandidate": 0.14595900000000483,
+       "E": 0.3233319999999935,
+       "budgetFraction": 0.05,
+       "budget": 0.9336832999999999,
+       "signedDelta": 10.184708999999998,
+       "ratio": 1.5454049033542745,
+       "deltaPlusE": 10.508040999999992,
+       "withinBudget": false,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        19.867209000000003,
+        18.673665999999997,
+        18.512,
+        19.214124999999996,
+        18.5745
+       ],
+       "samplesCandidate": [
+        28.52479199999999,
+        29.004334,
+        28.646457999999996,
+        28.858374999999995,
+        28.972916999999995
+       ],
+       "verdict": "blocks adoption"
+      },
+      "peakRssBytes": {
+       "B": 98435072,
+       "N": 94076928,
+       "madBaseline": 32768,
+       "madCandidate": 376832,
+       "E": 753664,
+       "budgetFraction": 0.1,
+       "budget": 9843507.200000001,
+       "signedDelta": -4358144,
+       "ratio": 0.9557256990679095,
+       "deltaPlusE": -3604480,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        98467840,
+        98025472,
+        98435072,
+        98172928,
+        98435072
+       ],
+       "samplesCandidate": [
+        93552640,
+        94076928,
+        93700096,
+        94109696,
+        94535680
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "blocks adoption",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "fixed-collection-rowref-1000",
+   "stage": "execute",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__execute__cpu.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__execute__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__execute__retained.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__execute__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 575.791,
+       "N": 576.247,
+       "madBaseline": 1.8370000000001028,
+       "madCandidate": 3.9029999999999063,
+       "E": 7.805999999999813,
+       "budgetFraction": 0.05,
+       "budget": 28.789550000000006,
+       "signedDelta": 0.4559999999999036,
+       "ratio": 1.0007919540249846,
+       "deltaPlusE": 8.261999999999716,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        591.423,
+        575.791,
+        582.126,
+        573.954,
+        574.16
+       ],
+       "samplesCandidate": [
+        582.585,
+        572.344,
+        576.247,
+        577.939,
+        567.341
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 574.2517499999999,
+       "N": 574.0482920000001,
+       "madBaseline": 3.0261659999998756,
+       "madCandidate": 4.883292000000097,
+       "E": 9.766584000000194,
+       "budgetFraction": 0.05,
+       "budget": 28.712587499999998,
+       "signedDelta": -0.20345799999984138,
+       "ratio": 0.9996456989464989,
+       "deltaPlusE": 9.563126000000352,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        587.888541,
+        574.2517499999999,
+        580.5870420000001,
+        572.1334999999999,
+        571.225584
+       ],
+       "samplesCandidate": [
+        580.8885419999999,
+        569.165,
+        574.0482920000001,
+        574.516625,
+        564.619625
+       ],
+       "verdict": "pass"
+      },
+      "peakRssBytes": {
+       "B": 100925440,
+       "N": 96534528,
+       "madBaseline": 262144,
+       "madCandidate": 65536,
+       "E": 524288,
+       "budgetFraction": 0.1,
+       "budget": 10092544,
+       "signedDelta": -4390912,
+       "ratio": 0.9564935064935065,
+       "deltaPlusE": -3866624,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        101269504,
+        100925440,
+        101007360,
+        100614144,
+        100663296
+       ],
+       "samplesCandidate": [
+        96534528,
+        96468992,
+        96583680,
+        96616448,
+        96387072
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "pass",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__execute__cpu.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__execute__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__execute__retained.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__execute__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 576.179,
+       "N": 580.014,
+       "madBaseline": 2.9689999999999372,
+       "madCandidate": 4.1889999999999645,
+       "E": 8.377999999999929,
+       "budgetFraction": 0.05,
+       "budget": 28.80895,
+       "signedDelta": 3.8350000000000364,
+       "ratio": 1.006655917692245,
+       "deltaPlusE": 12.212999999999965,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        580.831,
+        573.21,
+        576.179,
+        565.359,
+        578.668
+       ],
+       "samplesCandidate": [
+        580.014,
+        575.825,
+        583.869,
+        565.778,
+        597.469
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 575.1991249999999,
+       "N": 577.164792,
+       "madBaseline": 3.968667000000096,
+       "madCandidate": 5.29708299999993,
+       "E": 10.59416599999986,
+       "budgetFraction": 0.05,
+       "budget": 28.759956249999995,
+       "signedDelta": 1.9656670000001668,
+       "ratio": 1.0034173678550018,
+       "deltaPlusE": 12.559833000000026,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        579.167792,
+        570.31225,
+        575.1991249999999,
+        562.415458,
+        577.9277500000001
+       ],
+       "samplesCandidate": [
+        577.164792,
+        572.9474170000001,
+        582.461875,
+        562.66675,
+        597.269
+       ],
+       "verdict": "pass"
+      },
+      "peakRssBytes": {
+       "B": 100745216,
+       "N": 96583680,
+       "madBaseline": 131072,
+       "madCandidate": 49152,
+       "E": 262144,
+       "budgetFraction": 0.1,
+       "budget": 10074521.600000001,
+       "signedDelta": -4161536,
+       "ratio": 0.9586924703203773,
+       "deltaPlusE": -3899392,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        100990976,
+        100745216,
+        101105664,
+        100614144,
+        100712448
+       ],
+       "samplesCandidate": [
+        96600064,
+        96354304,
+        96665600,
+        96534528,
+        96583680
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "pass",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "pass",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "fixed-collection-rowref-1000",
+   "stage": "parse",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__parse__cpu.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__parse__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__parse__retained.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__parse__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 464.573,
+       "N": 465.95,
+       "madBaseline": 1.8900000000000432,
+       "madCandidate": 1.7769999999999868,
+       "E": 3.7800000000000864,
+       "budgetFraction": 0.05,
+       "budget": 23.228650000000002,
+       "signedDelta": 1.3770000000000095,
+       "ratio": 1.0029640121143502,
+       "deltaPlusE": 5.157000000000096,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        481.903,
+        463.951,
+        460.944,
+        464.573,
+        466.463
+       ],
+       "samplesCandidate": [
+        467.727,
+        465.95,
+        463.31,
+        466.175,
+        464.173
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 447.46074999999996,
+       "N": 466.79770800000006,
+       "madBaseline": 3.9273749999999836,
+       "madCandidate": 2.3985410000000797,
+       "E": 7.854749999999967,
+       "budgetFraction": 0.05,
+       "budget": 22.3730375,
+       "signedDelta": 19.336958000000095,
+       "ratio": 1.043214869684101,
+       "deltaPlusE": 27.191708000000062,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        483.93612500000006,
+        446.907667,
+        443.533375,
+        447.46074999999996,
+        452.507709
+       ],
+       "samplesCandidate": [
+        493.00337499999995,
+        466.79770800000006,
+        462.114208,
+        467.033,
+        464.399167
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "peakRssBytes": {
+       "B": 101302272,
+       "N": 96190464,
+       "madBaseline": 114688,
+       "madCandidate": 311296,
+       "E": 622592,
+       "budgetFraction": 0.1,
+       "budget": 10130227.200000001,
+       "signedDelta": -5111808,
+       "ratio": 0.9495390587093644,
+       "deltaPlusE": -4489216,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        101580800,
+        101187584,
+        101302272,
+        101515264,
+        101203968
+       ],
+       "samplesCandidate": [
+        96501760,
+        96649216,
+        95862784,
+        96190464,
+        96075776
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "inconclusive-repeat",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__parse__cpu.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__parse__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__parse__retained.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__parse__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 462.639,
+       "N": 465.778,
+       "madBaseline": 0.853999999999985,
+       "madCandidate": 1.1480000000000246,
+       "E": 2.296000000000049,
+       "budgetFraction": 0.05,
+       "budget": 23.131950000000003,
+       "signedDelta": 3.13900000000001,
+       "ratio": 1.0067849878631072,
+       "deltaPlusE": 5.435000000000059,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        469.597,
+        463.401,
+        460.585,
+        461.785,
+        462.639
+       ],
+       "samplesCandidate": [
+        460.516,
+        465.778,
+        464.63,
+        465.879,
+        471.441
+       ],
+       "verdict": "pass"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 446.86999999999995,
+       "N": 466.119458,
+       "madBaseline": 1.4482080000000792,
+       "madCandidate": 2.2806249999999864,
+       "E": 4.561249999999973,
+       "budgetFraction": 0.05,
+       "budget": 22.3435,
+       "signedDelta": 19.24945800000006,
+       "ratio": 1.0430761921811713,
+       "deltaPlusE": 23.810708000000034,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        452.52204100000006,
+        445.88270800000004,
+        444.874084,
+        448.318208,
+        446.86999999999995
+       ],
+       "samplesCandidate": [
+        459.007709,
+        466.119458,
+        464.325666,
+        468.400083,
+        472.813
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "peakRssBytes": {
+       "B": 101810176,
+       "N": 96387072,
+       "madBaseline": 245760,
+       "madCandidate": 98304,
+       "E": 491520,
+       "budgetFraction": 0.1,
+       "budget": 10181017.600000001,
+       "signedDelta": -5423104,
+       "ratio": 0.9467331831348568,
+       "deltaPlusE": -4931584,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": true,
+       "samplesBaseline": [
+        101695488,
+        100990976,
+        102055936,
+        102137856,
+        101810176
+       ],
+       "samplesCandidate": [
+        96387072,
+        96272384,
+        96731136,
+        96387072,
+        96485376
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "inconclusive-repeat",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "inconclusive after the one permitted repeat — blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  },
+  {
+   "workload": "fixed-collection-rowref-1000",
+   "stage": "full",
+   "perPass": {
+    "pass1": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__full__cpu.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass1__fixed-collection-rowref-1000__full__retained.json.gz",
+      "log": "pass1__fixed-collection-rowref-1000__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 1093.455,
+       "N": 1145.807,
+       "madBaseline": 6.051999999999907,
+       "madCandidate": 7.500999999999976,
+       "E": 15.001999999999953,
+       "budgetFraction": 0.05,
+       "budget": 54.67275,
+       "signedDelta": 52.35200000000009,
+       "ratio": 1.0478775989866982,
+       "deltaPlusE": 67.35400000000004,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        1075.717,
+        1093.455,
+        1114.869,
+        1097.176,
+        1087.403
+       ],
+       "samplesCandidate": [
+        1129.569,
+        1153.308,
+        1150.297,
+        1145.807,
+        1133.018
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 1052.773917,
+       "N": 1099.783333,
+       "madBaseline": 7.5978329999998095,
+       "madCandidate": 8.778583000000026,
+       "E": 17.557166000000052,
+       "budgetFraction": 0.05,
+       "budget": 52.638695850000005,
+       "signedDelta": 47.0094160000001,
+       "ratio": 1.0446529071825401,
+       "deltaPlusE": 64.56658200000015,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        1028.33925,
+        1052.773917,
+        1069.258083,
+        1054.462667,
+        1045.1760840000002
+       ],
+       "samplesCandidate": [
+        1084.267083,
+        1108.561916,
+        1101.264125,
+        1099.783333,
+        1086.4547080000002
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "peakRssBytes": {
+       "B": 102481920,
+       "N": 106446848,
+       "madBaseline": 212992,
+       "madCandidate": 212992,
+       "E": 425984,
+       "budgetFraction": 0.1,
+       "budget": 10248192,
+       "signedDelta": 3964928,
+       "ratio": 1.0386890487609912,
+       "deltaPlusE": 4390912,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        102694912,
+        102088704,
+        102612992,
+        102187008,
+        102481920
+       ],
+       "samplesCandidate": [
+        106479616,
+        105660416,
+        106217472,
+        106446848,
+        106659840
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "inconclusive-repeat",
+     "status": "measured"
+    },
+    "pass2": {
+     "cpu": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__full__cpu.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__full__cpu.log"
+     },
+     "retained": {
+      "status": "measured",
+      "report": "pass2__fixed-collection-rowref-1000__full__retained.json.gz",
+      "log": "pass2__fixed-collection-rowref-1000__full__retained.log"
+     },
+     "iterations": {
+      "cpu": 1000,
+      "retained": 20
+     },
+     "warmupIterations": {
+      "cpu": 200,
+      "retained": 10
+     },
+     "replicates": {
+      "cpu": {
+       "baseline": 5,
+       "candidate": 5
+      },
+      "retained": {
+       "baseline": 5,
+       "candidate": 5
+      }
+     },
+     "measurementProtocolValid": true,
+     "preparationSeam": {
+      "baseline": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      },
+      "candidate": {
+       "seam": "package",
+       "statementCount": 1,
+       "packageRefusal": null
+      }
+     },
+     "observedStatementCount": {
+      "baseline": 1,
+      "candidate": 1
+     },
+     "preparedSql": {
+      "baseline": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ],
+      "candidate": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     },
+     "metrics": {
+      "cpuMicrosecondsPerOperation": {
+       "B": 1095.996,
+       "N": 1142.298,
+       "madBaseline": 5.804000000000087,
+       "madCandidate": 5.198000000000093,
+       "E": 11.608000000000175,
+       "budgetFraction": 0.05,
+       "budget": 54.799800000000005,
+       "signedDelta": 46.30199999999991,
+       "ratio": 1.0422465045492866,
+       "deltaPlusE": 57.91000000000008,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        1099.613,
+        1095.996,
+        1084.186,
+        1090.192,
+        1104.423
+       ],
+       "samplesCandidate": [
+        1143.417,
+        1147.496,
+        1122.38,
+        1142.298,
+        1127.529
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "wallMicrosecondsPerOperation": {
+       "B": 1049.332625,
+       "N": 1098.354625,
+       "madBaseline": 7.2498749999999745,
+       "madCandidate": 5.523541999999907,
+       "E": 14.499749999999949,
+       "budgetFraction": 0.05,
+       "budget": 52.466631250000006,
+       "signedDelta": 49.021999999999935,
+       "ratio": 1.0467173123488847,
+       "deltaPlusE": 63.521749999999884,
+       "withinBudget": false,
+       "straddles": true,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        1056.5825,
+        1049.332625,
+        1036.092416,
+        1046.0988750000001,
+        1059.273625
+       ],
+       "samplesCandidate": [
+        1103.8781669999998,
+        1100.283,
+        1075.7539590000001,
+        1098.354625,
+        1079.758084
+       ],
+       "verdict": "inconclusive-repeat"
+      },
+      "peakRssBytes": {
+       "B": 102907904,
+       "N": 106037248,
+       "madBaseline": 98304,
+       "madCandidate": 131072,
+       "E": 262144,
+       "budgetFraction": 0.1,
+       "budget": 10290790.4,
+       "signedDelta": 3129344,
+       "ratio": 1.0304091705142493,
+       "deltaPlusE": 3391488,
+       "withinBudget": true,
+       "straddles": false,
+       "improvementBeyondE": false,
+       "samplesBaseline": [
+        102809600,
+        102842368,
+        103776256,
+        103727104,
+        102907904
+       ],
+       "samplesCandidate": [
+        105578496,
+        106037248,
+        106315776,
+        105906176,
+        106135552
+       ],
+       "verdict": "pass"
+      }
+     },
+     "verdict": "inconclusive-repeat",
+     "status": "measured"
+    }
+   },
+   "preparationSeam": {
+    "baseline": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    },
+    "candidate": {
+     "seam": "package",
+     "statementCount": 1,
+     "packageRefusal": null
+    }
+   },
+   "bracketedAtTheSameSeam": true,
+   "observedStatementCount": {
+    "baseline": 1,
+    "candidate": 1
+   },
+   "preparedSql": {
+    "baseline": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ],
+    "candidate": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   },
+   "status": "measured",
+   "verdict": "inconclusive after the one permitted repeat — blocks adoption",
+   "verdictRule": "the worse of the two full series; a cell inconclusive on both is inconclusive and blocks adoption (plan §7)"
+  }
+ ],
+ "receipts": {
+  "perCellReports": "docs/architecture/raptor3-evidence/g4/cutover/receipts-stage2b/cells/ (gzip -9; 40 per-cell evidence reports, 4 refused cells have only a .log)",
+  "perCellLogs": "same directory, .log",
+  "journals": "pass1-journal.txt, pass2-journal.txt"
+ }
+}

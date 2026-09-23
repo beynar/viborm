@@ -815,7 +815,12 @@ export type GroupByArgs<
   F extends ScalarSchemas<M>,
 > = V.Object<
   {
-    by: V.Union<readonly [EnumOfScalarMap<M>, V.Array<EnumOfScalarMap<M>>]>;
+    by: V.Union<
+      readonly [
+        V.Array<EnumOfScalarMap<M>>,
+        V.ShorthandArray<EnumOfScalarMap<M>>,
+      ]
+    >;
     where: CoreSchemas<M, F>["where"];
     having: HavingSchema<M, F>;
     orderBy: V.Union<
@@ -835,6 +840,41 @@ export type GroupByArgs<
     atLeast: ["by"];
   }
 >;
+
+/**
+ * The two grouped-column collisions, refused where `by` is admitted.
+ *
+ * A duplicate `by` member and a grouped scalar named like a selected
+ * aggregate both produce ONE output column for TWO requested facts: the
+ * second aliases over the first and the caller reads a silently wrong answer
+ * (the aggregate wins). Neither is a lowering question — both are complete
+ * facts about the admitted arguments.
+ */
+const GROUP_AGGREGATE_KEYS = [
+  "_count",
+  "_avg",
+  "_sum",
+  "_min",
+  "_max",
+] as const;
+
+const groupByCollisions = (
+  value: Record<string, unknown>
+): string | undefined => {
+  // `by` is an `atLeast` key over `v.union([v.array(…), v.shorthandArray(…)])`,
+  // so the object schema has already refused a missing `by` and normalised a
+  // single column into a list before this runs: what arrives is a column set.
+  const grouped = value.by as string[];
+  if (new Set(grouped).size !== grouped.length) {
+    return "GroupBy operation does not allow duplicate fields in 'by'";
+  }
+  for (const aggregate of GROUP_AGGREGATE_KEYS) {
+    if (value[aggregate] !== undefined && grouped.includes(aggregate)) {
+      return `Aggregate '${aggregate}' cannot be selected together with a model field named '${aggregate}'.`;
+    }
+  }
+  return undefined;
+};
 
 export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
@@ -856,7 +896,10 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 
   return v.object(
     {
-      by: v.union([scalarSchema, v.array(scalarSchema)]),
+      // ONE admitted shape downstream: `by: "category"` and
+      // `by: ["category"]` are the same grouped column set, normalised here
+      // so no preparer asks the question again (or calls `.map` on a string).
+      by: v.union([v.array(scalarSchema), v.shorthandArray(scalarSchema)]),
       where: v.lazyRef(() => core.where),
       having: havingSchema,
       orderBy: v.union([orderBySchema, v.array(orderBySchema)]),
@@ -870,6 +913,7 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
     },
     {
       atLeast: ["by"],
+      refuse: groupByCollisions,
     }
   ) as GroupByArgs<M, F>;
 };

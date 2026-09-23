@@ -1,0 +1,23 @@
+{
+  "mode": "replay",
+  "identity": {
+    "production": "8a7e06d86d733b20bbe8eeafe1776bbdcce8788d1342f3fdadccf45cfe97e590",
+    "harness": "3d5a08be2c6f852e4690ab99ef3d2b0534d626b7ba4263aa8a5d5eb88ca5f119",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "replayInput": {
+    "path": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-PeUgco/corpus.json",
+    "sha256": "a19a657e47d8f78f95209bb2a6a1fbc63d980582f0b5cc0bb1319f30e4c6f8e7"
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

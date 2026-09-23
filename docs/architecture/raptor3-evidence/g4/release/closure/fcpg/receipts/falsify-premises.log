@@ -1,0 +1,50 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fcpg
+
+(node:98435) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (10 tests | 1 failed | 9 skipped) 770ms
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: the same schedule deletes a row that had stopped being a member before the write executed
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row that stops matching between the last premise and the first write is still deleted
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts
+   × pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing 721ms
+     → expected [ 2, 1 ] to deeply equal [ 4, 3 ]
+   ↓ pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added between the complement premise and the first write is silently missed
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a captured member that stops matching the filter in the same window is still deleted
+   ↓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a selected deleteMany over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing
+AssertionError: expected [ 2, 1 ] to deeply equal [ 4, 3 ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   4,[39m
+[32m-   3,[39m
+[31m+   2,[39m
+[31m+   1,[39m
+[2m  ][22m
+
+ ❯ tests/providers/docker/pg-captured-set-concurrency.test.ts:639:30
+    637|           "B: committed BEFORE the unit's first premise",
+    638|         ]);
+    639|         expect(driver.shape).toEqual([4, 3]);
+       |                              ^
+    640|         // n2 was captured too and survives: the unit wrote nothing.
+    641|         expect(await noteIds(seeder)).toEqual(["n2", "n3"]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 skipped (10)
+   Start at  22:15:25
+   Duration  2.19s (transform 870ms, setup 8ms, collect 1.30s, tests 770ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.93s wall, 478.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

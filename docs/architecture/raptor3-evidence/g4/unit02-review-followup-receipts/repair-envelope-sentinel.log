@@ -1,0 +1,23 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02/repair-envelope-sentinel.review.test.ts > G4-02 review (repair) — the envelope sentinel on a second construction > createMany with DIFFERENT column sets is two statements, one envelope, each row written once
+HETEROGENEOUS {"restarts":0,"cost":{"statements":1,"transactions":0},"value":{"count":3},"stored":[{"name":"A","nickname":"a","age":7},{"name":"B","nickname":null,"age":7},{"name":"C","nickname":"c","age":7}]}
+
+stdout | tests/raptor3/g4/review/unit02/repair-envelope-sentinel.review.test.ts > G4-02 review (repair) — the envelope sentinel on a second construction > a row with an EMPTY column set beside a valued row does split, and the sentinel recovers once
+EMPTYCOLUMNSET {"restarts":0,"candidate":{"statements":1,"transactions":0,"value":{"count":2}},"shipped":{"statements":1,"transactions":0,"value":{"count":2}},"stored":[{"label":"d","rank":null},{"label":"x","rank":2},{"label":"d","rank":null},{"label":"y","rank":3}]}
+
+stdout | tests/raptor3/g4/review/unit02/repair-envelope-sentinel.review.test.ts > G4-02 review (repair) — the envelope sentinel on a second construction > the shipped engine agrees on the heterogeneous cost
+HETEROGENEOUS shipped {"statements":1,"transactions":0,"value":{"count":3}}
+
+stdout | tests/raptor3/g4/review/unit02/repair-envelope-sentinel.review.test.ts > G4-02 review (repair) — the envelope sentinel on a second construction > a one-statement admitted form still shows no envelope after the repair
+ONESTATEMENT {"restarts":0,"statements":1,"transactions":0,"value":[{"name":"P","age":8},{"name":"Q","age":8}]}
+
+ ✓ |g4-review-unit02| tests/raptor3/g4/review/unit02/repair-envelope-sentinel.review.test.ts (4 tests) 27ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  04:24:09
+   Duration  1.94s (transform 1.23s, setup 9ms, collect 1.77s, tests 27ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 2.49s wall, 457.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-read-surface.test.ts (122 tests) 10254ms
+
+ Test Files  1 passed (1)
+      Tests  122 passed (122)
+   Start at  13:57:47
+   Duration  11.84s (transform 956ms, setup 15ms, collect 1.42s, tests 10.25s, environment 0ms, prepare 39ms)
+
+Vitest resources: 13.52s wall, 669.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

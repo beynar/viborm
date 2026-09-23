@@ -1,0 +1,33 @@
+{
+  "capturedAt": "2026-09-16T16:50:29.247Z",
+  "where": "/private/tmp/viborm-g4-perf-candidate",
+  "usingScript": "the WORKTREE own scripts/raptor3-manifest.mjs (re-synced from the main tree)",
+  "atCommit": "working tree on branch g4-perf-measurement-4, HEAD a9a482e1, PRE-cutover, after the identity-4 re-sync and before the re-sync commit",
+  "measured": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "9943850d7711be88c6306a4fd4d70ee4c14ba74d122ec11735b51db1b749b01c",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "frozen": {
+    "capturedAt": "2026-09-16T16:44:46Z",
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "productionEqualsFrozen": true,
+  "harnessEqualsFrozen": false,
+  "runtimeEqualsFrozen": true,
+  "harnessNote": "harness cannot equal the freeze in this worktree: the tree never held the test files added to the main tree after the prep stage, and the cutover deletes 197 more (stage 2b B1, stage 2c 9.3). Only production is claimed equal."
+}

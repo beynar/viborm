@@ -1,0 +1,9 @@
+import { PGlite } from "@electric-sql/pglite";
+const db = await new PGlite();
+await db.exec(`CREATE TABLE t (id timestamptz primary key, tag text, at timestamp)`);
+await db.query(`INSERT INTO t VALUES ($1, $2, $3)`, ["2020-03-01T10:00:00Z", "x", "2020-03-01T10:00:00Z"]);
+const flat = await db.query(`SELECT id, at FROM t`);
+console.log("FLAT:", flat.rows.map(r => ({ id: r.id, idType: Object.prototype.toString.call(r.id), at: r.at, atType: Object.prototype.toString.call(r.at) })));
+const j = await db.query(`SELECT json_build_object('id', id, 'at', at) AS d FROM t`);
+console.log("JSON:", JSON.stringify(j.rows));
+await db.close();

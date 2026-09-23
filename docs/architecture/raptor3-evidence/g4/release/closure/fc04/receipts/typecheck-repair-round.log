@@ -1,0 +1,5 @@
+# Repair round (2026-09-21) — typecheck
+
+$ node scripts/run-typecheck.mjs
+exit 0 — 0 diagnostics
+TypeScript (whole estate, native): 6.12s wall, 5028.7 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

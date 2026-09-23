@@ -1,0 +1,55 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/ownership/commands.test.ts (6 tests) 16ms
+ ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 65ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/polish/recovery-live.test.ts [ tests/raptor3/polish/recovery-live.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/polish/recovery-live.ts:15:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/ownership/live.test.ts [ tests/raptor3/ownership/live.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/ownership/live.test.ts:6:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  12 passed (12)
+   Start at  09:43:16
+   Duration  4.15s (transform 2.35s, setup 24ms, collect 1.98s, tests 81ms, environment 0ms, prepare 63ms)
+
+Vitest resources: 6.58s wall, 607.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

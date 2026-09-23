@@ -18,13 +18,16 @@ export function validationFailureFromThrown(cause: unknown): ValidationFailure {
   return failure;
 }
 
-/** Read the sanitized cause retained by the public parse boundary, if any. */
-export function readValidationFailureCause(value: unknown): Error | undefined {
-  try {
-    if (typeof value !== "object" || value === null) return undefined;
-    const cause = Reflect.get(value, PARSE_FAILURE_CAUSE);
-    return isError(cause) ? cause : undefined;
-  } catch {
-    return undefined;
-  }
+/**
+ * Read the sanitized cause retained by the public parse boundary, if any.
+ *
+ * The argument is a parse result, and every one of them is built by
+ * `parse` itself — the failure literals in `validation/index.ts` and the
+ * failure this module defines the symbol on. Reading a symbol off an object
+ * the library constructed cannot throw and cannot be handed a non-object, so
+ * the type states the invariant and no guard restates it.
+ */
+export function readValidationFailureCause(value: object): Error | undefined {
+  const cause = Reflect.get(value, PARSE_FAILURE_CAUSE);
+  return isError(cause) ? cause : undefined;
 }

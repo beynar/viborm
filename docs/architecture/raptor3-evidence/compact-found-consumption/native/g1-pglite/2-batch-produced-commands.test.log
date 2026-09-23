@@ -1,0 +1,19 @@
+BEGIN provider=g1-pglite ordinal=2/5 file=tests/raptor3/expanded/batch-produced-commands.test.ts
+
+> viborm@0.1.0 test:all /Users/arnaud/code/viborm
+> node scripts/run-credential-free-tests.mjs --only 'raptor3-provider: tests/raptor3/expanded/batch-produced-commands.test.ts'
+
+
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-commands.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/expanded/batch-produced-commands.test.ts (2 tests) 900ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  11:06:53
+   Duration  2.46s (transform 914ms, setup 10ms, collect 1.39s, tests 900ms, environment 0ms, prepare 28ms)
+
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-commands.test.ts: 4.39s wall, 1431.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.
+END provider=g1-pglite ordinal=2/5 file=tests/raptor3/expanded/batch-produced-commands.test.ts exit=0

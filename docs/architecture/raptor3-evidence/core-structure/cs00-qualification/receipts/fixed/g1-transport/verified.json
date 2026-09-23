@@ -1,0 +1,19 @@
+{
+  "mode": "g1-transport",
+  "identity": {
+    "production": "2fa782174626ac1d27b31ecae3beb6fdf97f49450b86ceeb94230f90ba579e11",
+    "harness": "e0da0fd939ab2ba5fde32c094bb407d3648421bc40ab8f539372203c501b87ff",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

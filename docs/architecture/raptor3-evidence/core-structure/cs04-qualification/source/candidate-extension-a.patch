@@ -1,0 +1,201 @@
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index 6a8e97ef..4034ca96 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -1104,14 +1104,18 @@ export class Commands {
+       return this.execution.complete(this.analyze(root), args);
+     }
+     const updateData = args.data;
+-    if (args.limit !== undefined || args.select || args.omit) {
++    const relationBearing = model["~"].relationNames.some(
++      (name) => updateData[name] !== undefined
++    );
++    if (
++      args.limit !== undefined ||
++      raw.omit !== undefined ||
++      (args.select && !relationBearing)
++    ) {
+       throw new UnsupportedOperationError(
+         "Raptor 3 G3P-03 updateMany limit and returning are not implemented."
+       );
+     }
+-    const relationBearing = model["~"].relationNames.some(
+-      (name) => updateData[name] !== undefined
+-    );
+     if (!relationBearing) {
+       return ctx.updateMany(
+         model,
+@@ -1131,8 +1135,9 @@ export class Commands {
+       mutation: { kind: "update", raw: raw.data },
+     };
+     const occurrence = this.analyzeSeries(series);
++    if (args.select)
++      return this.execution.series(occurrence, series.selection, args.select);
+     const count = await this.execution.series(occurrence);
+-    await ctx.finish();
+     return { count };
+   }
+ }
+diff --git a/src/query-engine/raptor3/commands/execution.ts b/src/query-engine/raptor3/commands/execution.ts
+index 962a7fb8..1245d5ed 100644
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -551,24 +551,67 @@ export class CommandExecution {
+       count++;
+       if (select) identities.push(this.identity(command.fields));
+     }
+-    if (!select) {
+-      await ctx.finish();
+-      return { count };
+-    }
+-    if (identities.length === 0) {
+-      await ctx.finish();
+-      return [];
+-    }
+-    return ctx.finish(
+-      ctx.queries.selectSeries(records[0]!.command.model, select, identities)
++    const selected = await this.completeSeries(
++      select,
++      identities,
++      (selection) =>
++        ctx.queries.selectSeries(
++          records[0]!.command.model,
++          selection,
++          identities
++        )
+     );
++    return selected ?? { count };
+   }
+   async series(
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+-    member: Member = occurrence.command.series.selection
+-  ): Promise<number> {
++    member?: Member
++  ): Promise<number>;
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    member: Member,
++    select: Input
++  ): Promise<Input[]>;
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence>,
++    member: Member = occurrence.command.series.selection,
++    select?: Input
++  ): Promise<number | Input[]> {
+     await this.captureSeries(occurrence, member);
+-    return this.executeSeries(occurrence);
++    const prepared = this.attempt.series.get(occurrence);
++    if (!prepared) throw new Error("Selected series was not captured");
++    // Only the admitted updateMany boundary supplies select, so captureSeries
++    // has constructed record members for this terminal readback.
++    const updatedMembers =
++      prepared.members as CommandOccurrence<RecordCommand>[];
++    const identityFields = select
++      ? updatedMembers.map(({ command }) => command.fields)
++      : [];
++    const count = await this.executeSeries(occurrence);
++    const identities = identityFields.map((fields) => this.identity(fields));
++    const selected = await this.completeSeries(
++      select,
++      identities,
++      (selection) =>
++        this.context.queries.selectSeries(
++          occurrence.command.series.selection.model,
++          selection,
++          identities,
++          "updateMany"
++        )
++    );
++    return selected ?? count;
++  }
++  private async completeSeries(
++    select: Input | undefined,
++    identities: Input[],
++    query: (select: Input) => Query
++  ): Promise<Input[] | undefined> {
++    if (!select || identities.length === 0) {
++      await this.context.finish();
++      return select ? [] : undefined;
++    }
++    return this.context.finish(query(select));
+   }
+   private async captureSeries(
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index ea4fb1aa..0ae5b59c 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -535,7 +535,7 @@ export class OperationContext {
+         ? this.queries.decodeQuery(query, responses[resultIndex]!.rows)
+         : [];
+     } catch (error) {
+-      throw this.continuations.length ? this.failure(error, "result") : error;
++      throw query ? this.failure(error, "result") : error;
+     }
+   }
+   isIncompletePreparation(error: unknown): boolean {
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 75cd980c..4484140c 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -1,6 +1,6 @@
+ import type { DatabaseAdapter } from "@adapters/database-adapter";
+ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+-import { QueryEngineError } from "@errors";
++import { QueryEngineError, TransactionError } from "@errors";
+ import {
+   fieldRefPayload,
+   formatFieldRef,
+@@ -96,7 +96,7 @@ export interface Query {
+   shape: Shape;
+   expectedRows?: {
+     readonly count: number;
+-    readonly missing: string;
++    readonly missing: Error;
+   };
+ }
+ export interface SelectorFacts {
+@@ -915,7 +915,12 @@ export class Queries {
+       shape: prepared.shape,
+     };
+   }
+-  selectSeries(model: AnyModel, select: Input, identities: Input[]): Query {
++  selectSeries(
++    model: AnyModel,
++    select: Input,
++    identities: Input[],
++    operation: "createMany" | "updateMany" = "createMany"
++  ): Query {
+     const alias = this.alias();
+     const prepared = this.prepareProjection(model, { select });
+     const projection = this.lowerProjection(prepared, alias);
+@@ -939,7 +944,19 @@ export class Queries {
+       expectedRows: {
+         count: identities.length,
+         missing:
+-          "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.",
++          operation === "createMany"
++            ? new QueryEngineError(
++                "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls."
++              )
++            : new TransactionError(
++                "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
++                {
++                  meta: {
++                    model: model["~"].names.ts ?? "unknown",
++                    operation: "updateMany",
++                  },
++                }
++              ),
+       },
+     };
+   }
+@@ -1444,7 +1461,7 @@ export class Queries {
+   }
+   decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
+     if (query.expectedRows && rows.length < query.expectedRows.count)
+-      throw new QueryEngineError(query.expectedRows.missing);
++      throw query.expectedRows.missing;
+     if (query.expectedRows && rows.length > query.expectedRows.count)
+       throw new QueryEngineError(
+         "Raptor 3 createMany final read returned inconsistent row counts.",

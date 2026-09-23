@@ -1,0 +1,23 @@
+Regenerated 2026-09-21 (repair round) against the tree as delivered, after the
+`positive` parameter was dropped from `identityPredicate` and the ninth cell was
+added. `now:` is `node_modules/.bin/biome check <file>` in the worktree; `base:`
+is the same command over `git show HEAD:<file>` (HEAD = 29a7bf9d8) written to a
+copy outside the tree and checked with `--config-path /private/tmp/viborm-fc03`.
+
+=== src/query-engine/raptor3/shared/query.ts
+now:  Found 15 errors. Found 1 info. 
+base: Found 15 errors. Found 1 info. 
+=== src/query-engine/raptor3/commands/execution.ts
+now:  Found 4 errors. 
+base: Found 4 errors. 
+=== src/query-engine/raptor3/shared/operation-context.ts
+now:  Found 6 errors. 
+base: Found 6 errors. 
+=== tests/raptor3/g4/parity/prepared-set-predicates.test.ts
+now:  0 errors — Biome prints no "Found" line for a clean file:
+      "Checked 1 file in 7ms. No fixes applied."
+base: (new file)
+
+The previous copy of this receipt recorded 2 errors for the test file: it was
+captured before that file's `format --write` and its `lint/style/useImportType`
+fix, and was not regenerated. It is superseded by the section above.

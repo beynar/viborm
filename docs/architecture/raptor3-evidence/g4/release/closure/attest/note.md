@@ -1,0 +1,14 @@
+# Source-bound performance attestation — the P1 cell on a committed tree (2026-09-20, 21:54Z)
+
+The closure handoff (FC-06) asked for the P1 repair to be attested through the protocol's OWN comparator on a committed, clean candidate tree, not P1's calibration-mode after-cells. Candidate: `a9e62d8dc47bc73d49eca4d367a718d9108bccde` (the wave-2 merge; the engine perimeter is byte-identical at the closure's final commit — the integrator verifies `git diff a9e62d8dc..<final> -- src benchmarks` is empty and records it in the final report), a detached worktree at `/private/tmp/viborm-attest`, `git status --porcelain` empty. Baseline: `5a37bcd7f371fe393cf7cecb8ec9f82ef8bd3062` (the last tree whose shipped engine is the old one) at `/private/tmp/viborm-perf-baseline`. Command: `benchmarks/operation-pipeline-compare.mjs --providers sqlite3 --comparison semantic --workloads fixed-collection-rowref-1000 --stages <parse|full> --modes cpu --iterations 1000 --warmup 200`, five alternating fresh-process replicates per side, run from the baseline directory as the protocol prescribes; every report carries `measurementProtocolValid: true`, `statementCount` 1 / 1 on every sample, identical `semanticDigest` (`c583a3ea…`) on both arms. Machine load (1-min): 16.1 at the start (the FC-06 author had just launched), 9.6 at the end (`attest.log`). No wide lane ran beside it.
+
+| cell | pass | baseline CPU µs/op | candidate CPU µs/op | CPU ratio | baseline wall | candidate wall | wall ratio | protocol valid |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| fixed-collection-rowref-1000/parse | 1 | 472.2 | 316.1 | **0.669** | 461.1 | 317.1 | **0.688** | true |
+| fixed-collection-rowref-1000/parse | 2 | 477.4 | 319.3 | **0.669** | 459.2 | 319.5 | **0.696** | true |
+| fixed-collection-rowref-1000/full | 1 | 1122.6 | 981.7 | **0.875** | 1078.4 | 949.2 | **0.880** | true |
+| fixed-collection-rowref-1000/full | 2 | 1132.9 | 976.1 | **0.862** | 1098.9 | 940.0 | **0.855** | true |
+
+Plan §7's budget for both cells is ≤ 1.05; both passes of both cells are under parity by a margin no machine noise explains. The perf unit (commit 31) measured the same `parse` cell at 1.079 / 1.094 CPU and `full` at 1.026 / 1.062 before P1; P1's own calibration-mode after-cells read 0.655 / 0.649 (parse) and 0.819 (full). This attestation supersedes those as the release number for the two cells; it does not re-measure the other eighteen cells of the frozen series (their D-60 / D-62 dispositions stand).
+
+Receipts: `pass{1,2}__fixed-collection-rowref-1000__{parse,full}__cpu.json` (the comparator's evidence reports, `viborm-evidence-v1`), `pass*__*.log` (the comparator's stdout), `attest.log` (identity, load, order). Decoded with `benchmarks/operation-pipeline-evidence.mjs`'s `parseEvidenceReport`.

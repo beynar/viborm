@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "method": "Parser-owned TypeScript leaf tokens; JSDoc and EOF excluded, matching scripts/query-engine-structure.mjs traversal ownership.",
+  "core": {
+    "scope": "Seven commands language files plus five shared files, the first twelve files in source-cost.json privateCandidates.commands.files.",
+    "files": 12,
+    "tokenLines": 6955,
+    "parserTokens": 43457,
+    "bytes": 231518
+  },
+  "broader": {
+    "scope": "All thirty whole owners in source-cost.json privateCandidates.commands.files.",
+    "files": 30,
+    "tokenLines": 11877,
+    "parserTokens": 72459,
+    "bytes": 501048
+  }
+}

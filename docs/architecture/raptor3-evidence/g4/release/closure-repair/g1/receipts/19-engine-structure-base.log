@@ -1,0 +1,84 @@
+{
+  "definitions": {
+    "functions": "Function-like declarations with bodies, excluding constructors and accessors.",
+    "highParameterFunctions": "Measured functions with at least five parameters.",
+    "branchNodes": "if, ternary, case, loops, catch, &&, and || nodes; excludes ?? and default clauses.",
+    "importCycles": "Strongly connected components of runtime imports internal to the measured directory; type-only imports are excluded.",
+    "lines": "Physical newline count, equivalent to wc -l for these files.",
+    "tokenLines": "Physical lines on which at least one parser-owned TypeScript token starts; comments and blank lines are excluded."
+  },
+  "queryEngine": {
+    "files": 38,
+    "lines": 20917,
+    "tokenLines": 16185,
+    "functions": 1104,
+    "parameters": 1672,
+    "highParameterFunctions": 35,
+    "branchNodes": 2583,
+    "runtimeImportCycleComponents": 1,
+    "runtimeFilesInCycles": 3,
+    "filesOver300Lines": 13,
+    "filesOver600Lines": 7,
+    "largeFiles": [
+      {
+        "file": "src/query-engine/cache-flow.ts",
+        "lines": 309
+      },
+      {
+        "file": "src/query-engine/pending-operation.ts",
+        "lines": 862
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/commands.ts",
+        "lines": 1946
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/execution.ts",
+        "lines": 1471
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/index.ts",
+        "lines": 310
+      },
+      {
+        "file": "src/query-engine/raptor3/commands/relation-body.ts",
+        "lines": 1205
+      },
+      {
+        "file": "src/query-engine/raptor3/route/client-route.ts",
+        "lines": 433
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/operation-context.ts",
+        "lines": 3523
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/query.ts",
+        "lines": 5151
+      },
+      {
+        "file": "src/query-engine/raptor3/shared/schema.ts",
+        "lines": 603
+      },
+      {
+        "file": "src/query-engine/result/cache-value-codecs.ts",
+        "lines": 506
+      },
+      {
+        "file": "src/query-engine/result/result-shape.ts",
+        "lines": 445
+      },
+      {
+        "file": "src/query-engine/types.ts",
+        "lines": 543
+      }
+    ],
+    "runtimeImportCycles": [
+      [
+        "src/query-engine/raptor3/commands/commands.ts",
+        "src/query-engine/raptor3/commands/execution.ts",
+        "src/query-engine/raptor3/commands/relation-body.ts"
+      ]
+    ]
+  }
+}

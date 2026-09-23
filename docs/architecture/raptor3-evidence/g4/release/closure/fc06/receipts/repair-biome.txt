@@ -1,0 +1,25 @@
+Biome, repair round — 2026-09-21. Each changed script against its base copy
+(git show HEAD:<file>), same command, same diagnostic counts.
+
+== scripts/raptor3-campaign-receipts.test.mjs ==
+-- base (git show HEAD:) --
+Found 54 errors.
+  46 lint/performance/useTopLevelRegex
+   3 lint/style/useNumericSeparators
+   2 lint/style/useTemplate
+   1 lint/performance/noNamespaceImport
+   1 assist/source/organizeImports
+-- after the repair --
+Found 54 errors.
+  46 lint/performance/useTopLevelRegex
+   3 lint/style/useNumericSeparators
+   2 lint/style/useTemplate
+   1 lint/performance/noNamespaceImport
+   1 assist/source/organizeImports
+(the one remaining diagnostic is the file's pre-existing `format`; the
+ formatter was NOT run on it, and the repaired hunk no longer appears in
+ its diff — the replacement is written the way Biome would print it.)
+
+== scripts/raptor3-refusal-census.test.mjs (new file, no base copy) ==
+Checked 1 file in 6ms. No fixes applied.
+(0 diagnostics before and after the repair.)

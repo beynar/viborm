@@ -1,0 +1,70 @@
+{
+  "formatVersion": 1,
+  "baselineCommit": "cf2cbc4e6eed445816e70b0d98ca117db90c86b0",
+  "frozenIdentity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922"
+  },
+  "scope": "Exact structural-correction production, harness registration/tests, and private architecture-guide changes. Qualification documentation/evidence and unrelated CONTEXT.md, memory.md, Pattern work, and historical archives are excluded.",
+  "files": [
+    {
+      "file": "scripts/raptor3-manifest.mjs",
+      "baseline": "tracked",
+      "bytes": 33318,
+      "sha256": "7388f15d2a0162bd55a0e7fb75afa9765bc3fd0dd4cfb9aa7ef72d31a685da8b"
+    },
+    {
+      "file": "src/query-engine/raptor3/AGENTS.md",
+      "baseline": "tracked",
+      "bytes": 26990,
+      "sha256": "5334b0b0a5390fca38ed71434a269c8e24cc69cf43d3583e14688a2ce3eb640b"
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "baseline": "tracked",
+      "bytes": 25692,
+      "sha256": "eb0551e592ca7b24589ae73d6053db43cf2b2166b2a385f3e49ab86de6b33638"
+    },
+    {
+      "file": "src/query-engine/raptor3/program/program.ts",
+      "baseline": "tracked",
+      "bytes": 18938,
+      "sha256": "e1a0de462d4fba541c196063d8f97660937846b5b9d8bebf9cd01aaaa52f622e"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "baseline": "tracked",
+      "bytes": 53772,
+      "sha256": "2e40f9e4f0fa55531a4d9ce76fcf625cbb12cda2d7f4c48d40999aecdd303564"
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "baseline": "tracked",
+      "bytes": 54013,
+      "sha256": "e0c4d420548f288a3323f1fbdb58c740c0d21f9e9d39dbd50d7f5ce9e8b6a27a"
+    },
+    {
+      "file": "tests/raptor3/g3/author-execution-regressions.test.ts",
+      "baseline": "tracked",
+      "bytes": 14161,
+      "sha256": "688de89ca7eac91985cb1bba5928409806e877ce6900c632355522fb78f7c527"
+    },
+    {
+      "file": "tests/raptor3/g3/bulk-result-boundary.test.ts",
+      "baseline": "tracked",
+      "bytes": 8950,
+      "sha256": "e72f55adf1529911828270ec96858bbb8a184b22dafa3c9c1d78ecd1d48b21d2"
+    },
+    {
+      "file": "tests/raptor3/g3/review-execution-boundaries.test.ts",
+      "baseline": "tracked",
+      "bytes": 10530,
+      "sha256": "c64ae905d6dac46210cd9978d369bc823c933032cb62b38cdde8d9079dcdcdf3"
+    }
+  ],
+  "sourcePatch": {
+    "file": "source.patch",
+    "bytes": 39111,
+    "sha256": "22dcec642d0be8fa49951bac5232070fd5ec187835a80f0bf846ef8891b93dcf"
+  }
+}

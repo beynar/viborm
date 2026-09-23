@@ -16,8 +16,16 @@ import {
   EXTENDED_LOCAL_TESTS,
   LIBSQL_PROVIDER_TESTS,
   PGLITE_PROVIDER_TESTS,
+  RAPTOR3_FIXED_LOCAL_TESTS,
   SQLITE3_PROVIDER_TESTS,
 } from "./credential-free-test-manifest.mjs";
+import {
+  D50_PROVIDER_TESTS,
+  D53_PROVIDER_TESTS,
+  G1_PROVIDER_BASELINE_TESTS,
+  G1_PROVIDER_TESTS,
+  RQ01_PGLITE_TESTS,
+} from "./raptor3-manifest.mjs";
 import { acquireTestRunLock } from "./test-run-lock.mjs";
 
 const safeVitestRunner = fileURLToPath(
@@ -147,6 +155,29 @@ const stages = [
     rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
   },
   packageScriptStage("test:core"),
+  {
+    ...vitestStage(
+      "Raptor 3 fixed contracts, harness falsifiers and candidate comparison",
+      120_000,
+      "raptor3",
+      RAPTOR3_FIXED_LOCAL_TESTS
+    ),
+    env: {
+      ...process.env,
+      VIBORM_RAPTOR3_REPLAY_PATH: "",
+      VIBORM_RAPTOR3_SPECIMEN: "",
+      VIBORM_RAPTOR3_EVIDENCE_DIRECTORY: "",
+    },
+  },
+  ...[
+    ...G1_PROVIDER_TESTS,
+    ...D50_PROVIDER_TESTS,
+    ...D53_PROVIDER_TESTS,
+    ...RQ01_PGLITE_TESTS,
+  ].map((file) => ({
+    ...livePgliteProviderStage(file, "raptor3-provider"),
+    wallLimitMs: 120_000,
+  })),
   // The extended estate is split by what it boots. The files that open a live
   // PGlite database run ALONE under the allowlisted 2560 MiB ceiling, because
   // that allowance is conditioned on isolation and packing three of them into
@@ -224,7 +255,13 @@ if (onlyIndex !== -1 && !onlyFilter) {
   process.exit(2);
 }
 const selectedStages = onlyFilter
-  ? stages.filter((stage) => stage.label.includes(onlyFilter))
+  ? [
+      ...stages,
+      ...G1_PROVIDER_BASELINE_TESTS.map((file) => ({
+        ...livePgliteProviderStage(file, "raptor3-provider"),
+        wallLimitMs: 120_000,
+      })),
+    ].filter((stage) => stage.label.includes(onlyFilter))
   : stages;
 if (onlyFilter && selectedStages.length === 0) {
   process.stderr.write(`[test:all] --only ${onlyFilter} matched no stage\n`);
@@ -270,6 +307,7 @@ try {
     const run = startBoundedProcess({
       arguments: stage.arguments,
       command: stage.command,
+      env: stage.env,
       heapLimitMb: stage.heapLimitMb,
       label: `[test:all] ${stage.label}`,
       rssCeiling: stage.rssCeiling,

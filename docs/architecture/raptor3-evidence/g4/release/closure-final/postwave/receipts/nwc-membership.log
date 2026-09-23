@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rint
+
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-membership.test.ts (30 tests) 1093ms
+
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+   Start at  12:34:06
+   Duration  2.40s (transform 776ms, setup 8ms, collect 1.14s, tests 1.09s, environment 0ms, prepare 23ms)
+
+Vitest resources: 4.02s wall, 1581.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

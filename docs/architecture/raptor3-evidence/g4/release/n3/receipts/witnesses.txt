@@ -1,0 +1,6 @@
+fixed exit=0  Tests 758 passed (758)
+m8-race-retry exit=0  Tests 4 passed (4)
+nested-m2m-parent-pk-dataflow exit=0  Tests 6 passed (6)
+nested-write-conformance-m2m exit=1  Tests 5 failed | 29 passed (34)
+nested-write-conformance-membership exit=1  Tests 13 failed | 17 passed (30)
+lax pin + uncertain-outcome exit=0  Tests 28 passed (28)

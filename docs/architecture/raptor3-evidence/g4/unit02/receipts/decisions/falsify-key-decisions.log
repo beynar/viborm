@@ -1,0 +1,452 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts (20 tests | 5 failed) 207ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > multiplies an int key the way the shipped engine does 34ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > divides an int key with the dialect's truncation, as shipped 6ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > multiplies and divides a bigint key the way the shipped engine does 64ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > still increments and decrements a key as it did 26ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > decimal key multiply: the candidate answers what the shipped engine answers 5ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > number key multiply: the candidate answers what the shipped engine answers 9ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > decimal key divide: the candidate answers what the shipped engine answers 12ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > int key divide by zero: the candidate answers what the shipped engine answers 4ms
+   ✓ G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (a) THE CONTRACT: names a decimal key increment, which is exact in coefficient space 6ms
+   × G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (c) PARITY: refuses `set` beside an operator with the shipped sentence 8ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    rows: [
+      {
++       id: 9,
+-       id: 7,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (c) PARITY: the same sentence when `set` accompanies an operator phase 2 added 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, divide.",
+    rows: [
+      {
++       id: 9,
+-       id: 7,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (b) PARITY: refuses a number key increment with the shipped sentence 4ms
+     → {"id":{"increment":1}}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (a) leaves the exact-domain decimal operators reachable and the rounding ones refused 5ms
+   ✓ G4-02 — the integer quotient is the dialect's own spelling > names an int key's quotient through expressions.integerDivide 0ms
+   ✓ G4-02 — the integer quotient is the dialect's own spelling > names a multiplied key natively on every dialect 0ms
+   ✓ G4-02 — the one shape with no expression form stays refused > refuses to name an exact decimal under multiply, with its registered identity 0ms
+   ✓ G4-02 — the one shape with no expression form stays refused > names an exact decimal under increment and decrement, which are exact 0ms
+   × G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key increment under a batch with its registered identity 9ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'Error: Raptor 3 update expression publication requires an integer field'
+- `QueryEngineError: Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.`
+
+   × G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key multiply under a batch with its registered identity 4ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'Error: Raptor 3 update expression publication requires an integer field'
+- `QueryEngineError: Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.`
+
+   ✓ G4-02 — R-D3: the batch publication gap has a public identity > answers an INT key under the same batch profile on both engines 3ms
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests | 3 failed) 150ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > multiplies a NUMBER key on the found arm, as the shipped engine does 17ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > multiplies a DECIMAL key on the found arm, as the shipped engine does 9ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > carries an int key divide-by-zero to the provider, as the shipped engine does 11ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > CREATES the missing row whose update names key arithmetic, as shipped does 7ms
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > refuses a number key multiply beside a relation write, as shipped does 12ms
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > still CREATES the missing row, because the shipped assertion is found-arm 7ms
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > refuses ahead of a conditional that would skip, as shipped does 7ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > refuses a divide-by-zero beside a relation write with the analysis sentence 8ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > refuses the SAME way on a missing row, and writes nothing 6ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > answers a PARENT-held relation beside the same divide 8ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > answers a scalar-only divide-by-zero unchanged 9ms
+   × G4-02 — the THIRD shipped owner: the key transition at analysis > R-D2 (c) PARITY: answers the transition's OWN sentence for an upsert with relations 7ms
+     → candidate {"answer":"ok:{\"id\":8,\"label\":\"o\"}","rows":[{"id":8,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":8,"label":"o"}',
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
++       id: 8,
+-       id: 6,
+        label: 'o'
+      }
+    ]
+  }
+
+   × G4-02 — the THIRD shipped owner: the key transition at analysis > R-D2 (c) refuses the SAME way on a missing row, and writes nothing 6ms
+     → candidate {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":6,"label":"o"},{"id":99,"label":"fresh"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":99,"label":"fresh"}',
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      },
++     {
++       id: 99,
++       label: 'fresh'
++     }
+    ]
+  }
+
+   × G4-02 — the THIRD shipped owner: the key transition at analysis > R-D2 (c) answers the ARITY sentence where no transition is built 6ms
+     → candidate {"answer":"ok:{\"id\":8,\"ownerId\":6}","rows":[{"id":8,"ownerId":6}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, multiply.","rows":[{"id":4,"ownerId":null}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":8,"ownerId":6}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, multiply.",
+    rows: [
+      {
++       id: 8,
++       ownerId: 6
+-       id: 4,
+-       ownerId: null
+      }
+    ]
+  }
+
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > answers the same divide addressed by a NON-key unique 6ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > pins the pre-value from the DISCRIMINATOR, not from an AND arm 7ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > CREATES the absent row whose key is pinned only in an AND arm 6ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > does not raise the transition sentence for a COMPOUND reference key 5ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > CREATES the absent row of a COMPOUND reference key 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (c) PARITY: refuses `set` beside an operator with the shipped sentence
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    rows: [
+      {
++       id: 9,
+-       id: 7,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",[39m
+[31m+   "answer": "ok:{\"id\":9,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 7,[39m
+[31m+       "id": 9,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/key-arithmetic.test.ts:293:12
+    291|       "candidate"
+    292|     );
+    293|     assert.deepEqual(candidate, shipped);
+       |            ^
+    294|     assert.equal(
+    295|       candidate.answer,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (c) PARITY: the same sentence when `set` accompanies an operator phase 2 added
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, divide.",
+    rows: [
+      {
++       id: 9,
+-       id: 7,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, divide.",[39m
+[31m+   "answer": "ok:{\"id\":9,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 7,[39m
+[31m+       "id": 9,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/key-arithmetic.test.ts:318:12
+    316|       "candidate"
+    317|     );
+    318|     assert.deepEqual(candidate, shipped);
+       |            ^
+    319|     assert.equal(
+    320|       candidate.answer,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (b) PARITY: refuses a number key increment with the shipped sentence
+AssertionError: {"id":{"increment":1}}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":7,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 7,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/key-arithmetic.test.ts:350:14
+    348|         "candidate"
+    349|       );
+    350|       assert.deepEqual(candidate, shipped, JSON.stringify(data));
+       |              ^
+    351|       assert.equal(
+    352|         candidate.answer,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key increment under a batch with its registered identity
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key multiply under a batch with its registered identity
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'Error: Raptor 3 update expression publication requires an integer field'
+- `QueryEngineError: Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field.`
+
+
+Expected: [32m"[7mQueryEngineError: Cannot publish the updated value of 'numKey.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a numb[27mer field[7m.[27m"[39m
+Received: [31m"[7mError: Raptor 3 update expression publication requires an integ[27mer field"[39m
+
+ ❯ tests/raptor3/g4/unit02/key-arithmetic.test.ts:545:14
+    543|       // The decided identity: a registered QueryEngineError, naming t…
+    544|       // the field and the operation, raised before any statement is d…
+    545|       assert.equal(
+       |              ^
+    546|         candidate.answer,
+    547|         "QueryEngineError: Cannot publish the updated value of 'numKey…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — the THIRD shipped owner: the key transition at analysis > R-D2 (c) PARITY: answers the transition's OWN sentence for an upsert with relations
+AssertionError: candidate {"answer":"ok:{\"id\":8,\"label\":\"o\"}","rows":[{"id":8,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":8,"label":"o"}',
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
++       id: 8,
+-       id: 6,
+        label: 'o'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",[39m
+[31m+   "answer": "ok:{\"id\":8,\"label\":\"o\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 8,[39m
+[2m        "label": "o",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:168:10
+    166|   const candidate = await upsert(model, table, args, "candidate");
+    167|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    168|   assert.deepEqual(
+       |          ^
+    169|     candidate,
+    170|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:338:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — the THIRD shipped owner: the key transition at analysis > R-D2 (c) refuses the SAME way on a missing row, and writes nothing
+AssertionError: candidate {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":6,"label":"o"},{"id":99,"label":"fresh"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":99,"label":"fresh"}',
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      },
++     {
++       id: 99,
++       label: 'fresh'
++     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",[39m
+[31m+   "answer": "ok:{\"id\":99,\"label\":\"fresh\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "id": 99,[39m
+[31m+       "label": "fresh",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:168:10
+    166|   const candidate = await upsert(model, table, args, "candidate");
+    167|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    168|   assert.deepEqual(
+       |          ^
+    169|     candidate,
+    170|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:355:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — the THIRD shipped owner: the key transition at analysis > R-D2 (c) answers the ARITY sentence where no transition is built
+AssertionError: candidate {"answer":"ok:{\"id\":8,\"ownerId\":6}","rows":[{"id":8,"ownerId":6}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, multiply.","rows":[{"id":4,"ownerId":null}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":8,"ownerId":6}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, multiply.",
+    rows: [
+      {
++       id: 8,
++       ownerId: 6
+-       id: 4,
+-       ownerId: null
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, multiply.",[39m
+[31m+   "answer": "ok:{\"id\":8,\"ownerId\":6}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 4,[39m
+[32m-       "ownerId": null,[39m
+[31m+       "id": 8,[39m
+[31m+       "ownerId": 6,[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:168:10
+    166|   const candidate = await upsert(model, table, args, "candidate");
+    167|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    168|   assert.deepEqual(
+       |          ^
+    169|     candidate,
+    170|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:372:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  8 failed | 31 passed (39)
+   Start at  17:33:47
+   Duration  2.89s (transform 1.55s, setup 12ms, collect 2.35s, tests 357ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 3.46s wall, 602.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

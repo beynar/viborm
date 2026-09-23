@@ -19,6 +19,51 @@ import v, { type V } from "../primitives/v";
  * as a bare object entry), so the object validator never duck-types metadata
  * off it.
  */
+/**
+ * `path` and `mode` SCOPE a filter; they do not state one. A JSON filter that
+ * carries only a path asks nothing about the document, and a `mode` beside no
+ * text operator folds nothing — which is why "at least one key" is not the
+ * rule and "at least one OPERATION" is.
+ */
+const FILTER_MODIFIER_KEYS: ReadonlySet<string> = new Set(["path", "mode"]);
+
+/**
+ * The sentence an empty filter object answers.
+ *
+ * The lowerer spelled the field (`Filter for field 'name' must contain at
+ * least one operation.`) because it held the field name. This owner is the
+ * per-scalar filter object, INTERNED per scalar type, so it validates every
+ * `string` field of every model from one instance and cannot name one. The
+ * field is not lost: the refusal is a {@link ValidationError} issue whose
+ * `path` is `where.name`, which is where an admission refusal names its
+ * subject.
+ */
+export const FILTER_WITHOUT_OPERATION =
+  "Filter must contain at least one operation.";
+
+/**
+ * The whole-object refusal every scalar filter object carries: `{}`,
+ * `{ equals: undefined }` and `{ path: [...] }` state no operation and must
+ * not lower to TRUE — `updateMany({ where: { name: {} } })` would touch every
+ * row. `where: {}` (no field at all) still matches everything; this is a rule
+ * about a FILTER, not about a `where`.
+ *
+ * The operator vocabulary is not restated here: the object is STRICT, so every
+ * key it admits is one of its own, and the rule is "a key that is not a
+ * modifier, with a value". That is what keeps the rule true for the objects
+ * that are EXTENDED later — a list filter extended with `_count`/`_avg` for
+ * `having` (`model/args/aggregate.ts`) states an operation through the
+ * extension, and an operator list captured at build time would refuse it.
+ */
+export const requireFilterOperation = (
+  value: Record<string, unknown>
+): string | undefined =>
+  Object.entries(value).some(
+    ([key, member]) => !FILTER_MODIFIER_KEYS.has(key) && member !== undefined
+  )
+    ? undefined
+    : FILTER_WITHOUT_OPERATION;
+
 export interface NegatableFilter<
   S extends V.Schema,
   TBase extends ObjectEntries,
@@ -48,8 +93,12 @@ export const buildNegatableFilterSchema = <
   base: ObjectSchema<TBase>,
   schema: S
 ): NegatableFilterSchema<S, TBase> => {
-  const negatable: NegatableFilter<S, TBase> = base.extend({
-    not: v.union([v.shorthandFilter(schema), v.lazyRef(() => negatable)]),
-  });
+  const negatable: NegatableFilter<S, TBase> = v.object(
+    {
+      ...base.entries,
+      not: v.union([v.shorthandFilter(schema), v.lazyRef(() => negatable)]),
+    },
+    { refuse: requireFilterOperation }
+  ) as unknown as NegatableFilter<S, TBase>;
   return v.union([v.shorthandFilter(schema), negatable]);
 };

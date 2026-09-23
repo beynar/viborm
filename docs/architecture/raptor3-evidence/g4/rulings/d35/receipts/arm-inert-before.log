@@ -1,0 +1,18 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d35
+
+D35PROBE count raw=[{"_count":"2n"}] normalizeCountResult=undefined
+D35PROBE count raw=[{"_count":"1n"}] normalizeCountResult=undefined
+D35PROBE count raw=[{"_all":"2n"}] normalizeCountResult=undefined
+D35PROBE exist raw=[{"_count":"1n"}] normalizeCountResult=undefined
+D35PROBE exist raw=[{"_count":"0n"}] normalizeCountResult=undefined
+D35PROBE findMany raw=[{"id":"1n"},{"id":"2n"}] normalizeCountResult=undefined
+D35PROBE answers={"count":2,"filteredCount":1,"countAll":{"_all":2},"existTrue":true,"existFalse":false,"findMany":2}
+ ✓ |extended-local| tests/raptor3/g4/parity/d35-arm-probe.test.ts (1 test) 16ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  22:22:43
+   Duration  1.44s (transform 824ms, setup 13ms, collect 1.23s, tests 16ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.33s wall, 468.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

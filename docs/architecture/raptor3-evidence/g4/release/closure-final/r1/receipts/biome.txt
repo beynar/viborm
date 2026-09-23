@@ -1,0 +1,44 @@
+### execution.ts
+-- base:
+   1 lint/complexity/noCommaOperator
+   1 lint/style/noParameterProperties
+   1 lint/style/useDefaultSwitchClause
+-- after:
+   1 lint/complexity/noCommaOperator
+   1 lint/style/noParameterProperties
+   1 lint/style/useDefaultSwitchClause
+### commands.ts
+-- base:
+   1 lint/style/noParameterAssign
+   1 lint/style/noParameterProperties
+-- after:
+   1 lint/style/noParameterAssign
+   1 lint/style/noParameterProperties
+### assignments.ts
+-- base:
+   5 lint/style/noParameterProperties
+-- after:
+   5 lint/style/noParameterProperties
+### relation-body.ts
+-- base:
+   1 lint/correctness/noUnusedVariables
+   5 lint/style/noParameterProperties
+-- after:
+   1 lint/correctness/noUnusedVariables
+   5 lint/style/noParameterProperties
+### new/changed test files (format check)
+-- tests/raptor3/g4/parity/reference-representability.test.ts
+   format: clean
+-- tests/providers/docker/pg-reference-representability.test.ts
+   format: clean
+-- tests/providers/docker/mysql2-reference-representability.test.ts
+   format: clean
+-- tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
+   3 lint/correctness/noUnusedImports
+   1 lint/style/noParameterProperties
+  16 lint/suspicious/noMisplacedAssertion
+   format: DIFFERS
+
+### Repair round (2026-09-21)
+-- tests/raptor3/g4/parity/reference-representability.test.ts (header docblock corrected)
+   Checked 1 file in 8ms. No fixes applied.

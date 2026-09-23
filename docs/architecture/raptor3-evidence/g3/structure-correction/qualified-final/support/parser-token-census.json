@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "identity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64"
+    }
+  },
+  "sourceCostSha256": "5f6f3ce75c0e1ed9f0cbff201ce4aaa48e494667d91dd1720484cd23554ed6b1",
+  "method": "Parser-owned TypeScript leaf tokens; JSDoc and EOF excluded, using the same getChildren traversal and FirstToken..LastToken predicate as scripts/query-engine-structure.mjs.",
+  "core": {
+    "scope": "Seven commands language files plus five shared files, the first twelve files in source-cost.json privateCandidates.candidates.commands.files.",
+    "files": 12,
+    "tokenLines": 6927,
+    "parserTokens": 43383,
+    "bytes": 230397
+  },
+  "broader": {
+    "scope": "All thirty whole owners in source-cost.json privateCandidates.candidates.commands.files.",
+    "files": 30,
+    "tokenLines": 11849,
+    "parserTokens": 72385,
+    "bytes": 499927
+  },
+  "fileManifest": [
+    {
+      "file": "src/query-engine/raptor3/commands/assignments.ts",
+      "sha256": "74fcb70cac0759979ab782c4717ca930191a19687dea58d87eac74f1551985fe",
+      "tokenLines": 153,
+      "parserTokens": 1031,
+      "bytes": 4831
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/command-attempt.ts",
+      "sha256": "2ba67e941c58e0c4bc0cfd54693730495e418d7e10540799b2dc35048b2f6464",
+      "tokenLines": 85,
+      "parserTokens": 654,
+      "bytes": 2948
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "sha256": "20f07393b7ea4aebca3f5f75ca12731b19917e6db07bb30962f86cf67be0016a",
+      "tokenLines": 1124,
+      "parserTokens": 6964,
+      "bytes": 37887
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "sha256": "eb0551e592ca7b24589ae73d6053db43cf2b2166b2a385f3e49ab86de6b33638",
+      "tokenLines": 745,
+      "parserTokens": 4780,
+      "bytes": 25692
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/index.ts",
+      "sha256": "2037ffc4a19baad8c28911a3b5226bd508b6b8f3719d81af0b6a5f3b39433d02",
+      "tokenLines": 100,
+      "parserTokens": 491,
+      "bytes": 2901
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/relation-body.ts",
+      "sha256": "79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2",
+      "tokenLines": 848,
+      "parserTokens": 4730,
+      "bytes": 28322
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/selection.ts",
+      "sha256": "874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8",
+      "tokenLines": 142,
+      "parserTokens": 759,
+      "bytes": 4159
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "sha256": "2e40f9e4f0fa55531a4d9ce76fcf625cbb12cda2d7f4c48d40999aecdd303564",
+      "tokenLines": 1591,
+      "parserTokens": 10034,
+      "bytes": 53772
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "sha256": "e0c4d420548f288a3323f1fbdb58c740c0d21f9e9d39dbd50d7f5ce9e8b6a27a",
+      "tokenLines": 1635,
+      "parserTokens": 10839,
+      "bytes": 54013
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/schema.ts",
+      "sha256": "90341676ea70c610ee56204ceaaac27aad84bf24ad46458bd2b03d439b6aa771",
+      "tokenLines": 289,
+      "parserTokens": 1740,
+      "bytes": 8894
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/storage.ts",
+      "sha256": "4802bc61e01a3835096ec41c9c27afd2107518a6ba18813fc5bad284c21b42d2",
+      "tokenLines": 199,
+      "parserTokens": 1243,
+      "bytes": 6289
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+      "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643",
+      "tokenLines": 16,
+      "parserTokens": 118,
+      "bytes": 689
+    },
+    {
+      "file": "src/adapters/adapter-core-types.ts",
+      "sha256": "958aff3a62e867473064ff98eaaa82d43d653005c5bbc42e598e6600ba0a8c55",
+      "tokenLines": 15,
+      "parserTokens": 129,
+      "bytes": 2618
+    },
+    {
+      "file": "src/adapters/adapter-internals.ts",
+      "sha256": "f17f7af75dd779469e360ba87b72a1f8c31d583cbf4661bd03f0609fbb0c7e4e",
+      "tokenLines": 47,
+      "parserTokens": 226,
+      "bytes": 1760
+    },
+    {
+      "file": "src/adapters/constraint-identity.ts",
+      "sha256": "30fdcf3887a352d72d999a78a06e0c0924de6655b63f5111dbb68ae0ba06d1b7",
+      "tokenLines": 47,
+      "parserTokens": 272,
+      "bytes": 1763
+    },
+    {
+      "file": "src/adapters/databases/mysql/mysql-adapter.ts",
+      "sha256": "62e605676cd3537ba63d2abbdd65f1fa9d6d66214fa48c7627934223d61669be",
+      "tokenLines": 557,
+      "parserTokens": 3902,
+      "bytes": 44425
+    },
+    {
+      "file": "src/adapters/databases/postgres/postgres-adapter.ts",
+      "sha256": "050657a060687d64a673e24c3f226b492a6a412037811ade7be31e745a5142e9",
+      "tokenLines": 371,
+      "parserTokens": 2734,
+      "bytes": 27107
+    },
+    {
+      "file": "src/adapters/databases/sqlite/sqlite-adapter.ts",
+      "sha256": "cc772ecdb771fe02d2bdf8464e6b542ffa9d8e507a91fdb7ca53ffafe55de8e3",
+      "tokenLines": 445,
+      "parserTokens": 2980,
+      "bytes": 36532
+    },
+    {
+      "file": "src/adapters/shared/batch-refs.ts",
+      "sha256": "5654fba299e4020529de1adf31865d11711dc91f543536549a4f9fc45f7af7d2",
+      "tokenLines": 59,
+      "parserTokens": 411,
+      "bytes": 2280
+    },
+    {
+      "file": "src/drivers/driver-instrumentation.ts",
+      "sha256": "2edd1b7d77e7836314b3f3aaeae677c490f75a3dceffa45d6db0e1f85e9f7e74",
+      "tokenLines": 801,
+      "parserTokens": 4094,
+      "bytes": 34476
+    },
+    {
+      "file": "src/drivers/error-mapping.ts",
+      "sha256": "860a2b156cee471ce086490160bc454006ebd30eccf4d7026062e7db303c6408",
+      "tokenLines": 460,
+      "parserTokens": 2148,
+      "bytes": 17730
+    },
+    {
+      "file": "src/query-engine/JunctionStatements.ts",
+      "sha256": "b3b8a08fe8d1e2e18ff69e45013023094015a238d6113e7b6e669301fb8df3bc",
+      "tokenLines": 493,
+      "parserTokens": 2679,
+      "bytes": 19105
+    },
+    {
+      "file": "src/query-engine/bind-budget.ts",
+      "sha256": "4c0d84dd0ec7af8c1a6e5c67ee883d33542749d4d1c91565eebda22be0ecb265",
+      "tokenLines": 47,
+      "parserTokens": 284,
+      "bytes": 2007
+    },
+    {
+      "file": "src/query-engine/types.ts",
+      "sha256": "8dec9a323f923ccbc2a3b8dc6e514277d1fbc599024f0c250ac9853a91f71281",
+      "tokenLines": 289,
+      "parserTokens": 1392,
+      "bytes": 15839
+    },
+    {
+      "file": "src/query-engine/unique-conflict-target.ts",
+      "sha256": "338c89071876f938ebf3f45c09aa3720995b8a824c84747aa1850198e71e85d4",
+      "tokenLines": 43,
+      "parserTokens": 351,
+      "bytes": 2563
+    },
+    {
+      "file": "src/query-engine/write-engine/parse-boundary.ts",
+      "sha256": "b42a5f85f4b41d6a5deccfb5242335904daabe9f3dbd3b5ae28b9e5d64bc9696",
+      "tokenLines": 41,
+      "parserTokens": 270,
+      "bytes": 4755
+    },
+    {
+      "file": "src/schema/model/keys.ts",
+      "sha256": "95e6185f8ded9c41fc536166df415ddca65b233d33e5583f97c57ca06529d0f5",
+      "tokenLines": 138,
+      "parserTokens": 963,
+      "bytes": 10247
+    },
+    {
+      "file": "src/schema/model/model.ts",
+      "sha256": "3864cbd2ae327a4b249ee257f6d10d8ce39ec06779dbfc52e8fe26e537b1f4ce",
+      "tokenLines": 422,
+      "parserTokens": 2586,
+      "bytes": 22177
+    },
+    {
+      "file": "src/schema/validation/rules/model.ts",
+      "sha256": "b3d8f1f0ecd3b3acd757ee6ea55de3f00c98dba801918b53741f1e871dbcb0eb",
+      "tokenLines": 471,
+      "parserTokens": 2529,
+      "bytes": 16048
+    },
+    {
+      "file": "src/schema/validation/validator.ts",
+      "sha256": "de94dbb0122af09561556685db302ea9e702574f061d23486799816e58f60a0a",
+      "tokenLines": 176,
+      "parserTokens": 1052,
+      "bytes": 8098
+    }
+  ]
+}

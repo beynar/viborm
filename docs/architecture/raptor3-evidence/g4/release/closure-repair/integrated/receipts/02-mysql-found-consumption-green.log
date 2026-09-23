@@ -1,0 +1,14 @@
+=== the file after the added cell, unchanged production source ===
+
+ RUN  v3.1.4 /private/tmp/viborm-sint
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts (12 tests) 2386ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the confirmation's lock > holds the FOUND row through the consuming effect  1117ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  20:44:12
+   Duration  3.62s (transform 767ms, setup 8ms, collect 1.08s, tests 2.39s, environment 0ms, prepare 26ms)
+
+Vitest resources: 5.24s wall, 621.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+EXIT=0

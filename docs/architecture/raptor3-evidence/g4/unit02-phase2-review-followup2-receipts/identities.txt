@@ -1,0 +1,29 @@
+# G4-02 phase-2 review follow-up 2 — identities, captured 2026-09-15T11:34:12Z
+
+## production (round 4, verified in the tree)
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  src/query-engine/raptor3/shared/query.ts
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  src/query-engine/raptor3/shared/operation-context.ts
+07b3df1af03638667abfbb236d739fe947993f9a4f2fd96793ef3bcc46956613  src/query-engine/raptor3/shared/schema.ts
+f4ecd7addff0719e931925275253159748d65e70f9cae741ae8175b06357b0ce  src/query-engine/raptor3/commands/commands.ts
+f551151f6d279eb783a911e6c1f7794af141704df40cd202c334fc6d4c7c3be9  src/query-engine/raptor3/commands/index.ts
+752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2  src/query-engine/raptor3/shared/storage.ts
+1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102  src/query-engine/raptor3/commands/assignments.ts
+54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2  src/query-engine/raptor3/commands/execution.ts
+4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd  src/query-engine/raptor3/program/index.ts
+ab95ed3cd1b8542e4ef19c0efdd7a8a9e340eefb156bdd068c1bd5866644e2c5  src/adapters/database-adapter.ts
+679de883012390217143900b1f52539a767c67460c7e0a1c8ea1a79b58ae450d  src/adapters/databases/sqlite/sqlite-adapter.ts
+b29d1393a2148369228b0a359138e1d3d8df30d48bd872ffc520c4e9dcef3f7e  src/adapters/databases/postgres/postgres-adapter.ts
+1dd38ed31a23679b247402e5c609179945032df87e1915de44e43bc5fe2beb00  src/adapters/databases/mysql/mysql-adapter.ts
+
+## author witnesses under review
+5a3ff24d00b3d3f281ca39c954de9cca249fa28844b8bee0884af86a04f1dc0c  tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+d054df6d22c15520ac0d9d4503c8a25164d64acc94decc4c4280e8d169827ed9  tests/raptor3/g4/unit02/key-arithmetic.test.ts
+
+## reviewer probes (this round)
+817bf663ed371f4734cc5bb9b7b7568c93bafaacf59f98c03a14368236a2a060  tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts
+3d876073441cef74298d51c2cbca1ad8ca337f38a345b4ad516a43e1438bd1e9  tests/raptor3/g4/review/unit02-phase2-followup2/review.workspace.ts
+2b882e287bce23b8a37f82f201a40442ebf26fa8fe735b35a433a65d70c7a057  tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts
+
+## patches
+f2ef45982f088682f4e73d484860b2bf04e4400e46fceab6c5962888b38b60dd  docs/architecture/raptor3-evidence/g4/unit02/production-phase2.patch
+217271063283841a975afd274845be65b94eb33e0971d894d8b6a0e8e9eb3b5b  docs/architecture/raptor3-evidence/g4/unit02/tests-phase2.patch

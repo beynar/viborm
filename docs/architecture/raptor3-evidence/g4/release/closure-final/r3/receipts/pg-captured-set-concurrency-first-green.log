@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+(node:28904) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (16 tests) 1557ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  11:19:02
+   Duration  3.18s (transform 976ms, setup 9ms, collect 1.48s, tests 1.56s, environment 0ms, prepare 35ms)
+
+Vitest resources: 4.99s wall, 528.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

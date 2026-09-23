@@ -1,0 +1,9 @@
+[test:all] extended-local imported-pglite shard 1/2 (17 suites)
+ ✓ |extended-local| tests/contracts/engine/query/nested-create-many.test.ts (37 tests) 851ms
+ ✓ |extended-local| tests/contracts/architecture/database-namespace-census.test.ts (24 tests) 1055ms
+ ✓ |extended-local| tests/contracts/public-client/cli/utils.test.ts (26 tests) 160ms
+ ✓ |extended-local| tests/contracts/public-client/cli/push.test.ts (16 tests) 4ms
+ ✓ |extended-local| tests/contracts/engine/query/named-inverse-nested-writes.test.ts (1 test) 500ms
+ Test Files  5 passed | 12 skipped (17)
+      Tests  104 passed | 227 skipped (331)
+[test:all] extended-local imported-pglite shard 1/2 (17 suites): 10.90s wall, 1628.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

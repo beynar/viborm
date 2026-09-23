@@ -1,0 +1,52 @@
+{
+  "formatVersion": 1,
+  "milestone": "g4",
+  "identity": {
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "qualificationFreeze": "Both selectors ran during the frozen no-edit qualification window. Their launchers emit bounded stdout and resource evidence but no JSON identity companion; this record does not claim the logs embed identity.",
+  "runtimeInvocation": {
+    "node": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node",
+    "pathPrefix": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin"
+  },
+  "selectors": [
+    {
+      "name": "credential-free aggregate",
+      "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"Raptor 3 fixed\"",
+      "evidence": "support/credential-free-fixed.log",
+      "evidenceSha256": "f4d8a7c4a2bc3699dc1075ed12c03d1bd933e337629cb9edfacb1a7a15ac14db",
+      "selection": {
+        "testFiles": 65,
+        "tests": 758
+      },
+      "resourceLines": [
+        "Vitest resources: 23.37s wall, 903.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+        "[test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 27.69s wall, 58.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified."
+      ],
+      "status": "passed"
+    },
+    {
+      "name": "PGlite provider selector",
+      "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"raptor3-provider:\"",
+      "evidence": "support/credential-free-provider.log",
+      "evidenceSha256": "f317346c66ffbade0738f1e4291bb2c2d6c966da6a91ba665dbcbb07e2e9b698",
+      "selection": {
+        "testFiles": 5,
+        "tests": 11
+      },
+      "resourceLines": [
+        "[test:all] raptor3-provider: tests/raptor3/expanded/produced-legacy.test.ts: 29.92s wall, 1351.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.",
+        "[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-legacy.test.ts: 35.11s wall, 1221.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified."
+      ],
+      "status": "passed"
+    }
+  ]
+}

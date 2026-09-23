@@ -1,0 +1,165 @@
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > a relation in a bulk write's select is refused, not silently emptied
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > application defaults remain values while increment defaults stay database-owned
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > atomic divide pins integer-division semantics on inexact quotients
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves conflict winner input order across row shapes
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves generation when another row supplies an increment id
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with a narrow select returns only selected fields
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select assigns auto-increment ids
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select preserves bigint generation and order
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select restores input order across increment row shapes
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select skips only duplicate rows and returns inserted rows
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany without select returns { count }, with select returns rows
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only create uses database generation
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only createMany rows use database generation
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select over every row returns them all
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select returns [] when nothing matches and deletes nothing
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany without select returns { count }, with select returns the deleted rows
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > explicit zero increment ids reject uniformly before mutation
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > include is refused with a message that names the alternative
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > singleton createMany duplicate recovery returns count zero
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates does not suppress required, length, or conversion errors
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates keeps case, accent, and trailing-space unique values distinct
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates still surfaces unrelated foreign-key failures
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic decrement and multiply
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic divide (exact quotient)
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic operations
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select returns empty array when nothing matches
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany without select returns { count }, with select returns rows
+tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors descending orderBy
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT array negates each condition and ANDs them (Prisma parity)
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with AND
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT combines with OR
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT with equality also skips NULL rows
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > NOT {contains} does not match NULL rows (Prisma parity)
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR of two scalar predicates
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > OR with a null check matches NULL rows via IS NULL
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > nested NOT double-negates but still skips NULL rows
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > NOT and OR combinators > top-level NOT excludes matching rows
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > all-false select throws
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > empty select rejection > empty select object throws
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum equals matches a single value
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in matches listed values and skips NULL rows
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum in with empty list matches nothing
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn excludes listed values and NULL rows
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > enum in/notIn filters > enum notIn with empty list matches every row
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate equals null uses IS NULL
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in filter
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate in with empty list matches nothing
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate not null uses IS NOT NULL
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having aggregate notIn with empty list matches everything
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND accepts a bare object as well as an array
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR evaluates the inner conjunction
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR fails the arm when one conjunct misses
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > AND of the same two conditions matches nothing
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array negates each arm and ANDs the negations (Prisma parity)
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array of a single item matches the object form
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array on a `by` field agrees with the same NOT array in where
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array with one unmatchable arm keeps the other complement
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT inside OR restores the excluded group
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of a multi-key object negates that object's conjunction
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of an aggregate condition selects the complement
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR of two single-group conditions matches both groups
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > OR with a single unmatchable arm keeps only the other
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a combinator conjoins with sibling field-keyed conditions
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by`
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND and empty NOT stay true and keep every group
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND still conjoins its sibling rather than erasing it
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR is false, not absent, when conjoined with a sibling
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR matches no group, exactly like empty OR in where
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in AND poisons the conjunction
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in OR contributes nothing but is not vacuous
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR under NOT is true and keeps every group
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by groups on the field combination
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > multi-field by supports having on aggregates
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count _all
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _count on a field
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy _sum
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a grouped column still works
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with aggregate orderBy window the groups
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take and skip with orderBy window the groups
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > take with orderBy limits groups
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > groupBy ordering and having > where filters rows before grouping
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals matches case-insensitively
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > equals stays case-sensitive without mode
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in matches case-insensitively
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > in stays case-sensitive without mode
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equality and set filters fold ASCII only
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive equals does not treat % as a wildcard
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in does not treat % as a wildcard
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > insensitive in with empty list matches nothing
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not excludes case-insensitively
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > not stays case-sensitive without mode
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn excludes case-insensitively
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > insensitive mode on equality filters > notIn stays case-sensitive without mode
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > contains stays case-sensitive without mode
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters handle empty and non-ASCII values exactly
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > default substring filters treat wildcard characters literally
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith matches case-insensitively
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > endsWith stays case-sensitive without mode
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith does not treat % as a wildcard
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive endsWith matches every case variant
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive startsWith does not treat % as a wildcard
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > insensitive substring filters fold ASCII only
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith matches case-insensitively
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 Prisma parity > string substring filters > startsWith stays case-sensitive without mode
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment drives updateMany and deleteMany
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment is refused where a reference is
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment survives both execution substrates
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > a scalar subquery compares against the whole table
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > an arithmetic expression compares against the row
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > SQL fragment operands > an interpolated value rides as a bound parameter
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a bare reference is the equals shorthand
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a callback is refused where only the token is accepted
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a cross-model reference is refused before any I/O
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference drives updateMany and deleteMany
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference is refused in JSON filters and JSON write data
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference is refused in `having`, however deeply nested
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference is refused in in/notIn
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference mixes with literal operands in one filter object
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference of the wrong scalar type is refused
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference resolves through .map()ed column names
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > a reference works inside a nested relation where
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive `not` complements the folded comparison
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive contains folds the referenced column
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive endsWith folds the referenced column
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds ASCII only
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > case folding against a referenced column > insensitive startsWith folds the referenced column
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > a bare enum reference is the equals shorthand
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > equals compares two enum columns of the same row
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > gt on an enum is refused with the portability reason
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > gte on an enum is refused with the portability reason
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > literal enum filters are untouched
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > lt on an enum is refused with the portability reason
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > lte on an enum is refused with the portability reason
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > not complements it
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > enum references > the reference resolves through the .map()ed column name
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > equals and not compare two columns of the same row
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > gt compares two columns of the same row
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > gte and lte include the equal row
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > lt compares two columns of the same row
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > string prefix/suffix/substring predicates accept a reference
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > the nested scope's own model is the one a reference must name
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > two decimals of DIFFERENT domains are refused before any I/O
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 field references > two decimals of the SAME domain compare exactly
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > aggregates are scalar-aware
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > every scalar type round-trips exactly top-level
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 full scalar-type round-trip behavior > json primitives round-trip with exact types
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column
+tests/providers/docker/mysql2-scalars.test.ts > MySQL2 Driver > MySQL2 list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list
+tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order
+tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed
+tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+tests/providers/docker/mysql2.test.ts > MySQL namespace containment > applies into the TARGET's control tables, over a connection pointing elsewhere
+tests/providers/docker/mysql2.test.ts > MySQL namespace containment > applies the same portable estate to a second database
+tests/providers/docker/mysql2.test.ts > MySQL namespace containment > refuses a configured database the server does not have, before any DDL
+tests/providers/docker/mysql2.test.ts > MySQL namespace containment > refuses the same attested pool when no namespace resolves it
+tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts > MySQL decimal-list defaults > populates old rows, serves raw omitted inserts, introspects, and converges
+tests/unit/migrations/mysql-strict-mode-docker.test.ts > MySQL interrupted decimal-conversion recovery > recovers after MODIFY, removes the stale list proof, and converges
+tests/unit/migrations/mysql-strict-mode-docker.test.ts > MySQL interrupted decimal-conversion recovery > refuses a user collision before effects and preserves it

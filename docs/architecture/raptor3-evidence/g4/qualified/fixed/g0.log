@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 4819ms
+   ✓ G0 assembled oracle falsifiers > refuses an empty campaign and stale executed-source identity  559ms
+   ✓ records the complete fixed and 100-seed-per-profile G0 campaign  3902ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 106ms
+
+ Test Files  2 passed (2)
+      Tests  33 passed (33)
+   Start at  18:45:06
+   Duration  18.14s (transform 5.61s, setup 35ms, collect 9.14s, tests 4.93s, environment 0ms, prepare 75ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-k81oTO/vitest.json
+Vitest resources: 28.42s wall, 788.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g0 contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-k81oTO

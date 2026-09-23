@@ -1,0 +1,240 @@
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > PendingOperation frozen public contract > defers validation and execution until an execution or preparation method is used
+AssertionError: expected function to throw an error, but it didn't
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:227:51
+    225| 
+    226|     if (operation === undefined) throw new Error("Expected pending ope…
+    227|     expect(() => capability(operation).prepare()).toThrow(ValidationEr…
+       |                                                   ^
+    228|     await expect(operation).rejects.toBeInstanceOf(ValidationError);
+    229|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[296/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > PendingOperation frozen public contract > prepares directly and as a bulk batch without executing
+AssertionError: expected undefined to match object { sql: Any<String>, …(2) }
+
+[32m- Expected:[39m 
+{
+  "context": {
+    "correlationId": "d8cb9a34-9e3a-4684-a47a-e138cf47d2b3",
+    "model": "user",
+    "operation": "findMany",
+  },
+  "params": Any<Array>,
+  "sql": Any<String>,
+}
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:299:46
+    297| 
+    298|     const directCapability = capability(direct);
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > PendingOperation frozen public contract > preserves raw arguments, identity, attribution, and result parsing
+QueryEngineError: Operation 'findMany' on model 'user' publishes no single driver result to parse.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[298/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > PendingOperation frozen public contract > publishes mutation cache invalidation after successful execution
+AssertionError: promise rejected "TypeError: Cannot read properties of unde…" instead of resolving
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:373:26
+    371|     ).operation;
+    372| 
+    373|     await expect(mutation).resolves.toBe(42);
+       |                          ^
+    374|     expect(cache.clearedPrefixes).toEqual([USER_CACHE_PREFIX]);
+    375| 
+
+Caused by: TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+ ❯ PendingOperation.#preparedInput src/query-engine/pending-operation.ts:477:17
+ ❯ PendingOperation.#runExecution src/query-engine/pending-operation.ts:544:28
+ ❯ src/query-engine/pending-operation.ts:489:21
+ ❯ captureExecution src/query-engine/pending-execution.ts:6:12
+ ❯ PendingExecution.executeDefault src/query-engine/pending-execution.ts:35:22
+ ❯ PendingOperation.#getPromise src/query-engine/pending-operation.ts:486:28
+ ❯ PendingOperation.then src/query-engine/pending-operation.ts:752:17
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:373:37
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > PendingOperation frozen public contract > preserves mutation failures without invalidating cache
+AssertionError: expected TypeError: Cannot read properties of unde… to be Error: mutation failed // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "mutation failed",[39m
+[31m+ TypeError {[39m
+[31m+   "message": "Cannot read properties of undefined (reading 'operation')",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:406:20
+    404| 
+    405|     const caught = await mutation.catch((error) => error);
+    406|     expect(caught).toBe(failure);
+       |                    ^
+    407|     expect(cache.clearedPrefixes).toEqual([]);
+    408|   });
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > PendingOperation frozen public contract > owns cache invalidation failures instead of leaking a raw error
+AssertionError: expected TypeError: Cannot read properties of unde… to be an instance of CacheConfigurationError
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:458:20
+    456| 
+    457|     const caught = await mutation.catch((error) => error);
+    458|     expect(caught).toBeInstanceOf(CacheConfigurationError);
+       |                    ^
+    459|     if (!(caught instanceof CacheConfigurationError)) throw caught;
+    460|     expect(caught).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[301/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > pending operation transaction coordination > resolves request preparation once and rethrows the same preparation failure
+TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+    458|     if (shared) return shared;
+    459|     if (this.#routedInstance) return this.#routedInstance;
+    460|     const routed = this.#route.operation(
+       |                                ^
+    461|       this.#model,
+    462|       String(this.#options.originalOperation),
+ ❯ PendingOperation.#preparedInput src/query-engine/pending-operation.ts:477:17
+ ❯ Object.prepareAdmission src/query-engine/pending-operation.ts:246:19
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:583:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[302/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > pending operation transaction coordination > stages one package listener and coordinates it through an array child
+TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+    458|     if (shared) return shared;
+    459|     if (this.#routedInstance) return this.#routedInstance;
+    460|     const routed = this.#route.operation(
+       |                                ^
+    461|       this.#model,
+    462|       String(this.#options.originalOperation),
+ ❯ PendingOperation.#preparedInput src/query-engine/pending-operation.ts:477:17
+ ❯ Object.prepareAdmission src/query-engine/pending-operation.ts:246:19
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:615:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[303/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > pending operation transaction coordination > runs query interception and observation through the owner without provider work
+TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+    458|     if (shared) return shared;
+    459|     if (this.#routedInstance) return this.#routedInstance;
+    460|     const routed = this.#route.operation(
+       |                                ^
+    461|       this.#model,
+    462|       String(this.#options.originalOperation),
+ ❯ PendingOperation.#preparedInput src/query-engine/pending-operation.ts:477:17
+ ❯ Object.startInterception src/query-engine/pending-operation.ts:260:41
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:667:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[304/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > pending operation transaction coordination > exposes canonical cache input only for read operations
+TypeError: Cannot read properties of undefined (reading 'operation')
+ ❯ PendingOperation.#resolveRouted src/query-engine/pending-operation.ts:460:32
+    458|     if (shared) return shared;
+    459|     if (this.#routedInstance) return this.#routedInstance;
+    460|     const routed = this.#route.operation(
+       |                                ^
+    461|       this.#model,
+    462|       String(this.#options.originalOperation),
+ ❯ PendingOperation.#cacheKeyPayload src/query-engine/pending-operation.ts:693:17
+ ❯ PendingOperation.cacheKeyArgs src/query-engine/pending-operation.ts:681:28
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:715:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[305/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts > pending operation transaction coordination > normalizes OrThrow operation identity and refuses unknown routed names
+AssertionError: expected [Function] to throw an error
+
+[32m- Expected:[39m 
+null
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ tests/contracts/engine/query/pending-operation-contracts.core.test.ts:738:7
+    736|         {},
+    737|       ]).buildStatement()
+    738|     ).toThrow(UNKNOWN_OPERATION_PATTERN);
+       |       ^
+    739|   });
+    740| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[306/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > enforces the requested projection on direct execution
+AssertionError: expected TypeError: Cannot read properties of unde… to be an instance of QueryEngineError
+ ❯ tests/contracts/engine/query/request-result-shape-contracts.core.test.ts:207:5
+    205|     const engine = createEngine([{ id: "parent-1", secret: "leaked" }]…
+    206| 
+    207|     await expect(
+       |     ^
+    208|       engine.execute(models.parent, "findMany", {
+    209|         select: { id: true },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[340/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > enforces requested nested include shapes and preserves empty relations
+QueryEngineError: Operation 'findMany' on model 'parent' publishes no single driver result to parse.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[341/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > maps private aggregate carriers and rejects missing aggregate fields
+QueryEngineError: Operation 'aggregate' on model 'grouped' publishes no single driver result to parse.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[346/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > rejects duplicate groupBy fields for a empty result
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > rejects duplicate groupBy fields for a non-empty result
+AssertionError: expected [Function] to throw error matching /duplicate/i but got 'Operation \'groupBy\' on model \'grou…'
+
+[32m- Expected:[39m 
+/duplicate/i
+
+[31m+ Received:[39m 
+"Operation 'groupBy' on model 'grouped' publishes no single driver result to parse."
+
+ ❯ tests/contracts/engine/query/request-result-shape-contracts.core.test.ts:515:7
+    513|         rows
+    514|       )
+    515|     ).toThrow(DUPLICATE_GROUP_BY_PATTERN);
+       |       ^
+    516|   });
+    517| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[348/534]⎯
+
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > rejects inherited request key "__proto__" without a raw TypeError
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > rejects inherited request key "constructor" without a raw TypeError
+====================================================================================================
+ FAIL  |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts > request-aware result shapes > rejects inherited request key "toString" without a raw TypeError
+AssertionError: expected function to throw an error, but it didn't
+ ❯ tests/contracts/engine/query/request-result-shape-contracts.core.test.ts:653:60
+    651|     // request at construction, so both the prepare and the parse seam…
+    652|     // same typed rejection.
+    653|     expect(() => transactionOperation(findMany).prepare()).toThrow(
+       |                                                            ^
+    654|       ValidationError
+    655|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[349/534]⎯
+

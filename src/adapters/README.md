@@ -355,9 +355,11 @@ adapter.cte.with([
 ])
 // → WITH "active_users" AS (...)
 
-// Recursive CTE
+// Recursive CTE: UNION ALL by default; "distinct" deduplicates rows (UNION)
 adapter.cte.recursive("tree", anchorQuery, recursiveQuery)
 // → WITH RECURSIVE "tree" AS (anchor UNION ALL recursive)
+adapter.cte.recursive("tree", anchorQuery, recursiveQuery, "distinct")
+// → WITH RECURSIVE "tree" AS (anchor UNION recursive)
 ```
 
 ### `mutations`

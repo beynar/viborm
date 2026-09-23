@@ -1,4 +1,5 @@
 import { instrumentation } from "@instrumentation/extension";
+import { CURSOR_CARRIER_PREFIX } from "@query-engine/result-aliases";
 import { defineContract } from "@tests/contracts/contract";
 /**
  * Ordering and cursor query-plan witnesses (query-performance plan, Phase 5).
@@ -74,8 +75,29 @@ const NULL_PLACEMENT_REGEX = /IS NULL|NULLS FIRST/;
  * `Index Scan` of t0). Measured: with the SQL assertions disabled and the row-value
  * spelling forced off, the old plan assertions passed on both dialects.
  */
-const PG_OUTER_ROW_VALUE_SEEK_REGEX =
-  /Index Scan using order_plan_rows_bucket_id_idx on order_plan_rows t0[^\n]*\n\s*Index Cond: \(ROW\(/;
+const pgOuterRowValueSeek = (alias: string): RegExp =>
+  new RegExp(
+    `Index Scan using order_plan_rows_bucket_id_idx on order_plan_rows ${alias}[^\\n]*\\n\\s*Index Cond: \\(ROW\\(`
+  );
+
+/** The outer relation's alias, as the emitted statement spells it. */
+const OUTER_ALIAS_IN_STATEMENT =
+  /FROM\s+"?order_plan_rows"?\s+(?:AS\s+)?"?([A-Za-z_][\w$]*)"?/;
+
+/**
+ * The statement's OWN alias for the outer relation.
+ *
+ * The plan names relations by alias, and the alias is the engine's private
+ * spelling — pinning the letter here made this witness fail when the engine
+ * that emits the plan changed it, which is not what the cell is about. Reading
+ * it out of the emitted statement is strictly stronger: it proves the plan's
+ * seeking relation IS this statement's outer relation.
+ */
+const outerAlias = (statement: string): string => {
+  const match = OUTER_ALIAS_IN_STATEMENT.exec(statement);
+  if (!match?.[1]) throw new Error(`No outer alias in: ${statement}`);
+  return match[1];
+};
 
 export interface OrderingPlanBehaviorOptions {
   driverName: string;
@@ -295,22 +317,25 @@ export function runOrderingPlanBehavior({
       // primary key, and THAT lookup is a seek in both — an `Index Cond` on
       // PostgreSQL, a `SEARCH` on SQLite — so an assertion that does not say WHICH
       // relation seeks is satisfied by the walk-and-filter plan this unit replaced.
+      const outer = outerAlias(emitted);
       if (dialect === "postgresql") {
-        // The seek is a ROW-value bound on t0's index, not a join filter.
-        expect(plan).toMatch(PG_OUTER_ROW_VALUE_SEEK_REGEX);
+        // The seek is a ROW-value bound on the outer relation's index, not a
+        // join filter.
+        expect(plan).toMatch(pgOuterRowValueSeek(outer));
         // ...and the other relation — the cursor row, addressed by its primary
         // key, which the regex above says nothing about — is not scanned either.
         expect(plan).not.toContain("Seq Scan");
       } else {
         // SEARCH is a seek; SCAN is a walk.
         expect(plan).toContain(
-          "SEARCH t0 USING INDEX order_plan_rows_bucket_id_idx ("
+          `SEARCH ${outer} USING INDEX order_plan_rows_bucket_id_idx (`
         );
-        // The outer table must not ALSO appear as a walk — a plan can seek t0 once
-        // and still cross it elsewhere. Spelled with the alias because SQLite
-        // prints only aliases: the earlier `SCAN order_plan_rows` named a string
-        // the planner never emits, so it could not have failed on any plan.
-        expect(plan).not.toContain("SCAN t0");
+        // The outer table must not ALSO appear as a walk — a plan can seek it
+        // once and still cross it elsewhere. Spelled with the alias because
+        // SQLite prints only aliases: the earlier `SCAN order_plan_rows` named
+        // a string the planner never emits, so it could not have failed on any
+        // plan.
+        expect(plan).not.toContain(`SCAN ${outer}`);
       }
     }, 120_000);
 
@@ -353,7 +378,7 @@ export function runOrderingPlanBehavior({
       statements.length = 0;
       const nullablePages = await pageThrough("mirror");
       const guardedSpellings = statements.filter((entry) =>
-        entry.sql.includes("__viborm_cursor_0")
+        entry.sql.includes(`${CURSOR_CARRIER_PREFIX}0`)
       ).length;
 
       // The two runs really did take the two different paths.

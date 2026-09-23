@@ -1,0 +1,127 @@
+▲ [WARNING] Cannot find base config file "astro/tsconfigs/strict" [tsconfig.json]
+
+    docs/tsconfig.json:2:13:
+      2 │   "extends": "astro/tsconfigs/strict",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests | 1 failed) 111ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P1 a root update rejected before dispatch answers the shipped failure 36ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P2 a nested write inside a root create rejected before dispatch answers the shipped failure 13ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P3 an array member rejected before dispatch answers the shipped failure 9ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P4 createMany rejected before dispatch publishes no progress on either engine 9ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P5 updateMany rejected before dispatch publishes no progress on either engine 7ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P6 deleteMany rejected before dispatch publishes no progress on either engine 4ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on both routes 10ms
+     → P7 {
+  "candidate": {
+    "invalidations": 0,
+    "rejected": "QueryError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  }
+}
+
+0 !== 1
+
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P8 a committed set window with a malformed result still publishes progress on the candidate only 6ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.1 a relation-bearing root create faulted after 1 dispatched statement(s) 7ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.2 a relation-bearing root create faulted after 2 dispatched statement(s) 5ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P9.3 a relation-bearing root create faulted after 3 dispatched statement(s) 6ms
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts (7 tests | 1 failed) 48ms
+   ✓ G4 seam round review — the cache rail's neighbours > S1 a rolled-back root create invalidates on neither engine 10ms
+   ✓ G4 seam round review — the cache rail's neighbours > S2 a successful root create on a transaction-capable driver invalidates exactly once 5ms
+   ✓ G4 seam round review — the cache rail's neighbours > S3 a failed root create on a transaction-capable driver invalidates on neither engine 3ms
+   ✓ G4 seam round review — the cache rail's neighbours > S4 a multi-segment write notifies the same number of times on both engines 6ms
+   ✓ G4 seam round review — the cache rail's neighbours > S5 a write inside $transaction(callback) invalidates the same on both engines 6ms
+   × G4 seam round review — the cache rail's neighbours > S6 a throwing cache invalidation on the uncertain root create answers the same on both engines 5ms
+     → S6 candidate {
+  "candidate": {
+    "attempts": 0,
+    "outcome": "QueryError"
+  },
+  "shipped": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  }
+}
+
+0 !== 1
+
+   ✓ G4 seam round review — the cache rail's neighbours > S7 a throwing cache invalidation on a SUCCESSFUL write answers the same on both engines 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts > G4 seam round review — the cache rail's neighbours > S6 a throwing cache invalidation on the uncertain root create answers the same on both engines
+AssertionError: S6 candidate {
+  "candidate": {
+    "attempts": 0,
+    "outcome": "QueryError"
+  },
+  "shipped": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  }
+}
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/review/regression/seam-followup.review.test.ts:360:12
+    358|     // for an outcome neither can prove rolled back.
+    359|     assert.equal(shipped.attempts, 1, report("S6 shipped", { shipped }…
+    360|     assert.equal(
+       |            ^
+    361|       candidate.attempts,
+    362|       1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on both routes
+AssertionError: P7 {
+  "candidate": {
+    "invalidations": 0,
+    "rejected": "QueryError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  }
+}
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:404:12
+    402|     // neither can prove rolled back, each from the transport that lea…
+    403|     assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped })…
+    404|     assert.equal(
+       |            ^
+    405|       candidate.invalidations,
+    406|       1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 16 passed (18)
+   Start at  22:40:58
+   Duration  2.95s (transform 1.72s, setup 0ms, collect 2.64s, tests 159ms, environment 0ms, prepare 42ms)
+
+Vitest resources: 3.44s wall, 561.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

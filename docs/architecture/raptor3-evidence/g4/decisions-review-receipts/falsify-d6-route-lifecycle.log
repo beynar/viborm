@@ -1,0 +1,177 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (8 tests | 2 failed) 57ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-01 a model call is lazy and memoizes one preparation, value and failure 24ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-09/LX-11 request transforms run once, before admission, and default omit still applies 3ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-10 the extension chain keeps its order and its collision refusal 5ms
+   × G4-03 C13 candidate client lifecycle > LX-12 a query interceptor owns proceed() and short-circuit, and its input is the admitted payload on both routes 9ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      select: {
+        email: true
+      },
+      where: {
++       email: 'intercepted@example.test'
+-       email: {
+-         equals: 'intercepted@example.test'
+-       }
+      }
+    }
+  ]
+
+   × G4-03 C13 candidate client lifecycle > D-6 CONTRACT the interceptor input for upsert is the ONE admission on the candidate route 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    },
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    }
+  ]
+
+   ✓ G4-03 C13 candidate client lifecycle > LX-13 statement transforms see the same statements on both routes 3ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-14 every observed unit matches the shipped route, operation and statement alike 3ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-16/LX-17 lifecycle and introspection stay on the existing owners 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-lifecycle.test.ts > G4-03 C13 candidate client lifecycle > LX-12 a query interceptor owns proceed() and short-circuit, and its input is the admitted payload on both routes
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      select: {
+        email: true
+      },
+      where: {
++       email: 'intercepted@example.test'
+-       email: {
+-         equals: 'intercepted@example.test'
+-       }
+      }
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,11 +2,9 @@[39m
+[2m    {[22m
+[2m      "select": {[22m
+[2m        "email": true,[22m
+[2m      },[22m
+[2m      "where": {[22m
+[32m-       "email": {[39m
+[32m-         "equals": "intercepted@example.test",[39m
+[32m-       },[39m
+[31m+       "email": "intercepted@example.test",[39m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-lifecycle.test.ts:351:12
+    349|     // keys on (`PendingOperation.cacheKeyArgs`), which the NS-04 cell…
+    350|     // `route-cache.test.ts` compares directly.
+    351|     assert.deepEqual(observations.candidate.seen, observations.shipped…
+       |            ^
+    352|     assert.deepEqual(observations.candidate.seen, [
+    353|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-lifecycle.test.ts > G4-03 C13 candidate client lifecycle > D-6 CONTRACT the interceptor input for upsert is the ONE admission on the candidate route
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    },
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "include": undefined,[39m
+[32m-     "omit": undefined,[39m
+[32m-     "select": undefined,[39m
+[32m-     "setWhere": undefined,[39m
+[32m-     "targetWhere": undefined,[39m
+[2m      "where": {[22m
+[2m        "email": "upsert@example.test",[22m
+[2m      },[22m
+[2m    },[22m
+[2m    {[22m
+[32m-     "include": undefined,[39m
+[32m-     "omit": undefined,[39m
+[32m-     "select": undefined,[39m
+[32m-     "setWhere": undefined,[39m
+[32m-     "targetWhere": undefined,[39m
+[2m      "where": {[22m
+[2m        "email": "upsert@example.test",[22m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-lifecycle.test.ts:448:12
+    446|       ...envelope
+    447|     }: Record<string, unknown>) => envelope;
+    448|     assert.deepEqual(
+       |            ^
+    449|       observations.candidate.seen.map(envelopeOf),
+    450|       observations.shipped.seen.map(envelopeOf)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 passed (8)
+   Start at  18:02:28
+   Duration  2.02s (transform 1.20s, setup 8ms, collect 1.76s, tests 57ms, environment 0ms, prepare 32ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mcP6h5/vitest.json
+Vitest resources: 4.13s wall, 558.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mcP6h5

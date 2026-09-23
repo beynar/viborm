@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 11ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 4ms
+
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+   Start at  23:16:55
+   Duration  1.96s (transform 1.15s, setup 10ms, collect 1.79s, tests 15ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 4.28s wall, 551.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -239,7 +239,14 @@ async function executeLockedPlan(
   command: BoundMigrationDriver,
   plan: InternalPushPlan
 ): Promise<PushApplyResult> {
-  if (plan.statements.length === 0) {
+  // A plan with nothing to do still has a MySQL sequential program to run: the
+  // interrupted-decimal-conversion recovery belongs to the LOCKED COMMAND, not
+  // to having statements. A conversion interrupted after its MODIFY leaves the
+  // column already carrying the target domain, so the differ sees no change
+  // and the plan is empty — and the remnant CHECK, which no snapshot
+  // vocabulary describes, would then survive every later push while refusing
+  // values the declared domain admits.
+  if (plan.statements.length === 0 && command.target.dialect !== "mysql") {
     return appliedResult(plan, plan.sourceFingerprint, "noop");
   }
 
@@ -267,6 +274,9 @@ async function executeLockedPlan(
         );
       }
     });
+    if (plan.statements.length === 0) {
+      return appliedResult(plan, plan.sourceFingerprint, "noop");
+    }
     const fingerprint = await attestFinalFingerprint(pinned, command, plan);
     return appliedResult(plan, fingerprint, "applied");
   }

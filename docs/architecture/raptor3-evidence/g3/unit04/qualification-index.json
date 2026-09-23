@@ -1,0 +1,1575 @@
+{
+  "formatVersion": 1,
+  "status": "qualification-evidence-complete-independent-review-pending",
+  "frozenIdentity": {
+    "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+    "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "totals": {
+    "fixedModes": 42,
+    "fixedTests": 1133,
+    "nativeModes": 19,
+    "nativeTests": 105,
+    "campaigns": 9,
+    "campaignCells": 61000,
+    "campaignReplays": 183000,
+    "campaignSkips": 0,
+    "savedReplayPasses": 7,
+    "staleReplayRefusals": 2
+  },
+  "fixed": [
+    {
+      "mode": "cs01-extension-a",
+      "receipt": "fixed/cs01-extension-a.receipt",
+      "testFiles": 1,
+      "tests": 6,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "cs01-extension-b",
+      "receipt": "fixed/cs01-extension-b.receipt",
+      "testFiles": 1,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "cs01-extension-composition",
+      "receipt": "fixed/cs01-extension-composition.receipt",
+      "testFiles": 1,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "cs01-structural-reference",
+      "receipt": "fixed/cs01-structural-reference.receipt",
+      "testFiles": 4,
+      "tests": 10,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "cs03-member-scope",
+      "receipt": "fixed/cs03-member-scope.receipt",
+      "testFiles": 3,
+      "tests": 8,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g0",
+      "receipt": "fixed/g0.receipt",
+      "testFiles": 5,
+      "tests": 33,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g1-baseline",
+      "receipt": "fixed/g1-baseline.receipt",
+      "testFiles": 11,
+      "tests": 141,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g1-compare",
+      "receipt": "fixed/g1-compare.receipt",
+      "testFiles": 14,
+      "tests": 66,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g1-contracts",
+      "receipt": "fixed/g1-contracts.receipt",
+      "testFiles": 14,
+      "tests": 143,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g1-generated",
+      "receipt": "fixed/g1-generated.receipt",
+      "testFiles": 4,
+      "tests": 35,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g1-transport",
+      "receipt": "fixed/g1-transport.receipt",
+      "testFiles": 3,
+      "tests": 44,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-baseline",
+      "receipt": "fixed/g2-baseline.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-contracts",
+      "receipt": "fixed/g2-contracts.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-generated",
+      "receipt": "fixed/g2-generated.receipt",
+      "testFiles": 2,
+      "tests": 52,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-transport",
+      "receipt": "fixed/g2-transport.receipt",
+      "testFiles": 3,
+      "tests": 16,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g25-contracts",
+      "receipt": "fixed/g25-contracts.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g27-contracts",
+      "receipt": "fixed/g27-contracts.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g29-dependency-boundaries",
+      "receipt": "fixed/g29-dependency-boundaries.receipt",
+      "testFiles": 3,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g29-dependency-choices",
+      "receipt": "fixed/g29-dependency-choices.receipt",
+      "testFiles": 5,
+      "tests": 10,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g29-member-dependency",
+      "receipt": "fixed/g29-member-dependency.receipt",
+      "testFiles": 9,
+      "tests": 14,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g29-result-progress",
+      "receipt": "fixed/g29-result-progress.receipt",
+      "testFiles": 3,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-author-execution-regressions",
+      "receipt": "fixed/g3-author-execution-regressions.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-bulk-result-boundary",
+      "receipt": "fixed/g3-bulk-result-boundary.receipt",
+      "testFiles": 2,
+      "tests": 3,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-bulk-series",
+      "receipt": "fixed/g3-bulk-series.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-depth-recurrence",
+      "receipt": "fixed/g3-depth-recurrence.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-execution-review",
+      "receipt": "fixed/g3-execution-review.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-generated-minimization",
+      "receipt": "fixed/g3-generated-minimization.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-generated-smoke",
+      "receipt": "fixed/g3-generated-smoke.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-generated-transport-smoke",
+      "receipt": "fixed/g3-generated-transport-smoke.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-scope-failure",
+      "receipt": "fixed/g3-scope-failure.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-suppression-retry",
+      "receipt": "fixed/g3-suppression-retry.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-transaction-array",
+      "receipt": "fixed/g3-transaction-array.receipt",
+      "testFiles": 3,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p02-contracts",
+      "receipt": "fixed/g3p02-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p03-contracts",
+      "receipt": "fixed/g3p03-contracts.receipt",
+      "testFiles": 4,
+      "tests": 6,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p04-contracts",
+      "receipt": "fixed/g3p04-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p04-review-contracts",
+      "receipt": "fixed/g3p04-review-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p05-contracts",
+      "receipt": "fixed/g3p05-contracts.receipt",
+      "testFiles": 6,
+      "tests": 21,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "post-g3-clearability-contracts",
+      "receipt": "fixed/post-g3-clearability-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "post-g3-history-analysis",
+      "receipt": "fixed/post-g3-history-analysis.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "post-g3-projection-preparation",
+      "receipt": "fixed/post-g3-projection-preparation.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "post-g3-schema-views",
+      "receipt": "fixed/post-g3-schema-views.receipt",
+      "testFiles": 2,
+      "tests": 1,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "post-g3-selector-preparation",
+      "receipt": "fixed/post-g3-selector-preparation.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    }
+  ],
+  "native": [
+    {
+      "mode": "g2-mysql-baseline",
+      "receipt": "providers/g2-mysql-baseline.receipt",
+      "testFiles": 8,
+      "tests": 13,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-mysql-contracts",
+      "receipt": "providers/g2-mysql-contracts.receipt",
+      "testFiles": 8,
+      "tests": 13,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-pg-baseline",
+      "receipt": "providers/g2-pg-baseline.receipt",
+      "testFiles": 12,
+      "tests": 17,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-pg-contracts",
+      "receipt": "providers/g2-pg-contracts.receipt",
+      "testFiles": 12,
+      "tests": 18,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g25-pg-contracts",
+      "receipt": "providers/g25-pg-contracts.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g27-mysql-contracts",
+      "receipt": "providers/g27-mysql-contracts.receipt",
+      "testFiles": 2,
+      "tests": 1,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g27-pg-contracts",
+      "receipt": "providers/g27-pg-contracts.receipt",
+      "testFiles": 2,
+      "tests": 1,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g29-member-dependency-mysql",
+      "receipt": "providers/g29-member-dependency-mysql.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g29-member-dependency-pg",
+      "receipt": "providers/g29-member-dependency-pg.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-scope-composition-mysql",
+      "receipt": "providers/g3-scope-composition-mysql.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-scope-composition-pg",
+      "receipt": "providers/g3-scope-composition-pg.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p02-mysql-contracts",
+      "receipt": "providers/g3p02-mysql-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p02-pg-contracts",
+      "receipt": "providers/g3p02-pg-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p03-mysql-contracts",
+      "receipt": "providers/g3p03-mysql-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p03-pg-contracts",
+      "receipt": "providers/g3p03-pg-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p04-mysql-contracts",
+      "receipt": "providers/g3p04-mysql-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p04-pg-contracts",
+      "receipt": "providers/g3p04-pg-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "post-g3-clearability-mysql-contracts",
+      "receipt": "providers/post-g3-clearability-mysql-contracts.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "post-g3-clearability-pg-contracts",
+      "receipt": "providers/post-g3-clearability-pg-contracts.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    }
+  ],
+  "campaigns": [
+    {
+      "mode": "cs03-extension-a-seeds",
+      "kind": "extension",
+      "receipt": "campaigns/cs03-extension-a-seeds/receipt/extension-campaign.json",
+      "children": 1,
+      "cells": 200,
+      "replays": 600,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "cs03-extension-b-seeds",
+      "kind": "extension",
+      "receipt": "campaigns/cs03-extension-b-seeds/receipt/extension-campaign.json",
+      "children": 1,
+      "cells": 200,
+      "replays": 600,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "cs03-extension-composition-seeds",
+      "kind": "extension",
+      "receipt": "campaigns/cs03-extension-composition-seeds/receipt/extension-campaign.json",
+      "children": 1,
+      "cells": 200,
+      "replays": 600,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-seeds",
+      "kind": "inherited-generated",
+      "receipt": "campaigns/g2-seeds/parent.receipt/verified.json",
+      "children": 50,
+      "cells": 10000,
+      "replays": 30000,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g2-transport-seeds",
+      "kind": "inherited-generated",
+      "receipt": "campaigns/g2-transport-seeds/parent.receipt/verified.json",
+      "children": 50,
+      "cells": 10000,
+      "replays": 30000,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3-seeds",
+      "kind": "g3-generated",
+      "receipt": "campaigns/g3-seeds/parent.receipt/verified.json",
+      "children": 100,
+      "cells": 20000,
+      "replays": 60000,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "archives": {
+        "gzipCorpora": 100,
+        "rawCorpora": 0
+      }
+    },
+    {
+      "mode": "g3-transport-seeds",
+      "kind": "g3-generated",
+      "receipt": "campaigns/g3-transport-seeds/parent.receipt/verified.json",
+      "children": 100,
+      "cells": 20000,
+      "replays": 60000,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      },
+      "archives": {
+        "gzipCorpora": 100,
+        "rawCorpora": 0
+      }
+    },
+    {
+      "mode": "g3p06-seeds",
+      "kind": "inherited-generated",
+      "receipt": "campaigns/g3p06-seeds/parent.receipt/verified.json",
+      "children": 1,
+      "cells": 200,
+      "replays": 600,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "mode": "g3p06-transport-seeds",
+      "kind": "inherited-generated",
+      "receipt": "campaigns/g3p06-transport-seeds/parent.receipt/verified.json",
+      "children": 1,
+      "cells": 200,
+      "replays": 600,
+      "skips": 0,
+      "status": "passed",
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    }
+  ],
+  "replay": [
+    {
+      "name": "cs03-extension-a",
+      "receipt": "replays/receipts/cs03-extension-a.receipt",
+      "status": "passed",
+      "tests": 1,
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "cs03-extension-b",
+      "receipt": "replays/receipts/cs03-extension-b.receipt",
+      "status": "passed",
+      "tests": 1,
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "cs03-extension-composition",
+      "receipt": "replays/receipts/cs03-extension-composition.receipt",
+      "status": "passed",
+      "tests": 1,
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "g2-conditional-upsert",
+      "receipt": "replays/receipts/g2-conditional-upsert.receipt",
+      "status": "passed",
+      "tests": 1,
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "g25-polish",
+      "receipt": "replays/receipts/g25-polish.receipt",
+      "status": "passed",
+      "tests": 1,
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "g3-sqlite-8000",
+      "receipt": "replays/receipts/g3-sqlite-8000.receipt",
+      "status": "passed",
+      "tests": 1,
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "g3-transport-8000",
+      "receipt": "replays/receipts/g3-transport-8000.receipt",
+      "status": "passed",
+      "tests": 1,
+      "identity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "historical-g2-conditional-upsert-stale",
+      "receipt": "replays/receipts/historical-g2-conditional-upsert-stale.receipt",
+      "status": "refused-stale-identity",
+      "attemptIdentity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    },
+    {
+      "name": "historical-g25-polish-stale",
+      "receipt": "replays/receipts/historical-g25-polish-stale.receipt",
+      "status": "refused-stale-identity",
+      "attemptIdentity": {
+        "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+        "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+        "runtime": {
+          "node": "v24.21.0",
+          "platform": "darwin",
+          "architecture": "arm64",
+          "sqliteDriver": "12.6.0",
+          "vitest": "3.1.4"
+        }
+      }
+    }
+  ],
+  "logOnlySelectors": [
+    {
+      "name": "credential-free aggregate",
+      "command": "node scripts/run-credential-free-tests.mjs --only \"Raptor 3 fixed\"",
+      "evidence": "aggregate/credential-free.log",
+      "testFiles": 65,
+      "tests": 754,
+      "status": "passed"
+    },
+    {
+      "name": "PGlite provider selector",
+      "command": "node scripts/run-credential-free-tests.mjs --only \"raptor3-provider:\"",
+      "evidence": "providers/pglite.log",
+      "testFiles": 5,
+      "tests": 11,
+      "status": "passed"
+    }
+  ],
+  "support": {
+    "driverIntegration": {
+      "evidence": "support/driver-integration.vitest.json",
+      "testFiles": 2,
+      "tests": 16,
+      "status": "passed"
+    },
+    "campaignReceiptSelftests": {
+      "evidence": "support/campaign-receipts.log",
+      "tests": 34,
+      "status": "passed"
+    },
+    "cli": {
+      "evidence": "support/cli.receipt/commands.json",
+      "tests": 7,
+      "status": "passed"
+    },
+    "types": {
+      "evidence": "support/typecheck.log",
+      "status": "expected-two-historical-Pattern-TS2345-only"
+    },
+    "queryStructure": {
+      "evidence": "support/query-engine-structure.log",
+      "status": "passed"
+    },
+    "sourceCost": "support/source-cost.json",
+    "parserTokenCensus": "support/parser-token-census.json",
+    "archiveAudit": {
+      "evidence": "support/archive-stream-audit.log",
+      "archives": 200,
+      "restoredBytes": 15412150694,
+      "mismatches": 0,
+      "status": "passed"
+    }
+  },
+  "structure": {
+    "receipt": "structural-measurement/receipt/verified.json",
+    "cases": 28,
+    "replays": 60,
+    "skips": 0,
+    "status": "passed",
+    "baseIdentity": {
+      "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+      "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    "instrumentedIdentity": {
+      "production": "bdb142c51222ef1edc474b3bd27515aa7bcca947752af89ff7a2ab196c0af057",
+      "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    "reversalProof": [
+      "structural-measurement/uninstrumented-files.sha256",
+      "structural-measurement/reversed-files.sha256",
+      "structural-measurement/reversed-identity.json"
+    ]
+  },
+  "retention": {
+    "authoritativeManifest": "retained-files.json",
+    "checksums": "SHA256SUMS",
+    "sourceAllowlist": "source-allowlist.json",
+    "sourcePatch": "source.patch",
+    "localOnlyRawPolicy": "Nonselected raw corpus.json and generated-campaign-progress.json files remain local and are excluded from the committed retained-file checksum tree."
+  }
+}

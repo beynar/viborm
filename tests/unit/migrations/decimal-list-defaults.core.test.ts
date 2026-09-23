@@ -72,6 +72,20 @@ function createTableSql(driver: MigrationDriver): string {
   );
 }
 
+/** What a declared generic-JSON default serializes to on MySQL: nothing. */
+function genericJsonColumnDefault(): string | undefined {
+  const snapshot = serializeModels(
+    {
+      doc: s
+        .model({ id: s.string().id(), payload: s.json().default({ a: 1 }) })
+        .map("generic_json_defaults"),
+    },
+    { migrationDriver: mysqlMigrationDriver }
+  );
+  return snapshot.tables[0]?.columns.find((column) => column.name === "payload")
+    ?.default;
+}
+
 describe("literal decimal-list default serialization", () => {
   it("returns fresh trusted list defaults without exposing retained metadata", () => {
     const amounts = s
@@ -138,8 +152,16 @@ describe("literal decimal-list default serialization", () => {
       ddlContextFor("artifact", { tables: [] })
     );
     expect(sql).toContain(`\`amounts\` JSON NOT NULL DEFAULT ${MYSQL_DEFAULT}`);
-    expect(sql).toContain("`generic_json` JSON NOT NULL");
-    expect(sql).not.toContain("`generic_json` JSON NOT NULL DEFAULT");
+    // The emitter used to DROP this one: a JSON default it did not recognize
+    // as the decimal-list container it owns was silently left out of the DDL.
+    // Re-expressed for the decided MySQL qualification (final-closure handoff
+    // §1, "MySQL"): a default the snapshot declares is carried, on JSON no
+    // less than on TEXT, because a column MySQL holds without the default the
+    // schema declared is exactly what the final push attestation refuses.
+    expect(sql).toContain("`generic_json` JSON NOT NULL DEFAULT ('{}')");
+    // "Without admitting generic JSON" is the SERIALIZER's fact, and it is
+    // unchanged: no declaration turns into a JSON column default.
+    expect(genericJsonColumnDefault()).toBeUndefined();
   });
 
   it("renders coefficient-string JSON on SQLite, LibSQL, and D1", () => {
@@ -245,10 +267,20 @@ describe("provider default introspection", () => {
     const snapshot = await driver.introspect(catalog.read);
     expect(snapshot.tables[0]?.columns[0]?.default).toBe(MYSQL_DEFAULT);
 
+    // The two below read back as MySQL's catalog text at the base, because
+    // the translation was decimal-list-only. Re-expressed for the decided
+    // MySQL qualification (final-closure handoff §1, "MySQL"): EVERY default
+    // MySQL reports is read into the one spelling the desired side produces —
+    // a TEXT or ENUM default is not a decimal list and still has to compare —
+    // and what this cell is about is untouched: a container the estate does
+    // not own still does not read as the one it owns.
     const generic = mysqlCatalog(`_utf8mb4\\'["120","-340"]\\'`, "");
     const genericSnapshot = await driver.introspect(generic.read);
     expect(genericSnapshot.tables[0]?.columns[0]?.default).toBe(
-      `_utf8mb4\\'["120","-340"]\\'`
+      `('["120","-340"]')`
+    );
+    expect(genericSnapshot.tables[0]?.columns[0]?.default).not.toBe(
+      MYSQL_DEFAULT
     );
 
     const respelled = mysqlCatalog(
@@ -257,7 +289,10 @@ describe("provider default introspection", () => {
     );
     const respelledSnapshot = await driver.introspect(respelled.read);
     expect(respelledSnapshot.tables[0]?.columns[0]?.default).toBe(
-      `_utf8mb4\\'[ "120", "-340" ]\\'`
+      `('[ "120", "-340" ]')`
+    );
+    expect(respelledSnapshot.tables[0]?.columns[0]?.default).not.toBe(
+      MYSQL_DEFAULT
     );
   });
 });

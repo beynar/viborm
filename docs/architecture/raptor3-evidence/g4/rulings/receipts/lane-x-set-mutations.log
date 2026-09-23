@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (9 tests) 57ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  20:21:48
+   Duration  1.45s (transform 765ms, setup 9ms, collect 1.12s, tests 57ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.45s wall, 491.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

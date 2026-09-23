@@ -1,0 +1,7 @@
+Post-repair direct selector result:
+
+nativeInExtended: []
+localInExtended: []
+missingFixed: []
+
+The durable campaign-receipt harness assertion passes. Every supported local G2.7/G3P-03/G3P-04/G3P-05 suite is in RAPTOR3_FIXED_LOCAL_TESTS and absent from EXTENDED_LOCAL_TESTS. Every registered native G2.7/G3P-03/G3P-04 suite is absent from both lists.

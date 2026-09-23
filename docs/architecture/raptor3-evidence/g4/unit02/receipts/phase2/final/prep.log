@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 22ms
+ ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 55ms
+ ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 72ms
+ ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 17ms
+ ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 10ms
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 40ms
+
+ Test Files  6 passed (6)
+      Tests  37 passed (37)
+   Start at  08:09:36
+   Duration  2.52s (transform 1.22s, setup 11ms, collect 2.15s, tests 215ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 4.61s wall, 702.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

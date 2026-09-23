@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-returning-json.test.ts (176 tests) 319ms
+
+ Test Files  1 passed (1)
+      Tests  176 passed (176)
+   Start at  15:26:00
+   Duration  2.10s (transform 1.06s, setup 9ms, collect 1.65s, tests 319ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.13s wall, 626.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

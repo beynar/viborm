@@ -1,0 +1,75 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/recursive-query/composition.test.ts (13 tests | 2 failed) 731ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 1. every find verb projects one recursive statement under select and include 149ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 2. create, update, both upsert arms and delete read back through their ordinary route under select and include 209ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 3. nested placements keep one statement and one isolated carrier per recursive position 10ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 4. one statement shape at every requested depth, and a 5,000-level chain 125ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 5. arrays prepare every member before one dispatch, or refuse before any 75ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 6. a borrowed callback transaction stays the caller's 27ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 7. read-only build answers the one read statement; every write still answers none (D-64) 8ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 8. extension chains of 0, 1 and 5 cannot inject or replace recurse 30ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 9. the official default-omit path applies at every repeated level 7ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 10. concurrent recursive reads keep their own statements and occurrences 6ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 11. a provider failure keeps the identity it has for the ordinary projection 36ms
+   × RQ-06 recursive projections composed through the shipped client > 12. a result-phase refusal after acknowledged work reports that work as the ordinary route does 35ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'Record-series execution failed at a committed-segment boundary.'
+- 'Driver "sqlite3" returned a malformed recursive carrier scalar for operation "update": the carrier is not an object.'
+
+   × RQ-06 recursive projections composed through the shipped client > 13. a malformed recursive carrier is the operation's malformed provider result 11ms
+     → TypeError: Invalid provider recursive carrier
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/composition.test.ts > RQ-06 recursive projections composed through the shipped client > 12. a result-phase refusal after acknowledged work reports that work as the ordinary route does
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'Record-series execution failed at a committed-segment boundary.'
+- 'Driver "sqlite3" returned a malformed recursive carrier scalar for operation "update": the carrier is not an object.'
+
+
+Expected: [32m"[7mDriver "sqlite3" returned a malformed recursive carrier scalar for operation "update": the carrier is not an object[27m."[39m
+Received: [31m"[7mRecord-series execution failed at a committed-segment boundary[27m."[39m
+
+ ❯ tests/raptor3/recursive-query/composition.test.ts:1814:12
+    1812|       'Driver "sqlite3" returned a malformed recursive carrier scalar …
+    1813|     assert.ok(malformed.failure instanceof QueryEngineError);
+    1814|     assert.equal(malformed.failure.message, malformedCarrier);
+       |            ^
+    1815|     assert.equal(malformed.failure.meta.scalarType, "recursive carrier…
+    1816|     assert.ok(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/composition.test.ts > RQ-06 recursive projections composed through the shipped client > 13. a malformed recursive carrier is the operation's malformed provider result
+AssertionError: TypeError: Invalid provider recursive carrier
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/recursive-query/composition.test.ts:1962:14
+    1960|       answer(rewrite);
+    1961|       const seen = await read({ recurse: { depth: 3 } });
+    1962|       assert.ok(seen.failure instanceof QueryEngineError, String(seen.…
+       |              ^
+    1963|       assert.deepEqual(identity(seen.failure), {
+    1964|         name: "QueryEngineError",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)
+   Start at  17:23:35
+   Duration  5.01s (transform 2.51s, setup 29ms, collect 3.77s, tests 731ms, environment 0ms, prepare 115ms)
+
+Vitest resources: 10.58s wall, 565.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

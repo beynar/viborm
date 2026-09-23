@@ -1,0 +1,54 @@
+# G4-02 closure repair ROUND 2 — identities after the last source edit
+# captured 2026-09-15T13:56:54Z
+
+## production files this unit owns (edited in round 2)
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+48fc18c13d558c6fad237d7ffab7588437c72ed354d43799a506f52dedc465c9  src/query-engine/raptor3/shared/schema.ts
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts
+31528299cbf52124def84145d0eb51eba417c80eddb4e3942a5513a4b6f0a7cd  src/query-engine/raptor3/commands/selection.ts
+bbccc1313821e2d75f753ac85b98d7e380a02980d6eac1985b716977463688f5  src/query-engine/raptor3/commands/relation-body.ts
+
+## production files this unit owns (unchanged in round 2)
+7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103  src/query-engine/raptor3/route/client-route.ts
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  src/query-engine/raptor3/shared/operation-context.ts
+752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2  src/query-engine/raptor3/shared/storage.ts
+54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2  src/query-engine/raptor3/commands/execution.ts
+1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102  src/query-engine/raptor3/commands/assignments.ts
+f551151f6d279eb783a911e6c1f7794af141704df40cd202c334fc6d4c7c3be9  src/query-engine/raptor3/commands/index.ts
+4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd  src/query-engine/raptor3/program/index.ts
+ab95ed3cd1b8542e4ef19c0efdd7a8a9e340eefb156bdd068c1bd5866644e2c5  src/adapters/database-adapter.ts
+679de883012390217143900b1f52539a767c67460c7e0a1c8ea1a79b58ae450d  src/adapters/databases/sqlite/sqlite-adapter.ts
+b29d1393a2148369228b0a359138e1d3d8df30d48bd872ffc520c4e9dcef3f7e  src/adapters/databases/postgres/postgres-adapter.ts
+1dd38ed31a23679b247402e5c609179945032df87e1915de44e43bc5fe2beb00  src/adapters/databases/mysql/mysql-adapter.ts
+
+## another stream's files, read but NOT edited
+5aef8e7f52ba2b28b6f57cce5ef8a550c5067b5c82429e77bd6baa2357a4876a  src/query-engine/result/cache-value-codecs.ts
+
+## tests
+45f00ca5c5e49597cab18eb67cabb845d8a2c6243741a6876d130db12bb593cc  tests/raptor3/g4/unit02/borrowed-envelope.test.ts
+bdb32e29edfee9b61ec528c225d193b7ead2cafeffc518744469972b3bc92114  tests/raptor3/g4/unit02/decimal-having-operand.test.ts
+2c5f47a243903e553f2c51df6ee60d2a854546959460062ed9c5ddaacecf3ce2  tests/raptor3/g4/unit02/k-competing-refusals.test.ts
+a938702a59be3e9231ce72f90bdecd02b5582fc8d29fca55adc49c245c1a8c78  tests/raptor3/g4/unit02/k-decimal-world.ts
+23819398330ef68fc70e0d708e437b1b6958140a3d6c7b018c147e9ae6dfce57  tests/raptor3/g4/unit02/k-refusal-order-history.test.ts
+c73e1908967dc5361846d2ca78e4c8459697192da4b648eff782d6495967a5ba  tests/raptor3/g4/unit02/key-arithmetic.test.ts
+21a44cc23d0f7a611a3ed480bcd771e0463b601abffd8ffac95fbd461c3b0c6a  tests/raptor3/g4/unit02/malformed-result-cuts.test.ts
+be0159ac1a9202728fe7067bca73bba4ae7bfbc69b7c12f2dcaa247dcd3abe9f  tests/raptor3/g4/unit02/native-date-codec.test.ts
+23391b402c4ff4628da0e9e483f9797fc283522c34f32f5823b4e42cf91ada3c  tests/raptor3/g4/unit02/native-key-arithmetic.test.ts
+c2160fb61726eddcff70c9d32ddcc90c3029ecf4a5e97246248f6147ef9d659f  tests/raptor3/g4/unit02/packaged-array.test.ts
+149f8bab12966dfeb0d613010907995a2d1d95aaff28ab9130de97a7b5e1bb78  tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts
+bb7e4d1a2408d0dd0602f2c0da38e6cc2cbc554056fd8366ace954c98a3af1ec  tests/raptor3/g4/unit02/physical-envelope.test.ts
+cad8642c4692674fe90343a0886b5b1c419ef226d646f42a954c1ac3f3117c04  tests/raptor3/g4/unit02/prepared-operation.test.ts
+257fd2ede0746a2104e71524c78824c8e22b4d084632d96f2f8f1370f1d83710  tests/raptor3/g4/unit02/recursive-codec-fit.test.ts
+c65572788cb951ca79dded175a4d5a3dc087fad26dd27c4f570170647b7cc9ae  tests/raptor3/g4/unit02/returning-safety-gate.test.ts
+5a9b97e91afb677a1f1ea930f1859d2a97274cabcecfdaf94f6fc50cde011ef8  tests/raptor3/g4/unit02/root-delete.test.ts
+ecc9bc0429c311cbf567c44a0d78d0a1dd1e4c5ad7e0280ea8d079727677f74b  tests/raptor3/g4/unit02/root-member-cut-trace.test.ts
+d6eebde7e5620994a92aea183bdc06ee83448f72dd61fb6acd338abd078d9689  tests/raptor3/g4/unit02/unique-discriminator.test.ts
+22c72cf880e671ff5d0493ecf90c63f9f80e2a0d53fefd541f5d618bcf7d8124  tests/raptor3/g4/unit02/unit02.workspace.ts
+97d5c91d60a85d7306c71e3bed75a3d72ee589125608f9def0a20d733ee2ef4d  tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+de3bd9ee7e168cc723debc97c3b291429bf36955be06e9a7c7ded21536299f99  tests/raptor3/g4/unit02/vector-capability.test.ts
+61b3b53f0a01e244558b1a415424b482986ce4e0bea62f54cab77a5bfe505572  tests/raptor3/g4/unit02/world.ts
+9d4992b8da96c5a98cfea8dc23c3f6f9a05001deaf19f8ffa5eeb16f3d80b565  tests/raptor3/g4/route-cache.test.ts
+
+## patches
+5e0b62d4728bca44595799a2bb6183549e25af07c29177940ad6e45a345f0cdb  docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+38920ca800c4d3fc6e236b550cde97c58cfd32545b4a7dd7ab01ba1cac2e9f87  docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch

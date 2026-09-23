@@ -1,0 +1,10 @@
+ ❯ |coverage-raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests | 1 failed) 82ms
+     → Missing expected rejection.
+ ❯ |raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests | 1 failed) 76ms
+     → Missing expected rejection.
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts > N2: the lax to-one no-op on the batch-only without a statement index route > a raceable premise ahead of a write, with a later pr
+AssertionError: Missing expected rejection.
+ FAIL  |raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts > N2: the lax to-one no-op on the batch-only without a statement index route > a raceable premise ahead of a write, with a later premise beh
+AssertionError: Missing expected rejection.
+ Test Files  2 failed (2)
+      Tests  2 failed | 52 passed (54)

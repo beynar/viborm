@@ -1,0 +1,58 @@
+Round 2 receipts — g4-cutover-execution (C-01), 2026-09-16 22:05–22:45.
+
+Every command ran from /Users/arnaud/code/viborm (or, where marked, from a
+scratch copy outside it) on the pinned runtime, serially, under the existing
+workspace lock. Nothing was committed, staged, reset or stashed. The two
+preserved pattern preimages under ../preserved-unrelated-dirty/ were not touched.
+
+  coverage-policy-after.log         pnpm test:coverage:policy after the manifest
+                                    pruning — 11/11, exit 0 (was 9/11).
+  core-taxonomy-census-after.log    the census gate after the same pruning — 4/4.
+  test-core-cutover-round2.log      the core lane (--project='layer-*') on the
+                                    main tree — 34 failed files / 533 failed
+                                    tests of 467 / 9,420; 38.77s, 1,340.1 MiB.
+  test-core-cutover-round2-failing-files.txt   project, file, cells, failures.
+  failure-causes-by-file.txt        per-file error-signature census of that log.
+  public-client-failures.txt        full failure blocks for the ambiguous files.
+  mixed-cause-failures.txt          the non-refusal failures of three mixed files.
+  g4-unit02-author-after-rename.log  the mode after the 31 cell renames — 21/130.
+  mode-base-g4-unit01-author.log    base state of the mode — 7 failed / 83.
+  mode-base-g4-unit01-review.log    base state of the mode — 23 failed / 200.
+  typecheck-round2.txt              whole-estate typecheck — FIVE diagnostics:
+                                    the two permitted pattern/pack.ts TS2345 and
+                                    THREE TS2322 in the review's own retained
+                                    probe tests/raptor3/g4/review/cutover/
+                                    routed-operations-authority.review.test.ts.
+  package-build-round2.txt          pnpm package:build after the comment edit.
+  bundles-round2.json               the three fixtures, byte- and sha-identical
+                                    to g4/cutover/bundles-identity4.json.
+  identity-after-round2.json        captureRaptor3Identity after the last edit.
+  round2.patch                      git diff --binary HEAD, restricted to the
+                                    paths round 2 touched: 22 TRACKED files
+                                    (3 scripts, 2 layer guides, 1 production
+                                    comment, 16 tests/raptor3/g4/unit02/**). It
+                                    carries round 1's re-expressions of those
+                                    unit02 files too, and it does not carry the
+                                    note, which is untracked evidence.
+                                    ../cutover.patch stays round 1's whole-unit
+                                    snapshot and was not regenerated.
+
+  scratch-measurement/              the (a)/(b)/(c) measurement, run in three
+                                    rsync copies of the cutover tree outside the
+                                    repository (node_modules symlinked), all
+                                    deleted afterwards.
+    core-baseline.log               the scratch copy reproduces 34/533 exactly.
+    core-option-a.log               buildStatement publishes the prepared read:
+                                    32 files / 537 cells (a net regression).
+    core-option-b.log               a bare QueryEngine provisions its own route:
+                                    32 files / 521 cells (0 newly failing).
+    core-option-c.log               both: 29 files / 268 cells of 9,542.
+    option-matrix.txt               the per-file base/(a)/(b)/(c) table.
+    residual-c.txt                  the 268 residual cells, by file and cause.
+    typecheck-a/b/c.log             each variant's whole-estate typecheck.
+    mode-{a,b,c}-g4-unit01-*.log    g4-unit01-author / -review per variant;
+                                    (c) makes -author GREEN and leaves -review
+                                    at 2 of 200.
+    mode-c-g0.log                   g0 under (c): unchanged, 5 failed.
+    option-c.patch                  the whole measured change, 152 lines,
+                                    5 files.

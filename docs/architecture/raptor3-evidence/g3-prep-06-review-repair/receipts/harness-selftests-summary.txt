@@ -1,0 +1,3 @@
+Campaign/registration receipt self-tests: 12/12 passed; 0.26s; 1536 MiB ceiling; teardown verified.
+CLI self-tests: 7/7 passed; 202.28s; 219.3 MiB peak RSS; 1536 MiB ceiling; teardown verified.
+CLI temporary evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-z9LJcz

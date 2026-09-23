@@ -1,0 +1,11 @@
+node_modules/.bin/biome check tests/raptor3/scenarios/contracts/instances.ts, run at the real path so the repo config applies.
+
+=== BASE (git show HEAD:tests/raptor3/scenarios/contracts/instances.ts, placed at the same path) ===
+rule counts:
+  13   lint/suspicious/noMisplacedAssertion
+format diagnostics: 0
+
+=== AFTER (working copy) ===
+rule counts:
+  14   lint/suspicious/noMisplacedAssertion
+format diagnostics: 0

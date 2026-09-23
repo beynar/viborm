@@ -1,0 +1,55 @@
+# Biome — base copy of commands/execution.ts (git show HEAD:<file>)
+reporter/violations ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Some lint rules or assist actions reported some violations.
+  
+  i The following files have violations:
+  
+  - /private/tmp/viborm-fc02c-tmp/base-execution.ts (4 errors)
+  
+  i The following lint rules have violations:
+  
+  Rule Name                                       Diagnostics
+  
+  lint/style/useDefaultSwitchClause               1 (1 error)
+  lint/style/noParameterProperties                1 (1 error)
+  lint/complexity/noCommaOperator                 1 (1 error)
+  assist/source/organizeImports                   1 (1 error)
+
+Checked 1 file in 79ms. No fixes applied.
+Found 4 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+
+
+# Biome — working commands/execution.ts
+reporter/violations ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Some lint rules or assist actions reported some violations.
+  
+  i The following files have violations:
+  
+  - src/query-engine/raptor3/commands/execution.ts (4 errors)
+  
+  i The following lint rules have violations:
+  
+  Rule Name                                       Diagnostics
+  
+  lint/style/useDefaultSwitchClause               1 (1 error)
+  lint/style/noParameterProperties                1 (1 error)
+  lint/complexity/noCommaOperator                 1 (1 error)
+  assist/source/organizeImports                   1 (1 error)
+
+Checked 1 file in 18ms. No fixes applied.
+Found 4 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+
+
+# Biome — new tests/raptor3/g4/parity/reference-representability.test.ts (formatted)
+
+Checked 1 file in 6ms. No fixes applied.

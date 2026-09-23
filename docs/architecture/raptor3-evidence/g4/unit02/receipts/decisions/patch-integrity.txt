@@ -1,0 +1,34 @@
+patch integrity, decisions unit (2026-09-15T15:36:33Z)
+
+patch hashes:
+9553f3887269cffc1fb31c9adcb686b15b1f7bbe56dee348e403d9334e5cbee4  /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+7e5e245900554df7611c8598b4a2433acf95a6aa325c3b3fb28b7610e5076585  /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch
+
+forward apply from the round-4 base (+ the three files new to this pair) reproduces the working tree:
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts
+3bf284452f04aa8d18116fd2cf21043697f5c969d28bb432210cbf5cfb412aec  src/query-engine/raptor3/commands/relation-body.ts
+84aa0c448e375713bca8791c591a28015dec97ace0afb635df51df716d189ace  src/query-engine/raptor3/commands/selection.ts
+7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103  src/query-engine/raptor3/route/client-route.ts
+3e0b3bf69b1cabddcacab38c5ec179231da2fb97efc4338722e056903327752b  src/query-engine/raptor3/shared/operation-context.ts
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+b3f237a172ff9355b46d96c0b759530f7ee8169048c32b73eeca9b49faa77b86  src/query-engine/raptor3/shared/schema.ts
+9d4992b8da96c5a98cfea8dc23c3f6f9a05001deaf19f8ffa5eeb16f3d80b565  tests/raptor3/g4/route-cache.test.ts
+ebe59800dd00d26d6433be1b9a7bdce9e2be67f88d967447cefa53f815e18569  tests/raptor3/g4/route-lifecycle.test.ts
+63becd16c5ae72c1307a66dfbd341e2d5b2ef2ffea89c06a529fe023661b577b  tests/raptor3/g4/route-transactions.test.ts
+11cb6d904894e01cecf7af1c997a77307bdd829768961a1baca1b17b1ed577d6  tests/raptor3/g4/unit02/key-arithmetic.test.ts
+5392ea7413fc79394bce03e31ec9cfccf91a8592c5560dfed271a8ef6f15305a  tests/raptor3/g4/unit02/unique-discriminator.test.ts
+9618b8db9d1a77eac36e6af5b99a5e9215b89b87fe7e97f83d7e8e4b5f77975c  tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+
+reverse apply from the working tree reproduces the base (unique-discriminator.test.ts removed):
+f4ecd7addff0719e931925275253159748d65e70f9cae741ae8175b06357b0ce  src/query-engine/raptor3/commands/commands.ts
+79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2  src/query-engine/raptor3/commands/relation-body.ts
+874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8  src/query-engine/raptor3/commands/selection.ts
+82ba9c9e8848c09ee4d29e7ac824a305c9fb3a052424005f446e2e167490b111  src/query-engine/raptor3/route/client-route.ts
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  src/query-engine/raptor3/shared/operation-context.ts
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  src/query-engine/raptor3/shared/query.ts
+07b3df1af03638667abfbb236d739fe947993f9a4f2fd96793ef3bcc46956613  src/query-engine/raptor3/shared/schema.ts
+89e7673d02aca62f0bc5d820ccd36df8424f35ecfd850f92ca63f7b6fbe91cdb  tests/raptor3/g4/route-cache.test.ts
+1e557cd9657b424d1afb36f3f0227afc9c7170dbd1eb96f6d219c38e56821e1e  tests/raptor3/g4/route-lifecycle.test.ts
+8c93d18a668b51d53f0eeb446498250a81075b09741d62812d59fdf61ad545dd  tests/raptor3/g4/route-transactions.test.ts
+d054df6d22c15520ac0d9d4503c8a25164d64acc94decc4c4280e8d169827ed9  tests/raptor3/g4/unit02/key-arithmetic.test.ts
+5a3ff24d00b3d3f281ca39c954de9cca249fa28844b8bee0884af86a04f1dc0c  tests/raptor3/g4/unit02/upsert-key-portability.test.ts

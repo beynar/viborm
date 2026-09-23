@@ -1,0 +1,12 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts (30 tests | 3 failed) 1532ms
+     → expected 'Nested operation \'connect\' on relat…' to contain 'target record was not found'
+     → expected 'query-engine-v2 create has conflictin…' to contain 'target record was not found'
+     → expected 'Cannot set relation \'items\': target…' to contain 'depends on an earlier'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > before-parent self connect is unaf
+AssertionError: expected 'Nested operation \'connect\' on relat…' to contain 'target record was not found'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > nested create keeps its before-par
+AssertionError: expected 'query-engine-v2 create has conflictin…' to contain 'target record was not found'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: own-write dependencies (tx vs batch) > delete then overlapping set rej
+AssertionError: expected 'Cannot set relation \'items\': target…' to contain 'depends on an earlier'
+ Test Files  1 failed (1)
+      Tests  3 failed | 27 passed (30)

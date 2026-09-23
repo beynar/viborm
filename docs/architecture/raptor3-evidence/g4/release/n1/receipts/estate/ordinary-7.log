@@ -1,0 +1,7 @@
+[test:all] extended-local shard 7/14 (3 files; 180 ordinary of 192)
+ ✓ |extended-local| tests/contracts/public-client/errors/error-registry-gate.test.ts (19 tests) 6ms
+ ✓ |extended-local| tests/contracts/public-client/errors/error-code-discrimination.test.ts (6 tests) 1ms
+ ✓ |extended-local| tests/contracts/public-client/errors/docs-errors-examples.test.ts (13 tests) 3ms
+ Test Files  3 passed (3)
+      Tests  38 passed (38)
+[test:all] extended-local shard 7/14 (3 files; 180 ordinary of 192): 3.39s wall, 56.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

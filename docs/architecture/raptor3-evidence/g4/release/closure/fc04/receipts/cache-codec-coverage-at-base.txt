@@ -1,0 +1,22 @@
+# Did any test NAME cacheResultCodec() or its sentence at the base 7c3c33a4e?
+
+A NAMING question, not a reachability one: a grep answers which files mention
+the method or the refusal, not which executions reach it. (Repair round,
+2026-09-21 — the question this file originally asked overstated what it
+measures. The official cache rail DOES reach `cacheResultCodec()` eagerly on
+every cached read: client.ts:716 `readPendingCacheResult` →
+pending-operation.ts:216-220 `codec: operation.#cacheResultCodec()` →
+:519-521 `this.#resolveRouted().cacheResultCodec()`, so the fixed lane's
+`tests/contracts/public-client/official-cache-reads.test.ts:324` already gets
+there through `findUniqueOrThrow`, as do the other 24 `withCache` files for the
+verbs they cache.)
+
+$ git grep -l -e "cacheResultCodec" -e "publishes no prepared read" 7c3c33a4e -- tests
+(exit 1 — no output means no file)
+
+$ git grep -l -e "cacheResultCodec" -e "publishes no prepared read" 7c3c33a4e -- src
+7c3c33a4e:src/query-engine/pending-operation.ts
+7c3c33a4e:src/query-engine/raptor3/route/client-route.ts
+
+$ git grep -l withCache 7c3c33a4e -- tests | wc -l
+25

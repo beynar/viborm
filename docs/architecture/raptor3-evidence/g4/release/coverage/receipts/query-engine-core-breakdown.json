@@ -1,0 +1,138 @@
+{
+  "lane": "query-engine-core",
+  "floors": {
+    "statements": 98,
+    "branches": 97.9,
+    "functions": 98,
+    "lines": 98
+  },
+  "measured": {
+    "statements": 55.12,
+    "branches": 75.78,
+    "functions": 70.19,
+    "lines": 55.12
+  },
+  "projectsRun": [
+    "layer-query-engine",
+    "coverage-write-engine-core"
+  ],
+  "statements": {
+    "all": {
+      "covered": 7543,
+      "total": 13684,
+      "pct": 55.12
+    },
+    "raptor3": {
+      "covered": 5448,
+      "total": 10451,
+      "pct": 52.13
+    },
+    "excludingRaptor3": {
+      "covered": 2095,
+      "total": 3233,
+      "pct": 64.8
+    }
+  },
+  "worstFiles": [
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "uncovered": 1240,
+      "statements": 2038
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "uncovered": 1165,
+      "statements": 3801
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "uncovered": 651,
+      "statements": 800
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/relation-body.ts",
+      "uncovered": 618,
+      "statements": 899
+    },
+    {
+      "file": "src/query-engine/raptor3/program/program.ts",
+      "uncovered": 529,
+      "statements": 529
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "uncovered": 446,
+      "statements": 1049
+    },
+    {
+      "file": "src/query-engine/result/result-shape.ts",
+      "uncovered": 342,
+      "statements": 369
+    },
+    {
+      "file": "src/query-engine/result/cache-result-codec.ts",
+      "uncovered": 205,
+      "statements": 205
+    },
+    {
+      "file": "src/query-engine/context/query-scope.ts",
+      "uncovered": 127,
+      "statements": 156
+    },
+    {
+      "file": "src/query-engine/cache-flow.ts",
+      "uncovered": 124,
+      "statements": 237
+    },
+    {
+      "file": "src/query-engine/pending-operation.ts",
+      "uncovered": 77,
+      "statements": 630
+    },
+    {
+      "file": "src/query-engine/raptor3/route/client-route.ts",
+      "uncovered": 73,
+      "statements": 198
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/schema.ts",
+      "uncovered": 72,
+      "statements": 348
+    },
+    {
+      "file": "src/query-engine/result/cache-value-codecs.ts",
+      "uncovered": 71,
+      "statements": 434
+    },
+    {
+      "file": "src/query-engine/result/result-column.ts",
+      "uncovered": 52,
+      "statements": 55
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/assignments.ts",
+      "uncovered": 46,
+      "statements": 138
+    },
+    {
+      "file": "src/query-engine/raptor3/program/index.ts",
+      "uncovered": 46,
+      "statements": 46
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/selection.ts",
+      "uncovered": 40,
+      "statements": 124
+    },
+    {
+      "file": "src/query-engine/execution-context.ts",
+      "uncovered": 33,
+      "statements": 177
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/index.ts",
+      "uncovered": 26,
+      "statements": 183
+    }
+  ]
+}

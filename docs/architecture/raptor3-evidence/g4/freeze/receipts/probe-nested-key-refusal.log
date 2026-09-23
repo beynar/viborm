@@ -1,0 +1,52 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested child update: set beside increment on the child's KEY]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  AGREE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested child update: the child's key names NOTHING]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  AGREE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested child upsert: set beside increment on the child's KEY]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  AGREE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested updateMany member: set beside increment on the child's KEY]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  AGREE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[root update: an UNKNOWN member beside one operator]
+  shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected integer, Unknown key: nope
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate ValidationError: Validation failed for update: Value did not match any union member: Expected integer, Unknown key: nope
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  AGREE
+
+ ✓ |g4-review-unit02-decisions| tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts (1 test) 74ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:43:40
+   Duration  3.40s (transform 2.14s, setup 13ms, collect 3.16s, tests 74ms, environment 0ms, prepare 43ms)
+
+Vitest resources: 4.14s wall, 462.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

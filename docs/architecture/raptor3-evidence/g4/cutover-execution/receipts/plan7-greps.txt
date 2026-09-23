@@ -1,0 +1,42 @@
+# Plan §7 hard architectural rows, grep-proven on the cutover tree
+# base 5a37bcd7f371fe393cf7cecb8ec9f82ef8bd3062, working tree with the C-01 cutover applied
+
+## 1. No import of a DELETED owner anywhere under src/ (33 owners)
+  deleted-owner import hits under src/: 0
+  (owner list: src/query-engine/OwnWriteAnalyzer.ts, src/query-engine/OwnWriteLedger.ts, src/query-engine/OwnWriteRelation.ts, src/query-engine/OwnWriteSteps.ts, src/query-engine/RelationMembership.ts, src/query-engine/builders/to-one-composition.ts, src/query-engine/relation-key-legality.ts, src/query-engine/validator.ts, src/query-engine/write-engine/BulkCountOperation.ts, src/query-engine/write-engine/CreateManyOperation.ts, src/query-engine/write-engine/CreateManyRecordSeries.ts, src/query-engine/write-engine/CreateOperation.ts, src/query-engine/write-engine/DeleteOperation.ts, src/query-engine/write-engine/FreshRecordSeriesPart.ts, src/query-engine/write-engine/ManyAndReturnOperation.ts, src/query-engine/write-engine/NestedSelectedRecordSeries.ts, src/query-engine/write-engine/PolymorphicCollectionPart.ts, src/query-engine/write-engine/ReadOperation.ts, src/query-engine/write-engine/RecordUpdateCompiler.ts, src/query-engine/write-engine/RelationJunctionPart.ts, src/query-engine/write-engine/RelationJunctionToOnePart.ts, src/query-engine/write-engine/RelationLinkPart.ts, src/query-engine/write-engine/RelationUpsertPart.ts, src/query-engine/write-engine/RelationWritePart.ts, src/query-engine/write-engine/UpdateManyRecordSeries.ts, src/query-engine/write-engine/UpdateOperation.ts, src/query-engine/write-engine/UpsertOperation.ts, src/query-engine/write-engine/bulk-polymorphic-connect.ts, src/query-engine/write-engine/final-root-assignment.ts, src/query-engine/write-engine/junction-create-many-routing.ts, src/query-engine/write-engine/junction-singular-transfer.ts, src/query-engine/write-engine/nested-target-parts.ts, src/query-engine/write-engine/routing.ts)
+
+## 2. No legacy fallback: which src/ files import the surviving write-engine/ and legacy owners
+  surviving write-engine/ files on disk: 18
+  src/query-engine/write-engine/FragmentValidator.ts <- src/query-engine/pattern/execute/batch.ts, src/query-engine/pattern/execute/segments.ts
+  src/query-engine/write-engine/OperationFragment.ts <- src/query-engine/JunctionStatements.ts, src/query-engine/batch-error-attribution.ts, src/query-engine/operations/mutation-projection-fold.ts, src/query-engine/pattern/execute/batch.ts, src/query-engine/pattern/execute/index.ts, src/query-engine/pattern/execute/segments.ts, src/query-engine/pattern/execute/transaction.ts, src/query-engine/pattern/execute/values.ts, src/query-engine/pattern/fragment.ts, src/query-engine/pattern/pack.ts, src/query-engine/types.ts, src/query-engine/unique-conflict-target.ts
+  src/query-engine/write-engine/Part.ts <- src/query-engine/pattern/fragment.ts, src/query-engine/pattern/pack.ts
+  src/query-engine/write-engine/create-race-pin.ts <- src/query-engine/pattern/pack.ts
+  src/query-engine/write-engine/fragment-builders.ts <- src/query-engine/pattern/pack.ts
+  src/query-engine/write-engine/link-target-groups.ts <- src/query-engine/pattern/pack.ts
+  src/query-engine/write-engine/messages.ts <- src/query-engine/pattern/pack.ts, src/query-engine/pattern/sugar.ts
+  src/query-engine/write-engine/parse-boundary.ts <- src/query-engine/raptor3/shared/schema.ts
+  src/query-engine/write-engine/race-retry.ts <- src/query-engine/pattern/execute/batch.ts, src/query-engine/pattern/execute/index.ts, src/query-engine/pattern/execute/retry.ts, src/query-engine/pattern/execute/segments.ts, src/query-engine/pattern/execute/transaction.ts
+  src/query-engine/write-engine/series-result-read.ts <- src/query-engine/pattern/pack.ts
+  src/query-engine/write-engine/shared.ts <- src/query-engine/pattern/execute/index.ts, src/query-engine/pattern/pack.ts
+  raptor3 -> write-engine import edges: 1 [('src/query-engine/raptor3/shared/schema.ts', 'src/query-engine/write-engine/parse-boundary.ts')]
+
+## 3. The candidate imports no shipped compiler/lowerer/executor/query-builder/result engine
+  HIT ('src/query-engine/raptor3/route/client-route.ts', '../../result/cache-value-codecs', 'src/query-engine/result/cache-value-codecs.ts')
+  HIT ('src/query-engine/raptor3/shared/schema.ts', '../../write-engine/parse-boundary', 'src/query-engine/write-engine/parse-boundary.ts')
+  raptor3 -> shipped-engine import edges: 2
+
+## 4. The removed selection seam has no caller left
+  createCandidateClient        -> no occurrence under src/
+  VibORM.create(config,        -> no occurrence under src/
+  operationExecutor            -> no occurrence under src/
+  cacheOperationExecutor       -> no occurrence under src/
+  constructRoutedOperation     -> no occurrence under src/
+  executeRoutedOperation       -> no occurrence under src/
+
+## 5. `route` is installed unconditionally; there is no routeless path
+src/query-engine/raptor3/route/client-route.ts:146:export function createCandidateRoute(
+src/client/client.ts:72:import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
+src/client/client.ts:489:      createCandidateRoute(this.schema, config.driver, {
+
+src/query-engine/query-engine.ts:59:    this.route = route;
+src/query-engine/query-engine.ts:115:      this.route

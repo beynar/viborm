@@ -1,0 +1,50 @@
+import {
+  batchArmDriverOptions,
+  createLegalityClient,
+} from "@tests/contracts/engine/query/relation-key-update-legality-fixtures";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { test } from "vitest";
+
+class ProbeDriver extends BatchOnlyPGliteDriver {
+  protected override async execute<T>(client: PGlite | Transaction, statement: string, parameters: unknown[], context?: QueryExecutionContext): Promise<QueryResult<T>> {
+    process.stderr.write(`EXEC ${statement.slice(0, 260)} :: ${JSON.stringify(parameters).slice(0, 120)}\n`);
+    try {
+      return await super.execute<T>(client, statement, parameters, context);
+    } catch (error) {
+      const e = error as Error & { code?: unknown };
+      process.stderr.write(`EXEC ERROR ${e.name} code=${String(e.code)} msg=${e.message.slice(0, 200)}\n`);
+      throw error;
+    }
+  }
+  protected override async executeBatch<T>(client: PGlite | Transaction, queries: BatchQuery[]): Promise<QueryResult<T>[]> {
+    process.stderr.write(`BATCH ${queries.length} statements:\n${queries.map((q, i) => `  [${i}] ${q.sql.slice(0, 220)}`).join("\n")}\n`);
+    try {
+      return await super.executeBatch<T>(client, queries);
+    } catch (error) {
+      const e = error as Error & { code?: unknown; meta?: unknown; cause?: Error & { code?: unknown } };
+      process.stderr.write(`BATCH ERROR ${e.name} code=${String(e.code)} msg=${e.message}\n meta=${JSON.stringify(e.meta)}\n cause=${e.cause ? `${e.cause.name} code=${String(e.cause.code)} msg=${e.cause.message}` : "none"}\n`);
+      throw error;
+    }
+  }
+}
+
+test("probe: occupied setNull child-held UPDATE under a PK transition, batch arm", async () => {
+  const driver = new ProbeDriver(batchArmDriverOptions());
+  const client = createLegalityClient(driver);
+  await client.setNullParent.create({ data: { id: 1, name: "Parent" } });
+  await client.setNullChild.create({ data: { id: 1, label: "Child", parentId: 1 } });
+  try {
+    await client.setNullParent.update({
+      where: { id: 1 },
+      data: { id: { increment: 1 }, child: { update: { label: "must not change" } } },
+    });
+    process.stderr.write("RESOLVED (no error)\n");
+  } catch (error) {
+    const e = error as Error & { code?: unknown; meta?: unknown; cause?: Error & { code?: unknown; meta?: unknown } };
+    process.stderr.write(`SURFACED ${e.name} code=${String(e.code)} msg=${e.message}\n meta=${JSON.stringify(e.meta)}\n cause=${e.cause ? `${e.cause.name} code=${String(e.cause.code)} msg=${e.cause.message} meta=${JSON.stringify(e.cause.meta)}` : "none"}\n`);
+  } finally {
+    await client.$disconnect();
+  }
+});

@@ -1,0 +1,9 @@
+2026-09-16T13:23:14.785Z pass2__scalar-find-unique__cold-prepare__cpu exit=0 33.8s attempts=1
+2026-09-16T13:23:41.864Z pass2__scalar-find-unique__cold-prepare__retained exit=0 26.8s attempts=1
+2026-09-16T13:24:06.609Z pass2__scalar-find-unique__prepare__cpu exit=0 24.5s attempts=1
+2026-09-16T13:24:30.728Z pass2__scalar-find-unique__prepare__retained exit=0 23.8s attempts=1
+2026-09-16T13:25:01.018Z pass2__scalar-find-unique__execute__cpu exit=0 30.0s attempts=1
+2026-09-16T13:41:55.425Z pass2__scalar-find-unique__execute__retained exit=1 1014.4s attempts=1
+2026-09-16T13:42:52.086Z pass2__scalar-find-unique__full__cpu exit=0 56.4s attempts=1
+2026-09-16T13:43:26.377Z pass2__scalar-find-unique__full__retained exit=0 33.9s attempts=1
+2026-09-16T13:44:10.727Z pass2__flat-scalar-update__prepare__cpu exit=1 44.3s attempts=1

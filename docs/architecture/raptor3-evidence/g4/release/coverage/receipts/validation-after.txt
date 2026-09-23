@@ -1,0 +1,1 @@
+validation thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)

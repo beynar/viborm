@@ -14,7 +14,7 @@ import type {
   SchemaSnapshot,
   TableDef,
 } from "@src/migrations/types";
-import { s } from "@src/schema";
+import { s, TYPES } from "@src/schema";
 import type { ScalarState } from "@src/schema/scalars";
 import { describe, expect, test } from "vitest";
 import {
@@ -290,8 +290,26 @@ describe("coverage low value", () => {
 
     expect(mysql.booleanDefault(true)).toBe("1");
     expect(mysql.booleanDefault(false)).toBe("0");
-    expect(mysql.generatedDefault({ kind: "now" })).toBe("CURRENT_TIMESTAMP");
+    // Re-expressed for the repaired MySQL `now` default (repair prompt §4):
+    // the generator hook is handed the DECLARATION only, and MySQL's default
+    // has to agree with the RESOLVED column type's precision, so the answer
+    // moved to the owner that has that type. The hook no longer answers it.
+    expect(mysql.generatedDefault({ kind: "now" })).toBeUndefined();
     expect(mysql.generatedDefault({ kind: "uuid" })).toBeUndefined();
+    const instant = s.dateTime().now();
+    const micros = s.dateTime(TYPES.MYSQL.DATETIME.DATETIME(6)).now();
+    const day = s.date().now();
+    expect(
+      mysqlMigrationDriver.getDefaultExpression(instant, instant["~"].state)
+    ).toBe("CURRENT_TIMESTAMP(3)");
+    expect(
+      mysqlMigrationDriver.getDefaultExpression(micros, micros["~"].state)
+    ).toBe("CURRENT_TIMESTAMP(6)");
+    // A resolved DATE takes no `CURRENT_TIMESTAMP` at all.
+    expect(
+      mysqlMigrationDriver.getDefaultExpression(day, day["~"].state)
+    ).toBeUndefined();
+    expect(postgres.generatedDefault({ kind: "now" })).toBe("NOW()");
     expect(postgres.generatedDefault({ kind: "uuid" })).toBe(
       "gen_random_uuid()"
     );
@@ -308,7 +326,6 @@ describe("coverage low value", () => {
       expect(postgres.generatedDefault({ kind })).toBeUndefined();
       expect(mysql.generatedDefault({ kind })).toBeUndefined();
     }
-    expect(postgres.generatedDefault({ kind: "now" })).toBe("NOW()");
   });
 
   test("covers native scalar transport spelling", () => {

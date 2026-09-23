@@ -1,0 +1,81 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests | 1 failed) 94ms
+   ✓ G4 C12 scalar and list codec read crossings > pins the physical spelling the codec witnesses read back 29ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-01…SC-12, SL-01…SL-10 round-trip exactly through findUnique 10ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-06 and SL-06 keep the exact decimal domain and fresh public values 8ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-11 keeps the database NULL and the JSON null sentinels distinct 8ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-12 publishes a fresh Uint8Array per read 6ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-01…SL-05 and SL-07…SL-10 answer the list container predicates 6ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-06 refuses decimal-list ordering and value aggregation (RF-05) 6ms
+   ✓ G4 C12 scalar and list codec read crossings > Q-R01 refuses a malformed provider row at the decode boundary 4ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > pins the physical spelling of a point column 2ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > SC-14 round-trips an exact EPSG:4326 point and answers within 6ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > Q-W07 refuses the metre-distance tier identically without provider support 2ms
+   × G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write identically and decodes a stored vector 7ms
+     → Disputed row: the shipped engine disagrees with the hand-computed value for embedded.findMany
++ actual - expected
+
+  [
+    {
++     embedding: [
++       1,
++       0,
++       0
++     ]
+-     embedding: '[1,0,0]'
+    }
+  ]
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write identically and decodes a stored vector
+AssertionError: Disputed row: the shipped engine disagrees with the hand-computed value for embedded.findMany
++ actual - expected
+
+  [
+    {
++     embedding: [
++       1,
++       0,
++       0
++     ]
+-     embedding: '[1,0,0]'
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "embedding": "[1,0,0]",[39m
+[31m+     "embedding": [[39m
+[31m+       1,[39m
+[31m+       0,[39m
+[31m+       0,[39m
+[31m+     ],[39m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:115:10
+    113|   const request = describeRequest(model, operation);
+    114|   const shipped = await world.shipped[model]?.[operation]?.(args);
+    115|   assert.deepStrictEqual(
+       |          ^
+    116|     shipped,
+    117|     expected,
+ ❯ tests/raptor3/g4/read-codecs.test.ts:487:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  14:37:54
+   Duration  2.34s (transform 1.39s, setup 8ms, collect 2.05s, tests 94ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.71s wall, 544.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

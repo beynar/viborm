@@ -1,0 +1,23 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/sql-generation.core.test.ts (91 tests) 26ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/operand-callback-sql.core.test.ts (62 tests) 33ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts (49 tests) 15ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/geopoint-sql.core.test.ts (14 tests) 9ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts (42 tests) 15ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/request-result-shape-contracts.core.test.ts (11 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/batch-attribution-hazard-signature.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts (21 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/cursor-pagination-sql.core.test.ts (14 tests) 5ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/lateral-joins.core.test.ts (11 tests) 2ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts (3 tests) 7ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/architecture-gates.core.test.ts (5 tests) 542ms
+   ✓ write engine structural gates (PLAN P0) > (e) keeps write-engine runtime imports acyclic  478ms
+
+ Test Files  12 passed (12)
+      Tests  328 passed (328)
+   Start at  01:22:09
+   Duration  2.65s (transform 750ms, setup 18ms, collect 1.70s, tests 663ms, environment 0ms, prepare 50ms)
+
+Vitest resources: 4.78s wall, 778.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

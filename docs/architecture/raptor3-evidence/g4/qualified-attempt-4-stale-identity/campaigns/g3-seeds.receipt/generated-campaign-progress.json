@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "qualifying": false,
+  "status": "incomplete",
+  "identity": {
+    "production": "5bc430bba17b3a2a765ad51ebd290a47199a6c7b41f0da113ffbe07988bc3edc",
+    "harness": "88289cbaa424f4034ed565273b01a3d566b1d4776ec9068431b984b090b70cfd",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "firstSeed": 8000,
+  "seedCount": 100,
+  "profiles": [
+    "sqlite-interactive",
+    "sqlite-atomic-batch"
+  ],
+  "completed": [],
+  "replays": 0,
+  "skipped": 0
+}

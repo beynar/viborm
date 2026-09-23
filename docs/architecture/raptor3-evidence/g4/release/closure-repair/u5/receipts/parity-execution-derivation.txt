@@ -1,0 +1,53 @@
+# Derivation of the parity stage's 527 — read-only over the retained gate logs.
+# command: node <this script>  (source inlined below)
+
+    // Read-only over the RETAINED gate logs of the final local closure. Nothing is
+    // rerun: the three parity logs already name every (project, file) execution and
+    // its cell count, so the split between project executions and distinct declared
+    // cases is recovered from the evidence itself.
+    import { readFileSync } from "node:fs";
+    const directory =
+      "docs/architecture/raptor3-evidence/g4/release/closure-final/logs/";
+    const line = /^\s*[✓✗×]\s*\|([^|]+)\|\s+(\S+\.test\.ts)\s+\((\d+)\s+tests?\)/;
+    const files = new Map();
+    let executions = 0;
+    let executedCells = 0;
+    for (const log of ["parity-1.log", "parity-2.log", "parity-3.log"]) {
+      for (const text of readFileSync(directory + log, "utf8").split("\n")) {
+        const match = line.exec(text);
+        if (!match) continue;
+        executions += 1;
+        executedCells += Number(match[3]);
+        const entry = files.get(match[2]) ?? { projects: new Set(), cells: new Set() };
+        entry.projects.add(match[1]);
+        entry.cells.add(Number(match[3]));
+        files.set(match[2], entry);
+      }
+    }
+    let declared = 0;
+    const inconsistent = [];
+    const byProjectCount = {};
+    for (const [file, entry] of files) {
+      const counts = [...entry.cells];
+      if (counts.length > 1) inconsistent.push([file, counts]);
+      declared += counts[0];
+      byProjectCount[entry.projects.size] =
+        (byProjectCount[entry.projects.size] ?? 0) + 1;
+    }
+    console.log(`distinct files            ${files.size}`);
+    console.log(`project executions        ${executions}`);
+    console.log(`executed cells            ${executedCells}`);
+    console.log(`distinct declared cases   ${declared}`);
+    console.log(`files by project count    ${JSON.stringify(byProjectCount)}`);
+    console.log(`files whose cell count differs between projects ${JSON.stringify(inconsistent)}`);
+
+# output:
+    distinct files            31
+    project executions        55
+    executed cells            527
+    distinct declared cases   300
+    files by project count    {"1":7,"2":24}
+    files whose cell count differs between projects []
+
+# cross-check, derived independently from vitest.workspace.ts by the new inventory:
+    - `parity`: 31 file(s), 55 project execution(s), 227 declared cell(s) across 24 of 31 file(s), 454 executed cell(s) from those files

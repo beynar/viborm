@@ -1,0 +1,67 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts (5 tests | 1 failed) 17ms
+   ✓ G4 perf pass 2 item 2 — one default projection per (adapter, model) > answers the same projection for every operation that names no selection 3ms
+   ✓ G4 perf pass 2 item 2 — one default projection per (adapter, model) > never hands the shared projection to an operation that names a selection 1ms
+   ✓ G4 perf pass 2 item 2 — one default projection per (adapter, model) > refuses the shared projection to an omit, because admission desugared it 1ms
+   × G4 perf pass 2 item 2 — one default projection per (adapter, model) > keys the store by the adapter, and one leaf per (adapter, model, field) 10ms
+     → a second adapter read the first one's memo
+   ✓ G4 perf pass 2 item 4 — one freeze per predicate, not per member > freezes the predicate and its operand list, and binds every member once 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts > G4 perf pass 2 item 2 — one default projection per (adapter, model) > keys the store by the adapter, and one leaf per (adapter, model, field)
+AssertionError: a second adapter read the first one's memo
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -593,18 +593,26 @@[39m
+[2m      },[22m
+[2m      "_names": {[22m
+[2m        "sql": "g4_perf2_reuse_authors",[22m
+[2m        "ts": "author",[22m
+[2m      },[22m
+[32m-     "_relationNames": undefined,[39m
+[32m-     "_relationSet": undefined,[39m
+[31m+     "_relationNames": [[39m
+[31m+       "posts",[39m
+[31m+     ],[39m
+[31m+     "_relationSet": Set {[39m
+[31m+       "posts",[39m
+[31m+     },[39m
+[2m      "_scalarFieldNames": [[22m
+[2m        "id",[22m
+[2m        "name",[22m
+[2m        "secret",[22m
+[2m      ],[22m
+[32m-     "_scalarFieldSet": undefined,[39m
+[31m+     "_scalarFieldSet": Set {[39m
+[31m+       "id",[39m
+[31m+       "name",[39m
+[31m+       "secret",[39m
+[31m+     },[39m
+[2m      "state": {[22m
+[2m        "compoundId": undefined,[22m
+[2m        "compoundUniques": undefined,[22m
+[2m        "indexes": [],[22m
+[2m        "omit": undefined,[22m
+
+ ❯ tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts:169:12
+    167|     const mine = sqlite.prepareProjection(schema.author, {});
+    168|     const theirs = other.prepareProjection(schema.author, {});
+    169|     assert.notEqual(mine, theirs, "a second adapter read the first one…
+       |            ^
+    170|     assert.deepEqual(names(mine), names(theirs));
+    171| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  17:36:35
+   Duration  936ms (transform 403ms, setup 8ms, collect 612ms, tests 17ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.17s wall, 474.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

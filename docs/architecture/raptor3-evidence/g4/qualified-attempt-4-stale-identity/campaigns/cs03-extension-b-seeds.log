@@ -1,0 +1,46 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ❯ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.test.ts (1 test | 1 failed) 75ms
+   × completes one exact admitted CS-03 extension seed batch 74ms
+     → CS-03 b seed 7202, sqlite-interactive failed
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.test.ts > completes one exact admitted CS-03 extension seed batch
+Error: CS-03 b seed 7202, sqlite-interactive failed
+ ❯ runExtensionCampaign tests/raptor3/core-structure/measurement/extension-campaign.ts:47:15
+     45|         record = await verifyExtensionCell(recipe, profile);
+     46|       } catch (failure) {
+     47|         throw new Error(
+       |               ^
+     48|           `CS-03 ${slice} seed ${recipe.seed}, ${profile} failed`,
+     49|           { cause: failure }
+ ❯ tests/raptor3/core-structure/measurement/extension-campaign.test.ts:20:20
+
+Caused by: AssertionError: Missing semantic cut stop:limit-zero; observed outcome: {"kind":"failure","failure":{"name":"TypeError","message":"(intermediate value).execute is not a function"}}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+ ❯ verifyExtensionCell tests/raptor3/core-structure/measurement/extension-campaign.ts:24:17
+ ❯ runExtensionCampaign tests/raptor3/core-structure/measurement/extension-campaign.ts:45:18
+ ❯ tests/raptor3/core-structure/measurement/extension-campaign.test.ts:20:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  12:31:59
+   Duration  2.47s (transform 1.42s, setup 12ms, collect 2.14s, tests 75ms, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-AsLLkF/vitest.json
+Vitest resources: 4.91s wall, 544.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-AsLLkF

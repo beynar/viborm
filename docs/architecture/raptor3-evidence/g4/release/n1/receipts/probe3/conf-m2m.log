@@ -1,0 +1,10 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts (34 tests | 3 failed) 1752ms
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m overlapping set and deleteMany reject membership 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m disconnect then deleteMany rejects membership dep
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: self-referential m2m (tx vs batch) > self m2m connect then inverse upsert rejects 
+AssertionError: expected false to be true // Object.is equality
+ Test Files  1 failed (1)
+      Tests  3 failed | 31 passed (34)

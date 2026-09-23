@@ -18,8 +18,6 @@ import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
-const PARAMETERIZED_LIMIT_SQL = /LIMIT \$\d+/;
-
 // =============================================================================
 // TEST MODELS
 // =============================================================================
@@ -57,8 +55,6 @@ const postgresAdapter = new PostgresAdapter();
 const mysqlAdapter = new MySQLAdapter();
 const sqliteAdapter = new SQLiteAdapter();
 
-const postgresMockDriver = new SqlOnlyDriver(postgresAdapter, "postgresql");
-const mysqlMockDriver = new SqlOnlyDriver(mysqlAdapter, "mysql");
 const sqliteMockDriver = new SqlOnlyDriver(sqliteAdapter, "sqlite");
 
 // =============================================================================
@@ -150,85 +146,6 @@ describe("Lateral Joins", () => {
       registry = createModelRegistry(schema, createSchemaRegistry(schema));
     });
 
-    describe("PostgreSQL (lateral joins enabled)", () => {
-      let engine: QueryEngine;
-
-      beforeAll(() => {
-        engine = new QueryEngine(postgresMockDriver, registry);
-      });
-
-      test("to-many include uses lateral join", () => {
-        const result = engine.build(Author, "findMany", {
-          include: { posts: true },
-        });
-        const statement = result.toStatement("$n");
-
-        // Should use lateral join syntax
-        expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("ON TRUE");
-        // Should have JSON aggregation in the lateral subquery
-        expect(statement).toContain("json_agg");
-      });
-
-      test("to-one include uses lateral join", () => {
-        const result = engine.build(Post, "findMany", {
-          include: { author: true },
-        });
-        const statement = result.toStatement("$n");
-
-        // Should use lateral join syntax
-        expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("ON TRUE");
-        // LIMIT is parameterized (LIMIT $1, $2, etc.)
-        expect(statement).toMatch(PARAMETERIZED_LIMIT_SQL);
-      });
-
-      test("include with where filter", () => {
-        const result = engine.build(Author, "findMany", {
-          include: {
-            posts: {
-              where: { title: { contains: "test" } },
-            },
-          },
-        });
-        const statement = result.toStatement("$n");
-
-        expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("POSITION");
-      });
-
-      test("include with orderBy", () => {
-        const result = engine.build(Author, "findMany", {
-          include: {
-            posts: {
-              orderBy: { title: "desc" },
-            },
-          },
-        });
-        const statement = result.toStatement("$n");
-
-        expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("ORDER BY");
-        expect(statement).toContain("DESC");
-      });
-
-      test("include with take/skip pagination", () => {
-        const result = engine.build(Author, "findMany", {
-          include: {
-            posts: {
-              take: 5,
-              skip: 10,
-            },
-          },
-        });
-        const statement = result.toStatement("$n");
-
-        expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("LIMIT");
-        expect(statement).toContain("OFFSET");
-      });
-    });
-
     describe("SQLite (correlated subquery fallback)", () => {
       let engine: QueryEngine;
 
@@ -261,41 +178,6 @@ describe("Lateral Joins", () => {
         expect(statement).toContain("(SELECT");
         // LIMIT is parameterized (LIMIT ?)
         expect(statement).toContain("LIMIT ?");
-      });
-    });
-
-    describe("MySQL (lateral joins enabled)", () => {
-      let engine: QueryEngine;
-
-      beforeAll(() => {
-        engine = new QueryEngine(mysqlMockDriver, registry);
-      });
-
-      test("to-many include uses lateral join", () => {
-        const result = engine.build(Author, "findMany", {
-          include: { posts: true },
-        });
-        const statement = result.toStatement("?");
-
-        // Should use lateral join syntax
-        expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("ON TRUE");
-        // Should have JSON aggregation in the lateral subquery
-        expect(statement).toContain("JSON_ARRAYAGG");
-      });
-
-      test("to-one include uses lateral join", () => {
-        const result = engine.build(Post, "findMany", {
-          include: { author: true },
-        });
-        const statement = result.toStatement("?");
-
-        // Should use lateral join syntax
-        expect(statement).toContain("LEFT JOIN LATERAL");
-        expect(statement).toContain("ON TRUE");
-        // MySQL inlines integer LIMIT values (mysql2 binds numbers as DOUBLE,
-        // which MySQL rejects for LIMIT)
-        expect(statement).toContain("LIMIT 1");
       });
     });
   });

@@ -1,0 +1,83 @@
+Review probe receipt — 2026-09-20
+
+Production/harness Git HEAD: 320c898f1f97965f9ad411945e545f12bbaa3499
+Node: v24.21.0
+Tracked modifications during this run: CONTEXT.md, memory.md (unrelated; preserved)
+New executable input: tests/raptor3/g4/parity/closure-review-probes.test.ts
+Probe SHA-256: a856cb32b16430de7d784b05aa45040245143872060b99ba81212bcef7cde634
+pnpm-lock.yaml SHA-256: c366c9806e268e19970626c34e0c5ea1bb74cc7c24b388fa072d580d7bf9aceb
+scripts/run-vitest-safe.mjs SHA-256: 68024a44d2ea9d690ae7676d35d6e511e3ce9e64e44fb71d78191134edf2f4f0
+
+Command:
+node scripts/run-vitest-safe.mjs run --project extended-local tests/raptor3/g4/parity/closure-review-probes.test.ts --reporter verbose --wall-limit-ms=90000
+
+Exit code: 1
+
+Captured stdout/stderr:
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: ordered observation through update 26ms
+ × |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: ordered observation through updateMany 8ms
+   → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+ ✓ |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: internal captured-set predicates with flag field 5ms
+ × |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: internal captured-set predicates with NOT field 5ms
+   → Raptor 3 filter operator is not implemented: OR
+ ✓ |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: cascaded current identity with RETURNING=true 4ms
+ × |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: cascaded current identity with RETURNING=false 5ms
+   → UPDATE did not produce the required record
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: ordered observation through updateMany
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V7001', meta: { conflictsWith: 'update', operation: 'delete', relation: 'edited' }, timestamp: '2026-09-20T19:28:19.424Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: internal captured-set predicates with NOT field
+EngineInvariantError: Raptor 3 filter operator is not implemented: OR
+ ❯ Queries.lowerOperation src/query-engine/raptor3/shared/query.ts:2171:15
+    2169|         // (AGENTS.md: "Do not add a second operator switch"). The sta…
+    2170|         // arm names is therefore one the code cannot be in when it is…
+    2171|         throw new EngineInvariantError(
+       |               ^
+    2172|           `Raptor 3 filter operator is not implemented: ${operator}`,
+    2173|         );
+ ❯ Queries.lowerPredicate src/query-engine/raptor3/shared/query.ts:1944:21
+ ❯ src/query-engine/raptor3/shared/query.ts:1928:18
+ ❯ Queries.lowerPredicate src/query-engine/raptor3/shared/query.ts:1927:35
+ ❯ src/query-engine/raptor3/shared/query.ts:1928:18
+ ❯ Queries.lowerPredicate src/query-engine/raptor3/shared/query.ts:1927:35
+ ❯ src/query-engine/raptor3/shared/query.ts:1928:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/closure-review-probes.test.ts > review: cascaded current identity with RETURNING=false
+TypeError: UPDATE did not produce the required record
+ ❯ OperationContext.update src/query-engine/raptor3/shared/operation-context.ts:3020:17
+    3018|         );
+    3019|         if (!rows[0])
+    3020|           throw new TypeError("UPDATE did not produce the required rec…
+       |                 ^
+    3021|         return { ...published, ...rows[0] };
+    3022|       }
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:459:15
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:338:9
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:741:18
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ runTransaction src/drivers/driver-transaction-base.ts:385:16
+ ❯ RecordingSQLiteDriver.runConnectionTransactionLease src/drivers/driver-transaction-base.ts:94:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+   Start at  21:28:17
+   Duration  1.55s (transform 914ms, setup 8ms, collect 1.34s, tests 53ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 3.33s wall, 461.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+

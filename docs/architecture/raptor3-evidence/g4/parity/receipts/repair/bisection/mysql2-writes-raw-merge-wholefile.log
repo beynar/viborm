@@ -1,0 +1,158 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (92 tests | 5 failed) 16373ms
+   × MySQL2 Driver > MySQL2 createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order 187ms
+     → expected [ …(5) ] to have a length of 8 but got 5
+   ✓ MySQL2 Driver > MySQL2 createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order 121ms
+   ✓ MySQL2 Driver > MySQL2 createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted 139ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit below the matching count removes exactly limit rows 119ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit equal to the matching count removes all of them 126ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit above the matching count is the uncapped delete 125ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit 0 removes nothing and reports count 0 128ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit without a where caps a whole-table delete 129ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit below the matching count updates exactly limit rows 131ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit at or above the matching count updates all of them 132ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit 0 changes nothing and reports count 0 149ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit composes with an arithmetic update 195ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit composes with a relation filter 153ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit composes with a relation filter 125ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany with select returns exactly the capped rows 132ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany with select returns exactly the capped rows 155ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set 118ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > limit works on a model with a compound primary key 126ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > limit 0 is the same no-op inside $transaction([...]) 122ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write limit > a negative or fractional limit is rejected before any write 120ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > declares an atomic strategy for nested writes 152ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > rejects default-only createMany duplicate skipping before writing 165ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > rejects nested default-only duplicate skipping before the parent write 179ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > create derives to-one and to-many foreign keys 184ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > create connects and connect-or-creates nullable children 218ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update creates, createManys, and connects children 183ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update disconnects and sets nullable children 191ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > update and updateMany keep child mutations parent-correlated 199ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete and deleteMany keep child mutations parent-correlated 174ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-many upsert creates and updates the current parent's child 174ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one upsert creates and updates the current target 179ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one nested update modifies the connected author 181ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one disconnect true nulls the foreign key, both rows survive 189ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true deletes the related row 180ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author 184ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives 233ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > explicit join rows work as a practical many-to-many case 195ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > unsupported nested create keys reject before parent mutation 169ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested child failures roll back parent and prior children 180ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > to-many updates cannot target another parent's child 182ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > non-nullable child foreign keys reject disconnect atomically 169ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested create propagates foreign keys through mapped columns 172ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > nested create derives mapped foreign keys for createMany and connect 185ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set keeping all required-FK children is a no-op and succeeds 204ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set on required-FK children rejects only when rows would be orphaned 297ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > set disconnects only nullable-FK children leaving the set 244ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > connect with a list of targets reparents every one of them 193ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a connect list with one absent target writes nothing 212ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > disconnect with a list nulls every one of them 190ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing 186ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > a create tree's connect list reparents every one of them  424ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone  375ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone  373ms
+   ✓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > the `include` spelling is unaffected  379ms
+   ✓ MySQL2 Driver > MySQL2 advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes  530ms
+   ✓ MySQL2 Driver > MySQL2 advanced nested write behavior > top-level upsert guards gate nested update branch  418ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip 221ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order 137ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment 140ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params 146ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path 165ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement 118ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError 113ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError 106ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found 109ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches 105ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found 105ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist 104ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > exist > returns true when a matching row exists 105ms
+   ✓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > exist > returns false when no row matches 123ms
+   ✓ MySQL2 Driver > raw/model array transactions (Docker MySQL) > execute in declared order and return each public result 114ms
+   ✓ MySQL2 Driver > raw/model array transactions (Docker MySQL) > a later raw failure rolls model and raw writes back 127ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert creates the row when missing 147ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert updates the row when present 158ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > does not take the update branch for a conflict outside the requested target 176ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces 159ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert returns the row when the update is a no-op 203ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert create branch resolves auto-increment ids 167ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert update branch may rewrite the unique where field 157ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert supports select on both branches 161ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert with include returns the relation payload on both branches 200ms
+   ✓ MySQL2 Driver > MySQL2 upsert atomicity behavior > delete with include returns the relation payload 157ms
+   × MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed 137ms
+     → Transaction deadlock detected
+   × MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed 148ms
+     → Transaction deadlock detected
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing updates return their own writes while sharing one connection per operation 159ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a replacement row survives a delete that locked and deleted the captured PK 146ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > interleaved auto-increment creates refetch their own inserted identities 140ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing upserts identify their branches and refetch their own updates 197ms
+   × MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx) 241ms
+     → Transaction deadlock detected
+   × MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx) 154ms
+     → Transaction deadlock detected
+   ✓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx) 183ms
+   ✓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx) 171ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order
+AssertionError: expected [ …(5) ] to have a length of 8 but got 5
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 8[39m
+[31m+ 5[39m
+
+ ❯ tests/contracts/drivers/behaviors/create-many-return-fold-behavior.ts:164:28
+    162|         // each interleaved with the refetch that reads it back by its…
+    163|         // identity. Nothing here folds — the refetch needs one INSERT…
+    164|         expect(statements).toHaveLength(8);
+       |                            ^
+    165|         expect(statements.map(isInsert)).toEqual([
+    166|           true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 87 passed (92)
+   Start at  15:23:12
+   Duration  18.16s (transform 1.10s, setup 12ms, collect 1.64s, tests 16.37s, environment 0ms, prepare 30ms)
+
+Vitest resources: 20.16s wall, 628.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

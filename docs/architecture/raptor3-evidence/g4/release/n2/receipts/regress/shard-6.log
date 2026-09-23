@@ -1,0 +1,26 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts (34 tests | 5 failed) 2422ms
+ ✓ |extended-local| tests/unit/cache/cache.test.ts (20 tests) 697ms
+ ✓ |extended-local| tests/contracts/engine/write/parent-held-delegated-fk-rebind-correlation.test.ts (8 tests) 590ms
+ ✓ |extended-local| tests/contracts/engine/query/legality-gate.test.ts (7 tests) 646ms
+ ✓ |extended-local| tests/contracts/engine/write/child-held-to-one-multi-kind.test.ts (7 tests) 622ms
+ ✓ |extended-local| tests/contracts/public-client/bigint-precision-relations.test.ts (7 tests) 600ms
+ ✓ |extended-local| tests/unit/migrations/manual-migration.test.ts (4 tests) 1384ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-junction-target-recursion.test.ts (3 tests) 562ms
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-supply-modify.test.ts (3 tests) 641ms
+ ❯ |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-one.test.ts (7 tests | 3 failed) 791ms
+ ✓ |extended-local| tests/contracts/engine/write/upsert-untaken-arm-legality.test.ts (4 tests) 513ms
+ ✓ |extended-local| tests/contracts/public-client/one-to-one-unique.pglite.test.ts (2 tests) 502ms
+ ❯ |extended-local| tests/contracts/engine/write/junction-produced-identity.test.ts (12 tests | 2 failed) 893ms
+ ✓ |extended-local| tests/contracts/engine/write/destination-cast.test.ts (12 tests) 966ms
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m connectOrCreate string-selector array rejects unk
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m overlapping set and deleteMany reject membership 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m disconnect then deleteMany rejects membership dep
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m multiple deleteMany filters reject internal depen
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-m2m.test.ts > nested-write conformance: self-referential m2m (tx vs batch) > self m2m connect then inverse upsert rejects 
+ FAIL  |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-one.test.ts > relation-key update legality > rejects an occupied setNull child-held UPDATE under a PK tran
+ FAIL  |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-one.test.ts > relation-key update legality > reports not-found for an empty setNull child-held UPDATE unde
+ FAIL  |extended-local| tests/contracts/engine/query/relation-key-update-legality-occupied-to-one.test.ts > relation-key update legality > rejects an occupied restrict child-held UPDATE under a PK tra
+ FAIL  |extended-local| tests/contracts/engine/write/junction-produced-identity.test.ts > E4-U3 junction produced identity (transaction) > skipDuplicates with a produced key ADOPTS instead of refusing
+ FAIL  |extended-local| tests/contracts/engine/write/junction-produced-identity.test.ts > E4-U3 junction produced identity (atomic batch) > skipDuplicates with a produced key ADOPTS instead of refusin
+ Test Files  3 failed | 11 passed (14)
+      Tests  10 failed | 120 passed (130)

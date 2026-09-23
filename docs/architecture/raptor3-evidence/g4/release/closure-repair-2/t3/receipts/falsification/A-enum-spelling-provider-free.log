@@ -1,0 +1,127 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ❯ |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests | 2 failed) 10ms
+   × provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary 6ms
+     → expected [ { …(2) } ] to deeply equal [ { …(2) } ]
+   ✓ provider-free MySQL catalog reconstruction > undoes both layers of MySQL's deparse, and keeps what it cannot 1ms
+   ✓ provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text 0ms
+   × provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table 1ms
+     → expected 'ENUM(\'a\b\', \'line1\nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+   ✓ coverage low value > refuses the structurally impossible catalog SRID -1 1ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID 4294967296 0ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID not-a-number 0ms
+ ❯ |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests | 2 failed) 29ms
+   × provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary 20ms
+     → expected [ { …(2) } ] to deeply equal [ { …(2) } ]
+   ✓ provider-free MySQL catalog reconstruction > undoes both layers of MySQL's deparse, and keeps what it cannot 1ms
+   ✓ provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text 1ms
+   × provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table 3ms
+     → expected 'ENUM(\'a\b\', \'line1\nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+   ✓ coverage low value > refuses the structurally impossible catalog SRID -1 2ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID 4294967296 1ms
+   ✓ coverage low value > refuses the structurally impossible catalog SRID not-a-number 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary
+AssertionError: expected [ { …(2) } ] to deeply equal [ { …(2) } ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,8 +1,8 @@[39m
+[2m  [[22m
+[2m    {[22m
+[32m-     "name": "ENUM('a,b', 'it''s', 'back\\\\slash')",[39m
+[31m+     "name": "ENUM('a,b', 'it''s', 'back\\slash')",[39m
+[2m      "values": [[22m
+[2m        "a,b",[22m
+[2m        "it's",[22m
+[2m        "back\\slash",[22m
+[2m      ],[22m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:190:28
+    188|     // MySQL reads it back as one. The quote-doubling rule declared a …
+    189|     // member instead, and disagreed with the default beside it.
+    190|     expect(snapshot.enums).toEqual([
+       |                            ^
+    191|       {
+    192|         name: String.raw`ENUM('a,b', 'it''s', 'back\\slash')`,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table
+AssertionError: expected 'ENUM(\'a\b\', \'line1\nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- ENUM('a\[7m\[27mb', 'line1[7m\n[27mline2', 'it''s', 'café ☕', 'p[7m\Z[27mq')[39m
+[31m+ ENUM('a\b', 'line1[39m
+[31m+ line2', 'it''s', 'café ☕', 'p[7m[27mq')[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:468:38
+    466|     // a type MySQL never created.
+    467|     const expected = `${String.raw`ENUM('a\\b', 'line1\nline2', 'it''s…
+    468|     expect(byName.get("kind")?.type).toBe(expected);
+       |                                      ^
+    469|     expect(snapshot.enums).toEqual([
+    470|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reconstructs catalog-only type, enum, key, and action vocabulary
+AssertionError: expected [ { …(2) } ] to deeply equal [ { …(2) } ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,8 +1,8 @@[39m
+[2m  [[22m
+[2m    {[22m
+[32m-     "name": "ENUM('a,b', 'it''s', 'back\\\\slash')",[39m
+[31m+     "name": "ENUM('a,b', 'it''s', 'back\\slash')",[39m
+[2m      "values": [[22m
+[2m        "a,b",[22m
+[2m        "it's",[22m
+[2m        "back\\slash",[22m
+[2m      ],[22m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:190:28
+    188|     // MySQL reads it back as one. The quote-doubling rule declared a …
+    189|     // member instead, and disagreed with the default beside it.
+    190|     expect(snapshot.enums).toEqual([
+       |                            ^
+    191|       {
+    192|         name: String.raw`ENUM('a,b', 'it''s', 'back\\slash')`,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an enum's printed members back through the same table
+AssertionError: expected 'ENUM(\'a\b\', \'line1\nline2\', \'it\…' to be 'ENUM(\'a\\b\', \'line1\nline2\', \'it…' // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- ENUM('a\[7m\[27mb', 'line1[7m\n[27mline2', 'it''s', 'café ☕', 'p[7m\Z[27mq')[39m
+[31m+ ENUM('a\b', 'line1[39m
+[31m+ line2', 'it''s', 'café ☕', 'p[7m[27mq')[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:468:38
+    466|     // a type MySQL never created.
+    467|     const expected = `${String.raw`ENUM('a\\b', 'line1\nline2', 'it''s…
+    468|     expect(byName.get("kind")?.type).toBe(expected);
+       |                                      ^
+    469|     expect(snapshot.enums).toEqual([
+    470|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  4 failed | 10 passed (14)
+   Start at  23:23:51
+   Duration  1.15s (transform 520ms, setup 15ms, collect 772ms, tests 39ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 3.01s wall, 474.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

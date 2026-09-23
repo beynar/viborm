@@ -1,0 +1,8 @@
+raptor3 tree (now): files=15 bytes=397471 physical=11324 tokenLines=10279
+candidate core (now): files=12 bytes=361859 physical=10310 tokenLines=9406
+NOW  commands/assignments.ts: files=1 bytes=5074 physical=160 tokenLines=148
+NOW  shared/query.ts: files=1 bytes=139660 physical=3940 tokenLines=3568
+NOW  commands/relation-body.ts: files=1 bytes=30353 physical=887 tokenLines=866
+BEFORE commands/assignments.ts: files=1 bytes=5068 physical=161 tokenLines=153
+BEFORE shared/query.ts: files=1 bytes=138763 physical=3920 tokenLines=3563
+BEFORE commands/relation-body.ts: files=1 bytes=29406 physical=871 tokenLines=858

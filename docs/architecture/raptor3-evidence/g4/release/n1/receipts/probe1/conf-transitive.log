@@ -1,0 +1,35 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts (31 tests | 15 failed) 1412ms
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected 'Unique constraint violation' to contain 'depends on an earlier \'create\' targ…'
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: cross-relation targets (tx vs batch) > sibling create then parent-holds con
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive target dependencies (tx vs batch) > nested create then later roo
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert cr
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive target dependencies (tx vs batch) > selected top-level upsert up
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > a connectOrCreate create al
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > a later sibling sees writes
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > a later sibling sees writes
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > a later sibling sees writes
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > upsert array merges a misma
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > upsert array keeps the foun
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: deep transitive target dependencies (tx vs batch) > deep nested update crea
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive createMany dependencies (tx vs batch) > nested createMany then l
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predicate update r
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive predicate dependencies (tx vs batch) > upsert update alternative
+AssertionError: expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts > nested-write conformance: transitive target dependencies (tx vs batch) > outer create then nested con
+AssertionError: expected 'Unique constraint violation' to contain 'depends on an earlier \'create\' targ…'
+ Test Files  1 failed (1)
+      Tests  15 failed | 16 passed (31)

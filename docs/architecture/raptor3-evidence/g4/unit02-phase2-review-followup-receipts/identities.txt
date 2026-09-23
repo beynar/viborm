@@ -1,0 +1,46 @@
+# G4-02 phase-2 review FOLLOW-UP (repair round 3) — identities of the source reviewed
+# 2026-09-15T08:19:06Z
+# HEAD: 0cc61e61f372945026b0b564fa643de67168c08e
+
+## production (tree, after every falsification was restored)
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  src/query-engine/raptor3/shared/query.ts
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  src/query-engine/raptor3/shared/operation-context.ts
+761d5943f991b548e76335e2acbdab3e5f60b46dbc11c3362c14ab1a564a85ae  src/query-engine/raptor3/shared/schema.ts
+a208e1f26856822de46afec09b0098d9b53014382ebec98016bd6240ea978bfe  src/query-engine/raptor3/commands/commands.ts
+f551151f6d279eb783a911e6c1f7794af141704df40cd202c334fc6d4c7c3be9  src/query-engine/raptor3/commands/index.ts
+752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2  src/query-engine/raptor3/shared/storage.ts
+1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102  src/query-engine/raptor3/commands/assignments.ts
+54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2  src/query-engine/raptor3/commands/execution.ts
+4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd  src/query-engine/raptor3/program/index.ts
+ab95ed3cd1b8542e4ef19c0efdd7a8a9e340eefb156bdd068c1bd5866644e2c5  src/adapters/database-adapter.ts
+679de883012390217143900b1f52539a767c67460c7e0a1c8ea1a79b58ae450d  src/adapters/databases/sqlite/sqlite-adapter.ts
+b29d1393a2148369228b0a359138e1d3d8df30d48bd872ffc520c4e9dcef3f7e  src/adapters/databases/postgres/postgres-adapter.ts
+1dd38ed31a23679b247402e5c609179945032df87e1915de44e43bc5fe2beb00  src/adapters/databases/mysql/mysql-adapter.ts
+
+## phase-1 accepted content, reproduced by reverse-applying production-phase2.patch
+6f39f82a161b6f3cbc5bc78a550048abf9564396cb950a6d6b96c073358e31a7  shared/query.ts
+65aa6f5b0b1248b9b62ef737dbcf60f5ec39da9821a7254c0c44054cbb1e0e08  shared/operation-context.ts
+c7a58c9c61d6781c6a885c81a3eb4126a9f2c99e91f8866ea56aeea0c0c10166  shared/schema.ts
+12442b94ac00c25b6edd42a20c4c454998966a9a78035bf74dcad1536fecdf7d  commands/commands.ts
+546adce4cfdc25b30ced0921abb6e45decdcc2f35704130efbc0e7ccca0f033c  commands/index.ts
+(the four adapters reverse-apply to their HEAD identities exactly)
+
+## pre-unit content, reproduced by also reverse-applying production.patch
+d747abb4e2440b862e51813749586fe5817426423884d1fb274cfe550dc55e47  shared/schema.ts
+05d1f722311a034a6c9bfce151f442c58d0c67fb21efc4181f92ace9cb89b574  shared/operation-context.ts
+20f07393b7ea4aebca3f5f75ca12731b19917e6db07bb30962f86cf67be0016a  commands/commands.ts
+eb0551e592ca7b24589ae73d6053db43cf2b2166b2a385f3e49ab86de6b33638  commands/execution.ts
+
+## patches
+9f9adfd739c0aed7a02cdd27fcd8ecf2c441f7296241536f80601ec018d4326c  docs/architecture/raptor3-evidence/g4/unit02/production-phase2.patch
+680a2956166337b350a1dac9a688211e8401c5d4aa137b60482235d60b93a12d  docs/architecture/raptor3-evidence/g4/unit02/tests-phase2.patch
+
+## review probes
+93f721657700f0a853de5303709e1f0a28db33b511b169c1030a631e3f65d779  tests/raptor3/g4/review/unit02-phase2-followup/decimal-relation-key.review.test.ts
+6978a9596d090d3cc0c8f79f4337468f2a328f39a0669ace70daa45deba137d0  tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts
+f5c4d7271fd02bfd643080b91bb8595aabf375b039cfe980876301a8b95a06e4  tests/raptor3/g4/review/unit02-phase2-followup/native-pg-key-arithmetic.review.test.ts
+06c8009ea74e57871d58afcb729c7ac4440bdf29d52417b02560ace2535bca5c  tests/raptor3/g4/review/unit02-phase2-followup/review.workspace.ts
+
+## providers
+viborm-raptor3-g3-mysql-20260914 127.0.0.1:65515->3306/tcp Up 11 hours
+viborm-raptor3-g3-pg-20260914 127.0.0.1:65504->5432/tcp Up 11 hours

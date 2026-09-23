@@ -1,0 +1,45 @@
+started 2026-09-23T07:07:37Z head dc662e1842171a30a4823319a6c9b4051f889280 dirty=5
+ 9:07  up 23 days,  8:47, 3 users, load averages: 9.91 10.81 10.25
+=== native-pg (connection file pg-g3, loopback port hidden) 2026-09-23T07:07:37Z
+native-pg exit=0
+ ✓ |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts (5 tests) 158ms
+ ✓ |raptor3-live-provider| tests/raptor3/recursive-query/campaign-native.test.ts (4 tests) 2853ms
+   ✓ RQ-06 saved recursive cases on native pg > singular-fk: 100 saved cases, one public read each, against the oracle  780ms
+   ✓ RQ-06 saved recursive cases on native pg > collection-fk: 100 saved cases, one public read each, against the oracle  764ms
+   ✓ RQ-06 saved recursive cases on native pg > junction: 100 saved cases, one public read each, against the oracle  1252ms
+ ✓ |raptor3-live-provider| tests/raptor3/recursive-query/provider-sql-native.test.ts (3 tests) 1635ms
+   ✓ recursive relation provider SQL on native pg > RQ-03 foreign-key chains and hierarchies  1286ms
+ Test Files  3 passed (3)
+      Tests  12 passed (12)
+Vitest resources: 8.85s wall, 566.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== native-mysql (connection file mysql, loopback port hidden) 2026-09-23T07:07:47Z
+native-mysql exit=1
+ ✓ |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts (5 tests) 193ms
+ ✓ |raptor3-live-provider| tests/raptor3/recursive-query/campaign-native.test.ts (4 tests) 6614ms
+   ✓ RQ-06 saved recursive cases on native mysql > singular-fk: 100 saved cases, one public read each, against the oracle  1358ms
+   ✓ RQ-06 saved recursive cases on native mysql > collection-fk: 100 saved cases, one public read each, against the oracle  1351ms
+   ✓ RQ-06 saved recursive cases on native mysql > junction: 100 saved cases, one public read each, against the oracle  3827ms
+   ✓ recursive relation provider SQL on native mysql > projects the recursive placement matrix through provider SQL 236ms
+   × recursive relation provider SQL on native mysql > RQ-03 foreign-key chains and hierarchies 2226ms
+   ✓ recursive relation provider SQL on native mysql > RQ-04 junction graphs through the same mechanism  364ms
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 11 passed (12)
+Vitest resources: 13.47s wall, 583.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+finished 2026-09-23T07:08:00Z pg=0 mysql=1
+ 9:08  up 23 days,  8:48, 3 users, load averages: 10.26 10.81 10.26
+-rw-r--r--@ 1 arnaud  staff  88587 Sep 23 09:07 docs/architecture/raptor3-evidence/recursive-query/rq6-campaign-mysql.json
+-rw-r--r--@ 1 arnaud  staff  88691 Sep 23 09:07 docs/architecture/raptor3-evidence/recursive-query/rq6-campaign-pg.json
+-rw-r--r--@ 1 arnaud  staff  88480 Sep 23 04:05 docs/architecture/raptor3-evidence/recursive-query/rq6-campaign-sqlite.json
+=== native-mysql (connection file mysql, loopback port hidden) 2026-09-23T07:09:42Z
+native-mysql exit=0
+ ✓ |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts (5 tests) 260ms
+ ✓ |raptor3-live-provider| tests/raptor3/recursive-query/provider-sql-native.test.ts (3 tests) 6144ms
+   ✓ recursive relation provider SQL on native mysql > RQ-03 foreign-key chains and hierarchies  5145ms
+   ✓ recursive relation provider SQL on native mysql > RQ-04 junction graphs through the same mechanism  742ms
+ ✓ |raptor3-live-provider| tests/raptor3/recursive-query/campaign-native.test.ts (4 tests) 11425ms
+   ✓ RQ-06 saved recursive cases on native mysql > singular-fk: 100 saved cases, one public read each, against the oracle  2245ms
+   ✓ RQ-06 saved recursive cases on native mysql > collection-fk: 100 saved cases, one public read each, against the oracle  1894ms
+   ✓ RQ-06 saved recursive cases on native mysql > junction: 100 saved cases, one public read each, against the oracle  7158ms
+ Test Files  3 passed (3)
+      Tests  12 passed (12)
+Vitest resources: 24.99s wall, 531.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

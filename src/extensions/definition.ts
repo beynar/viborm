@@ -2,7 +2,7 @@ import type { VibORMConfig } from "@client/client";
 import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers";
 import { ClientInitializationError } from "@errors";
-import { ROUTED_OPERATIONS } from "@query-engine/write-engine/routing";
+import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type {
   EmptyClientExtensionState,

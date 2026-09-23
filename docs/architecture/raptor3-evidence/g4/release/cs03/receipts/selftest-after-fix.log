@@ -1,0 +1,16 @@
+$ TMPDIR=/private/tmp/viborm-cs03-tmp \
+  VIBORM_RAPTOR3_REPLAY_PATH= VIBORM_RAPTOR3_SPECIMEN= VIBORM_RAPTOR3_EVIDENCE_DIRECTORY= \
+  node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=raptor3 \
+    tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts \
+    --rss-limit-mb=1536 --heap-limit-mb=768
+
+ RUN  v3.1.4 /private/tmp/viborm-cs03
+
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 251ms
+
+ Test Files  1 passed (1)
+      Tests  42 passed (42)
+   Start at  19:31:37
+   Duration  1.54s (transform 723ms, setup 8ms, collect 1.07s, tests 251ms, environment 0ms, prepare 24ms)
+
+Vitest resources: 3.10s wall, 607.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,66 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/operand-callback-sql.core.test.ts (62 tests) 52ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 12ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts (49 tests) 13ms
+ ✓ |layer-query-engine| tests/contracts/architecture/extension-system-census.core.test.ts (8 tests) 392ms
+   ✓ extension-system source census > keeps no superseded owner or parallel runtime handler carrier  391ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests) 9ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/geopoint-sql.core.test.ts (14 tests) 6ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts (42 tests) 14ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/namespace-qualification.core.test.ts (122 tests) 14ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/model-key-catalog.core.test.ts (22 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-admission.core.test.ts (75 tests) 28ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-lowering.core.test.ts (20 tests) 10ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/cache-result-codec-boundaries.core.test.ts (9 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/starts-with-prefix-sql.core.test.ts (31 tests) 6ms
+ ✓ |layer-query-engine| tests/contracts/architecture/geopoint-language-census.core.test.ts (4 tests) 851ms
+   ✓ GeoPoint shipped-language census > the complete shipped executable source has zero retired owners  393ms
+   ✓ GeoPoint shipped-language census > the codecs and fixed radius each have one declaration owner  457ms
+ ✓ |layer-query-engine| tests/contracts/architecture/core-taxonomy-census.core.test.ts (4 tests) 99ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/batch-attribution-hazard-signature.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/for-update-dialects.core.test.ts (17 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/query-inspection.core.test.ts (8 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts (21 tests) 4ms
+ ❯ |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts (5 tests | 1 failed) 46ms
+   ✓ contract and provider matrix > keeps one stable ContractDefinition ID per behavior registration 5ms
+   ✓ contract and provider matrix > assigns every contract to every provider exactly once 8ms
+   ✓ contract and provider matrix > matches matrix run decisions to provider registrations 9ms
+   ✓ contract and provider matrix > gives every layer one runtime core owner and one type core 12ms
+   × contract and provider matrix > inventories every executable test by owner and boundary 12ms
+     → tests/raptor3/candidate-handoff.test.ts: expected undefined to be defined
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-preparation.core.test.ts (36 tests) 8ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-assignments.core.test.ts (6 tests) 6ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/lateral-joins.core.test.ts (11 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/operation-program-read-contracts.core.test.ts (2 tests) 5ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts (3 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/orderby-relation-depth.core.test.ts (4 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/architecture/system-clock.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/default-insert-sql.core.test.ts (3 tests) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts (2 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/result-aliases.core.test.ts (14 tests) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/bind-budget.core.test.ts (2 tests) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/nested-captured-target-signature.core.test.ts (1 test) 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts > contract and provider matrix > inventories every executable test by owner and boundary
+AssertionError: tests/raptor3/candidate-handoff.test.ts: expected undefined to be defined
+ ❯ tests/contracts/architecture/contract-matrix.core.test.ts:205:31
+    203|     for (const file of testFiles) {
+    204|       const inventory = classifyTestFile(file);
+    205|       expect(inventory, file).toBeDefined();
+       |                               ^
+    206|       expect(inventory?.file).toBe(file);
+    207|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 31 passed (32)
+      Tests  1 failed | 646 passed (647)
+   Start at  18:32:30
+   Duration  4.39s (transform 746ms, setup 21ms, collect 2.63s, tests 1.59s, environment 0ms, prepare 26ms)
+
+Vitest resources: 6.06s wall, 846.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

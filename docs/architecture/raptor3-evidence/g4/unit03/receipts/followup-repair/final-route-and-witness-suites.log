@@ -1,0 +1,28 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-transactions.test.ts (13 tests) 462ms
+ ✓ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (8 tests) 216ms
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (7 tests) 245ms
+ ✓ |raptor3| tests/raptor3/g4/route-cache.test.ts (7 tests) 64ms
+ ❯ |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts (4 tests | 1 failed) 132ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-admission: one awaited operation admits its request exactly once 42ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-transform: the extension chain transforms one request once 6ms
+   × G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache 59ms
+     → The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the prepared read's leaves publish no scalar to compile a value codec from (g4/unit03/note.md FU.6 B-1c).
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: the same oracle rejects a route that always serves the cache 25ms
+ ✓ |raptor3| tests/raptor3/g4/lifecycle-events.test.ts (3 tests) 48ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts > G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache
+UnsupportedOperationError: The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the prepared read's leaves publish no scalar to compile a value codec from (g4/unit03/note.md FU.6 B-1c).
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  1 failed | 41 passed (42)
+   Start at  11:40:31
+   Duration  35.15s (transform 11.67s, setup 191ms, collect 32.03s, tests 1.17s, environment 0ms, prepare 280ms)
+
+Vitest resources: 47.76s wall, 483.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

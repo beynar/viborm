@@ -1,0 +1,113 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ❯ |extended-local| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (6 tests | 5 failed) 43ms
+   × N4-25: a captured selected bulk mutation on a batch-only transport > a selected deleteMany publishes every captured row and removes them 24ms
+     → Driver 'sqlite3' cannot atomically capture selected deleteMany rows.
+   × N4-25: a captured selected bulk mutation on a batch-only transport > a selected updateMany publishes the rows it wrote 4ms
+     → Driver 'sqlite3' cannot atomically capture selected updateMany rows.
+   × N4-25: a captured selected bulk mutation on a batch-only transport > a captured row lost between the capture and the batch aborts before the write 4ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+TransactionError: Driver 'sqlite3' cannot atomically capture selected deleteMany rows.
+   × N4-25: a captured selected bulk mutation on a batch-only transport > a row that JOINED the selection after the capture aborts before the write 2ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+TransactionError: Driver 'sqlite3' cannot atomically capture selected updateMany rows.
+   × N4-25: a captured selected bulk mutation on a batch-only transport > a relation-bearing selected root delete captures on a RETURNING batch transport too 3ms
+     → Driver 'sqlite3' cannot atomically capture selected delete rows.
+   ✓ N4-25: a captured selected bulk mutation on a batch-only transport > the live route answers the same rows 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-captured-bulk.test.ts > N4-25: a captured selected bulk mutation on a batch-only transport > a selected deleteMany publishes every captured row and removes them
+TransactionError: Driver 'sqlite3' cannot atomically capture selected deleteMany rows.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-captured-bulk.test.ts > N4-25: a captured selected bulk mutation on a batch-only transport > a selected updateMany publishes the rows it wrote
+TransactionError: Driver 'sqlite3' cannot atomically capture selected updateMany rows.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-captured-bulk.test.ts > N4-25: a captured selected bulk mutation on a batch-only transport > a captured row lost between the capture and the batch aborts before the write
+AssertionError: The validation function is expected to return "true". Received false
+
+Caught error:
+
+TransactionError: Driver 'sqlite3' cannot atomically capture selected deleteMany rows.
+
+[32m- Expected:[39m 
+[Function anonymous]
+
+[31m+ Received:[39m 
+TransactionError {
+  "message": "Driver 'sqlite3' cannot atomically capture selected deleteMany rows.",
+  "code": "V5001",
+  "originalCause": undefined,
+  "meta": {
+    "correlationId": "2fd26cbd-6ddd-4170-a405-2985383d1f07",
+    "model": "post",
+    "operation": "deleteMany",
+  },
+  "timestamp": 2026-09-20T05:47:25.278Z,
+  "name": "TransactionError",
+}
+
+ ❯ tests/raptor3/g4/parity/batch-captured-bulk.test.ts:125:5
+    123|       database.exec(`DELETE FROM "n4p_posts" WHERE "id" = 'p1'`);
+    124|     };
+    125|     await assert.rejects(
+       |     ^
+    126|       client.post.deleteMany({
+    127|         where: { userId: "u1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-captured-bulk.test.ts > N4-25: a captured selected bulk mutation on a batch-only transport > a row that JOINED the selection after the capture aborts before the write
+AssertionError: The validation function is expected to return "true". Received false
+
+Caught error:
+
+TransactionError: Driver 'sqlite3' cannot atomically capture selected updateMany rows.
+
+[32m- Expected:[39m 
+[Function anonymous]
+
+[31m+ Received:[39m 
+TransactionError {
+  "message": "Driver 'sqlite3' cannot atomically capture selected updateMany rows.",
+  "code": "V5001",
+  "originalCause": undefined,
+  "meta": {
+    "correlationId": "92a0aadc-4619-4a03-997b-f4c2ee334f31",
+    "model": "post",
+    "operation": "updateMany",
+  },
+  "timestamp": 2026-09-20T05:47:25.282Z,
+  "name": "TransactionError",
+}
+
+ ❯ tests/raptor3/g4/parity/batch-captured-bulk.test.ts:144:5
+    142|       );
+    143|     };
+    144|     await assert.rejects(
+       |     ^
+    145|       client.post.updateMany({
+    146|         where: { userId: "u1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/batch-captured-bulk.test.ts > N4-25: a captured selected bulk mutation on a batch-only transport > a relation-bearing selected root delete captures on a RETURNING batch transport too
+TransactionError: Driver 'sqlite3' cannot atomically capture selected delete rows.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+   Start at  07:47:23
+   Duration  2.18s (transform 1.20s, setup 11ms, collect 1.86s, tests 43ms, environment 0ms, prepare 30ms)
+
+Vitest resources: 4.10s wall, 511.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

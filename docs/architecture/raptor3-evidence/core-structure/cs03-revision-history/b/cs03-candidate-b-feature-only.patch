@@ -1,0 +1,172 @@
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index 6a8e97ef..a94d981e 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -102,6 +102,7 @@ export interface Deletion {
+ export interface SelectedSeries {
+   readonly selection: Selection;
+   readonly analysis: RecordCommand | Deletion;
++  readonly limit?: number;
+   readonly mutation:
+     | { readonly kind: "update"; readonly raw: Input }
+     | { readonly kind: "delete" };
+@@ -1024,12 +1025,13 @@ export class Commands {
+       );
+     }
+     if (ctx.operation === "deleteMany") {
+-      if (args.limit !== undefined || args.select || args.omit) {
++      if (args.select || args.omit) {
+         throw new UnsupportedOperationError(
+-          "Raptor 3 G3P-03 deleteMany limit and returning are not implemented."
++          "Raptor 3 G3P-03 deleteMany returning is not implemented."
+         );
+       }
+-      return ctx.deleteMany(model, args.where);
++      if (args.limit === 0) return { count: 0 };
++      return ctx.deleteMany(model, args.where, args.limit);
+     }
+     if (ctx.operation === "upsert") {
+       const missing = this.create(model, args.create!, raw.create!);
+@@ -1104,19 +1106,21 @@ export class Commands {
+       return this.execution.complete(this.analyze(root), args);
+     }
+     const updateData = args.data;
+-    if (args.limit !== undefined || args.select || args.omit) {
++    if (args.select || args.omit) {
+       throw new UnsupportedOperationError(
+-        "Raptor 3 G3P-03 updateMany limit and returning are not implemented."
++        "Raptor 3 G3P-03 updateMany returning is not implemented."
+       );
+     }
+     const relationBearing = model["~"].relationNames.some(
+       (name) => updateData[name] !== undefined
+     );
++    if (args.limit === 0) return { count: 0 };
+     if (!relationBearing) {
+       return ctx.updateMany(
+         model,
+         args.where,
+-        ctx.schema.scalars(model, updateData)
++        ctx.schema.scalars(model, updateData),
++        args.limit
+       );
+     }
+     const selection = this.lookup(
+@@ -1128,6 +1132,7 @@ export class Commands {
+     const series: SelectedSeries = {
+       selection,
+       analysis,
++      limit: args.limit,
+       mutation: { kind: "update", raw: raw.data },
+     };
+     const occurrence = this.analyzeSeries(series);
+diff --git a/src/query-engine/raptor3/commands/execution.ts b/src/query-engine/raptor3/commands/execution.ts
+index 962a7fb8..c7f675b7 100644
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -618,6 +618,7 @@ export class CommandExecution {
+         selection.model,
+         {
+           orderBy: Object.fromEntries(keys.map((field) => [field, "asc"])),
++          take: series.limit,
+         },
+         membership && {
+           edge: membership.edge,
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index ea4fb1aa..505b1e05 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -640,7 +640,8 @@ export class OperationContext {
+   async updateMany(
+     model: AnyModel,
+     where: Input | undefined,
+-    values: Input
++    values: Input,
++    limit?: number
+   ): Promise<unknown> {
+     const q = this.queries;
+     const adapter = this.driver.adapter;
+@@ -650,11 +651,15 @@ export class OperationContext {
+         q.updateValue(model, field, value)
+       )
+     );
+-    const statement = adapter.mutations.update(
++    const limited = q.lowerMutationLimit(model, where, limit);
++    const mutation = adapter.mutations.update(
+       q.table(model),
+       sql.join(assignments, ", "),
+-      q.lowerWhere(model, where)
++      limited.where
+     );
++    const statement = limited.suffix
++      ? sql`${mutation} ${limited.suffix}`
++      : mutation;
+     return this.setMutation(
+       statement,
+       this.statementContext(model, "updateMany"),
+@@ -663,13 +668,16 @@ export class OperationContext {
+   }
+   async deleteMany(
+     model: AnyModel,
+-    where: Input | undefined
++    where: Input | undefined,
++    limit?: number
+   ): Promise<unknown> {
++    const limited = this.queries.lowerMutationLimit(model, where, limit);
++    const mutation = this.driver.adapter.mutations.delete(
++      this.queries.table(model),
++      limited.where
++    );
+     return this.setMutation(
+-      this.driver.adapter.mutations.delete(
+-        this.queries.table(model),
+-        this.queries.lowerWhere(model, where)
+-      ),
++      limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation,
+       this.statementContext(model, "deleteMany"),
+       (result) => ({ count: result.rowCount })
+     );
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 75cd980c..5afcf343 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -408,6 +408,39 @@ export class Queries {
+   ): Sql | undefined {
+     return this.lowerSelector(this.prepareSelector(model, where), alias);
+   }
++  lowerMutationLimit(
++    model: AnyModel,
++    where: Input | undefined,
++    limit: number | undefined
++  ): { readonly where?: Sql; readonly suffix?: Sql } {
++    const adapter = this.adapter;
++    const lowered = this.lowerWhere(model, where);
++    if (limit === undefined) return { where: lowered };
++    if (adapter.capabilities.supportsMutationRowLimit)
++      return {
++        where: lowered,
++        suffix: adapter.clauses.limit(this.value(limit)),
++      };
++    const alias = this.alias();
++    const keys = this.schema.keys(model);
++    const targetColumns = keys.map((field) => this.column(model, field));
++    const selectedColumns = keys.map((field) =>
++      this.column(model, field, alias)
++    );
++    const target =
++      targetColumns.length === 1
++        ? targetColumns[0]!
++        : sql`(${sql.join(targetColumns, ", ")})`;
++    const capped = assembleAdapterSelect(adapter, {
++      columns: sql.join(selectedColumns, ", "),
++      from: this.table(model, alias),
++      where: this.lowerWhere(model, where, alias),
++      limit: this.value(limit),
++    });
++    return {
++      where: adapter.operators.in(target, adapter.subqueries.scalar(capped)),
++    };
++  }
+   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
+     return this.adapter.operators.and(
+       ...Object.entries(identity).map(([field, value]) =>

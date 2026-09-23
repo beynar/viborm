@@ -7,6 +7,12 @@ import {
 } from "./scripts/driver-test-manifest.mjs";
 import { MIGRATION_COVERAGE_TESTS } from "./scripts/migration-test-manifest.mjs";
 import {
+  RAPTOR3_LIVE_PROVIDER_TESTS,
+  RAPTOR3_PROVIDER_TESTS,
+  RAPTOR3_DETERMINISTIC_TESTS,
+  RAPTOR3_PROJECT_TESTS,
+} from "./scripts/raptor3-manifest.mjs";
+import {
   QUERY_ENGINE_CORE_TESTS,
   WRITE_ENGINE_CORE_TESTS,
   WRITE_ENGINE_COVERAGE_TESTS,
@@ -43,6 +49,36 @@ const coverageProject = (name: string, include: string[]) => ({
 });
 
 export default defineWorkspace([
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      // The engine measured by its own deterministic estate: the query-engine
+      // coverage subsystem runs this project beside the contract layers.
+      name: "coverage-raptor3",
+      include: [...RAPTOR3_DETERMINISTIC_TESTS],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "raptor3",
+      include: [...RAPTOR3_PROJECT_TESTS],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "raptor3-provider",
+      include: [...RAPTOR3_PROVIDER_TESTS],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "raptor3-live-provider",
+      include: [...RAPTOR3_LIVE_PROVIDER_TESTS],
+    },
+  },
   layerProject("validation", ["tests/unit/validation/**/*.core.test.ts"]),
   layerProject("scalars", ["tests/unit/scalars/**/*.core.test.ts"]),
   layerProject("operation-schemas", [
@@ -54,7 +90,7 @@ export default defineWorkspace([
   ]),
   layerProject("schema-json", ["tests/unit/schema-json/**/*.core.test.ts"]),
   layerProject("query-engine", [...QUERY_ENGINE_CORE_TESTS]),
-  // The write core is its own layer rather than 56 more files inside
+  // The write core is its own layer rather than more files inside
   // layer-query-engine, which is already the widest layer in the estate.
   // `pnpm test:core` selects `layer-*`, so a new layer name is admitted for
   // free, and each engine half then owns a whole 30 second layer budget instead
@@ -133,10 +169,7 @@ export default defineWorkspace([
     extends: "./vitest.config.ts",
     test: {
       name: "coverage-errors",
-      include: [
-        "tests/contracts/public-client/errors/**/*.test.ts",
-        "tests/unit/validation/boundaries.core.test.ts",
-      ],
+      include: ["tests/contracts/public-client/errors/**/*.test.ts"],
     },
   },
   {
@@ -186,11 +219,12 @@ export default defineWorkspace([
     "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
     "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
     "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
+    "tests/unit/migrations/mysql-defaults-docker.test.ts",
   ]),
   providerProject("transaction-options", [
     "tests/providers/docker/transaction-options-live.test.ts",
   ]),
-  providerProject("neon-http", ["tests/providers/hosted/neon-http.test.ts"]),
+  providerProject("neon-http", ["tests/providers/hosted/neon-http*.test.ts"]),
   providerProject("planetscale", [
     "tests/providers/hosted/planetscale.test.ts",
   ]),

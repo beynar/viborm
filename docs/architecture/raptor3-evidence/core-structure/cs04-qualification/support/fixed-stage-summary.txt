@@ -1,0 +1,5 @@
+Registered fixed modes: 31 receipts, 1,095 tests passed, 0 failed.
+Credential-free fixed aggregate: 55 files, 717 tests passed, 0 failed. This includes the final repeated-occurrence ownership suite at 5/5.
+The evidence-capture rerun used the existing run-vitest-safe owner with heap 768 MiB, RSS ceiling 1,536 MiB, wall limit 120,000 ms, workspace vitest.workspace.ts, project raptor3, and the exact RAPTOR3_FIXED_LOCAL_TESTS list archived at raw/credential-free-fixed/files.json. It passed in 12.91 seconds with 831.9 MiB peak sampled process-group RSS and verified teardown.
+The raw JSON report, exact identity, resource log, selected file list, and empty reporter stdout are under raw/credential-free-fixed/.
+Identity: production 36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377; harness 87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e; Node v24.21.0.

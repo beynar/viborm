@@ -1,0 +1,48 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-admission.test.ts (5 tests | 1 failed) 37ms
+   ✓ G4-03 C13 candidate admission, results and refusals > one admitted input is evaluated exactly once, request transform first 19ms
+   ✓ G4-03 C13 candidate admission, results and refusals > the same admission count as the shipped route for the same payload 6ms
+   × G4-03 C13 candidate admission, results and refusals > an unsupported verb keeps the candidate's refusal and never falls back 6ms
+     → The input did not match the regular expression /Raptor 3 G1 operation is not implemented/. Input:
+
+'no refusal'
+
+   ✓ G4-03 C13 candidate admission, results and refusals > results are fresh containers and errors keep their public identity 4ms
+   ✓ G4-03 C13 candidate admission, results and refusals > a findUnique miss answers null on both routes 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-admission.test.ts > G4-03 C13 candidate admission, results and refusals > an unsupported verb keeps the candidate's refusal and never falls back
+AssertionError: The input did not match the regular expression /Raptor 3 G1 operation is not implemented/. Input:
+
+'no refusal'
+
+
+[32m- Expected:[39m 
+/Raptor 3 G1 operation is not implemented/
+
+[31m+ Received:[39m 
+"no refusal"
+
+ ❯ tests/raptor3/g4/route-admission.test.ts:159:14
+    157|     }
+    158|     for (const refusal of refusals) {
+    159|       assert.match(refusal, UNIMPLEMENTED_VERB);
+       |              ^
+    160|     }
+    161|     // No statement ran: the refusal precedes provider work and no shi…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  02:44:30
+   Duration  1.90s (transform 1.15s, setup 8ms, collect 1.71s, tests 37ms, environment 0ms, prepare 34ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FtTiEQ/vitest.json
+Vitest resources: 4.05s wall, 526.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FtTiEQ
+exit=1

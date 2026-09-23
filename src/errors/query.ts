@@ -435,6 +435,39 @@ export function isNotFoundError(error: unknown): error is NotFoundError {
 }
 
 /**
+ * Keep the execution failure primary while retaining every listener failure.
+ *
+ * ONE composition for the whole estate, stated at the boundary all three of its
+ * consumers already depend on: the client (`client.ts`, `raw.ts`,
+ * `array-transaction.ts`), the query engine's deferred operation
+ * (`pending-operation.ts`) and the candidate engine's operation context. It is
+ * pure — a primary, the listener failures flattened out of the publication
+ * owner's aggregate, and the primary again as `cause` — so it belongs beside the
+ * query failures it composes rather than inside the extension publication owner
+ * that raises one half of it. The candidate engine takes no `@extensions`
+ * import anywhere today, and importing that owner would add
+ * `src/extensions/query.ts` and `src/query-engine/routed-operations.ts` to
+ * `raptor3/shared/operation-context.ts`'s runtime closure (181 → 183). A
+ * directory cycle is not what this placement avoids: the engine→extensions
+ * runtime edge already exists — `query-engine/pending-operation.ts` holds it
+ * for the shipped path — and is pre-existing. A second restatement inside the
+ * engine was the duplication FC-05 deleted.
+ */
+export function retainWriteOutcomeFailure(
+  primary: unknown,
+  outcomeFailure: unknown,
+  message = "Query execution and write-outcome publication both failed."
+): AggregateError {
+  const suppressed =
+    outcomeFailure instanceof AggregateError
+      ? [...outcomeFailure.errors]
+      : [outcomeFailure];
+  return new AggregateError([primary, ...suppressed], message, {
+    cause: primary,
+  });
+}
+
+/**
  * Unsupported vector operations
  *
  * Use this to override adapter.vector when pgvector is not available.

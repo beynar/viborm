@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts (4 tests) 41ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  15:15:16
+   Duration  2.58s (transform 1.58s, setup 10ms, collect 2.34s, tests 41ms, environment 0ms, prepare 34ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-q3sMPC/vitest.json
+Vitest resources: 5.24s wall, 529.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-lifecycle-admission contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-q3sMPC
+EXIT-g4-lifecycle-admission=0

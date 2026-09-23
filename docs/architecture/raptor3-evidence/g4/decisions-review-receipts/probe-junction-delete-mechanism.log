@@ -1,0 +1,39 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts > G4-02 decisions review — R-B5's mechanism, in statements > places the junction link removal BEFORE the target deletion, and only there
+[junction delete]
+  shipped   ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_links","DELETE FROM g4r2d_tags"] (of 5 statements)
+  candidate ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_links","DELETE FROM g4r2d_tags"] (of 5 statements)
+
+stdout | tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts > G4-02 decisions review — R-B5's mechanism, in statements > places the junction link removal BEFORE the target deletion, and only there
+[junction disconnect]
+  shipped   ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_links"] (of 3 statements)
+  candidate ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_links"] (of 4 statements)
+
+stdout | tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts > G4-02 decisions review — R-B5's mechanism, in statements > places the junction link removal BEFORE the target deletion, and only there
+[reference-held delete]
+  shipped   ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_notes"] (of 4 statements)
+  candidate ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_notes"] (of 4 statements)
+
+stdout | tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts > G4-02 decisions review — R-B5's mechanism, in statements > places the junction link removal BEFORE the target deletion, and only there
+[junction set to empty]
+  shipped   ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_links"] (of 3 statements)
+  candidate ok:{"id":"o1","name":"winner"}
+            writes ["DELETE FROM g4r2d_links"] (of 3 statements)
+
+ ✓ |g4-review-unit02-decisions| tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts (1 test) 52ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:00:20
+   Duration  2.17s (transform 1.37s, setup 10ms, collect 1.98s, tests 52ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 2.71s wall, 466.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

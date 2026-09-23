@@ -1,0 +1,118 @@
+=== 02:23:22 cs01-extension-a ===
+cs01-extension-a exit=0 Tests  6 passed (6)
+=== 02:23:25 cs01-extension-b ===
+cs01-extension-b exit=0 Tests  4 passed (4)
+=== 02:23:28 cs01-extension-composition ===
+cs01-extension-composition exit=0 Tests  4 passed (4)
+=== 02:23:31 cs01-structural-reference ===
+cs01-structural-reference exit=0 Tests  10 passed (10)
+=== 02:23:34 cs03-member-scope ===
+cs03-member-scope exit=0 Tests  8 passed (8)
+=== 02:23:37 g0 ===
+g0 exit=0 Tests  33 passed (33)
+=== 02:23:42 g1-baseline ===
+g1-baseline exit=0 Tests  141 passed (141)
+=== 02:23:45 g1-compare ===
+g1-compare exit=0 Tests  66 passed (66)
+=== 02:23:48 g1-contracts ===
+g1-contracts exit=0 Tests  143 passed (143)
+=== 02:23:52 g1-generated ===
+g1-generated exit=0 Tests  35 passed (35)
+=== 02:23:56 g1-transport ===
+g1-transport exit=0 Tests  44 passed (44)
+=== 02:23:59 g2-baseline ===
+g2-baseline exit=0 Tests  216 passed (216)
+=== 02:24:04 g2-contracts ===
+g2-contracts exit=0 Tests  216 passed (216)
+=== 02:24:09 g2-diagnostics ===
+g2-diagnostics exit=0 Tests  2 passed (2)
+=== 02:24:12 g2-generated ===
+g2-generated exit=0 Tests  52 passed (52)
+=== 02:24:16 g2-transport ===
+g2-transport exit=0 Tests  16 passed (16)
+=== 02:24:20 g25-contracts ===
+g25-contracts exit=0 Tests  6 passed (6)
+=== 02:24:23 g27-contracts ===
+g27-contracts exit=0 Tests  6 passed (6)
+=== 02:24:26 g29-dependency-boundaries ===
+g29-dependency-boundaries exit=0 Tests  4 passed (4)
+=== 02:24:29 g29-dependency-choices ===
+g29-dependency-choices exit=0 Tests  10 passed (10)
+=== 02:24:32 g29-member-dependency ===
+g29-member-dependency exit=0 Tests  14 passed (14)
+=== 02:24:36 g29-result-progress ===
+g29-result-progress exit=0 Tests  2 passed (2)
+=== 02:24:39 g3-author-execution-regressions ===
+g3-author-execution-regressions exit=0 Tests  3 passed (3)
+=== 02:24:42 g3-bulk-result-boundary ===
+g3-bulk-result-boundary exit=0 Tests  5 passed (5)
+=== 02:24:45 g3-bulk-series ===
+g3-bulk-series exit=0 Tests  6 passed (6)
+=== 02:24:48 g3-depth-recurrence ===
+g3-depth-recurrence exit=0 Tests  6 passed (6)
+=== 02:24:52 g3-execution-review ===
+g3-execution-review exit=0 Tests  6 passed (6)
+=== 02:24:55 g3-generated-minimization ===
+g3-generated-minimization exit=0 Tests  1 passed (1)
+=== 02:24:58 g3-generated-smoke ===
+g3-generated-smoke exit=0 Tests  6 passed (6)
+=== 02:25:01 g3-generated-transport-smoke ===
+g3-generated-transport-smoke exit=0 Tests  1 passed (1)
+=== 02:25:05 g3-scope-failure ===
+g3-scope-failure exit=0 Tests  2 passed (2)
+=== 02:25:08 g3-suppression-retry ===
+g3-suppression-retry exit=0 Tests  2 passed (2)
+=== 02:25:11 g3-transaction-array ===
+g3-transaction-array exit=0 Tests  4 passed (4)
+=== 02:25:14 g3p02-contracts ===
+g3p02-contracts exit=0 Tests  4 passed (4)
+=== 02:25:17 g3p03-contracts ===
+g3p03-contracts exit=0 Tests  6 passed (6)
+=== 02:25:20 g3p04-contracts ===
+g3p04-contracts exit=0 Tests  5 passed (5)
+=== 02:25:24 g3p04-review-contracts ===
+g3p04-review-contracts exit=0 Tests  5 passed (5)
+=== 02:25:27 g3p05-contracts ===
+g3p05-contracts exit=0 Tests  21 passed (21)
+=== 02:25:30 g3p05-recursive-read-fit ===
+g3p05-recursive-read-fit exit=0 Tests  6 passed (6)
+=== 02:25:33 g3p05-selector-dependencies ===
+g3p05-selector-dependencies exit=0 Tests  11 passed (11)
+=== 02:25:36 g3p05-variant-collection-order ===
+g3p05-variant-collection-order exit=0 Tests  4 passed (4)
+=== 02:25:40 g4-generation-selftests ===
+g4-generation-selftests exit=0 Tests  6 passed (6)
+=== 02:25:43 g4-read-aggregates ===
+g4-read-aggregates exit=0 Tests  5 passed (5)
+=== 02:25:46 g4-read-codecs ===
+g4-read-codecs exit=0 Tests  12 passed (12)
+=== 02:25:49 g4-read-contracts ===
+g4-read-contracts exit=0 Tests  62 passed (62)
+=== 02:25:53 g4-read-filters ===
+g4-read-filters exit=0 Tests  13 passed (13)
+=== 02:25:56 g4-read-operations ===
+g4-read-operations exit=0 Tests  11 passed (11)
+=== 02:26:00 g4-read-ordering ===
+g4-read-ordering exit=0 Tests  5 passed (5)
+=== 02:26:03 g4-read-pagination ===
+g4-read-pagination exit=0 Tests  6 passed (6)
+=== 02:26:06 g4-read-projection ===
+g4-read-projection exit=0 Tests  7 passed (7)
+=== 02:26:09 g4-read-recursive-fit ===
+g4-read-recursive-fit exit=0 Tests  3 passed (3)
+=== 02:26:12 g4-unit01-author ===
+g4-unit01-author exit=0 Tests  83 passed (83)
+=== 02:26:16 g4-unit01-review ===
+g4-unit01-review exit=0 Tests  198 passed (198)
+=== 02:26:20 g4-unit02-author ===
+g4-unit02-author exit=0 Tests  130 passed (130)
+=== 02:26:25 post-g3-clearability-contracts ===
+post-g3-clearability-contracts exit=0 Tests  4 passed (4)
+=== 02:26:28 post-g3-history-analysis ===
+post-g3-history-analysis exit=0 Tests  5 passed (5)
+=== 02:26:31 post-g3-projection-preparation ===
+post-g3-projection-preparation exit=0 Tests  4 passed (4)
+=== 02:26:34 post-g3-schema-views ===
+post-g3-schema-views exit=0 Tests  1 passed (1)
+=== 02:26:36 post-g3-selector-preparation ===
+post-g3-selector-preparation exit=0 Tests  4 passed (4)

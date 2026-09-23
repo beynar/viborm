@@ -1,0 +1,38 @@
+lateral: true params: 13
+PostgreSQL 17.4 on x86_64-pc-linux-gnu
+Index Only Scan using plan_tree_pkey on plan_tree q0  (cost=0.15..100000000823.19 rows=1 width=64)
+  Index Cond: (id = 'root'::text)
+  SubPlan 4
+    ->  Subquery Scan on q12  (cost=100000000815.01..100000000815.03 rows=1 width=32)
+          ->  Result  (cost=100000000815.01..100000000815.02 rows=1 width=64)
+                CTE __q1_recursive
+                  ->  Recursive Union  (cost=0.15..100000000671.33 rows=134 width=100)
+                        ->  Index Scan using plan_tree_pkey on plan_tree q2  (cost=0.15..59.02 rows=4 width=100)
+                              Filter: (q0.id = "parentId")
+                        ->  Hash Join  (cost=10000000039.25..10000000061.10 rows=13 width=100)
+                              Hash Cond: (q5."parentId" = q4.id)
+                              ->  Seq Scan on plan_tree q5  (cost=10000000000.00..10000000018.50 rows=850 width=64)
+                              ->  Hash  (cost=39.08..39.08 rows=13 width=100)
+                                    ->  Nested Loop  (cost=0.15..39.08 rows=13 width=100)
+                                          ->  WorkTable Scan on __q1_recursive q3  (cost=0.00..0.90 rows=13 width=68)
+                                                Filter: (__q1_depth < 40)
+                                          ->  Index Only Scan using plan_tree_pkey on plan_tree q4  (cost=0.15..2.94 rows=1 width=32)
+                                                Index Cond: (id = q3.__q1_child_0)
+                InitPlan 2
+                  ->  Aggregate  (cost=70.13..70.14 rows=1 width=32)
+                        ->  Merge Join  (cost=7.56..68.78 rows=134 width=32)
+                              Merge Cond: (q3_1.__q1_child_0 = q7.id)
+                              ->  Unique  (cost=7.41..8.08 rows=134 width=32)
+                                    ->  Sort  (cost=7.41..7.75 rows=134 width=32)
+                                          Sort Key: q3_1.__q1_child_0
+                                          ->  CTE Scan on __q1_recursive q3_1  (cost=0.00..2.68 rows=134 width=32)
+                              ->  Index Only Scan using plan_tree_pkey on plan_tree q7  (cost=0.15..56.90 rows=850 width=32)
+                InitPlan 3
+                  ->  Aggregate  (cost=73.53..73.54 rows=1 width=32)
+                        ->  Sort  (cost=71.52..71.86 rows=134 width=96)
+                              Sort Key: q8.__q1_parent_0, q9.id
+                              ->  Hash Join  (cost=4.50..66.79 rows=134 width=96)
+                                    Hash Cond: (q9.id = q8.__q1_child_0)
+                                    ->  Index Only Scan using plan_tree_pkey on plan_tree q9  (cost=0.15..56.90 rows=850 width=32)
+                                    ->  Hash  (cost=2.68..2.68 rows=134 width=68)
+                                          ->  CTE Scan on __q1_recursive q8  (cost=0.00..2.68 rows=134 width=68)

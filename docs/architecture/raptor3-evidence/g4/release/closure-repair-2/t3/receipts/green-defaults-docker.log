@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ✓ |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts (4 tests) 535ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  23:24:36
+   Duration  1.95s (transform 853ms, setup 9ms, collect 1.29s, tests 535ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.66s wall, 534.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,141 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02/repair-read-facts.review.test.ts > G4-02 review (repair) — published read facts over a wide matrix > prepare().read never throws and `single` agrees with the published value
+WIDEREADFACTS [
+ {
+  "label": "findUnique {\"where\":{\"id\":1}}",
+  "single": true,
+  "empty": null,
+  "published": "object"
+ },
+ {
+  "label": "findUnique {\"where\":{\"id\":999}}",
+  "single": true,
+  "empty": null,
+  "published": "null"
+ },
+ {
+  "label": "findUnique {\"where\":{\"id\":1},\"include\":{\"posts\":true}}",
+  "single": true,
+  "empty": null,
+  "published": "object"
+ },
+ {
+  "label": "findUnique {\"where\":{\"id\":1},\"select\":{\"posts\":{\"select\":{\"id\":true}}}}",
+  "single": true,
+  "empty": null,
+  "published": "object"
+ },
+ {
+  "label": "findUnique {\"where\":{\"id\":1},\"select\":{\"_count\":{\"select\":{\"posts\":true}}}}",
+  "single": true,
+  "empty": null,
+  "published": "object"
+ },
+ {
+  "label": "findFirst {\"orderBy\":{\"age\":\"desc\"}}",
+  "single": true,
+  "empty": null,
+  "published": "object"
+ },
+ {
+  "label": "findFirst {\"where\":{\"age\":{\"gt\":1000}}}",
+  "single": true,
+  "empty": null,
+  "published": "null"
+ },
+ {
+  "label": "findMany {}",
+  "single": false,
+  "empty": [],
+  "published": "array"
+ },
+ {
+  "label": "findMany {\"take\":1,\"skip\":1,\"orderBy\":{\"id\":\"asc\"}}",
+  "single": false,
+  "empty": [],
+  "published": "array"
+ },
+ {
+  "label": "findMany {\"distinct\":[\"age\"]}",
+  "single": false,
+  "empty": [],
+  "published": "array"
+ },
+ {
+  "label": "findMany {\"cursor\":{\"id\":1},\"orderBy\":{\"id\":\"asc\"},\"take\":1}",
+  "single": false,
+  "empty": [],
+  "published": "array"
+ },
+ {
+  "label": "findMany {\"include\":{\"posts\":{\"take\":1,\"orderBy\":{\"id\":\"asc\"}}}}",
+  "single": false,
+  "empty": [],
+  "published": "array"
+ },
+ {
+  "label": "count {}",
+  "single": false,
+  "empty": 0,
+  "published": "number"
+ },
+ {
+  "label": "count {\"where\":{\"age\":{\"gt\":1000}}}",
+  "single": false,
+  "empty": 0,
+  "published": "number"
+ },
+ {
+  "label": "count {\"select\":{\"_all\":true,\"age\":true}}",
+  "single": true,
+  "empty": {},
+  "published": "object"
+ },
+ {
+  "label": "exist {}",
+  "single": false,
+  "empty": false,
+  "published": "boolean"
+ },
+ {
+  "label": "exist {\"where\":{\"age\":{\"gt\":1000}}}",
+  "single": false,
+  "empty": false,
+  "published": "boolean"
+ },
+ {
+  "label": "aggregate {\"_count\":true}",
+  "single": true,
+  "empty": {},
+  "published": "object"
+ },
+ {
+  "label": "aggregate {\"_avg\":{\"age\":true},\"_sum\":{\"age\":true},\"_min\":{\"age\":true},\"_max\":{\"age\":true}}",
+  "single": true,
+  "empty": {},
+  "published": "object"
+ },
+ {
+  "label": "groupBy {\"by\":[\"age\"],\"_count\":true}",
+  "single": false,
+  "empty": [],
+  "published": "array"
+ },
+ {
+  "label": "groupBy {\"by\":[\"age\"],\"_count\":true,\"having\":{\"age\":{\"_min\":{\"gt\":1000}}}}",
+  "single": false,
+  "empty": [],
+  "published": "array"
+ }
+]
+
+ ✓ |g4-review-unit02| tests/raptor3/g4/review/unit02/repair-read-facts.review.test.ts (2 tests) 34ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  04:22:41
+   Duration  1.99s (transform 1.26s, setup 9ms, collect 1.82s, tests 34ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.53s wall, 465.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

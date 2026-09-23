@@ -1,0 +1,48 @@
+# R4 — falsifications of tests/raptor3/g4/parity/read-only-build-contract.test.ts
+cwd: /private/tmp/viborm-r4  HEAD: cdd787ac8bbdb735535552dd5851a4758eb8789c  TMPDIR=/private/tmp/viborm-r4-tmp
+date: 2026-09-21T08:23:54Z
+Each mutation is applied under a BACKUP COPY discipline (cp to $TMPDIR, restore by cp);
+no git checkout was used, and src/ is clean afterwards.
+
+## 0. GREEN on the unmutated tree
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/read-only-build-contract.test.ts (3 tests) 11ms
+ ✓ |raptor3| tests/raptor3/g4/parity/read-only-build-contract.test.ts (3 tests) 10ms
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+## 1. A verb added to ROUTED_OPERATIONS that this contract has no answer for
+   src/query-engine/routed-operations.ts: + "createManyAndReturn"
+   × R4 — the read-only build contract (D-64) > every read name in the engine's vocabulary builds one statement, once 4ms
+     → the engine's operation vocabulary changed; this contract has no answer for the new name
+   × R4 — the read-only build contract (D-64) > every write name refuses through both accessors, nested payloads included 2ms
+     → create, update, delete, upsert, createMany, updateMany, deleteMany, createManyAndReturn
+   ✓ R4 — the read-only build contract (D-64) > the write the previous engine could fold into one statement stays refused on a RETURNING dialect 5ms
+   × R4 — the read-only build contract (D-64) > every read name in the engine's vocabulary builds one statement, once 4ms
+     → the engine's operation vocabulary changed; this contract has no answer for the new name
+   × R4 — the read-only build contract (D-64) > every write name refuses through both accessors, nested payloads included 2ms
+     → create, update, delete, upsert, createMany, updateMany, deleteMany, createManyAndReturn
+   ✓ R4 — the read-only build contract (D-64) > the write the previous engine could fold into one statement stays refused on a RETURNING dialect 4ms
+
+## 2. The registered refusal sentence reworded
+   src/query-engine/query-engine.ts: "does not compile to one SQL statement." -> "cannot be built."
+   ✓ R4 — the read-only build contract (D-64) > every read name in the engine's vocabulary builds one statement, once 7ms
+   × R4 — the read-only build contract (D-64) > every write name refuses through both accessors, nested payloads included 6ms
+   × R4 — the read-only build contract (D-64) > the write the previous engine could fold into one statement stays refused on a RETURNING dialect 1ms
+   ✓ R4 — the read-only build contract (D-64) > every read name in the engine's vocabulary builds one statement, once 8ms
+   × R4 — the read-only build contract (D-64) > every write name refuses through both accessors, nested payloads included 4ms
+   × R4 — the read-only build contract (D-64) > the write the previous engine could fold into one statement stays refused on a RETURNING dialect 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  4 failed | 2 passed (6)
+
+## 3. A second lowering behind buildStatement() (equal statement, distinct object)
+   src/query-engine/pending-operation.ts: buildStatement() answers a structural copy
+   × R4 — the read-only build contract (D-64) > every read name in the engine's vocabulary builds one statement, once 9ms
+   ✓ R4 — the read-only build contract (D-64) > every write name refuses through both accessors, nested payloads included 2ms
+   ✓ R4 — the read-only build contract (D-64) > the write the previous engine could fold into one statement stays refused on a RETURNING dialect 1ms
+   × R4 — the read-only build contract (D-64) > every read name in the engine's vocabulary builds one statement, once 10ms
+   ✓ R4 — the read-only build contract (D-64) > every write name refuses through both accessors, nested payloads included 2ms
+   ✓ R4 — the read-only build contract (D-64) > the write the previous engine could fold into one statement stays refused on a RETURNING dialect 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 4 passed (6)
+
+src/ restored by cp from the backups; `git status --porcelain src/` is empty afterwards.

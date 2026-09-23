@@ -1,0 +1,18 @@
+tests/raptor3/g4/parity/batch-captured-bulk.test.ts(126,7): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'PendingOperation<BulkProjectionRows<UpdateState<UpdateState<ModelState, { shape: { id: StringScalar<UpdateState<{ type: "string"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; autoGenerate: undefined; ... 5 more ...; base: StringSchema<...>; }, { ...; }...' is not assignable to parameter of type 'Promise<unknown> | (() => Promise<unknown>)'.
+      Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<BulkProjectionRows<UpdateState<UpdateState<ModelState, { shape: { id: StringScalar<UpdateState<{ type: "string"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; autoGenerate: undefined; ... 5 more ...; base: StringSchema<...>; }, { ...; }...' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/parity/batch-captured-bulk.test.ts(145,7): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'PendingOperation<BulkProjectionRows<UpdateState<UpdateState<ModelState, { shape: { id: StringScalar<UpdateState<{ type: "string"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; autoGenerate: undefined; ... 5 more ...; base: StringSchema<...>; }, { ...; }...' is not assignable to parameter of type 'Promise<unknown> | (() => Promise<unknown>)'.
+      Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<BulkProjectionRows<UpdateState<UpdateState<ModelState, { shape: { id: StringScalar<UpdateState<{ type: "string"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; autoGenerate: undefined; ... 5 more ...; base: StringSchema<...>; }, { ...; }...' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/parity/postgres-declared-type-scratch.test.ts(144,7): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'PendingOperation<{ first: number; label: string; second: number; }>' is not assignable to parameter of type 'Promise<unknown> | (() => Promise<unknown>)'.
+      Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ first: number; label: string; second: number; }>' but required in type 'Promise<unknown>'.
+tests/raptor3/g4/parity/postgres-declared-type-scratch.test.ts(158,7): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'PendingOperation<{ code: string | null; id: number; label: string; }>' is not assignable to parameter of type 'Promise<unknown> | (() => Promise<unknown>)'.
+      Property '[Symbol.toStringTag]' is missing in type 'PendingOperation<{ code: string | null; id: number; label: string; }>' but required in type 'Promise<unknown>'.
+tests/raptor3/ownership/commands.test.ts(376,55): error TS2322: Type '"atomic-array"' is not assignable to type '"borrowed-transaction" | "standalone"'.
+TypeScript (whole estate, native): 5.15s wall, 5060.4 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

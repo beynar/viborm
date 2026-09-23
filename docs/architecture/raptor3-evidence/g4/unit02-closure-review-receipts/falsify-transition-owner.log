@@ -1,0 +1,200 @@
+=== identities AFTER reverse-apply (round-4 base expected: schema 07b3df1a…, commands f4ecd7ad…) ===
+07b3df1af03638667abfbb236d739fe947993f9a4f2fd96793ef3bcc46956613  src/query-engine/raptor3/shared/schema.ts
+f4ecd7addff0719e931925275253159748d65e70f9cae741ae8175b06357b0ce  src/query-engine/raptor3/commands/commands.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > pins the pre-value from the DISCRIMINATOR, not from an AND arm (row present)
+[and-arm pin, row present]
+  shipped   QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > pins the pre-value from the DISCRIMINATOR, not from an AND arm (row ABSENT)
+[and-arm pin, row absent]
+  shipped   ok:{"id":99,"code":"nope","label":"fresh"}
+            rows [{"id":6,"code":"c6","label":"o"},{"id":99,"code":"nope","label":"fresh"}]
+  candidate ok:{"id":99,"code":"nope","label":"fresh"}
+            rows [{"id":6,"code":"c6","label":"o"},{"id":99,"code":"nope","label":"fresh"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > does not raise the transition refusal for a COMPOUND reference key (row present)
+[compound reference key, row present]
+  shipped   QueryEngineError: Cannot divide primary key field 'a' by zero.
+            rows [{"a":2,"b":3,"label":"p"}]
+  candidate QueryEngineError: Cannot divide primary key field 'a' by zero.
+            rows [{"a":2,"b":3,"label":"p"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > does not raise the transition refusal for a COMPOUND reference key (row ABSENT)
+[compound reference key, row absent]
+  shipped   ok:{"a":7,"b":8,"label":"fresh"}
+            rows [{"a":2,"b":3,"label":"p"},{"a":7,"b":8,"label":"fresh"}]
+  candidate ok:{"a":7,"b":8,"label":"fresh"}
+            rows [{"a":2,"b":3,"label":"p"},{"a":7,"b":8,"label":"fresh"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > answers a root UPDATE with a child-held relation beside the divide the way shipped does
+[root update, relation-bearing divide, row present]
+  shipped   QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > answers a root UPDATE on an ABSENT row the way shipped does
+[root update, relation-bearing divide, row absent]
+  shipped   QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > answers a bigint key `divide: 0n` beside a child-held relation the way shipped does
+[bigint key divide 0n, row present]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            rows [{"id":9,"label":"b"}]
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":9,"label":"b"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > answers a CONNECT payload on the child-held relation the way shipped does
+[child-held connect beside the divide, row present]
+  shipped   QueryEngineError: Cannot divide a primary key by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+  candidate QueryEngineError: Cannot divide primary key field 'id' by zero.
+            rows [{"id":6,"code":"c6","label":"o"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > answers a relation that does NOT reference the rewritten key the way shipped does
+[relation beside a non-key rewrite]
+  shipped   ok:{"id":6,"code":"c7","label":"o"}
+            rows [{"id":6,"code":"c7","label":"o"}]
+  candidate ok:{"id":6,"code":"c7","label":"o"}
+            rows [{"id":6,"code":"c7","label":"o"}]
+
+ ❯ |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts (9 tests | 2 failed) 98ms
+   ✓ G4-02 closure review — the third key owner's conditions > pins the pre-value from the DISCRIMINATOR, not from an AND arm (row present) 36ms
+   ✓ G4-02 closure review — the third key owner's conditions > pins the pre-value from the DISCRIMINATOR, not from an AND arm (row ABSENT) 11ms
+   ✓ G4-02 closure review — the third key owner's conditions > does not raise the transition refusal for a COMPOUND reference key (row present) 7ms
+   ✓ G4-02 closure review — the third key owner's conditions > does not raise the transition refusal for a COMPOUND reference key (row ABSENT) 7ms
+   ✓ G4-02 closure review — the third key owner's conditions > answers a root UPDATE with a child-held relation beside the divide the way shipped does 6ms
+   ✓ G4-02 closure review — the third key owner's conditions > answers a root UPDATE on an ABSENT row the way shipped does 7ms
+   × G4-02 closure review — the third key owner's conditions > answers a bigint key `divide: 0n` beside a child-held relation the way shipped does 9ms
+     → bigint key divide 0n, row present
+candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":9,"label":"b"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":9,"label":"b"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 9,
+        label: 'b'
+      }
+
+   × G4-02 closure review — the third key owner's conditions > answers a CONNECT payload on the child-held relation the way shipped does 6ms
+     → child-held connect beside the divide, row present
+candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":6,"code":"c6","label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":6,"code":"c6","label":"o"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        code: 'c6',
+        id: 6,
+        label: 'o'
+
+   ✓ G4-02 closure review — the third key owner's conditions > answers a relation that does NOT reference the rewritten key the way shipped does 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > answers a bigint key `divide: 0n` beside a child-held relation the way shipped does
+AssertionError: bigint key divide 0n, row present
+candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":9,"label":"b"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":9,"label":"b"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 9,
+        label: 'b'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 9,[22m
+[2m        "label": "b",[22m
+[2m      },[22m
+
+ ❯ assertSame tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts:181:10
+    179| ) {
+    180|   report(name, pair);
+    181|   assert.deepEqual(
+       |          ^
+    182|     pair.candidate,
+    183|     pair.shipped,
+ ❯ tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts:269:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts > G4-02 closure review — the third key owner's conditions > answers a CONNECT payload on the child-held relation the way shipped does
+AssertionError: child-held connect beside the divide, row present
+candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":6,"code":"c6","label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":6,"code":"c6","label":"o"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        code: 'c6',
+        id: 6,
+        label: 'o'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "code": "c6",[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+
+ ❯ assertSame tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts:181:10
+    179| ) {
+    180|   report(name, pair);
+    181|   assert.deepEqual(
+       |          ^
+    182|     pair.candidate,
+    183|     pair.shipped,
+ ❯ tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts:280:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 7 passed (9)
+   Start at  15:20:51
+   Duration  2.14s (transform 1.32s, setup 11ms, collect 1.91s, tests 98ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 2.68s wall, 483.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== identities RESTORED (closure) ===
+cfbcffd26ad4c3b5aa6eb2a767ce96366a1bf4970d64338932c3530cc1432469  src/query-engine/raptor3/shared/schema.ts
+820f6204765936568bd23d3381006dd24a82b9eced769fc53ae1a8f2e48cffa5  src/query-engine/raptor3/commands/commands.ts

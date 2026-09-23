@@ -1,0 +1,270 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts (1 test | 1 failed) 52ms
+   × collects the frozen CS-02 structural work matrix 51ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
++   activationIds: [],
+-   activationIds: [
+-     'activation:structure/depth-create/1:attempt/0/unconditional'
+-   ],
+    commandIds: [
+      'command:structure/depth-create/1:root',
+      'command:structure/depth-create/1:root/children/0'
+    ],
+    occurrences: [
+      {
+-       commandId: 'command:structure/depth-create/1:root',
+-       occurrenceId: 'occurrence:structure/depth-create/1:root'
+-     },
+-     {
+        commandId: 'command:structure/depth-create/1:root/children/0',
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0'
+      }
+    ],
+    reads: [],
+...
+      {
+-       occurrenceId: 'occurrence:structure/depth-create/1:root',
+-       writeId: 'write:structure/depth-create/1:root'
+-     },
+-     {
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0',
+        writeId: 'write:structure/depth-create/1:root/children/0'
+      }
+    ]
+  }
+
+ ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 136ms
+ ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 204ms
+ ✓ |raptor3| tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts (5 tests) 9ms
+ ✓ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests) 43ms
+ ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 31ms
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts (5 tests) 24ms
+ ✓ |raptor3| tests/raptor3/core-structure/extension-b.contract.test.ts (4 tests) 16ms
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts (42 tests) 427ms
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.test.ts (1 test) 1881ms
+   ✓ completes one exact admitted CS-03 extension seed batch  1880ms
+ ❯ |extended-local| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts (1 test | 1 failed) 25ms
+   × collects the frozen CS-02 structural work matrix 24ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
++   activationIds: [],
+-   activationIds: [
+-     'activation:structure/depth-create/1:attempt/0/unconditional'
+-   ],
+    commandIds: [
+      'command:structure/depth-create/1:root',
+      'command:structure/depth-create/1:root/children/0'
+    ],
+    occurrences: [
+      {
+-       commandId: 'command:structure/depth-create/1:root',
+-       occurrenceId: 'occurrence:structure/depth-create/1:root'
+-     },
+-     {
+        commandId: 'command:structure/depth-create/1:root/children/0',
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0'
+      }
+    ],
+    reads: [],
+...
+      {
+-       occurrenceId: 'occurrence:structure/depth-create/1:root',
+-       writeId: 'write:structure/depth-create/1:root'
+-     },
+-     {
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0',
+        writeId: 'write:structure/depth-create/1:root/children/0'
+      }
+    ]
+  }
+
+ ✓ |extended-local| tests/raptor3/core-structure/measurement/measurement-selftest.test.ts (7 tests) 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts > collects the frozen CS-02 structural work matrix
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
++   activationIds: [],
+-   activationIds: [
+-     'activation:structure/depth-create/1:attempt/0/unconditional'
+-   ],
+    commandIds: [
+      'command:structure/depth-create/1:root',
+      'command:structure/depth-create/1:root/children/0'
+    ],
+    occurrences: [
+      {
+-       commandId: 'command:structure/depth-create/1:root',
+-       occurrenceId: 'occurrence:structure/depth-create/1:root'
+-     },
+-     {
+        commandId: 'command:structure/depth-create/1:root/children/0',
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0'
+      }
+    ],
+    reads: [],
+...
+      {
+-       occurrenceId: 'occurrence:structure/depth-create/1:root',
+-       writeId: 'write:structure/depth-create/1:root'
+-     },
+-     {
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0',
+        writeId: 'write:structure/depth-create/1:root/children/0'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,30 +1,20 @@[39m
+[2m  {[22m
+[32m-   "activationIds": [[39m
+[32m-     "activation:structure/depth-create/1:attempt/0/unconditional",[39m
+[32m-   ],[39m
+[31m+   "activationIds": [],[39m
+[2m    "commandIds": [[22m
+[2m      "command:structure/depth-create/1:root",[22m
+[2m      "command:structure/depth-create/1:root/children/0",[22m
+[2m    ],[22m
+[2m    "occurrences": [[22m
+[32m-     {[39m
+[32m-       "commandId": "command:structure/depth-create/1:root",[39m
+[32m-       "occurrenceId": "occurrence:structure/depth-create/1:root",[39m
+[32m-     },[39m
+[2m      {[22m
+[2m        "commandId": "command:structure/depth-create/1:root/children/0",[22m
+[2m        "occurrenceId": "occurrence:structure/depth-create/1:root/children/0",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "reads": [],[22m
+[2m    "selectionIds": [],[22m
+[2m    "writes": [[22m
+[32m-     {[39m
+[32m-       "occurrenceId": "occurrence:structure/depth-create/1:root",[39m
+[32m-       "writeId": "write:structure/depth-create/1:root",[39m
+[32m-     },[39m
+[2m      {[22m
+[2m        "occurrenceId": "occurrence:structure/depth-create/1:root/children/0",[22m
+[2m        "writeId": "write:structure/depth-create/1:root/children/0",[22m
+[2m      },[22m
+[2m    ],[22m
+
+ ❯ measureCreate tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1044:10
+    1042|     }
+    1043|   );
+    1044|   assert.deepEqual(
+       |          ^
+    1045|     captured.semanticInventory,
+    1046|     canonicalInventory(recipe.semanticInventory)
+ ❯ tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1096:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts > collects the frozen CS-02 structural work matrix
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
++   activationIds: [],
+-   activationIds: [
+-     'activation:structure/depth-create/1:attempt/0/unconditional'
+-   ],
+    commandIds: [
+      'command:structure/depth-create/1:root',
+      'command:structure/depth-create/1:root/children/0'
+    ],
+    occurrences: [
+      {
+-       commandId: 'command:structure/depth-create/1:root',
+-       occurrenceId: 'occurrence:structure/depth-create/1:root'
+-     },
+-     {
+        commandId: 'command:structure/depth-create/1:root/children/0',
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0'
+      }
+    ],
+    reads: [],
+...
+      {
+-       occurrenceId: 'occurrence:structure/depth-create/1:root',
+-       writeId: 'write:structure/depth-create/1:root'
+-     },
+-     {
+        occurrenceId: 'occurrence:structure/depth-create/1:root/children/0',
+        writeId: 'write:structure/depth-create/1:root/children/0'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,30 +1,20 @@[39m
+[2m  {[22m
+[32m-   "activationIds": [[39m
+[32m-     "activation:structure/depth-create/1:attempt/0/unconditional",[39m
+[32m-   ],[39m
+[31m+   "activationIds": [],[39m
+[2m    "commandIds": [[22m
+[2m      "command:structure/depth-create/1:root",[22m
+[2m      "command:structure/depth-create/1:root/children/0",[22m
+[2m    ],[22m
+[2m    "occurrences": [[22m
+[32m-     {[39m
+[32m-       "commandId": "command:structure/depth-create/1:root",[39m
+[32m-       "occurrenceId": "occurrence:structure/depth-create/1:root",[39m
+[32m-     },[39m
+[2m      {[22m
+[2m        "commandId": "command:structure/depth-create/1:root/children/0",[22m
+[2m        "occurrenceId": "occurrence:structure/depth-create/1:root/children/0",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "reads": [],[22m
+[2m    "selectionIds": [],[22m
+[2m    "writes": [[22m
+[32m-     {[39m
+[32m-       "occurrenceId": "occurrence:structure/depth-create/1:root",[39m
+[32m-       "writeId": "write:structure/depth-create/1:root",[39m
+[32m-     },[39m
+[2m      {[22m
+[2m        "occurrenceId": "occurrence:structure/depth-create/1:root/children/0",[22m
+[2m        "writeId": "write:structure/depth-create/1:root/children/0",[22m
+[2m      },[22m
+[2m    ],[22m
+
+ ❯ measureCreate tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1044:10
+    1042|     }
+    1043|   );
+    1044|   assert.deepEqual(
+       |          ^
+    1045|     captured.semanticInventory,
+    1046|     canonicalInventory(recipe.semanticInventory)
+ ❯ tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1096:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 10 passed (12)
+      Tests  2 failed | 92 passed (94)
+   Start at  12:33:31
+   Duration  15.16s (transform 5.33s, setup 50ms, collect 11.60s, tests 2.86s, environment 0ms, prepare 74ms)
+
+Vitest resources: 18.22s wall, 878.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

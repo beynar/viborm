@@ -18,8 +18,20 @@ import {
 } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
-const SEGMENT_REFUSAL =
-  /cannot execute this record series as committed segments/;
+/**
+ * The pre-effect capacity refusal, in the shipped engine's words.
+ *
+ * This pinned the RETIRED engine's `progressiveSeriesRefusal` sentence ("cannot
+ * execute this record series as committed segments"); none of that owner's names
+ * exist in `src/` any more. The shipped owner of the same pre-effect property is
+ * `assertStatementBindParameterCapacity` (`src/drivers/bind-parameter-capacity.ts`),
+ * called while a statement is MATERIALIZED (`driver-instrumentation.ts`) and
+ * therefore before any batch is submitted — which is the property this cell exists
+ * to measure. The bound-value count is the composition's own physical fact and is
+ * left free; the driver, the subject, and the synthetic limit are pinned.
+ */
+const CAPACITY_REFUSAL =
+  /^Driver 'pglite' cannot execute this operation because one indivisible statement needs \d+ bound values, above the verified limit of 1\.$/;
 const BADGE_INSERT = /^INSERT INTO (?:"[^"]+"\.)?"e7_badges"/;
 const BADGE_UPDATE = /^UPDATE (?:"[^"]+"\.)?"e7_badges"/;
 const ANY_SELECT = /^SELECT/;
@@ -195,12 +207,16 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
   });
 
   /**
-   * The other half of E4, and the honest shape of it. `progressiveSeriesRefusal` is
-   * the ONE owner of "this placement cannot run as committed segments", and every one
-   * of its reasons is checked BEFORE the fragment's first segment is submitted
-   * (`runProgressiveFragmentOperation` asserts capacity and boundary eligibility ahead
-   * of `executeProgressiveFragment`). This pins that pre-effect property on the
-   * composition's own placement, using the capacity reason because it is reachable.
+   * The other half of E4, and the honest shape of it: a capacity boundary the
+   * composition's own placement cannot clear is answered BEFORE any effect.
+   *
+   * The retired engine spent one owner on this — `progressiveSeriesRefusal`, asserted
+   * by `runProgressiveFragmentOperation` ahead of `executeProgressiveFragment`. Those
+   * three names are gone. Raptor 3 keeps the property and drops the owner: a statement
+   * is checked against the driver's verified bound-value limit as it is materialized,
+   * so a composition whose indivisible statement does not fit refuses before its first
+   * batch is submitted. The two assertions after the message are the claim — no batch
+   * reached the driver, and the supplier's row does not exist.
    *
    * MEASURED, and recorded rather than contrived: the "cannot re-pin the complete
    * parent row key" reason is NOT reachable through this composition. The enclosing
@@ -208,10 +224,10 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
    * always has row-key members to guard with — including when the root SET moves a
    * non-primary-key referenced value, which was tried and produced a guarded plan (and
    * then an ordinary foreign-key violation, a database fact about the payload rather
-   * than a boundary refusal). That arm stays live for the placements that can reach
-   * it — the junction and fresh-series ones, which have their own witnesses — and it
-   * is the same function here, not a second copy.
+   * than a boundary refusal).
    */
+  // N5 class D: pinned the retired `progressiveSeriesRefusal` wording; the shipped
+  // pre-effect owner is `assertStatementBindParameterCapacity`.
   test("routes the composition's placement through the pre-effect capacity refusal", async () => {
     const family = getProgressiveFamily();
     const cramped = new ProgressiveBatchOnlyPGliteDriver({
@@ -247,7 +263,7 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
     }
     expect(refusal).toBeInstanceOf(UnsupportedOperationError);
     if (!(refusal instanceof UnsupportedOperationError)) throw refusal;
-    expect(refusal.message).toMatch(SEGMENT_REFUSAL);
+    expect(refusal.message).toMatch(CAPACITY_REFUSAL);
     // PRE-EFFECT: no batch was submitted at all, so the supplier did not commit.
     expect(cramped.batches).toEqual([]);
     expect(await client.badge.findMany({ where: { id: "b-new" } })).toEqual([]);

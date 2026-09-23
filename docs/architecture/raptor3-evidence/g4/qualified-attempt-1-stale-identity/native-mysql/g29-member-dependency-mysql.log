@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/post-prep/native-g29-member-dependency.test.ts (2 tests) 590ms
+   ✓ G2.9 native mysql captured-member dependencies > refuses a dynamic member dependency and preserves a disjoint control interactively  373ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:43:37
+   Duration  8.59s (transform 2.99s, setup 13ms, collect 4.60s, tests 590ms, environment 0ms, prepare 54ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-x4f7ao/vitest.json
+Vitest resources: 20.07s wall, 479.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-member-dependency-mysql contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-x4f7ao

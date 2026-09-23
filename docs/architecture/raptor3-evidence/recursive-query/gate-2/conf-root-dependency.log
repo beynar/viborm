@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts (30 tests) 1786ms
+
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+   Start at  11:12:02
+   Duration  4.27s (transform 1.37s, setup 20ms, collect 2.11s, tests 1.79s, environment 0ms, prepare 59ms)
+
+Vitest resources: 6.20s wall, 1490.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

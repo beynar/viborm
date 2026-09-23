@@ -1,0 +1,9 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts (30 tests | 6 failed) 987ms
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > before-parent self connect is unaf
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > nested create keeps its before-par
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > root id transition allows a disj
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested payload update does not t
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested to-many update allows a d
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert uses i
+ Test Files  1 failed (1)
+      Tests  6 failed | 24 passed (30)

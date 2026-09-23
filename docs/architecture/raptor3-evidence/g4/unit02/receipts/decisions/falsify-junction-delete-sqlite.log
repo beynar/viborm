@@ -1,0 +1,130 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests | 1 failed | 4 skipped) 66ms
+   ✓ G4-02 unique discriminator > spells the discriminator with the constraint's equality and the filter half with the text contract 26ms
+   ↓ G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does
+   × G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by exact bytes 17ms
+     → g1
++ actual - expected
+... Skipped lines
+
+  {
++   answer: 'ForeignKeyError: Foreign key constraint violation',
++   links: [
++     {
++       ownerId: 'wanted',
++       tagId: 'g1'
++     }
++   ],
+-   answer: 'ok:{"id":"wanted","email":"claim@x","name":"winner"}',
+-   links: [],
+    notes: [
+      {
+        id: 'n1',
+        ownerId: 'wanted'
+      }
+...
+    ],
++   tags: [
++     {
++       id: 'g1',
++       label: 'tag'
++     }
++   ]
+-   tags: []
+  }
+
+   ✓ G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by a collation-equal key 10ms
+   ✓ G4-02 — the junction delete removes the link row, then the target > still removes ONLY the link row for a junction disconnect 6ms
+   ✓ G4-02 — the junction delete removes the link row, then the target > still deletes a REFERENCE-held target with one statement 7ms
+   ↓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique
+   ↓ G4-02 native MySQL discriminator scope > pins the PRE-EXISTING junction delete divergence, and that the selector's spelling is no longer what separates the two engines
+   ↓ G4-02 native MySQL discriminator scope > pins R-D4: a collation-equal connect stores the located row's key, the shipped engine the request's literal
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by exact bytes
+AssertionError: g1
++ actual - expected
+... Skipped lines
+
+  {
++   answer: 'ForeignKeyError: Foreign key constraint violation',
++   links: [
++     {
++       ownerId: 'wanted',
++       tagId: 'g1'
++     }
++   ],
+-   answer: 'ok:{"id":"wanted","email":"claim@x","name":"winner"}',
+-   links: [],
+    notes: [
+      {
+        id: 'n1',
+        ownerId: 'wanted'
+      }
+...
+    ],
++   tags: [
++     {
++       id: 'g1',
++       label: 'tag'
++     }
++   ]
+-   tags: []
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,8 +1,13 @@[39m
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":\"wanted\",\"email\":\"claim@x\",\"name\":\"winner\"}",[39m
+[32m-   "links": [],[39m
+[31m+   "answer": "ForeignKeyError: Foreign key constraint violation",[39m
+[31m+   "links": [[39m
+[31m+     {[39m
+[31m+       "ownerId": "wanted",[39m
+[31m+       "tagId": "g1",[39m
+[31m+     },[39m
+[31m+   ],[39m
+[2m    "notes": [[22m
+[2m      {[22m
+[2m        "id": "n1",[22m
+[2m        "ownerId": "wanted",[22m
+[2m      },[22m
+[33m@@ -12,7 +17,12 @@[39m
+[2m        "email": "claim@x",[22m
+[2m        "id": "wanted",[22m
+[2m        "name": "winner",[22m
+[2m      },[22m
+[2m    ],[22m
+[32m-   "tags": [],[39m
+[31m+   "tags": [[39m
+[31m+     {[39m
+[31m+       "id": "g1",[39m
+[31m+       "label": "tag",[39m
+[31m+     },[39m
+[31m+   ],[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:585:14
+    583|       const shipped = await scopeSqliteRun("shipped", request);
+    584|       const candidate = await scopeSqliteRun("candidate", request);
+    585|       assert.deepEqual(candidate, shipped, id);
+       |              ^
+    586|       // SQLite's default collation is binary, so the collation-equal …
+    587|       // addresses no row here and both engines answer their nested-wr…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed | 4 skipped (9)
+   Start at  17:24:08
+   Duration  2.26s (transform 1.33s, setup 10ms, collect 1.99s, tests 66ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 2.81s wall, 484.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

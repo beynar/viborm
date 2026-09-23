@@ -1,0 +1,938 @@
+[
+ {
+  "file": "src/query-engine/raptor3/commands/assignments.ts",
+  "line": 107,
+  "cls": "failure",
+  "text": "if (!this.deferred) throw failure; this.refusal ??= failure; } activate(): void { if (this.refusal) throw this.refusal; } absorb( field: string,"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/assignments.ts",
+  "line": 111,
+  "cls": "this.refusal",
+  "text": "if (this.refusal) throw this.refusal; } absorb( field: string, source: Assignments, referenced: string, failure: string ): void {"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 374,
+  "cls": "Error",
+  "text": "throw new Error(\"Series capture target lost its occurrence kind\"); replacement.captureTarget = resolved; } } for (const child of occurrence.children) this.materializePlacement(child); } private origin(command: Command): Origin | undefined { if (command.kind === \"choose\") return command.lookup.origin;"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 499,
+  "cls": "Error",
+  "text": "throw new Error(\"Command occurrence is not a series capture\"); const target = occurrence.captureTarget; if (!target) throw new Error(\"Series capture has no occurrence target\"); return target; } private readMembership(write: DependencyWrite, read: DependencyRead): void { const { lookup, owner } = read; const membership "
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 501,
+  "cls": "Error",
+  "text": "if (!target) throw new Error(\"Series capture has no occurrence target\"); return target; } private readMembership(write: DependencyWrite, read: DependencyRead): void { const { lookup, owner } = read; const membership = read.membership ?? lookup.membership(); if (!(lookup.origin && membership) || membership.edge.kind !=="
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 800,
+  "cls": "Error",
+  "text": "throw new Error(\"Command occurrence is missing from its parent\"); } private analyzeRead(occurrence: CommandOccurrence): void { const read = occurrence.dependencyRead; if (!read) return; const branch = this.branchOf(occurrence); const readVisit = { read, branch }; let publishedParent: CommandOccurrence<RecordCommand> | "
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 944,
+  "cls": "Error",
+  "text": "if (!owner) throw new Error(\"Selected series has no enclosing analysis\"); if (this.seriesMembers(occurrence).length) throw new Error(\"Selected series occurrence was already expanded\"); occurrence.children = members.map((member) => { const child = this.occurrence(member); child.role = \"member\"; this.materializePlacement"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 946,
+  "cls": "Error",
+  "text": "throw new Error(\"Selected series occurrence was already expanded\"); occurrence.children = members.map((member) => { const child = this.occurrence(member); child.role = \"member\"; this.materializePlacement(child); return child; }); const memberOccurrences = this.seriesMembers(occurrence);"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 1071,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"INSERT did not produce the required record\"); }); } /** * Construct this operation's physical form and answer whether that form MAY * be one statement ({@link PhysicalPlan.single}). Construction reaches no * provider, so the envelope owner can ask before it decides * (`OperationContext.run`). The e"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/commands.ts",
+  "line": 1206,
+  "cls": "transition",
+  "text": "if (transition) throw transition; const choice: Choose = { kind: \"choose\", model, lookup, operation: \"upsert\", missing: this.occurrence(missing), conditions: {"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 71,
+  "cls": "NestedWriteError",
+  "text": "throw new NestedWriteError( `Cannot update relation key field '${pair.source}' to null while mutating relation '${edge.name}'. A null reference names no row for that relation to point at.`, edge.name, { meta: { operation: \"update\", field: pair.source, relation: edge.name,"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 216,
+  "cls": "error",
+  "text": "if (!(await this.recover(error))) throw error; } } } private async runSelection(selection: Selection): Promise<void> { const attempt = this.attempt; if (attempt.rows.has(selection)) return; const source = selection.source;"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 242,
+  "cls": "selection.required",
+  "text": "if (selection.required) throw selection.required; return; } attempt.rows.set(selection, found); attempt.bind(selection.fields, found); if (this.context.usesBatch && selection.retained) this.context.requirePresent(selection.captured(), selection.retained); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 260,
+  "cls": "occurrence.refusal",
+  "text": "if (occurrence.refusal) throw occurrence.refusal; if (command.located && !attempt.rows.has(command.located)) await this.runSelection(command.located); if ( ctx.usesBatch && command.located && !command.located.retained && !attempt.retained.has(command.located)"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 375,
+  "cls": "ctx.failure(error",
+  "text": "throw ctx.failure(error, \"prefix\", member); } } try { await this.runSelection(command.lookup); for (const condition of command.conditions?.probes ?? []) await this.runSelection(condition.lookup); } catch (error) {"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 383,
+  "cls": "supplied",
+  "text": "throw supplied ? ctx.failure(error, \"capture\", member) : error; } const captured = attempt.rows.get(command.lookup); const found = this.commands.choiceArm(occurrence, \"found\"); const missing = this.commands.choiceArm(occurrence, \"missing\"); if (captured) { if (command.conditions?.probes.length && found) { found.command"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 391,
+  "cls": "found.refusal",
+  "text": "if (found.refusal) throw found.refusal; const unmatched = command.conditions.probes.find( (condition) => !attempt.rows.has(condition.lookup) ); if (unmatched) { if (ctx.usesBatch) { attempt.conditionalSkips.set(unmatched.skip, command); ctx.requirePresent("
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 427,
+  "cls": "requirement.failure",
+  "text": "if (!rows[0]) throw requirement.failure; } if (found) { if (ctx.usesBatch && supplied) { ctx.prepareMembers(() => [found.command], member); await ctx.executeMember(() => this.run(found), found.command); } else await this.run(found, member); attempt.bind(command.fields, {"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 598,
+  "cls": "Error",
+  "text": "if (!prepared) throw new Error(\"Selected series was not captured\"); // Only the admitted updateMany boundary supplies select, so captureSeries // has constructed record members for this terminal readback. const updatedMembers = prepared.members as CommandOccurrence<RecordCommand>[]; const identityFields = select ? upda"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 654,
+  "cls": "ctx.failure(failure",
+  "text": "if (!published[0]) throw ctx.failure(failure, \"result\", member); attempt.bind(parent, published[0]); parentRequirement = { failure, query: ctx.queries.select(parent.model, { where: parentWhere(), select: Object.fromEntries( ctx.schema.keys(parent.model).map((field) => [field, true])"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 692,
+  "cls": "Error",
+  "text": "throw new Error(\"Selected delete series has no mutation origin\"); return { kind: \"delete\", located, origin: selection.origin, }; } const child = this.commands.update("
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 723,
+  "cls": "Error",
+  "text": "if (refusal) throw ctx.failure(refusal.error, \"planning\", refusal.member); attempt.series.set(occurrence, { members: this.commands.seriesMembers(occurrence), parentRequirement, }); } private async executeSeries( occurrence: CommandOccurrence<SeriesOccurrence>"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 734,
+  "cls": "Error",
+  "text": "if (!prepared) throw new Error(\"Selected series was not captured\"); const { members, parentRequirement } = prepared; for (const child of members) { const command = child.command; const located = command.located; if (!located) throw new Error(\"Selected update series has no location\"); if (ctx.usesBatch) { this.attempt.r"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 739,
+  "cls": "Error",
+  "text": "if (!located) throw new Error(\"Selected update series has no location\"); if (ctx.usesBatch) { this.attempt.rows.delete(located); try { await this.runSelection(located); } catch (error) { throw ctx.failure(error, \"planning\", command); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/execution.ts",
+  "line": 745,
+  "cls": "ctx.failure(error",
+  "text": "throw ctx.failure(error, \"planning\", command); } } await ctx.executeMember(async () => { if (ctx.usesBatch && parentRequirement) ctx.requirePresent( parentRequirement.query, parentRequirement.failure"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/index.ts",
+  "line": 131,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 G1 operation is not implemented: ${operation}` ); return admitted; }; const prepare = ( modelName: string, requested: Operations,"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/index.ts",
+  "line": 205,
+  "cls": "error",
+  "text": "throw error; } return context.preparedBatch(); }, }; }; return { prepare,"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/relation-body.ts",
+  "line": 369,
+  "cls": "keyRefusal",
+  "text": "if (keyRefusal && verb !== \"upsert\") throw keyRefusal; const missing = conditional.create === undefined ? undefined : this.commands.create( edge.target, record(conditional.create), record(source.create),"
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/relation-body.ts",
+  "line": 547,
+  "cls": "keyRefusal",
+  "text": "if (keyRefusal) throw keyRefusal; const where = verb === \"updateMany\" ? input.where === undefined ? undefined : record(input.where) : record(input.where ?? input); const selection = this.commands.lookup("
+ },
+ {
+  "file": "src/query-engine/raptor3/commands/relation-body.ts",
+  "line": 600,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 G1 relation operation is not implemented: ${verb}` ); } } private requireLookup( lookup: Selection | JunctionCapture | AbsenceRequirement ): CommandOccurrence<Selection | JunctionCapture | AbsenceRequirement> {"
+ },
+ {
+  "file": "src/query-engine/raptor3/program/index.ts",
+  "line": 40,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 G1 operation is not implemented: ${operation}` ); const context = new OperationContext( schema, config.driver, modelName, admitted,"
+ },
+ {
+  "file": "src/query-engine/raptor3/program/program.ts",
+  "line": 186,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 G1 relation operation is not implemented: ${verb}` ); } } } } private expandSupply("
+ },
+ {
+  "file": "src/query-engine/raptor3/program/program.ts",
+  "line": 238,
+  "cls": "Error",
+  "text": "throw new Error( \"Raptor 3 G1 source-held update supply is not implemented\" ); for (const pair of edge.pairs) sourceValues[pair.source] = this.field(target, pair.target); } if (edge.kind === \"junction\") block.nodes.push({ id: this.id(), kind: \"link\", edge, source, target });"
+ },
+ {
+  "file": "src/query-engine/raptor3/program/program.ts",
+  "line": 355,
+  "cls": "Error",
+  "text": "throw new Error( \"Raptor 3 program has a cyclic produced-field dependency\" ); const [node] = remaining.splice(index, 1); sorted.push(node!); complete.add(node!.id); } order.set(block, sorted);"
+ },
+ {
+  "file": "src/query-engine/raptor3/program/program.ts",
+  "line": 397,
+  "cls": "NestedWriteError",
+  "text": "throw new NestedWriteError( `Nested operation '${node.intent.operation}' on relation '${node.intent.relation}' depends on an earlier '${write.origin!.operation}' target write in the same nested write. Split these operations into separate queries.`, node.intent.relation, { meta: { operation: node.intent.operation, confl"
+ },
+ {
+  "file": "src/query-engine/raptor3/route/client-route.ts",
+  "line": 164,
+  "cls": "UnsupportedOperationError",
+  "text": "throw new UnsupportedOperationError( `The Raptor 3 route cannot encode a cached result for '${requestedOperation}' on model '${modelName}': the verb publishes no prepared read.`, { meta: { model: modelName, operation: requestedOperation } } ); return (codec ??= cacheCodec(read, requestedOperation)); }, prepareBatch( co"
+ },
+ {
+  "file": "src/query-engine/raptor3/route/client-route.ts",
+  "line": 188,
+  "cls": "error",
+  "text": "throw error; } }, }; }, }; } "
+ },
+ {
+  "file": "src/query-engine/raptor3/route/client-route.ts",
+  "line": 222,
+  "cls": "CacheConfigurationError",
+  "text": "throw new CacheConfigurationError( \"The operation result cannot be represented by the cache result codec.\", { cause: cause instanceof Error ? cause : undefined, meta: { method: \"snapshot\", operation: requestedOperation }, } ); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/route/client-route.ts",
+  "line": 235,
+  "cls": "CacheConfigurationError",
+  "text": "throw new CacheConfigurationError( \"The cached result snapshot is malformed.\", { cause: cause instanceof Error ? cause : undefined, meta: { method: \"materialize\", operation: requestedOperation }, } ); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/route/client-route.ts",
+  "line": 276,
+  "cls": "UnsupportedOperationError",
+  "text": "throw new UnsupportedOperationError( `The Raptor 3 route cannot encode a cached result for '${requestedOperation}': a recursive read's published depth is not a fixed shape.`, { meta: { operation: requestedOperation } } ); } }  /**"
+ },
+ {
+  "file": "src/query-engine/raptor3/route/client-route.ts",
+  "line": 311,
+  "cls": "UnsupportedOperationError",
+  "text": "throw new UnsupportedOperationError( `The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.`, { meta: { operation: requestedOperation } } ); return leaf.nullable ? nullableCodec(value) : value; }  /**"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 140,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( \"Raptor 3 atomic-array execution is not implemented.\", { meta: { driver: factoryDriver.driverName, model: modelName, operation, method: \"$transaction([...])\""
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 241,
+  "cls": "this.failure(error",
+  "text": "throw this.failure(error, \"planning\", parent); } } async executeMember<T>( execute: () => Promise<T>, member?: Member ): Promise<T> { try {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 256,
+  "cls": "this.failure(error",
+  "text": "throw this.failure(error, \"member\", member); } } async executeSkippableMember( execute: () => Promise<void>, rootProducer: object, member: Member ): Promise<boolean> {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 265,
+  "cls": "refusal",
+  "text": "if (refusal) throw refusal; return this.executeMember(async () => { try { await this.withMemberRollback(async () => execute()); return true; } catch (error) { if ( error instanceof UniqueConstraintError &&"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 276,
+  "cls": "error",
+  "text": "throw error; } }, member); } private async withMemberRollback<T>( execute: (driver: AnyDriver) => Promise<T> ): Promise<T> { const outer = this.transport;"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 319,
+  "cls": "refusal",
+  "text": "if (refusal) throw refusal; } failure( error: unknown, phase: RecordSeriesProgress[\"phase\"], member?: Member ): unknown { if (typeof error === \"object\" && error !== null && this.premiseFailures.has(error))"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 444,
+  "cls": "error",
+  "text": "if (error !== this.requiresEnvelope) throw error; } this.restart(); return await this.withinRegion(region, body); } catch (error) { if ( error instanceof InvalidScalarResult || (this.usesBatch &&"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 454,
+  "cls": "this.failure(",
+  "text": "throw this.failure( error, error instanceof InvalidScalarResult ? \"result\" : \"member\" ); throw error; } } /**"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 458,
+  "cls": "error",
+  "text": "throw error; } } /** * Every provider round trip crosses here, so the envelope rule has exactly one * site. `terminal` marks the operation's result-publishing transport, which is * followed by nothing. */"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 473,
+  "cls": "this.requiresEnvelope",
+  "text": "throw this.requiresEnvelope; this.envelope = \"statement\"; } this.performed += statements; return execute(); } /** Discard the un-executed plan so the body can be constructed again. */ private restart(): void {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 498,
+  "cls": "this.incompletePreparation",
+  "text": "throw this.incompletePreparation; } const context = model ? this.statementContext(model, this.operation) : this.attribution; const response = await this.dispatch(1, terminal, () => this.transport._execute<Input>(query.sql, context) );"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 518,
+  "cls": "TransactionError",
+  "text": "if (value === null && missing) throw missing(); return value; }; if (this.ownership !== \"batch-preparation\") return decide(await this.read(read.query, false, true)); const resultIndex = this.attempt.pending.length; this.queue(read.query.sql); this.preparedParser = (results) => {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 528,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`, { meta: this.errorMeta } ); return decide( this.queries.decodeQuery(read.query, response.rows.map(record)) ); };"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 578,
+  "cls": "this.failure(error",
+  "text": "throw this.failure(error, \"result\", member); } } async requireAbsent(query: Query, failure: Error): Promise<void> { if (this.usesBatch) { this.attempt.assertionFailures.set( this.queue(this.driver.adapter.assertions.notExists(query.sql)), { query, present: false, failure }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 589,
+  "cls": "failure",
+  "text": "if ((await this.read(query, true)).length) throw failure; } requirePresent(query: Query, failure: Error): void { this.attempt.assertionFailures.set( this.queue(this.driver.adapter.assertions.exists(query.sql)), { query, present: true, failure } ); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 599,
+  "cls": "this.incompletePreparation",
+  "text": "throw this.incompletePreparation; } const attempt = this.attempt; this.atomicAssertionRejection = undefined; attempt.rejectedInsert = undefined; const precedingSegments = this.committedSegments; const guards = this.continuations.map(({ query, model }) => { const context = this.statementContext(model, this.operation);"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 713,
+  "cls": "publishingGeneratedOutput",
+  "text": "throw publishingGeneratedOutput || this.continuations.length > 0 ? this.failure( attributedError, this.committedSegments > precedingSegments ? \"result\" : \"member\", member ) : attributedError; }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 766,
+  "cls": "premise",
+  "text": "throw premise; } return row; } /** * The same premise as {@link published}'s missing-row failure, moved INSIDE * the atomic unit for a packaged operation. *"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 877,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( `Driver '${this.driver.driverName}' omitted the ${this.ownership === \"batch-preparation\" ? \"prepared\" : \"terminal\"} result for operation '${this.operation}'.`, { meta: this.errorMeta } ); output.push( ...this.queries.decodeQuery(terminal, response.rows.map(record)) ); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 919,
+  "cls": "queries.length",
+  "text": "throw queries.length ? this.failure(error, \"result\") : error; } } isIncompletePreparation(error: unknown): boolean { return error === this.incompletePreparation; } preparedBatch(): PreparedBatchOperation<unknown> | undefined { if (this.preparedParser === undefined) return undefined;"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 946,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`, { meta: this.errorMeta } ); return parse(result); }); } private async setMutations("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 973,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`, { meta: this.errorMeta } ); } return parse(window); }; return undefined;"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 990,
+  "cls": "this.failure(error",
+  "text": "throw this.failure(error, \"result\", windowMember); } } return this.dispatch(statements.length, true, async () => { const results: QueryResult<unknown>[] = []; for (const statement of statements) results.push( await this.transport._execute(statement.sql, statement.context)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1013,
+  "cls": "UnsupportedOperationError",
+  "text": "throw new UnsupportedOperationError( \"createMany with skipDuplicates cannot include a row with no explicit scalar values; no portable duplicate-only DEFAULT VALUES primitive exists.\" ); const buildInsert = ( columns: readonly string[], members: readonly Input[], applySqlSkip: boolean ) => {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1045,
+  "cls": "TransactionError",
+  "text": "if (this.ownership === \"batch-preparation\") throw this.incompletePreparation; if (recoverableSkip) this.requireSuppression(); const identityPlans = projection ? rows.map((row) => { const missing = this.schema .keys(model) .filter((field) => row[field] === undefined); const generated = this.insertIdField(model, missing)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1054,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( `Driver '${this.driver.driverName}' cannot locate one selected createMany row after insertion.`, { meta: this.errorMeta } ); return generated; }) : undefined; const members = this.prepareMembers(() => rows);"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1079,
+  "cls": "error",
+  "text": "throw error; } }, row); } else { response = await this.executeMember( () => this.dispatch(1, false, () => this.transport._execute(statement, context)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1096,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"INSERT did not produce the required record identity\"); identities.push({ ...this.schema.identity(model, row), ...(generated ? { [generated]: response.insertId } : {}) }); } if (!projection) return { count }; return identities.length"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1209,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( \"updateMany selected-row cardinality changed during its locked mutation.\", { meta: this.errorMeta } ); return this.finishTerminals( this.seriesQueries( projection, identities.map((identity) =>"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1290,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( \"deleteMany selected-row cardinality changed during its locked mutation.\", { meta: this.errorMeta } ); return this.published(rows, single); } this.packagedPresence(model, selector, single); const limited = q.lowerMutationLimit(model, selector, limit);"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1327,
+  "cls": "TransactionError",
+  "text": "throw this.incompletePreparation; if (this.usesBatch) throw new TransactionError( `Driver '${this.driver.driverName}' cannot atomically capture selected ${this.operation} rows.`, { meta: this.errorMeta } ); const keys = this.schema.keys(model); const rows = await this.read("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1329,
+  "cls": "TransactionError",
+  "text": "throw new TransactionError( `Driver '${this.driver.driverName}' cannot atomically capture selected ${this.operation} rows.`, { meta: this.errorMeta } ); const keys = this.schema.keys(model); const rows = await this.read( this.queries.select( model,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1426,
+  "cls": "Error",
+  "text": "throw new Error( \"Raptor 3 interactive output requires RETURNING or one generated increment field\" ); if (producedProjection && adapter.capabilities.supportsReturning) statement = sql`${statement} ${adapter.mutations.returning( sql.join(q.lowerProjection(producedProjection).columns, \", \") )}`; this.attempt.rejectedInse"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1442,
+  "cls": "error",
+  "text": "throw error; } const producedRows = insertIdField === undefined ? response.rows : response.insertId === undefined ? [] : [{ [insertIdField]: response.insertId }];"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1454,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"INSERT did not produce the required record\"); return { ...values, ...producedValues }; } const published: Input = { ...values }; if (produced.length) {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1471,
+  "cls": "Error",
+  "text": "throw new Error( \"Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING\" ); // The next segment must prove the actual stored owner, including supplied row-key fields. const returned = [ ...new Set([...this.schema.keys(model), ...demanded]) ]; const select = Object.fromEntries("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1500,
+  "cls": "TypeError",
+  "text": "throw new TypeError( \"INSERT RETURNING did not produce the required record\" ); stored = rows[0]; } catch (error) { throw this.failure(error, \"result\", member); } this.continuations.push({"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1505,
+  "cls": "this.failure(error",
+  "text": "throw this.failure(error, \"result\", member); } this.continuations.push({ model, query: q.select(model, {}, undefined, { projection, identity: stored, })"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1561,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Cannot publish the updated value of '${model[\"~\"].names.ts!}.${field}' for operation \"${operation}\" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`, { meta: { model: model[\"~\"].names.ts!, operation, field }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1619,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"UPDATE did not produce the required record\"); return { ...written, ...rows[0] }; } const response = await this.dispatch(1, false, () => this.transport._execute<Input>( sql`${statement} ${adapter.mutations.returning( sql.join(q.lowerProjection(projection).columns, \", \") )}`,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1632,
+  "cls": "TypeError",
+  "text": "throw new TypeError( \"UPDATE RETURNING did not produce the required record\" ); return { ...written, ...rows[0] }; } await this.effect(statement, context, member); return written; }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1710,
+  "cls": "failure",
+  "text": "throw failure; } } } const operands = [edge.sourceSide, edge.targetSide].flatMap((side) => side.members.map((pair) => q.fieldValue( side.model,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/operation-context.ts",
+  "line": 1803,
+  "cls": "Error",
+  "text": "throw new Error(\"Raptor 3 G1 set requires junction storage\"); const a = this.driver.adapter; await this.effect( a.mutations.delete( a.identifiers.table(edge.table), a.operators.and( ...edge.sourceSide.members.map((pair) => a.operators.eq("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 587,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Decimal list '${field}' received a member that is not an exact decimal.`, ); return members; } private canonicalDecimal(value: unknown, field: string): string { const canonical = canonicalizeDecimal(value); if (canonical === undefined)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 595,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Decimal field '${field}' received a value that is not an exact decimal.`, ); return canonical; } private requireDecimal(state: ScalarState, field: string): DecimalDescriptor { if (!state.decimal) throw new QueryEngineError("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 602,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Decimal field '${field}' has no declared precision and scale, so it has no exact value to bind.`, ); return state.decimal; } /** The declared native form of a column; a list's members live in its container. */ private nativeType(scalar: Scalar): NativeType | undefined { return scalar[\"~\"].s"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 617,
+  "cls": "FeatureNotSupportedError",
+  "text": "throw new FeatureNotSupportedError( \"point\", usage, \"GeoPoint requires a provider with its physical point tier enabled.\", ); return geoPoint; } projectedColumn(model: AnyModel, field: string, alias?: string): Sql {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 775,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Cannot divide decimal field '${field}' by zero.`, ); return { kind: \"arithmetic\", operator, by }; } for (const operator of LIST_UPDATES) if (Object.hasOwn(operation, operator)) { const members = operation[operator];"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 793,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Unknown update operation: ${Object.keys(operation).join(\", \")}`, ); } /** * The target domain an arithmetic assignment lands back inside: an integer * column divides as an integer, an exact decimal is quantized to its scale. * The adapter owns both spellings; this only names the destination"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 869,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Raptor 3 cannot name the updated value of '${model[\"~\"].names.ts ?? \"unknown\"}.${field}' under '${update.operator}': the provider owns that operator's rounding inside its own assignment.`, ); const base = state.type === \"int\" ? a.expressions.cast(before, \"integer\") : before; const operand ="
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1267,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`, ); const referenced = model[\"~\"].state.scalars[payload.field]; if (!referenced) throw new QueryEngineError( `Field reference '${formatFieldRe"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1272,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`, ); const own = exactDecimalDomain(owner.physical.scalar[\"~\"].state); const other = exactDecimalDomain(referenced[\"~\"].state); if (own && other && !sameDecimalDescriptor(own, other)) throw new QueryEngin"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1278,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision "
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1650,
+  "cls": "FeatureNotSupportedError",
+  "text": "throw new FeatureNotSupportedError( \"point\", \"within polygon\", \"GeoPoint polygon filtering is not supported by this provider.\", ); } case \"distance\": { const specification = record(predicate.value);"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1674,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Raptor 3 filter operator is not implemented: ${operator}`, ); } } /** * THE JSON NULL TRUTH TABLE and the document operator set. A JSON column's * operands are documents rather than scalars, which is a storage difference,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1720,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `The 'having' _sum operand for decimal field '${scalar.field}' needs ${digits} coefficient digits, but its value is outside this provider's exact HAVING operand cast domain. ` + \"The provider may compute a wider sum, but VibORM cannot express this operand through its exact decimal cast witho"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1752,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `JSON filter for field '${predicate.target.scalar!.field}' cannot combine 'path' with the ${sentinel} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`, ); const isDatabase"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1774,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `JSON filter '${predicate.operator}' requires a number or string operand.`, ); } case \"string_contains\": return a.operators.containsText(textTarget(), textValue(value)); case \"string_starts_with\": return a.operators.startsWithText(textTarget(), textValue(value));"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1797,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Raptor 3 JSON filter operator is not implemented: ${predicate.operator}`, ); } } /** One distance expression, for filters, ordering and projection alike. */ private distanceExpression( column: Sql,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1818,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Vector distance select does not support nullable vector field '${field}'.`, ); if (!this.adapter.capabilities.supportsVector) throw new FeatureNotSupportedError( \"vector\", usage, usage === \"orderBy\""
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1822,
+  "cls": "FeatureNotSupportedError",
+  "text": "throw new FeatureNotSupportedError( \"vector\", usage, usage === \"orderBy\" ? \"vector ordering requires a pgvector-enabled PostgreSQL driver\" : \"vector distance select requires a pgvector-enabled PostgreSQL driver\", ); const to = specification.to as number[];"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1832,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Vector distance ${usage} dimension mismatch for '${field}': expected ${dimension} values, received ${to.length}.`, ); const metric = specification.metric === \"cosine\" ? \"cosine\" : \"l2\"; return this.adapter.vector[metric](column, this.adapter.vector.literal(to)); } const geoPoint = this.geoP"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1840,
+  "cls": "FeatureNotSupportedError",
+  "text": "throw new FeatureNotSupportedError( \"point\", `distance ${usage}`, \"GeoPoint distance is not supported by this provider.\", ); const target = specification.to as GeoPoint; return geoPoint.distance( column,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 1886,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`, ); } } correlation(edge: Membership, parent: string, target: string): Sql { return this.membershipWhere(edge, target, parent); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 2139,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( \"Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.\", ); const terms = total ?? requested; return { orderBy: this.lowerOrder(backward ? this.reverseOrder(terms) : terms), limit: args.take === undefined ? undefined : this.val"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 2213,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( \"Paginated scalar ordering requires a primary model identifier.\", ); const fields = new Set<string>(rowKey.fields); return Object.keys(model[\"~\"].state.scalars).filter((field) => fields.has(field), ); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 2249,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Cursor field '${field}' cannot be null. Cursor must point to a specific record.`, ); return a.operators.eq( this.column(model, field, sourceAlias), this.fieldValue(model, field, value), ); }),"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 2688,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( `Raptor 3 aggregate is not implemented: ${aggregate}`, ); } } selectSeries( prepared: PreparedProjection, identities: Input[],"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 2739,
+  "cls": "Error",
+  "text": "throw new Error(\"A recursive traversal requires at least one seed\"); const resolved = this.schema.index.get(model)!.get(traversal.relation); if ( !resolved || resolved.edge.kind === \"variantRowCarrier\" || resolved.edge.kind === \"variantJunctionCarrier\" ) throw new Error("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 2746,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 recursive traversal requires one ordinary relation: ${traversal.relation}`, ); const edge = bindMembership(this.schema, model, traversal.relation); if (edge.target !== model) throw new Error( `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`, );"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 2751,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`, ); const a = this.adapter; const cteName = this.alias(); const occupied = new Set( storedFields(this.schema, model).map((field) => this.columnName(model, field),"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3015,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( \"Distance select supports only one _distance field per select.\", ); prepared.push( Object.freeze({ kind: \"distance\", name: DISTANCE_FIELD, field: name,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3462,
+  "cls": "QueryEngineError",
+  "text": "throw query.expectedRows.missing; if (query.expectedRows && rows.length > query.expectedRows.count) throw new QueryEngineError( \"Raptor 3 createMany final read returned inconsistent row counts.\", ); return this.decodeProjection(query.shape, rows, internal); } decodeProjection("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3464,
+  "cls": "QueryEngineError",
+  "text": "throw new QueryEngineError( \"Raptor 3 createMany final read returned inconsistent row counts.\", ); return this.decodeProjection(query.shape, rows, internal); } decodeProjection( shape: ProjectionShape, rows: Input[],"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3496,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider recursive occurrence\"); const rawPath = row[shape.carriers.path]; const path = typeof rawPath === \"string\" ? JSON.parse(rawPath) : rawPath; if (!Array.isArray(path)) throw new TypeError(\"Invalid provider recursive path\"); const occurrenceShape = depth === 0 ? shape.seeds[seed] : sh"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3500,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider recursive path\"); const occurrenceShape = depth === 0 ? shape.seeds[seed] : shape.descendant; if (!occurrenceShape) throw new TypeError(\"Invalid provider recursive seed\"); const decoded = this.decodeValue( occurrenceShape, row[shape.carriers.value],"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3504,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider recursive seed\"); const decoded = this.decodeValue( occurrenceShape, row[shape.carriers.value], internal, ); if ( decoded === null ||"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3515,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider recursive row\"); const occurrence = record(decoded); occurrence[shape.relation] = shape.many ? [] : null; const pathKey = `${seed}:${JSON.stringify(path)}`; occurrences.set(pathKey, occurrence); if (depth === 0) { roots.push(occurrence); continue;"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3528,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider recursive parent occurrence\"); if (shape.many) { const children = parent[shape.relation]; if (!Array.isArray(children)) throw new TypeError(\"Invalid provider recursive collection\"); children.push(occurrence); } else parent[shape.relation] = occurrence; }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3532,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider recursive collection\"); children.push(occurrence); } else parent[shape.relation] = occurrence; } return roots; } private decodeValue( shape: Shape | Leaf,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3545,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"A recursive shape requires occurrence rows\"); const decoded: unknown = typeof value === \"string\" ? JSON.parse(value) : value; if (shape.kind === \"variants\") { const variants = record(decoded); const values: unknown[] = []; for (const [type, arm] of Object.entries(shape.arms)) { const rows = this.de"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3561,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider collection\"); const rows = decoded.map((row) => this.decodeValue(shape.row, row, internal), ); return shape.reversed ? rows.reverse() : rows; } if (decoded === null) return null; if (typeof decoded !== \"object\" || Array.isArray(decoded))"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3569,
+  "cls": "TypeError",
+  "text": "throw new TypeError(\"Invalid provider row\"); return Object.fromEntries( Object.entries(shape.fields).map(([field, nested]) => [ field, this.decodeValue(nested, record(decoded)[field], internal), ]), ); }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3585,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, leaf.list ? \"a required list is null\" : \"a required scalar is null\", ); } if (value === undefined) throw new InvalidScalarResult(leaf.type, \"the value is absent\"); if (leaf.list) return this.decodeList(leaf, value, internal);"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3591,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(leaf.type, \"the value is absent\"); if (leaf.list) return this.decodeList(leaf, value, internal); switch (leaf.type) { case \"string\": if (typeof value === \"string\") return value; throw new InvalidScalarResult(leaf.type, \"the value is not a string\"); case \"boolean\": if (typeof value === \"boo"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3596,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(leaf.type, \"the value is not a string\"); case \"boolean\": if (typeof value === \"boolean\") return value; if (value === 0 || value === 0n) return false; if (value === 1 || value === 1n) return true; throw new InvalidScalarResult( leaf.type, \"the value is not true, false, zero, or one\","
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3601,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not true, false, zero, or one\", ); case \"int\": { const parsed = typeof value === \"bigint\" ? Number(value)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3613,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not a canonical integer\", ); if (!Number.isSafeInteger(parsed)) throw new InvalidScalarResult( leaf.type, \"the integer is outside the safe range\","
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3618,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the integer is outside the safe range\", ); return parsed; } case \"bigint\": if (typeof value === \"bigint\") return value;"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3630,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not a canonical integer\", ); case \"number\": { const parsed = typeof value === \"string\" && value.trim() !== \"\" ? Number(value)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3640,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not a canonical finite number\", ); return parsed; } case \"decimal\": { const descriptor = leaf.decimal!;"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3657,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, leaf.widened ? \"the sum is not an exact decimal at this column's scale\" : \"the value is not an exact decimal in this column's declared domain\", ); return decoded; }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3669,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not this column's declared physical timestamp\", ); return decoded; } if (value instanceof Date) { if (isDateTimeInstant(value.getTime())) return new Date(value.getTime());"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3677,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the Date is outside the public DateTime domain\", ); } const parsed = typeof value === \"string\" ? providerTimestamp(value) : undefined; if (!parsed)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3685,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not a valid provider timestamp in the public DateTime domain\", ); return parsed; } case \"date\": { if (value instanceof Date) {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3702,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the Date is invalid or not UTC midnight\", ); } const match = typeof value === \"string\" ? DATE_TEXT.exec(value) : null; if ("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3717,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not a valid ISO calendar date\", ); return new Date(`${value as string}T00:00:00.000Z`); } case \"time\": return decodeTime(value);"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3728,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not a declared enum member\", ); case \"json\": return typeof value === \"string\" ? JSON.parse(value) : value; case \"blob\": return decodeBlob(value);"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3744,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not an array of finite numbers\", ); if (leaf.dimension !== undefined && decoded.length !== leaf.dimension) throw new InvalidScalarResult( leaf.type, `the value does not have the configured dimension ${leaf.dimension}`,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3749,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, `the value does not have the configured dimension ${leaf.dimension}`, ); return [...decoded]; } case \"point\": { const decoded = typeof value === \"string\" ? JSON.parse(value) : value;"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3759,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, point.issues[0]?.message ?? \"the value is not a canonical GeoPoint\", ); return point.value; } default: throw new InvalidScalarResult("
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3766,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the scalar type is unsupported\", ); } } /** One list container, then each member through the element's own codec. */ private decodeList(leaf: Leaf, value: unknown, internal: boolean): unknown[] {"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3781,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"the value is not an exact decimal list in this column's declared domain\", ); return internal ? members : members.map((member) => toDecimal(member)); } let items: unknown = value; if (typeof items === \"string\")"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3795,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"a list scalar did not return an array\", ); const member: Leaf = Object.freeze({ ...leaf, list: undefined, nullable: false,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3806,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( leaf.type, \"a list scalar returned a sparse array\", ); return this.decodeScalar(member, item, internal); }); } }"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3853,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(\"time\", \"the value is not a valid provider time\"); const match = TIME_TEXT.exec(value); if ( !match || !isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3])) ) throw new InvalidScalarResult(\"time\", \"the value is not a valid provider time\"); if (Number(match[4] ?? 0) > 23 ||"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3859,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(\"time\", \"the value is not a valid provider time\"); if (Number(match[4] ?? 0) > 23 || Number(match[5] ?? 0) > 59) throw new InvalidScalarResult(\"time\", \"the timezone suffix is invalid\"); let time = value.replace(TIME_ZONE_SUFFIX, \"\"); if (time.includes(\".\")) time = time.replace(TRAILING_FRA"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3861,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(\"time\", \"the timezone suffix is invalid\"); let time = value.replace(TIME_ZONE_SUFFIX, \"\"); if (time.includes(\".\")) time = time.replace(TRAILING_FRACTION_ZEROS, \"\"); const fraction = time.split(\".\")[1]; if (fraction && fraction.length > 3) throw new InvalidScalarResult( \"time\", \"the normali"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3866,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult( \"time\", \"the normalized precision exceeds milliseconds\", ); return time; }  /** Every driver's binary spelling, normalized to one fresh Uint8Array. */"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3897,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(\"blob\", \"the value is not a binary value\"); }  function base64Bytes(value: string): Uint8Array { try { const binary = atob(value); const bytes = new Uint8Array(binary.length); for (let index = 0; index < binary.length; index += 1)"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3908,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(\"blob\", \"the value is not a binary value\"); } }  /** One dimension of a provider's own array output text: `{a,\"b,c\",NULL}`. */ function providerArrayMembers(text: string): unknown[] { if (!text.startsWith(\"{\") || !text.endsWith(\"}\")) throw new InvalidScalarResult(\"enum\", \"a list scalar did"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/query.ts",
+  "line": 3915,
+  "cls": "InvalidScalarResult",
+  "text": "throw new InvalidScalarResult(\"enum\", \"a list scalar did not return an array\"); const body = text.slice(1, -1); if (body.length === 0) return []; const members: unknown[] = []; let index = 0; while (index <= body.length) { if (body[index] === '\"') { let member = \"\";"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/schema.ts",
+  "line": 168,
+  "cls": "refusal",
+  "text": "if (refusal) throw refusal; } return admitted; } private admitArguments( model: AnyModel, operation: Operation, raw: unknown"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/storage.ts",
+  "line": 64,
+  "cls": "Error",
+  "text": "throw new Error( `Raptor 3 G1 variant carrier membership is not implemented: ${name}` ); return member; }  export function buildMembershipView( schema: EngineSchema,"
+ },
+ {
+  "file": "src/query-engine/raptor3/shared/storage.ts",
+  "line": 210,
+  "cls": "Error",
+  "text": "throw new Error(`Raptor 3 G1 physical field is not implemented: ${field}`); }  export function storedFields( schema: EngineSchema, model: AnyModel ): readonly string[] { return schema.storedFields(model);"
+ }
+]

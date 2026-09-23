@@ -1,0 +1,3 @@
+read-only docker inspect by port, 2026-09-23T10:04:26Z
+{"file":"/private/tmp/viborm-fc-env/pg","container":"viborm-triage-pg-20260918","image":"postgis/postgis:16-3.4","restart":"no","running":true,"startedAt":"2026-09-23T08:47:16.892912586Z","finishedAt":"2026-09-23T06:55:13.690021669Z","created":"2026-09-17T22:32:10.664095216Z"}
+{"file":"/private/tmp/viborm-m1-env/mysql","container":"viborm-triage-mysql-20260918","image":"mysql:8","restart":"no","running":true,"startedAt":"2026-09-23T06:55:57.0656938Z","finishedAt":"2026-09-23T06:55:13.687431544Z","created":"2026-09-17T22:32:11.703933925Z"}

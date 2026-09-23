@@ -1,0 +1,379 @@
+{
+  "schemaVersion": 1,
+  "scope": "Compact found-consumption checkpoint evidence only; not a whole-release attestation.",
+  "sourceCommit": "bd264d329221f1c6257aac264fedd59c413707e6",
+  "originRoot": "/private/tmp/viborm-compact-evidence.W0WKP0",
+  "archiveRoot": "docs/architecture/raptor3-evidence/compact-found-consumption",
+  "mapping": "Each originPath is the original absolute receipt location. archivePath is its repository-relative path below archiveRoot. raw-copy entries are byte-identical; lossless-gzip entries verify by gunzip to rawSha256.",
+  "artifacts": [
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/checks/core.log",
+      "archivePath": "checks/core.log",
+      "rawBytes": 46556,
+      "archivedBytes": 46556,
+      "rawSha256": "d010246c4e380001e400b7c54bf116b3c0cd7e871c94909db5ffd89bf7c06678",
+      "archivedSha256": "d010246c4e380001e400b7c54bf116b3c0cd7e871c94909db5ffd89bf7c06678"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/checks/fixed.log",
+      "archivePath": "checks/fixed.log",
+      "rawBytes": 8018,
+      "archivedBytes": 8018,
+      "rawSha256": "198df95c59b796ee03e4b0718d27a0a819bda99fc641a2ec6ea27e8fcb96c3c2",
+      "archivedSha256": "198df95c59b796ee03e4b0718d27a0a819bda99fc641a2ec6ea27e8fcb96c3c2"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/checks/sqlite.log",
+      "archivePath": "checks/sqlite.log",
+      "rawBytes": 1221,
+      "archivedBytes": 1221,
+      "rawSha256": "0ecb6a17598830b22669ec59063b6745095900fc28f23ebad657a55334d8ef36",
+      "archivedSha256": "0ecb6a17598830b22669ec59063b6745095900fc28f23ebad657a55334d8ef36"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/checks/typecheck.log",
+      "archivePath": "checks/typecheck.log",
+      "rawBytes": 167,
+      "archivedBytes": 167,
+      "rawSha256": "4b84dacb78c78f11c71d61da974c02841e4c7f1b09184503fee309534a1e4f91",
+      "archivedSha256": "4b84dacb78c78f11c71d61da974c02841e4c7f1b09184503fee309534a1e4f91"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/g1-pglite/1-produced-commands.test.log",
+      "archivePath": "native/g1-pglite/1-produced-commands.test.log",
+      "rawBytes": 964,
+      "archivedBytes": 964,
+      "rawSha256": "141ee784fad93e2de73d99f1e6169e470da2f84281cf565e35d1e7244767e547",
+      "archivedSha256": "141ee784fad93e2de73d99f1e6169e470da2f84281cf565e35d1e7244767e547"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/g1-pglite/2-batch-produced-commands.test.log",
+      "archivePath": "native/g1-pglite/2-batch-produced-commands.test.log",
+      "rawBytes": 1000,
+      "archivedBytes": 1000,
+      "rawSha256": "4dfbe74bbd82030e5367e7190bf627189551fd63c4186b7a41f630d9035e5fc7",
+      "archivedSha256": "4dfbe74bbd82030e5367e7190bf627189551fd63c4186b7a41f630d9035e5fc7"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/g1-pglite/3-g29-result-progress-pglite.test.log",
+      "archivePath": "native/g1-pglite/3-g29-result-progress-pglite.test.log",
+      "rawBytes": 1156,
+      "archivedBytes": 1156,
+      "rawSha256": "6142b2c9eb5ad0f96ba52dd45fa741b0c24f00f8c18f587128672f46e6b0db2d",
+      "archivedSha256": "6142b2c9eb5ad0f96ba52dd45fa741b0c24f00f8c18f587128672f46e6b0db2d"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/g1-pglite/4-produced-legacy.test.log",
+      "archivePath": "native/g1-pglite/4-produced-legacy.test.log",
+      "rawBytes": 951,
+      "archivedBytes": 951,
+      "rawSha256": "a2b2f4dc23a8f24ad06696abc1ab4e3be26db16b45c32cc327c675f3e20519ff",
+      "archivedSha256": "a2b2f4dc23a8f24ad06696abc1ab4e3be26db16b45c32cc327c675f3e20519ff"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/g1-pglite/5-batch-produced-legacy.test.log",
+      "archivePath": "native/g1-pglite/5-batch-produced-legacy.test.log",
+      "rawBytes": 987,
+      "archivedBytes": 987,
+      "rawSha256": "3447e00495a57c9f86761a03a19b7b55e688f329e880d5dfc25d01044238c5d9",
+      "archivedSha256": "3447e00495a57c9f86761a03a19b7b55e688f329e880d5dfc25d01044238c5d9"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/1-decimal-wide-arithmetic-docker.test.log",
+      "archivePath": "native/mysql2/1-decimal-wide-arithmetic-docker.test.log",
+      "rawBytes": 780,
+      "archivedBytes": 780,
+      "rawSha256": "d1732bcaa2c366f0debdfdbaf662fc67489efdbed331f27334c1e007a4916f10",
+      "archivedSha256": "d1732bcaa2c366f0debdfdbaf662fc67489efdbed331f27334c1e007a4916f10"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/10-mysql2-schema-attestation.test.log",
+      "archivePath": "native/mysql2/10-mysql2-schema-attestation.test.log",
+      "rawBytes": 658,
+      "archivedBytes": 658,
+      "rawSha256": "d77be85a0a27d80e8dbf0a8876a74ef0e8237ebe14556623fb0217186192f98e",
+      "archivedSha256": "d77be85a0a27d80e8dbf0a8876a74ef0e8237ebe14556623fb0217186192f98e"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/11-mysql2-writes-raw.test.log",
+      "archivePath": "native/mysql2/11-mysql2-writes-raw.test.log",
+      "rawBytes": 819,
+      "archivedBytes": 819,
+      "rawSha256": "e4494b70de6e9aa6a01a34c1276f7693ddf54cd156db300eb9b36a875eddee54",
+      "archivedSha256": "e4494b70de6e9aa6a01a34c1276f7693ddf54cd156db300eb9b36a875eddee54"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/12-mysql2.test.log",
+      "archivePath": "native/mysql2/12-mysql2.test.log",
+      "rawBytes": 978,
+      "archivedBytes": 978,
+      "rawSha256": "f0d38d1b900937de3031a8edfcedcaa1f1b01e10fc577ac92a0a105af8eeb5bc",
+      "archivedSha256": "f0d38d1b900937de3031a8edfcedcaa1f1b01e10fc577ac92a0a105af8eeb5bc"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/13-decimal-list-defaults-mysql-docker.test.log",
+      "archivePath": "native/mysql2/13-decimal-list-defaults-mysql-docker.test.log",
+      "rawBytes": 799,
+      "archivedBytes": 799,
+      "rawSha256": "316ec84b871040541a0c0ba2d0c4c90c4593a00cfcb583ebf3a212a9f566d7eb",
+      "archivedSha256": "316ec84b871040541a0c0ba2d0c4c90c4593a00cfcb583ebf3a212a9f566d7eb"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/14-mysql-defaults-docker.test.log",
+      "archivePath": "native/mysql2/14-mysql-defaults-docker.test.log",
+      "rawBytes": 642,
+      "archivedBytes": 642,
+      "rawSha256": "2e9d5f75a772a43ef1a62714878a0f3cab8b6f99d32db19443aefc70c7b81277",
+      "archivedSha256": "2e9d5f75a772a43ef1a62714878a0f3cab8b6f99d32db19443aefc70c7b81277"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/15-mysql-strict-mode-docker.test.log",
+      "archivePath": "native/mysql2/15-mysql-strict-mode-docker.test.log",
+      "rawBytes": 652,
+      "archivedBytes": 652,
+      "rawSha256": "ba77ec12865ffe6970cad497b79ce599bd68d173ff767a930c624e316e6cbf8b",
+      "archivedSha256": "ba77ec12865ffe6970cad497b79ce599bd68d173ff767a930c624e316e6cbf8b"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/2-mysql2-cascaded-identity.test.log",
+      "archivePath": "native/mysql2/2-mysql2-cascaded-identity.test.log",
+      "rawBytes": 653,
+      "archivedBytes": 653,
+      "rawSha256": "491fb8e2344ea79693635d72737e8429357a0ba2059453c5d256f87526f7eb80",
+      "archivedSha256": "491fb8e2344ea79693635d72737e8429357a0ba2059453c5d256f87526f7eb80"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/3-mysql2-concurrency-policy.test.log",
+      "archivePath": "native/mysql2/3-mysql2-concurrency-policy.test.log",
+      "rawBytes": 660,
+      "archivedBytes": 660,
+      "rawSha256": "6e51cd8226b8b3ff9f3595c55f6fdb20f8826909ad07381c16fdbca43292cf84",
+      "archivedSha256": "6e51cd8226b8b3ff9f3595c55f6fdb20f8826909ad07381c16fdbca43292cf84"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/4-mysql2-found-consumption.test.log",
+      "archivePath": "native/mysql2/4-mysql2-found-consumption.test.log",
+      "rawBytes": 799,
+      "archivedBytes": 799,
+      "rawSha256": "f159000aa768464f2fa25a7cabb3e11d3a522fedb6052440395cb4239ba31349",
+      "archivedSha256": "f159000aa768464f2fa25a7cabb3e11d3a522fedb6052440395cb4239ba31349"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/5-mysql2-generated-key.test.log",
+      "archivePath": "native/mysql2/5-mysql2-generated-key.test.log",
+      "rawBytes": 640,
+      "archivedBytes": 640,
+      "rawSha256": "f5ce3a3d341c2e3af3f6e559c452fcba9309728a7023e54cc11ebf0923797ab6",
+      "archivedSha256": "f5ce3a3d341c2e3af3f6e559c452fcba9309728a7023e54cc11ebf0923797ab6"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/6-mysql2-read-surface.test.log",
+      "archivePath": "native/mysql2/6-mysql2-read-surface.test.log",
+      "rawBytes": 649,
+      "archivedBytes": 649,
+      "rawSha256": "7b957212b6e7dafcec79f4509d4717469dfbdb1e5c0a149484fd3885c8aae195",
+      "archivedSha256": "7b957212b6e7dafcec79f4509d4717469dfbdb1e5c0a149484fd3885c8aae195"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/7-mysql2-reference-representability.test.log",
+      "archivePath": "native/mysql2/7-mysql2-reference-representability.test.log",
+      "rawBytes": 680,
+      "archivedBytes": 680,
+      "rawSha256": "cb9fbd39da3b9933a97d39fd4b88427f8f345bda6305e2b247f8c7e1d8608974",
+      "archivedSha256": "cb9fbd39da3b9933a97d39fd4b88427f8f345bda6305e2b247f8c7e1d8608974"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/8-mysql2-relations-ddl.test.log",
+      "archivePath": "native/mysql2/8-mysql2-relations-ddl.test.log",
+      "rawBytes": 652,
+      "archivedBytes": 652,
+      "rawSha256": "d643a578e79d40e9d5baed4e295528e876e844cda06821790db7e48e680308b4",
+      "archivedSha256": "d643a578e79d40e9d5baed4e295528e876e844cda06821790db7e48e680308b4"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/mysql2/9-mysql2-scalars.test.log",
+      "archivePath": "native/mysql2/9-mysql2-scalars.test.log",
+      "rawBytes": 634,
+      "archivedBytes": 634,
+      "rawSha256": "de8bd21050e7c80768f2d6a92d36905c57a9ddab902aa00bb87db11bf86574c2",
+      "archivedSha256": "de8bd21050e7c80768f2d6a92d36905c57a9ddab902aa00bb87db11bf86574c2"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/postgresql/1-pg-batch-reference-reuse.test.log",
+      "archivePath": "native/postgresql/1-pg-batch-reference-reuse.test.log",
+      "rawBytes": 1749,
+      "archivedBytes": 1749,
+      "rawSha256": "e1ccb22801e4a6f6ae986b42a1bbeb8c901a2f0d4b150b5f8531e9ab94190cc4",
+      "archivedSha256": "e1ccb22801e4a6f6ae986b42a1bbeb8c901a2f0d4b150b5f8531e9ab94190cc4"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/postgresql/2-pg-captured-set-concurrency.test.log",
+      "archivePath": "native/postgresql/2-pg-captured-set-concurrency.test.log",
+      "rawBytes": 7765,
+      "archivedBytes": 7765,
+      "rawSha256": "29b25eff2a29f3087e75bae774f4a04e9350bfd1de85e9378d9d83eafd3c197b",
+      "archivedSha256": "29b25eff2a29f3087e75bae774f4a04e9350bfd1de85e9378d9d83eafd3c197b"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/postgresql/3-pg-nested-write-races.test.log",
+      "archivePath": "native/postgresql/3-pg-nested-write-races.test.log",
+      "rawBytes": 12920,
+      "archivedBytes": 12920,
+      "rawSha256": "562c0e536948e5218b724672e2212b2e2c7567ceb21d7f3099d71fcd5fc6b92a",
+      "archivedSha256": "562c0e536948e5218b724672e2212b2e2c7567ceb21d7f3099d71fcd5fc6b92a"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/postgresql/4-pg-polymorphism-ddl.test.log",
+      "archivePath": "native/postgresql/4-pg-polymorphism-ddl.test.log",
+      "rawBytes": 8064,
+      "archivedBytes": 8064,
+      "rawSha256": "4c5868ccc0f92f6aab11b545094a1843944424a7d4e1d46295d374fe032d40a1",
+      "archivedSha256": "4c5868ccc0f92f6aab11b545094a1843944424a7d4e1d46295d374fe032d40a1"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/postgresql/5-pg-read-surface.test.log",
+      "archivePath": "native/postgresql/5-pg-read-surface.test.log",
+      "rawBytes": 9883,
+      "archivedBytes": 9883,
+      "rawSha256": "dc185b053461e0568e10e68a9edfe04bb3a3d71c30b52d2c05bc3fe03ccf2d6a",
+      "archivedSha256": "dc185b053461e0568e10e68a9edfe04bb3a3d71c30b52d2c05bc3fe03ccf2d6a"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/postgresql/6-pg-reference-representability.test.log",
+      "archivePath": "native/postgresql/6-pg-reference-representability.test.log",
+      "rawBytes": 653,
+      "archivedBytes": 653,
+      "rawSha256": "02314a3116d1ac902382bc468c7816957b110bcdb2a14f5614fbc02e3f84da4a",
+      "archivedSha256": "02314a3116d1ac902382bc468c7816957b110bcdb2a14f5614fbc02e3f84da4a"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/postgresql/7-pg.test.log",
+      "archivePath": "native/postgresql/7-pg.test.log",
+      "rawBytes": 26666,
+      "archivedBytes": 26666,
+      "rawSha256": "b557327bbf916b8be73ba424f503f188340086b8a8ebb52ce10e06e2e0cfbdd8",
+      "archivedSha256": "b557327bbf916b8be73ba424f503f188340086b8a8ebb52ce10e06e2e0cfbdd8"
+    },
+    {
+      "kind": "raw-copy",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/native/source-count-index.json",
+      "archivePath": "native/source-count-index.json",
+      "rawBytes": 21728,
+      "archivedBytes": 21728,
+      "rawSha256": "52b039d29a6d90d7e9e491daf3c5ea990a3ed49a70b1bb1fa35f3dfcc2f9126e",
+      "archivedSha256": "52b039d29a6d90d7e9e491daf3c5ea990a3ed49a70b1bb1fa35f3dfcc2f9126e"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/perf-vs-old-engine.json",
+      "archivePath": "performance/perf-vs-old-engine.json.gz",
+      "rawBytes": 51885354,
+      "archivedBytes": 4405279,
+      "rawSha256": "83fc8a13146e652954646cadb5e2987af988ea42a456b952c4999ae365fe8e53",
+      "archivedSha256": "69416a8042b6bbbf994663c75fe0cc3aaeebd1cde0eba3a3751e4c192435e447"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/perf-vs-old-found-confirmation.json",
+      "archivePath": "performance/perf-vs-old-found-confirmation.json.gz",
+      "rawBytes": 12983347,
+      "archivedBytes": 1101025,
+      "rawSha256": "35cdea0e280c99e331f4cf53da4d185ae10a346fcb27b01f7e7af8257b9c6094",
+      "archivedSha256": "62ea66f9ee79830ce5a4fd29990728bc1b445bf5f5e98c8155e0b5649921087a"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/perf-vs-previous.json",
+      "archivePath": "performance/perf-vs-previous.json.gz",
+      "rawBytes": 51891913,
+      "archivedBytes": 4405001,
+      "rawSha256": "901ee03f4bc9584c460bffe648cecdf4d1c4eb5717693bf19015e74653ff2b19",
+      "archivedSha256": "4dc1d4db113c74fd03fd8efc524bb9387714a0023735a261adfaa16188673e53"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/after.json",
+      "archivePath": "source/after.json.gz",
+      "rawBytes": 636328,
+      "archivedBytes": 90496,
+      "rawSha256": "f8cc8d3a30ad4b0b8af7780bd7a5ac9557c656a05ba3ab8e15cdf9b43eb37bbf",
+      "archivedSha256": "b39c9147b3d2244b18ff5194128839cb62eb738d33f9d0b85bedf976b4eb607a"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/before.json",
+      "archivePath": "source/before.json.gz",
+      "rawBytes": 635986,
+      "archivedBytes": 90427,
+      "rawSha256": "b70480c1c2ceea0b9aea452b6de14a12e946e4d93a0f99028134f07ca12e5e75",
+      "archivedSha256": "7d1ddf0ae409a201dc6304b6107d9b309ffb21e8eac3a6324f5799e5e7fde1fb"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/perf-node24.21-vs-previous.json",
+      "archivePath": "performance/perf-node24.21-vs-previous.json.gz",
+      "rawBytes": 51891967,
+      "archivedBytes": 4400860,
+      "rawSha256": "79766f7eb914b9f3a842594a75dd19161c255ce5f8b7f15e8e53b34b2848cd9e",
+      "archivedSha256": "4e8f87c912bf73902188643a036e47676dc9be6006f492b39172576cdd745f5e"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/perf-node24.21-vs-old-engine.json",
+      "archivePath": "performance/perf-node24.21-vs-old-engine.json.gz",
+      "rawBytes": 51885475,
+      "archivedBytes": 4401080,
+      "rawSha256": "336c19c648c73a0e6f8ab541fd417d09b84200cbb06154c46abea9f529167fe1",
+      "archivedSha256": "569080d28feeb5cf2a57475af0857389c007012e1b709f037ff4786439d681c7"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/before-node24.21.json",
+      "archivePath": "source/before-node24.21.json.gz",
+      "rawBytes": 635986,
+      "archivedBytes": 93738,
+      "rawSha256": "70e4afbc422524b6c98bd3fc2ec3da41bd50a8df6d48fb0158523969bdb56906",
+      "archivedSha256": "dc0865f08b7d275d416e8ca9e1f51ce7491a24e2fc8132389a52b219d2342df5"
+    },
+    {
+      "kind": "lossless-gzip",
+      "originPath": "/private/tmp/viborm-compact-evidence.W0WKP0/after-node24.21.json",
+      "archivePath": "source/after-node24.21.json.gz",
+      "rawBytes": 636328,
+      "archivedBytes": 93824,
+      "rawSha256": "181b5a9627f295645707f14d0a0df327d452d27929c521df1e9dfdd452d18065",
+      "archivedSha256": "09d8328c537cd48784cbf86a2dc92f1d19f7ece1e413bbd23c0c3d83853f27d2"
+    }
+  ]
+}

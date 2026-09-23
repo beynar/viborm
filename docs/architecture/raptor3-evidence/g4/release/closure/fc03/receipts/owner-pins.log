@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc03
+
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-staleness.test.ts (5 tests) 51ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 42ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (9 tests) 30ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/combinator-named-scalar.test.ts (4 tests) 12ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 39ms
+ ✓ |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (9 tests) 29ms
+ ✓ |raptor3| tests/raptor3/g4/parity/combinator-named-scalar.test.ts (4 tests) 18ms
+
+ Test Files  7 passed (7)
+      Tests  45 passed (45)
+   Start at  22:04:42
+   Duration  4.68s (transform 2.44s, setup 23ms, collect 3.87s, tests 220ms, environment 0ms, prepare 78ms)
+
+Vitest resources: 6.46s wall, 653.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

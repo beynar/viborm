@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46
+
+No test files found, exiting with code 1
+
+filter: tests/contracts/engine/write/__d46probe.test.ts
+projects: coverage-write-engine
+
+|coverage-write-engine| 
+
+include: tests/contracts/engine/query/nested-create-many.core.test.ts, tests/contracts/engine/write/atomic-unit-batch.core.test.ts, tests/contracts/engine/write/dead-symbol-gate.core.test.ts, tests/contracts/engine/write/parse-boundary-gate.core.test.ts, tests/contracts/engine/write/neon-committed-segments-capability.test.ts
+exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+
+Vitest resources: 1.65s wall, 271.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

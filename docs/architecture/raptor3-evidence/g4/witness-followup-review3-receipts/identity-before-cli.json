@@ -1,0 +1,12 @@
+{
+  "capturedAt": "2026-09-15T06:20:48.398Z",
+  "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+  "harness": "62b5f02f90b47179aa32c15a771b66be627f737c9446af6b1941255d9fa5a123",
+  "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sqliteDriver": "12.6.0",
+    "vitest": "3.1.4"
+  }
+}

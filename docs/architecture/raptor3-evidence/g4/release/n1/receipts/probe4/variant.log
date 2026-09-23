@@ -1,0 +1,12 @@
+ ❯ |coverage-raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests | 2 failed) 60ms
+ ❯ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests | 2 failed) 61ms
+ FAIL  |coverage-raptor3| tests/raptor3/prep/variant-collection-order.test.ts > G3P-05 mixed variant collection ordering > guards every root target, clears each member table once, then writes
+AssertionError: Every target guard must complete before the first relation-wide clear
+ FAIL  |coverage-raptor3| tests/raptor3/prep/variant-collection-order.test.ts > G3P-05 mixed variant collection ordering > keeps the same guard-clear-write contract in a nested record
+AssertionError: Every target guard must complete before the first relation-wide clear
+ FAIL  |raptor3| tests/raptor3/prep/variant-collection-order.test.ts > G3P-05 mixed variant collection ordering > guards every root target, clears each member table once, then writes
+AssertionError: Every target guard must complete before the first relation-wide clear
+ FAIL  |raptor3| tests/raptor3/prep/variant-collection-order.test.ts > G3P-05 mixed variant collection ordering > keeps the same guard-clear-write contract in a nested record
+AssertionError: Every target guard must complete before the first relation-wide clear
+ Test Files  2 failed (2)
+      Tests  4 failed | 4 passed (8)

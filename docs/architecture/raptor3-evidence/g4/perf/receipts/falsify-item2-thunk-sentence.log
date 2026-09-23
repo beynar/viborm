@@ -1,0 +1,25 @@
+Expected: [32m"Cannot update relation 'badge': target record was not found for [7mthis[27m parent."[39m
+Received: [31m"Cannot update relation 'badge': target record was not found for [7mTHIS[27m parent."[39m
+
+ ❯ Object.assert tests/raptor3/transitions/supplier-continuations.ts:249:18
+    247|           );
+    248|           assert.equal(failure.code, uniqueFailure ? "V3001" : "V7001"…
+    249|           assert.equal(
+       |                  ^
+    250|             failure.message,
+    251|             uniqueFailure
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG0Pair tests/raptor3/harness/replay.ts:250:20
+ ❯ tests/raptor3/transitions/supplier-continuations-commands.test.ts:43:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 15 passed (16)
+      Tests  2 failed | 214 passed (216)
+   Start at  10:52:26
+   Duration  4.92s (transform 1.23s, setup 17ms, collect 3.07s, tests 1.67s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-RWptm7/vitest.json
+Vitest resources: 6.94s wall, 829.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-RWptm7

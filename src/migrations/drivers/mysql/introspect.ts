@@ -5,16 +5,13 @@
  * returning a normalized SchemaSnapshot.
  */
 
-import {
-  type DecimalDescriptor,
-  decimalListDefaultText,
-  decodePhysicalDecimalList,
-} from "@validation/primitives/decimal-codec";
+import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import {
   readMysqlDecimalListMarker,
   readStoredDecimalDescriptor,
 } from "../../decimal";
+import { decodeUtf8 } from "../../identity";
 import type {
   ColumnDef,
   EnumDef,
@@ -26,6 +23,11 @@ import type {
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
+import {
+  MYSQL_LITERAL_ESCAPES,
+  mysqlEnumType,
+  mysqlStringLiteral,
+} from "../type-mapping";
 import { groupBy, groupByNested } from "../utils";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import type {
@@ -136,10 +138,62 @@ ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
 const ENUM_VALUES_REGEX = /enum\((.+)\)/i;
 
 /**
- * Parse enum values from MySQL COLUMN_TYPE string.
- * Handles values containing commas, doubled single quotes (''), and backslash escapes (\').
+ * The MySQL storage whose literal default the catalog already reports the way
+ * the estate spells it: a number is a number, and a `BIT` default is reported
+ * as its own `b'…'` literal. Every other type's literal default is a QUOTED
+ * string in DDL, and `information_schema` reports it with the quotes gone.
+ */
+const MYSQL_NUMERIC_DATA_TYPES = new Set([
+  "bigint",
+  "bit",
+  "decimal",
+  "double",
+  "float",
+  "int",
+  "integer",
+  "mediumint",
+  "numeric",
+  "real",
+  "smallint",
+  "tinyint",
+]);
+
+/**
+ * What MySQL's printer writes, read backwards: the WRITE table
+ * (`mysqlStringLiteral`) inverted, plus the apostrophe, which MySQL prints as
+ * `\'` although the DDL spelling doubles it instead. Every other character —
+ * tab, backspace, `"` — is printed raw (measured on 8.4.11), so an escape
+ * outside this table is one this inverse does not own.
+ *
+ * ONE table, both catalog vocabularies, because both are MySQL printing a
+ * string literal it parsed: the expression default below, and an ENUM's members
+ * inside `COLUMN_TYPE`. The enum printer writes a strict SUBSET of it (`\\`,
+ * `\n`, `\r`, `\0`; it doubles `'` and prints ctrl-Z raw, measured), so reading
+ * one table backwards covers both and leaves the same remainder unowned.
+ */
+const MYSQL_PRINTED_CHARACTERS: ReadonlyMap<string, string> = new Map([
+  ["'", "'"],
+  ...[...MYSQL_LITERAL_ESCAPES].map(
+    ([character, sequence]) =>
+      [sequence.slice(1), character] as [string, string]
+  ),
+]);
+
+/**
+ * Parse enum values from MySQL COLUMN_TYPE string, or `null` when the catalog
+ * spelled one this inverse does not own.
+ *
+ * Handles values containing commas, doubled single quotes (''), and the
+ * backslash escapes MySQL's printer writes (`MYSQL_PRINTED_CHARACTERS`).
  * Example: "enum('a,b','it''s','c')" -> ['a,b', "it's", 'c']
- * Example: "enum('it\\'s')" -> ["it's"]
+ * Example: String.raw`enum('a\\b','line1\nline2')` -> ["a\\b", "line1\nline2"]
+ *
+ * Reading `\x` as a bare `x` — which is what "skip the backslash" does — turned
+ * the printed `\n` of a declared NEWLINE into the letter `n`, a value the
+ * declaration never held. An escape outside the table is not one this server
+ * printed for a member the estate spelled, so inverting it would be a guess:
+ * the column keeps MySQL's own `COLUMN_TYPE` instead and the push fails at the
+ * final attestation, the same fail-closed direction the string inverse takes.
  */
 function parseEnumValues(columnType: string): string[] | null {
   const match = columnType.match(ENUM_VALUES_REGEX);
@@ -167,8 +221,10 @@ function parseEnumValues(columnType: string): string[] | null {
     let value = "";
     while (i < content.length) {
       if (content[i] === "\\" && i + 1 < content.length) {
-        // Backslash escape - append next char and skip both
-        value += content[i + 1];
+        // Backslash escape - the character MySQL's printer wrote it for
+        const printed = MYSQL_PRINTED_CHARACTERS.get(content[i + 1] ?? "");
+        if (printed === undefined) return null;
+        value += printed;
         i += 2;
       } else if (content[i] === "'" && content[i + 1] === "'") {
         // Doubled quote escape - add single quote and skip both
@@ -214,9 +270,14 @@ function formatColumnType(col: MySQLColumn): string {
     return srid === undefined ? "POINT" : `POINT SRID ${srid}`;
   }
 
-  // For ENUM types, return the full COLUMN_TYPE which includes values
+  // An ENUM's values ARE its type. `information_schema` prints its own
+  // rendering of them — `enum('a','b')`, no space after the comma — so the
+  // parsed values are re-spelled through the estate's ONE enum speller and the
+  // two snapshots name one type. A COLUMN_TYPE that parses to no values at all
+  // is not an enum MySQL could have created; it stays exactly as read.
   if (col.DATA_TYPE === "enum") {
-    return col.COLUMN_TYPE; // e.g., "enum('active','inactive')"
+    const values = parseEnumValues(col.COLUMN_TYPE);
+    return values ? mysqlEnumType(values) : col.COLUMN_TYPE;
   }
 
   // For types with modifiers (unsigned, zerofill) or size info in COLUMN_TYPE,
@@ -310,38 +371,186 @@ function readDecimalDomain(col: MySQLColumn): DecimalDescriptor | undefined {
 }
 
 /**
- * MySQL deparses an expression-backed string default as
- * `_charset\\'value\\'` in `information_schema.COLUMNS`. Normalize only the
- * exact decimal-list value this driver emits: the column must carry the exact
- * marker, the container must decode through its descriptor, and re-encoding it
- * must reproduce every byte. A generic JSON default or a manually respelled
- * container remains catalog text and therefore remains different.
+ * MySQL deparses an expression-backed string literal as `_charset\\'value\\'`.
+ * The introducer is CAPTURED because it names the encoding of the bytes that
+ * follow it (see {@link decodeIntroducedLiteral}).
  */
-const MYSQL_STRING_EXPRESSION_DEFAULT = /^_[A-Za-z0-9_]+\\'([\s\S]*)\\'$/;
+const MYSQL_STRING_EXPRESSION_DEFAULT = /^_([A-Za-z0-9_]+)\\'([\s\S]*)\\'$/;
 
-function cleanDefault(
-  col: MySQLColumn,
-  descriptor: DecimalDescriptor | undefined
+/** One backslash escape, with the character it escapes. */
+const MYSQL_ESCAPE_SEQUENCE = /\\([\s\S]?)/g;
+
+/** Each byte read as the codepoint of the same number. */
+function decodeSingleByte(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+}
+
+/**
+ * MySQL's `latin1` IS Windows-1252, not ISO-8859-1: the 32 bytes 0x80–0x9F are
+ * printable characters there (0x93 is U+201C), and the five cp1252 leaves
+ * undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D) MySQL maps to the same-numbered
+ * control. Every other byte is the codepoint of its own number.
+ */
+const CP1252_HIGH: readonly number[] = [
+  0x20ac, 0x81, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0x8d, 0x017d, 0x8f, 0x90, 0x2018, 0x2019, 0x201c,
+  0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x9d,
+  0x017e, 0x0178,
+];
+function decodeLatin1(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) =>
+    String.fromCharCode(
+      byte >= 0x80 && byte <= 0x9f ? (CP1252_HIGH[byte - 0x80] ?? byte) : byte
+    )
+  ).join("");
+}
+
+/**
+ * How an introducer's bytes are READ — one entry per charset, because the
+ * charset is what says what a byte MEANS.
+ *
+ * MySQL names the charset of the DDL the literal arrived in and FREEZES it in
+ * the stored expression, so the writing SESSION decides what reaches this
+ * inverse, whatever the reading one speaks (measured: a column created over a
+ * `latin1` connection reports `_latin1` to an ordinary utf8mb4 connection,
+ * `closure-repair-2/t3/receipts/probe-frozen-introducer.log`). The UTF-8 family
+ * is decoded; `ascii` and `binary` map each byte to the codepoint of the same
+ * number, so the catalog's text already IS the value; `latin1` is read as the
+ * Windows-1252 MySQL means by it ({@link decodeLatin1}). A charset
+ * outside this table — `cp1251`, say, where the same byte is a different
+ * letter — is not read at all: either reading would be a guess there, and a
+ * wrong guess calls two different defaults equal.
+ */
+const MYSQL_INTRODUCER_DECODERS: ReadonlyMap<
+  string,
+  (bytes: Uint8Array) => string
+> = new Map([
+  ["utf8", decodeUtf8],
+  ["utf8mb3", decodeUtf8],
+  ["utf8mb4", decodeUtf8],
+  ["latin1", decodeLatin1],
+  ["ascii", decodeSingleByte],
+  ["binary", decodeSingleByte],
+]);
+
+/**
+ * The printed literal behind the catalog's text, or `undefined` when the text
+ * is not the byte sequence the introducer promises.
+ *
+ * `information_schema.COLUMNS.COLUMN_DEFAULT` hands an EXPRESSION default's
+ * text back one codepoint per BYTE: `café ☕` arrives as the nine codepoints
+ * `63 61 66 c3 a9 20 e2 98 95` — the UTF-8 bytes of the value, each read as a
+ * character — while the SAME column carries a LITERAL default's value decoded
+ * (measured on 8.4.11: `HEX(COLUMN_DEFAULT)` shows the expansion server-side,
+ * and `SHOW CREATE TABLE` prints the true text, so the loss is MySQL's own
+ * rendering of a stored expression, not the connection's character set and not
+ * the driver). Those bytes are the literal, in the charset the introducer
+ * names, so they are read back with THAT charset
+ * ({@link MYSQL_INTRODUCER_DECODERS}) rather than re-decoded by a rule of this
+ * module's invention.
+ *
+ * An unknown charset, an out-of-byte-range codepoint, or an invalid byte
+ * sequence keeps the catalog's own text. These checks do not prove provenance:
+ * the measured mysql2 byte-expanded spelling of `é` and already-decoded text
+ * whose literal characters are `Ã©` both present `c3 a9`, a valid UTF-8
+ * sequence. Content alone cannot distinguish them. This decoder therefore
+ * describes the measured mysql2 catalog representation; other transport
+ * representations are unverified, and valid UTF-8-shaped already-decoded text
+ * can be transformed rather than fail closed.
+ */
+function decodeIntroducedLiteral(
+  introducer: string,
+  printed: string
 ): string | undefined {
-  const columnDefault = col.COLUMN_DEFAULT;
-  if (
-    columnDefault === null ||
-    descriptor === undefined ||
-    col.DATA_TYPE !== "json"
-  ) {
-    return columnDefault ?? undefined;
+  const decode = MYSQL_INTRODUCER_DECODERS.get(introducer.toLowerCase());
+  if (decode === undefined) return undefined;
+  const codes = [...printed].map((character) => character.codePointAt(0) ?? 0);
+  if (codes.some((code) => code > 0xff)) return undefined;
+  try {
+    return decode(Uint8Array.from(codes));
+  } catch {
+    return undefined;
   }
-  const match = MYSQL_STRING_EXPRESSION_DEFAULT.exec(columnDefault);
-  const container = match?.[1];
-  if (container === undefined) return columnDefault;
-  const canonicals = decodePhysicalDecimalList(
-    container,
-    descriptor,
-    "coefficient"
+}
+
+/** `undefined` for a body carrying an escape MySQL's printer does not write. */
+function unescapeOneLayer(body: string): string | undefined {
+  let owned = true;
+  const unescaped = body.replace(
+    MYSQL_ESCAPE_SEQUENCE,
+    (_match: string, escaped: string) => {
+      const character = MYSQL_PRINTED_CHARACTERS.get(escaped);
+      if (character === undefined) {
+        owned = false;
+        return escaped;
+      }
+      return character;
+    }
   );
-  if (canonicals === undefined) return columnDefault;
-  const rendered = decimalListDefaultText("mysql", canonicals, descriptor);
-  return rendered === container ? `('${rendered}')` : columnDefault;
+  return owned ? unescaped : undefined;
+}
+
+/**
+ * The VALUE behind MySQL's deparse of a string default, or `undefined` when
+ * the catalog text carries an escape this inverse does not own.
+ *
+ * The text is escaped TWICE — once by MySQL printing the string literal inside
+ * the expression, once by `information_schema` printing that expression — so a
+ * declared `it's` arrives as the characters `_utf8mb4\'it\\\'s\'` (measured on
+ * MySQL 8.4.11). Each pass undoes one layer, through the table MySQL's printer
+ * writes (`MYSQL_PRINTED_CHARACTERS`). An escape outside that table is not one
+ * this server printed for a value the estate spelled, so inverting it would be
+ * a guess, and a wrong guess calls two different defaults equal.
+ *
+ * The BYTES come first ({@link decodeIntroducedLiteral}), because the catalog
+ * spells them one per codepoint and every escape MySQL prints is ASCII: the
+ * layers are the same after the decode, and only a text that is those bytes
+ * reaches them.
+ */
+function deparsedStringValue(columnDefault: string): string | undefined {
+  const deparsed = MYSQL_STRING_EXPRESSION_DEFAULT.exec(columnDefault);
+  const introducer = deparsed?.[1];
+  const body = deparsed?.[2];
+  const printed =
+    introducer === undefined || body === undefined
+      ? undefined
+      : decodeIntroducedLiteral(introducer, body);
+  const literal = printed === undefined ? undefined : unescapeOneLayer(printed);
+  return literal === undefined ? undefined : unescapeOneLayer(literal);
+}
+
+/**
+ * The column's default, in the ONE spelling the estate uses.
+ *
+ * MySQL reports a default in two vocabularies and neither is the estate's. A
+ * LITERAL default comes back as the bare VALUE — `member`, `x'y` — with the
+ * quotes DDL required stripped off. An EXPRESSION default (every default on a
+ * TEXT, BLOB, JSON or GEOMETRY column, since those refuse a literal) comes back
+ * as MySQL's deparse of the expression, where a string literal is printed
+ * `_charset\\'value\\'`. Both are translated here, at the one boundary that
+ * reads the catalog, into what `finalizeMySQLColumn` spells on the desired
+ * side; otherwise a default nobody touched reads as a changed column on every
+ * push, and the final push attestation refuses the schema it just created.
+ *
+ * A deparse this inverse does not own keeps MySQL's own catalog text, which
+ * stays different from the desired side: the column is re-planned and the push
+ * then FAILS at the final attestation with `MIGRATION_DRIFT`. That is the
+ * fail-closed direction — the same one the decimal-list container took when it
+ * could not be re-encoded byte for byte — and it refuses a default nobody
+ * proved equal instead of reporting a schema the database does not hold.
+ */
+function cleanDefault(col: MySQLColumn): string | undefined {
+  const columnDefault = col.COLUMN_DEFAULT;
+  if (columnDefault === null) return undefined;
+  if (col.EXTRA.toUpperCase().includes("DEFAULT_GENERATED")) {
+    const value = deparsedStringValue(columnDefault);
+    return value === undefined
+      ? columnDefault
+      : `(${mysqlStringLiteral(value)})`;
+  }
+  return MYSQL_NUMERIC_DATA_TYPES.has(col.DATA_TYPE.toLowerCase())
+    ? columnDefault
+    : mysqlStringLiteral(columnDefault);
 }
 
 /**
@@ -451,20 +660,17 @@ export async function introspect(
     const columns: ColumnDef[] = [];
     for (const col of columnsByTable.get(tableName) || []) {
       // Extract enum values if this is an enum column
+      // MySQL has no standalone enum object, so the inline type IS the
+      // identity — and it is the identity the DESIRED snapshot registers too
+      // (`serializer.ts` names an enum by `getEnumColumnType`). Naming it
+      // anything else here, as a derived `table$column$enum` did, made every
+      // enum-bearing schema carry two enum definitions that could never match.
       if (col.DATA_TYPE === "enum") {
-        // Use $ as delimiter and escape any $ in names to prevent collisions
-        // e.g. table "foo$bar" col "baz" -> "foo$$bar$baz$enum"
-        const escapedTable = tableName.replace(/\$/g, "$$");
-        const escapedCol = col.COLUMN_NAME.replace(/\$/g, "$$");
-        const enumName = `${escapedTable}$${escapedCol}$enum`;
-        if (!seenEnums.has(enumName)) {
-          // Parse enum values from COLUMN_TYPE: enum('val1','val2')
-          // Uses stateful parser to handle commas and escaped quotes in values
-          const values = parseEnumValues(col.COLUMN_TYPE);
-          if (values) {
-            enumDefs.push({ name: enumName, values });
-            seenEnums.add(enumName);
-          }
+        const values = parseEnumValues(col.COLUMN_TYPE);
+        const enumName = values && mysqlEnumType(values);
+        if (values && enumName && !seenEnums.has(enumName)) {
+          enumDefs.push({ name: enumName, values });
+          seenEnums.add(enumName);
         }
       }
 
@@ -473,7 +679,7 @@ export async function introspect(
         name: col.COLUMN_NAME,
         type: formatColumnType(col),
         nullable: col.IS_NULLABLE === "YES",
-        default: cleanDefault(col, decimal),
+        default: cleanDefault(col),
         autoIncrement: isAutoIncrement(col.EXTRA),
         decimal,
       });

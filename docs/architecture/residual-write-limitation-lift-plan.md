@@ -1540,14 +1540,14 @@ implementation history entered the public pages.
 Internal doctrine took three durable facts and nothing else. `CONTEXT.md` gained
 **progressive boundary premise** — two facts, liveness and exact membership, neither
 substitutable for the other. `src/query-engine/AGENTS.md` and
-`write-engine/ATOM.md` §17 say the same thing at their own altitudes, naming the two
+`docs/architecture/retired/write-engine-ATOM.md` §17 say the same thing at their own altitudes, naming the two
 resolvers and the placements whose premise is empty by construction. The
 capability matrix gained **A18a**, the statement-local generated-identity transport
 per driver family, which is the fact behind the estate debt below. The repository-root
 `AGENTS.md` was NOT touched: it is clean in this worktree and every fact this pass
 established is query-engine-local.
 
-**Co-mingling, recorded.** `src/query-engine/AGENTS.md`, `write-engine/ATOM.md`,
+**Co-mingling, recorded.** `src/query-engine/AGENTS.md`, `docs/architecture/retired/write-engine-ATOM.md`,
 `CONTEXT.md` and `capability-matrix-2026-07.md` were already uncommitted when Package I
 opened, carrying residual Packages A–H. Package I edited ON TOP of those versions and
 preserved every hunk, so each file's single uncommitted diff now mixes A–H with I. A

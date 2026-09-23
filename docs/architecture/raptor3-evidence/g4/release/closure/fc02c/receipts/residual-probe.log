@@ -1,0 +1,35 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02c
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R1: the connectOrCreate CREATE arm whose own payload spells the referenced field NULL
+R1-coc-create-null RESOLVED {"id":"h1","name":"one","badgeCode":null}
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R1: the connectOrCreate CREATE arm whose own payload spells the referenced field NULL
+R1-holders [{"id":"h1","name":"one","badgeCode":null}]
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R1: the connectOrCreate CREATE arm whose own payload spells the referenced field NULL
+R1-badges [{"id":"b1","slug":"codeless","code":null},{"id":"b2","slug":"gold","code":"GOLD"},{"id":"b9","slug":"fresh","code":null}]
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R1: the connectOrCreate CREATE arm whose own payload spells the referenced field NULL
+R1-control-plain-create-null REFUSED UnsupportedOperationError query-engine-v2 create cannot resolve the parent id for relation 'badge': referenced field 'code' is neither this record's primary key nor a knowable value in its own create data.
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R2: the CHILD-held direction, where the reference is the holder's parent's own value
+R2-child-held-connect-from-null-parent RESOLVED {"id":"b1","slug":"codeless","code":null}
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R2: the CHILD-held direction, where the reference is the holder's parent's own value
+R2-holders [{"id":"h1","name":"one","badgeCode":null}]
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R3: a nested update arm that nulls the referenced column under a live member
+R3-update-arm-nulls-reference REFUSED ForeignKeyError Foreign key constraint violation
+
+stdout | tests/raptor3/g4/parity/fc02c-residual-probe.test.ts > FC-02C residuals (measured, not pinned) > R3: a nested update arm that nulls the referenced column under a live member
+R3-holders [{"id":"h1","name":"one","badgeCode":"GOLD"}]
+
+ ✓ |extended-local| tests/raptor3/g4/parity/fc02c-residual-probe.test.ts (3 tests) 32ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  23:17:05
+   Duration  1.59s (transform 904ms, setup 9ms, collect 1.35s, tests 32ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.53s wall, 519.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -77,13 +77,25 @@ export function defineSnapshotProperty(
   });
 }
 
+/**
+ * Enter an object on the active path, refusing one already on it: the rule a
+ * cyclic value or snapshot meets at its first re-entry. An iterative walk,
+ * whose path no callback scope can span, leaves the object itself.
+ */
+export function enterSnapshotObject(
+  active: WeakSet<object>,
+  value: object
+): void {
+  if (active.has(value)) failCacheSnapshot();
+  active.add(value);
+}
+
 export function withSnapshotObject<T>(
   active: WeakSet<object>,
   value: object,
   read: () => T
 ): T {
-  if (active.has(value)) return failCacheSnapshot();
-  active.add(value);
+  enterSnapshotObject(active, value);
   try {
     return read();
   } finally {

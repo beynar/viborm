@@ -1,0 +1,19 @@
+{
+  "mode": "g3p05-variant-collection-order",
+  "identity": {
+    "production": "e2d5bcb2201641372941c2c1fa6e648f52429fb3ca8ce948678baa80a31b589f",
+    "harness": "838a1e1bb2080e863f5decb56ce90c5218da1e1a341532c21d5b0e04453bc6c5",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

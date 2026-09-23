@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/public-client/nested-transaction-contract.test.ts (1 test) 755ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  23:17:52
+   Duration  2.97s (transform 1.31s, setup 10ms, collect 1.96s, tests 755ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 5.33s wall, 1469.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

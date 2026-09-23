@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/native-pg-key-arithmetic.review.test.ts (3 tests) 104ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  13:01:56
+   Duration  2.21s (transform 1.28s, setup 10ms, collect 1.93s, tests 104ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 2.84s wall, 450.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

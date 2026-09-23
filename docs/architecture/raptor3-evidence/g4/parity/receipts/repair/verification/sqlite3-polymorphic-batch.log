@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts (150 tests | 1 skipped) 384ms
+
+ Test Files  1 passed (1)
+      Tests  149 passed | 1 skipped (150)
+   Start at  15:25:52
+   Duration  2.00s (transform 979ms, setup 9ms, collect 1.47s, tests 384ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 4.33s wall, 566.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

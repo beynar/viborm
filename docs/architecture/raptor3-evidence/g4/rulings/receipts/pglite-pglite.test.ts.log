@@ -1,0 +1,208 @@
+
+[test:all] provider-pglite: tests/providers/local/pglite.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ❯ |provider-pglite| tests/providers/local/pglite.test.ts (130 tests | 5 failed | 1 skipped) 31272ms
+   ✓ PGlite Driver > PGlite foreign-key index > push creates an index over the manyToOne FK column  668ms
+   ✓ PGlite Driver > PGlite foreign-key index > re-pushing the schema is not an index change  523ms
+   ✓ PGlite Driver > PGlite foreign-key index > re-pushing the schema is not a foreign-key change  617ms
+   ✓ PGlite Driver > PGlite foreign-key index > a declared .index() on the FK column is not duplicated  518ms
+   ✓ PGlite Driver > PGlite foreign-key index > a wider declared index over the FK columns replaces it in one push  537ms
+   ✓ PGlite Driver > PGlite foreign-key index > a compound unique over the FK columns replaces it in one push  506ms
+   ✓ PGlite Driver > PGlite declared index on a mapped field > push creates the index over the mapped column names  471ms
+   ✓ PGlite Driver > PGlite declared index on a mapped field > re-pushing the schema is not an index change  484ms
+   ✓ PGlite Driver > PGlite declared index on a mapped field > the declared index leaves the FK index nothing to add  449ms
+   ✓ PGlite Driver > PGlite partial index coverage > the foreign-key column keeps a whole-column index  469ms
+   ✓ PGlite Driver > PGlite partial index coverage > a second push does not touch the foreign-key index  503ms
+   ✓ PGlite Driver > PGlite partial index coverage > two rows the predicate excludes cannot share the 1:1 key  466ms
+   ✓ PGlite Driver > PGlite partial index predicate churn > re-pushing the same declaration is not an index change  492ms
+   ✓ PGlite Driver > PGlite partial index predicate churn > the same predicate in another spelling is not an index change  490ms
+   ✓ PGlite Driver > PGlite partial index predicate churn > a real predicate change is still an index change  496ms
+   ✓ PGlite Driver > PGlite partial index predicate churn > a canonicalization that fails answers nothing, and the change stands  498ms
+   ✓ PGlite Driver > PGlite foreign-key index upgrade > a database without the index gains it, and keeps it  527ms
+   ✓ PGlite Driver > PGlite foreign-key index query plan > an include at volume reads the child table through the FK index  550ms
+   ✓ PGlite Driver > PGlite ordering query plan > an EXPLICIT non-default placement on a NOT NULL column is elided too  542ms
+   ✓ PGlite Driver > PGlite ordering query plan > a windowed order on a NOT NULL column walks the index  534ms
+   ✓ PGlite Driver > PGlite ordering query plan > a nullable sort column keeps its placement and still orders correctly  532ms
+   × PGlite Driver > PGlite ordering query plan > a cursor over NOT NULL sort columns seeks into the index 555ms
+     → No outer alias in: SELECT "q0"."id" AS "id", "q0"."bucket" AS "bucket", "q0"."mirror" AS "mirror", "q0"."optional" AS "optional", "q0"."label" AS "label" FROM "public"."order_plan_rows" AS "q0" WHERE ("q0"."bucket", "q0"."id") >= (SELECT "q1"."bucket", "q1"."id" FROM "public"."order_plan_rows" AS "q1" WHERE "q1"."id" = $1 LIMIT $2) ORDER BY "q0"."bucket" ASC, "q0"."id" ASC LIMIT $3
+   ✓ PGlite Driver > PGlite ordering query plan > both cursor spellings page identically over duplicate sort keys  555ms
+   ✓ PGlite Driver > PGlite ordering query plan > a descending cursor pages in the order an independent sort gives  554ms
+   ✓ PGlite Driver > PGlite ordering query plan > a cursor over a column holding nulls pages through them  551ms
+   ✓ PGlite Driver > PGlite ordering query plan > a cursor that matches no row leaves an empty window  550ms
+   ✓ PGlite Driver > PGlite (tx) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips  533ms
+   ✓ PGlite Driver > PGlite (tx) forward-ref FK push ordering > multi-model forward chain: push + create through the chain  462ms
+   ✓ PGlite Driver > PGlite (tx) forward-ref FK push ordering > self reference: push + parent/child round-trip  457ms
+   ✓ PGlite Driver > PGlite (tx) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables  484ms
+   ✓ PGlite Driver > PGlite (batch) forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips  463ms
+   ✓ PGlite Driver > PGlite (batch) forward-ref FK push ordering > multi-model forward chain: push + create through the chain  470ms
+   ✓ PGlite Driver > PGlite (batch) forward-ref FK push ordering > self reference: push + parent/child round-trip  467ms
+   ✓ PGlite Driver > PGlite (batch) forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables  479ms
+   ✓ PGlite Driver > PGlite polymorphic relations > direct writes preserve the generated private storage pair 13ms
+   ✓ PGlite Driver > PGlite polymorphic relations > inverse create publishes a generated parent identity 5ms
+   ✓ PGlite Driver > PGlite polymorphic relations > direct and inverse reads correlate exact variants without N+1 11ms
+   ✓ PGlite Driver > PGlite polymorphic relations > target-local omit subtracts from polymorphic select 6ms
+   ↓ PGlite Driver > PGlite polymorphic relations > inverse reads use the generated discriminator/id index
+   ✓ PGlite Driver > PGlite polymorphic relations > empty storage is optional but orphaned membership is invalid 10ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > an empty collection reads as a fresh empty array, never null 5ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly 7ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > equal ids in two target tables return two correctly tagged rows 5ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > order, window and distinct stay ARM-LOCAL 6ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > a negative arm take restores the logical order 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > only narrows the returned variants without reordering 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > total and filtered counts, and count ordering 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 9ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array 6ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 6ms
+   ✓ PGlite Driver > PGlite polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement 9ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > an empty collection reads as a fresh empty array, never null 6ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly 6ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > equal ids in two target tables return two correctly tagged rows 6ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > order, window and distinct stay ARM-LOCAL 7ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > a negative arm take restores the logical order 6ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > only narrows the returned variants without reordering 6ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > total and filtered counts, and count ordering 7ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table 8ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 8ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array 7ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 6ms
+   × PGlite Driver > PGlite atomic batch polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement 20ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   ✓ PGlite Driver > PGlite polymorphic collection writes > a fresh owner writes memberships across several variants at once 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > connect is idempotent for the same owner and target 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > a plural member admits SEVERAL owners for one target 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it 11ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > connectOrCreate finds, then creates, without doubling either 11ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > `set` clears every configured variant once, then refills 11ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row 7ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > `set: []` empties every variant and deletes no target 9ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > disconnect removes this owner's membership and nothing else 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > update and updateMany reach only the connected targets 11ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > upsert creates then updates, scoped to this owner's membership 10ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > createMany writes one bulk group per variant 8ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > duplicate singular createMany targets transfer once 11ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership 7ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it 13ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER 15ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner 10ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > a singular inverse upsert takes both arms through the membership 10ms
+   ✓ PGlite Driver > PGlite polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote 8ms
+   × PGlite Driver > PGlite atomic batch polymorphic collection writes > a fresh owner writes memberships across several variants at once 7ms
+     → Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > connect is idempotent for the same owner and target 11ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > a plural member admits SEVERAL owners for one target 8ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it 11ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > connectOrCreate finds, then creates, without doubling either 11ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > `set` clears every configured variant once, then refills 12ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row 12ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > `set: []` empties every variant and deletes no target 10ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > disconnect removes this owner's membership and nothing else 12ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > update and updateMany reach only the connected targets 12ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > upsert creates then updates, scoped to this owner's membership 10ms
+   × PGlite Driver > PGlite atomic batch polymorphic collection writes > createMany writes one bulk group per variant 7ms
+     → Record-series execution failed at a committed-segment boundary.
+   × PGlite Driver > PGlite atomic batch polymorphic collection writes > duplicate singular createMany targets transfer once 9ms
+     → Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership 36ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it 49ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER 31ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner 13ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > a singular inverse upsert takes both arms through the membership 11ms
+   ✓ PGlite Driver > PGlite atomic batch polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote 9ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > include correlates each named relation on its own FK  458ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > relation filter correlates each named relation on its own FK  474ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > nested create through named relation writes the matching FK  477ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > is null / isNot null respect the mapped FK column  462ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > string scalars holding JSON-looking text round-trip as strings  442ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > groupBy returns mapped scalars under their public names  461ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > nested cursor pages per parent instead of being ignored  451ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > named inverse relations > nested negative take pages backward in logical order  468ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > empty default projections > preserves root and nested row cardinality  447ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > empty default projections > still rejects an explicit empty select  445ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > empty default projections > returns an empty public object from a live nested create  454ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > ambiguous unnamed inverse relations > refuses the schema outright instead of picking the first FK 0ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > many-to-many with mapped PK columns > include resolves junction join through mapped PK columns  455ms
+   ✓ PGlite Driver > PGlite read-path regression behavior > many-to-many with mapped PK columns > relation filter resolves junction join through mapped PK columns  456ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > plain upsert creates the row when missing  446ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > plain upsert updates the row when present  541ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > does not take the update branch for a conflict outside the requested target  447ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces  464ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > plain upsert returns the row when the update is a no-op  469ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > plain upsert create branch resolves auto-increment ids  454ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > upsert update branch may rewrite the unique where field  453ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > upsert supports select on both branches  457ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > upsert with include returns the relation payload on both branches  458ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > delete with include returns the relation payload  466ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed  450ms
+   ✓ PGlite Driver > PGlite upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed  470ms
+   ✓ PGlite Driver > upsert fallback unique-race retry > upsert create branch losing a unique race is retried  450ms
+   ✓ PGlite Driver > upsert fallback unique-race retry > connectOrCreate create branch losing a unique race is retried  461ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite.test.ts > PGlite Driver > PGlite ordering query plan > a cursor over NOT NULL sort columns seeks into the index
+Error: No outer alias in: SELECT "q0"."id" AS "id", "q0"."bucket" AS "bucket", "q0"."mirror" AS "mirror", "q0"."optional" AS "optional", "q0"."label" AS "label" FROM "public"."order_plan_rows" AS "q0" WHERE ("q0"."bucket", "q0"."id") >= (SELECT "q1"."bucket", "q1"."id" FROM "public"."order_plan_rows" AS "q1" WHERE "q1"."id" = $1 LIMIT $2) ORDER BY "q0"."bucket" ASC, "q0"."id" ASC LIMIT $3
+ ❯ outerAlias tests/contracts/drivers/behaviors/ordering-plan-behavior.ts:98:26
+     96| const outerAlias = (statement: string): string => {
+     97|   const match = OUTER_ALIAS_IN_STATEMENT.exec(statement);
+     98|   if (!match?.[1]) throw new Error(`No outer alias in: ${statement}`);
+       |                          ^
+     99|   return match[1];
+    100| };
+ ❯ tests/contracts/drivers/behaviors/ordering-plan-behavior.ts:320:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite.test.ts > PGlite Driver > PGlite atomic batch polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2218:17
+    2216|           adapter.capabilities.supportsCteWithMutations
+    2217|         )
+    2218|           throw new Error(
+       |                 ^
+    2219|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2220|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:862:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:694:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite.test.ts > PGlite Driver > PGlite atomic batch polymorphic collection writes > a fresh owner writes memberships across several variants at once
+Error: Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING
+ ❯ OperationContext.insert src/query-engine/raptor3/shared/operation-context.ts:2218:17
+    2216|           adapter.capabilities.supportsCteWithMutations
+    2217|         )
+    2218|           throw new Error(
+       |                 ^
+    2219|             "Raptor 3 G1 atomic output requires exact identity scratch…
+    2220|           );
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:313:25
+ ❯ CommandExecution.run src/query-engine/raptor3/commands/execution.ts:339:44
+ ❯ CommandExecution.complete src/query-engine/raptor3/commands/execution.ts:218:9
+ ❯ OperationContext.batchAttempt src/query-engine/raptor3/shared/operation-context.ts:862:14
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:694:27
+ ❯ Object.execute src/query-engine/raptor3/route/client-route.ts:218:25
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts:188:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite.test.ts > PGlite Driver > PGlite atomic batch polymorphic collection writes > createMany writes one bulk group per variant
+QueryEngineError: Record-series execution failed at a committed-segment boundary.
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |provider-pglite| tests/providers/local/pglite.test.ts > PGlite Driver > PGlite atomic batch polymorphic collection writes > duplicate singular createMany targets transfer once
+TransactionError: Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 124 passed | 1 skipped (130)
+   Start at  20:36:12
+   Duration  32.69s (transform 851ms, setup 8ms, collect 1.27s, tests 31.27s, environment 0ms, prepare 28ms)
+
+[test:all] provider-pglite: tests/providers/local/pglite.test.ts: 34.60s wall, 1764.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

@@ -1,0 +1,40 @@
+
+ FAIL  |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '(\'x\')' to be '(\'\ufeffx\')' // Object.is equality
+
+Expected: [32m"('[7m﻿[27mx')"[39m
+Received: [31m"('x')"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:463:40
+    461|     expect(byName.get("other_charset")?.default).toBe("('\u00c3\u00a9'…
+    462|     // A leading U+FEFF is part of the value, not a mark the reader ea…
+    463|     expect(byName.get("bom")?.default).toBe("('\ufeffx')");
+       |                                        ^
+    464|     // Fail-closed, each on the ONE fact the other two admit: the cata…
+    465|     // text is kept, reads as a difference, and refuses the push.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '(\'x\')' to be '(\'\ufeffx\')' // Object.is equality
+
+Expected: [32m"('[7m﻿[27mx')"[39m
+Received: [31m"('x')"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:463:40
+    461|     expect(byName.get("other_charset")?.default).toBe("('\u00c3\u00a9'…
+    462|     // A leading U+FEFF is part of the value, not a mark the reader ea…
+    463|     expect(byName.get("bom")?.default).toBe("('\ufeffx')");
+       |                                        ^
+    464|     // Fail-closed, each on the ONE fact the other two admit: the cata…
+    465|     // text is kept, reads as a difference, and refuses the push.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 12 passed (14)
+   Start at  23:49:25
+   Duration  983ms (transform 453ms, setup 13ms, collect 659ms, tests 17ms, environment 0ms, prepare 52ms)
+
+Vitest resources: 2.66s wall, 473.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

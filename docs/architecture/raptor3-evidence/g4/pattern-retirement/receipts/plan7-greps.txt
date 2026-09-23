@@ -1,0 +1,47 @@
+=== plan §7 rows, grep-proven — pattern retirement (D-15), base e8114ed9 ===
+
+ROW: legacy engine imports under src/ = 0 (target 0)
+  Resolved every import specifier (relative, @query-engine/*, @src/*) in every surviving src/**/*.ts
+  against the 111 deleted owners: 0 hits. (receipt head above / re-runnable via receipts/reachability.mjs)
+
+ROW: legacy fallbacks = 0 (target 0)
+  0 occurrences under src/
+
+ROW: duplicated downstream public-verb algorithms = 0 (target 0)
+  READ_OPERATIONS / ROUTED_OPERATIONS / isReadOperation / isWriteOperation owners:
+src/query-engine/routed-operations.ts:25:export function isReadOperation(operation: string): boolean {
+src/query-engine/routed-operations.ts:34:export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
+src/query-engine/routed-operations.ts:46:export function isWriteOperation(operation: string): boolean {
+src/query-engine/raptor3/shared/schema.ts:58:export function isReadOperation(
+
+ROW: no src/ CODE reference to a deleted owner's symbol
+  Every surviving occurrence of OperationExecutor / OperationFragment / JunctionStatements /
+  ResultParser / createFailureError / isRetryableRace / markRaceable / executeSkippableWrite /
+  buildProjectionSelect / uniqueConflictTarget under src/ is inside a COMMENT (V1 provenance,
+  the class tests/contracts/engine/write/dead-symbol-gate.core.test.ts explicitly permits):
+src/query-engine/raptor3/shared/operation-context.ts:65: * segment's own acknowledgement (`write-engine/OperationExecutor.ts:974-990`)
+src/query-engine/raptor3/shared/operation-context.ts:183:   * holds it in exactly the same place (`write-engine/OperationExecutor.ts`
+src/query-engine/raptor3/shared/operation-context.ts:218:   * (`write-engine/OperationExecutor.ts:1306-1309`, `:1336-1343`), while the
+src/query-engine/raptor3/shared/operation-context.ts:491:    // (`write-engine/OperationExecutor.ts:1031-1072`; `attachProgress` :2308
+src/query-engine/raptor3/shared/operation-context.ts:571:   * (empty planning, exactly one non-guard step: `OperationExecutor.ts`
+src/query-engine/raptor3/shared/operation-context.ts:838:      // (`write-engine/OperationExecutor.ts:1306-1309`).
+src/query-engine/raptor3/shared/operation-context.ts:872:        // published, which is the shipped order (`OperationExecutor.ts:1050-1058`
+src/query-engine/raptor3/shared/operation-context.ts:933:   * (`write-engine/OperationExecutor.ts:1332-1343`): the answer is decoded
+src/query-engine/raptor3/shared/operation-context.ts:1221:    // envelope (`write-engine/OperationExecutor.ts` `canExecuteDirectly` at
+src/query-engine/raptor3/shared/operation-context.ts:1259:   * (`write-engine/OperationExecutor.ts:1558-1645`): no envelope, so this
+src/query-engine/raptor3/commands/selection.ts:78: *   (`:1698`, `:2146`, `:2259`), which `JunctionStatements.ts:322-323`
+src/errors/query.ts:140: * (`OperationExecutor.attributeGuardFailure`, `query-engine/batch-error-attribution.ts`)
+src/validation/relations/index.ts:176: * `JunctionStatements` — written entirely against `membership.source` /
+
+ROW: raptor3 -> src/query-engine/ import edges outside raptor3/ (was 6 at the cutover)
+  src/query-engine/raptor3/route/client-route.ts:35:} from "../../result/cache-value-codecs";
+  src/query-engine/raptor3/route/client-route.ts:36:import type { PreparedBatchOperation } from "../../types";
+  src/query-engine/raptor3/shared/schema.ts:17:} from "../../write-engine/parse-boundary";
+  src/query-engine/raptor3/shared/operation-context.ts:28:} from "../../bind-budget";
+  src/query-engine/raptor3/shared/operation-context.ts:32:} from "../../types";
+  src/query-engine/raptor3/commands/index.ts:5:import type { PreparedBatchOperation } from "../../types";
+
+ROW: write-engine/ on disk
+ATOM.md
+README.md
+parse-boundary.ts

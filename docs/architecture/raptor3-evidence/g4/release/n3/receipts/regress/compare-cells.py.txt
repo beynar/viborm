@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Compare failing CELL identities (file > cell) and their first message between two sets of vitest logs.
+usage: compare-cells.py <before-glob> <after-glob>"""
+import re,glob,sys
+def cells(pattern):
+    out={}
+    for log in glob.glob(pattern):
+        lines=open(log,errors="replace").read().split("\n")
+        for i,l in enumerate(lines):
+            m=re.match(r"\s*FAIL\s+\|[^|]*\|\s+(\S+) > (.*)",l)
+            if not m: continue
+            key=(m.group(1),m.group(2).strip())
+            msg=""
+            for k in range(i+1,min(i+6,len(lines))):
+                t=re.sub(r"\x1b\[[0-9;]*m","",lines[k]).strip()
+                if t and not t.startswith(("❯","⎯")): msg=t[:160]; break
+            out[key]=msg
+    return out
+b=cells(sys.argv[1]); a=cells(sys.argv[2])
+new=[k for k in a if k not in b]; gone=[k for k in b if k not in a]; moved=[k for k in a if k in b and a[k]!=b[k]]
+print(f"failing cells before {len(b)} after {len(a)} | newly red {len(new)} | newly green {len(gone)} | same cell, different message {len(moved)}")
+for k in new: print("  NEW RED:", k[0].split("/")[-1], ">", k[1][:90], "|", a[k][:100])
+for k in gone: print("  GREEN  :", k[0].split("/")[-1], ">", k[1][:90])
+for k in moved: print("  MOVED  :", k[0].split("/")[-1], ">", k[1][:80], "|", b[k][:70], "->", a[k][:70])

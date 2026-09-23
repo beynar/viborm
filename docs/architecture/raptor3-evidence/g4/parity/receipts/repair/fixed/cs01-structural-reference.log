@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 46ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  15:31:23
+   Duration  1.60s (transform 878ms, setup 8ms, collect 1.33s, tests 46ms, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-NfU2jU/vitest.json
+Vitest resources: 3.67s wall, 474.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs01-structural-reference contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-NfU2jU

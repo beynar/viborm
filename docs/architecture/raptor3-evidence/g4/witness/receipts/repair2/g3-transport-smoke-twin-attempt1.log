@@ -1,0 +1,50 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts (1 test | 1 failed) 105ms
+   × executes and exactly replays the representative C08-C11 transport matrix 105ms
+     → g3-transport:script-shape; Unscripted statement: g3-c11-8027-0:recurrence-0; actual=INSERT; expected=INSERT,SELECT
+
+1 !== 2
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts > executes and exactly replays the representative C08-C11 transport matrix
+AssertionError: g3-transport:script-shape; Unscripted statement: g3-c11-8027-0:recurrence-0; actual=INSERT; expected=INSERT,SELECT
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ ScriptedTransport.answer tests/raptor3/transport/driver.ts:166:14
+    164|         `g3-transport:transport-form; Wrong transport form: ${reply.na…
+    165|       );
+    166|       assert.equal(
+       |              ^
+    167|         queries.length,
+    168|         reply.statements.length,
+ ❯ ScriptedTransport.executeBatch tests/raptor3/transport/driver.ts:117:17
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:841:40
+ ❯ ScriptedTransport.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:20
+ ❯ executeNativeBatch src/drivers/driver-transaction-base.ts:890:18
+ ❯ OperationContext.submit src/query-engine/raptor3/shared/operation-context.ts:637:25
+ ❯ OperationContext.setMutations src/query-engine/raptor3/shared/operation-context.ts:986:23
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:438:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  08:37:49
+   Duration  2.05s (transform 1.16s, setup 9ms, collect 1.74s, tests 105ms, environment 0ms, prepare 32ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-J4VZMB/vitest.json
+Vitest resources: 4.16s wall, 573.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-J4VZMB

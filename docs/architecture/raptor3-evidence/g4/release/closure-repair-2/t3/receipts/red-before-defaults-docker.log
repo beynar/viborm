@@ -1,0 +1,34 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-tm
+
+ ❯ |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts (4 tests | 2 failed) 438ms
+   ✓ MySQL declared defaults, at the database's own oracle > round-trips a backslash, a newline and a CRLF through DDL, catalog and a raw insert 210ms
+   ✓ MySQL declared defaults, at the database's own oracle > spells now() at the resolved column's precision, and nowhere else 139ms
+   × MySQL declared defaults, at the database's own oracle > round-trips a Unicode default in both the expression and the literal form 58ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL declared defaults, at the database's own oracle > round-trips escaped and Unicode enum members, and the default beside them 30ms
+     → This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. The last statement that completed was: -- MySQL: ENUM type is part of column definition. Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts > MySQL declared defaults, at the database's own oracle > round-trips a Unicode default in both the expression and the literal form
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts > MySQL declared defaults, at the database's own oracle > round-trips escaped and Unicode enum members, and the default beside them
+MigrationError: This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. The last statement that completed was: -- MySQL: ENUM type is part of column definition. Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V2001' }
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: 1067, sqlState: '42000' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  23:08:04
+   Duration  2.10s (transform 1.00s, setup 12ms, collect 1.51s, tests 438ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 3.93s wall, 528.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

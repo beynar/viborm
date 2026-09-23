@@ -1,0 +1,16 @@
+#!/bin/zsh
+# After round 3: the re-expressed files, the shards that hold them, the coverage lanes.
+set -u
+cd /private/tmp/viborm-n1 || exit 2
+S=/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad
+O=$S/n1/estate3; : > "$O/RESULTS.txt"
+export TMPDIR=/private/tmp/viborm-n1-estate-tmp
+stage() { local name=$1; shift; "$@" > "$O/$name.log" 2>&1; local code=$?; echo "$name exit=$code $(grep -E '^\s*(Test Files|Tests) ' "$O/$name.log" | tail -2 | tr -s ' ' | tr '\n' ';')" >> "$O/RESULTS.txt"; }
+stage typecheck node scripts/run-typecheck.mjs
+stage pins node scripts/run-vitest-safe.mjs tests/raptor3/g4/parity/ordered-observation.test.ts
+stage generated node scripts/run-vitest-safe.mjs tests/raptor3/g2-generated.test.ts tests/raptor3/g2-campaign.test.ts
+stage fixed pnpm test:all --only "Raptor 3 fixed"
+for n in 1 2 5 7; do stage "shard-$n" pnpm test:all --only "shared-family shard $n/"; done
+pnpm test:coverage:query-engine-core > "$O/coverage-query-engine-core.log" 2>&1; echo "coverage:query-engine-core exit=$? $(grep -E 'All files' "$O/coverage-query-engine-core.log" | head -1 | tr -s ' ')" >> "$O/RESULTS.txt"
+pnpm test:coverage:policy > "$O/coverage-policy.log" 2>&1; echo "coverage:policy exit=$?" >> "$O/RESULTS.txt"
+echo DONE >> "$O/RESULTS.txt"

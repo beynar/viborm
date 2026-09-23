@@ -1,0 +1,83 @@
+--- /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/patchcheck/src/query-engine/raptor3/shared/operation-context.ts	2026-09-15 21:45:57
++++ src/query-engine/raptor3/shared/operation-context.ts	2026-09-15 21:44:35
+@@ -100,6 +100,17 @@
+   private mayHaveCommittedSegment: true | undefined;
+   private completedMembers = 0;
+   private memberAdmissionStarted = false;
++  /**
++   * The transport window of the operation's OWN set-oriented statement, while
++   * one is submitting ({@link setMutations}).
++   *
++   * A set mutation admits no member: it is the one atomic unit a folded root
++   * write — or a relation-free bulk verb — issues on its own behalf, so its
++   * window is a transport artifact and not a record-series member. That is the
++   * one fact {@link failure} asks to decide whether an uncertain outcome is
++   * PUBLIC progress or stays internal.
++   */
++  private setWindow?: Member;
+   private atomicAssertionRejection?: unknown;
+   private readonly incompletePreparation = new Error(
+     "Raptor 3 operation requires dynamic execution"
+@@ -336,10 +347,25 @@
+       );
+     }
+     const attribution = member ? this.memberAttribution.get(member) : undefined;
++    // A failure carries record-series progress only when it BELONGS to a record
++    // series. A committed segment and a prefix phase are the series the
++    // operation already has; an UNCERTAIN outcome is not one on its own, and a
++    // set-oriented statement has no series to report ({@link setWindow}). Its
++    // unknown outcome stays internal — the fact itself is unchanged and still
++    // gates recovery (`submit`) — exactly as the shipped executor keeps
++    // `progress.mayHaveCommittedSegment` internal for a single operation and
++    // rethrows the driver's own error
++    // (`write-engine/OperationExecutor.ts:1031-1072`; `attachProgress` :2308
++    // reaches only record-series member and invalidation failures). The route
++    // reads that fact off the PUBLISHED progress today
++    // (`route/client-route.ts:109-121`), so its `writeMayBeVisible`
++    // invalidation now needs the execution seam the shipped executor uses:
++    // requested change recorded in `g4/regression/note.md` §5.
++    const setStatement = member !== undefined && member === this.setWindow;
+     return this.usesBatch &&
+       (phase === "prefix" ||
+         this.committedSegments > 0 ||
+-        this.mayHaveCommittedSegment)
++        (this.mayHaveCommittedSegment && !setStatement))
+       ? attachRecordSeriesProgress(failure, {
+           atomicity: "segment",
+           phase,
+@@ -981,6 +1007,7 @@
+     }
+     if (this.usesBatch) {
+       const windowMember: Member = {};
++      this.setWindow = windowMember;
+       for (const statement of statements)
+         this.queue(statement.sql, statement.context, windowMember);
+       const results = await this.submit(true, windowMember);
+@@ -1548,9 +1575,25 @@
+           continue;
+         const state = physicalField(this.schema, model, field).scalar["~"]
+           .state;
++        // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
++        // publication gap, raised where it always was — before any statement of
++        // this update is dispatched, so nothing is written. On a driver with no
++        // interactive transaction the evaluated value has to travel through the
++        // adapter's batch scratch, which is read back with an integer cast
++        // (below), so an `int` field is the only domain a dependent can demand
++        // as an expression. Widening it needs a typed scratch read per domain
++        // (and an answer to the decimal rounding question `Queries.updateValue`
++        // refuses), which is a capability change, not an identity.
+         if (state.type !== "int")
+-          throw new Error(
+-            "Raptor 3 update expression publication requires an integer field"
++          throw new QueryEngineError(
++            `Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`,
++            {
++              meta: {
++                model: model["~"].names.ts!,
++                operation,
++                field
++              }
++            }
+           );
+         const references = getAdapterInternals(adapter).batchRefs;
+         const scratchId = this.ensureScratch();

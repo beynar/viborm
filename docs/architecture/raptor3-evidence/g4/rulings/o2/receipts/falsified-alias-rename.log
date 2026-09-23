@@ -1,0 +1,74 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+ ❯ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (12 tests | 3 failed) 23ms
+   ✓ the decoder fails closed on a wrong provider row > a null _count carrier is a malformed row, not a null count 8ms
+   ✓ the decoder fails closed on a wrong provider row > a relation that is not an array raises the public class 2ms
+   ✓ the decoder fails closed on a wrong provider row > a document that is not a row raises the public class 1ms
+   ✓ the driver result seam is reached (D-17) > the driver's own json rule decodes a top-level document 1ms
+   ✓ the driver result seam is reached (D-17) > a driver rule that throws is a malformed value, not a raw SyntaxError 0ms
+   × the driver result seam is reached (D-17) > the count and the exists answer are the decoder's, not the seam's (D-35) 6ms
+     → promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+   ✓ the driver result seam is reached (D-17) > a JSON integer outside the safe range is refused, and a safe one is a number 1ms
+   × the adapter result seam decides nothing (D-40) > PostgreSQL answers the count and the exists from the decoder alone 1ms
+     → promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+   × the adapter result seam decides nothing (D-40) > MySQL answers them from the decoder alone, and only under its own alias 1ms
+     → promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+   ✓ one physical vocabulary > a decimal carried inside a window stays TEXT 1ms
+   ✓ one physical vocabulary > the cursor carrier has one home 1ms
+   ✓ one physical vocabulary > the registered _distance collision sentence, in both orders 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the driver result seam is reached (D-17) > the count and the exists answer are the decoder's, not the seam's (D-35)
+AssertionError: promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:192:49
+    190| 
+    191|     const counted = scripted([{ _count: 2n }], sqliteResultParser);
+    192|     await expect(counted.client.parent.count({})).resolves.toBe(2);
+       |                                                 ^
+    193|     await counted.client.$disconnect();
+    194| 
+
+Caused by: QueryEngineError: Driver "scripted" returned a malformed int scalar for operation "count": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V9001', meta: { driver: 'scripted', operation: 'count', scalarType: 'int' }, timestamp: '2026-09-17T21:57:13.505Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > PostgreSQL answers the count and the exists from the decoder alone
+AssertionError: promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:259:43
+    257|     // `postgres.js` actually answer: `COUNT(*)` as integer TEXT.
+    258|     const counted = scriptedPg([{ _count: "2" }]);
+    259|     await expect(counted.counted.count({})).resolves.toBe(2);
+       |                                           ^
+    260|     await counted.$disconnect();
+    261| 
+
+Caused by: QueryEngineError: Driver "scripted" returned a malformed int scalar for operation "count": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V9001', meta: { driver: 'scripted', operation: 'count', scalarType: 'int' }, timestamp: '2026-09-17T21:57:13.511Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > MySQL answers them from the decoder alone, and only under its own alias
+AssertionError: promise rejected "QueryEngineError: Driver "scripted" retur… { …(4) }" instead of resolving
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:297:43
+    295|     // The raw mysql2 answers, measured live.
+    296|     const counted = scriptedMysql([{ _count: 2 }]);
+    297|     await expect(counted.counted.count({})).resolves.toBe(2);
+       |                                           ^
+    298|     await counted.$disconnect();
+    299| 
+
+Caused by: QueryEngineError: Driver "scripted" returned a malformed int scalar for operation "count": the value is absent.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V9001', meta: { driver: 'scripted', operation: 'count', scalarType: 'int' }, timestamp: '2026-09-17T21:57:13.512Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 9 passed (12)
+   Start at  23:57:10
+   Duration  2.59s (transform 1.20s, setup 12ms, collect 1.97s, tests 23ms, environment 0ms, prepare 57ms)
+
+Vitest resources: 5.45s wall, 416.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

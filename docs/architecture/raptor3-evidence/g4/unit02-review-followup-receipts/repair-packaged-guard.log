@@ -1,0 +1,263 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — packaged presence guard > the packaged missing-delete error is identical to the LIVE one and to shipped, in message and meta
+GUARDIDENTITY {
+ "shipped": {
+  "rejected": "NotFoundError",
+  "code": "V6001",
+  "message": "No author record found for delete",
+  "meta": {
+   "model": "author",
+   "operation": "delete"
+  },
+  "authors": [
+   {
+    "email": "present@example.test"
+   },
+   {
+    "email": "second@example.test"
+   }
+  ],
+  "tags": [
+   {
+    "slug": "present-tag"
+   }
+  ]
+ },
+ "candidate": {
+  "rejected": "NotFoundError",
+  "code": "V6001",
+  "message": "No author record found for delete",
+  "meta": {
+   "model": "author",
+   "operation": "delete"
+  },
+  "authors": [
+   {
+    "email": "present@example.test"
+   },
+   {
+    "email": "second@example.test"
+   }
+  ],
+  "tags": [
+   {
+    "slug": "present-tag"
+   }
+  ]
+ },
+ "live": {
+  "rejected": "NotFoundError",
+  "code": "V6001",
+  "message": "No author record found for delete",
+  "meta": {
+   "model": "author",
+   "operation": "delete",
+   "recordSeriesProgress": {
+    "atomicity": "segment",
+    "phase": "result",
+    "committedSegments": 1,
+    "completedMembers": 0,
+    "committedWriteMembers": 1
+   }
+  }
+ },
+ "shippedLive": {
+  "rejected": "NotFoundError",
+  "code": "V6001",
+  "message": "No author record found for delete",
+  "meta": {
+   "model": "author",
+   "operation": "delete"
+  }
+ }
+}
+
+stdout | tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — packaged presence guard > the guard is attributed correctly when the packaged member is NOT first in the array
+MIDDLE {"shipped":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for delete","meta":{"model":"author","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]},"candidate":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for delete","meta":{"model":"author","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]}}
+
+stdout | tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — packaged presence guard > two packaged folds of DIFFERENT models in one array keep the failing one's identity
+TWOMODELS {"shipped":{"rejected":"NotFoundError","code":"V6001","message":"No tag record found for delete","meta":{"model":"tag","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]},"candidate":{"rejected":"NotFoundError","code":"V6001","message":"No tag record found for delete","meta":{"model":"tag","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]}}
+
+stdout | tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — packaged presence guard > a premise broken by a SIBLING statement inside the same batch behaves as shipped
+SIBLINGBREAK {"shipped":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for delete","meta":{"model":"author","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]},"candidate":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for delete","meta":{"model":"author","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]}}
+
+stdout | tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — packaged presence guard > a packaged fold WITH a scalar projection publishes the row and still guards
+PROJECTEDFOLD {"shippedPresent":{"rejected":"none","authors":[{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}],"value":[{"email":"present@example.test"}]},"candidatePresent":{"rejected":"none","authors":[{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}],"value":[{"email":"present@example.test"}]},"shippedMissing":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for delete","meta":{"model":"author","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]},"candidateMissing":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for delete","meta":{"model":"author","operation":"delete"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]}}
+
+stdout | tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — packaged presence guard > a packaged missing root UPDATE keeps the live error identity too
+UPDATEFOLD {"shipped":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for update","meta":{"model":"author","operation":"update"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]},"candidate":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for update","meta":{"model":"author","operation":"update"},"authors":[{"email":"present@example.test"},{"email":"second@example.test"}],"tags":[{"slug":"present-tag"}]},"live":{"rejected":"NotFoundError","code":"V6001","message":"No author record found for update","meta":{"model":"author","operation":"update","recordSeriesProgress":{"atomicity":"segment","phase":"result","committedSegments":1,"completedMembers":0,"committedWriteMembers":1}}}}
+
+stdout | tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — live error meta on a batch-only driver > compares candidate and shipped meta for verbs this unit did NOT change
+LIVEMETA [
+ {
+  "route": "shipped",
+  "create": [
+   "correlationId",
+   "driver",
+   "model",
+   "operation",
+   "providerCode"
+  ],
+  "createMany": [
+   "correlationId",
+   "driver",
+   "model",
+   "operation",
+   "providerCode"
+  ],
+  "delete": [
+   "model",
+   "operation"
+  ],
+  "update": [
+   "model",
+   "operation"
+  ]
+ },
+ {
+  "route": "candidate",
+  "create": [
+   "correlationId",
+   "driver",
+   "model",
+   "operation",
+   "providerCode",
+   "statementIndex"
+  ],
+  "createMany": [
+   "correlationId",
+   "driver",
+   "model",
+   "operation",
+   "providerCode",
+   "statementIndex"
+  ],
+  "delete": [
+   "model",
+   "operation",
+   "recordSeriesProgress"
+  ],
+  "update": [
+   "model",
+   "operation",
+   "recordSeriesProgress"
+  ]
+ }
+]
+
+ ❯ |g4-review-unit02| tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts (7 tests | 2 failed) 74ms
+   × G4-02 review (repair) — packaged presence guard > the packaged missing-delete error is identical to the LIVE one and to shipped, in message and meta 38ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [Object: null prototype] {
+    model: 'author',
+    operation: 'delete',
++   recordSeriesProgress: {
++     atomicity: 'segment',
++     committedSegments: 1,
++     committedWriteMembers: 1,
++     completedMembers: 0,
++     phase: 'result'
++   }
+  }
+
+   ✓ G4-02 review (repair) — packaged presence guard > the guard is attributed correctly when the packaged member is NOT first in the array 5ms
+   ✓ G4-02 review (repair) — packaged presence guard > two packaged folds of DIFFERENT models in one array keep the failing one's identity 7ms
+   ✓ G4-02 review (repair) — packaged presence guard > a premise broken by a SIBLING statement inside the same batch behaves as shipped 4ms
+   ✓ G4-02 review (repair) — packaged presence guard > a packaged fold WITH a scalar projection publishes the row and still guards 7ms
+   ✓ G4-02 review (repair) — packaged presence guard > a packaged missing root UPDATE keeps the live error identity too 6ms
+   × G4-02 review (repair) — live error meta on a batch-only driver > compares candidate and shipped meta for verbs this unit did NOT change 6ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'model',
+    'operation',
++   'recordSeriesProgress'
+  ]
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — packaged presence guard > the packaged missing-delete error is identical to the LIVE one and to shipped, in message and meta
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [Object: null prototype] {
+    model: 'author',
+    operation: 'delete',
++   recordSeriesProgress: {
++     atomicity: 'segment',
++     committedSegments: 1,
++     committedWriteMembers: 1,
++     completedMembers: 0,
++     phase: 'result'
++   }
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "model": "author",[22m
+[2m    "operation": "delete",[22m
+[31m+   "recordSeriesProgress": {[39m
+[31m+     "atomicity": "segment",[39m
+[31m+     "committedSegments": 1,[39m
+[31m+     "committedWriteMembers": 1,[39m
+[31m+     "completedMembers": 0,[39m
+[31m+     "phase": "result",[39m
+[31m+   },[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts:198:12
+    196|     assert.equal(candidate.code, live.code);
+    197|     assert.equal(candidate.message, live.message);
+    198|     assert.deepEqual(live.meta, shippedLive.meta);
+       |            ^
+    199|   });
+    200| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-unit02| tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts > G4-02 review (repair) — live error meta on a batch-only driver > compares candidate and shipped meta for verbs this unit did NOT change
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'model',
+    'operation',
++   'recordSeriesProgress'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "model",[22m
+[2m    "operation",[22m
+[31m+   "recordSeriesProgress",[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/review/unit02/repair-packaged-guard.review.test.ts:366:12
+    364|     // eslint-disable-next-line no-console
+    365|     console.log("LIVEMETA", JSON.stringify(rows, undefined, 1));
+    366|     assert.deepEqual(rows[1]!.delete, rows[0]!.delete);
+       |            ^
+    367|     assert.deepEqual(rows[1]!.update, rows[0]!.update);
+    368|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  04:21:16
+   Duration  1.98s (transform 1.24s, setup 10ms, collect 1.77s, tests 74ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 2.54s wall, 471.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

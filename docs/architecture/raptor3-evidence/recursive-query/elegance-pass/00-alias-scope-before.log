@@ -1,0 +1,39 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-perf-review| tests/raptor3/g4/review/perf/alias-scope.review.test.ts (3 tests | 3 skipped) 5ms
+   ↓ G4 perf review — statement-scoped aliases never collide > never re-enters a statement owner, and no statement declares an alias twice
+   ↓ G4 perf review — statement-scoped aliases never collide > publishes byte-identical SQL for repeated identical calls on one engine
+   ↓ G4 perf review — the packaged route shares one alias owner > queues a presence guard and its mutation without colliding aliases, twice identically
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-perf-review| tests/raptor3/g4/review/perf/alias-scope.review.test.ts [ tests/raptor3/g4/review/perf/alias-scope.review.test.ts ]
+AssertionError: Queries.recursive is not a method — the probe's owner list is stale
++ actual - expected
+
++ 'undefined'
+- 'function'
+
+
+Expected: [32m"[7mf[27mun[7mction[27m"[39m
+Received: [31m"un[7mdefined[27m"[39m
+
+ ❯ tests/raptor3/g4/review/perf/alias-scope.review.test.ts:63:12
+     61|   for (const owner of STATEMENT_OWNERS) {
+     62|     const original = prototype[owner];
+     63|     assert.equal(
+       |            ^
+     64|       typeof original,
+     65|       "function",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 skipped (3)
+   Start at  14:39:32
+   Duration  2.33s (transform 1.43s, setup 11ms, collect 2.15s, tests 5ms, environment 0ms, prepare 49ms)
+
+Vitest resources: 3.04s wall, 420.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

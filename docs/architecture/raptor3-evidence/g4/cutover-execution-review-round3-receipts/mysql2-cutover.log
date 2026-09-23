@@ -1,0 +1,350 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2.test.ts (85 tests | 13 failed | 1 skipped) 11050ms
+   × MySQL2 Driver > MySQL2 GeoPoint behavior > round-trips point writes and returning projections 252ms
+     → Unknown update operation: longitude, latitude
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds 153ms
+   × MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point values through callback and array transactions 129ms
+     → Unknown update operation: longitude, latitude
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > parses points in ordinary and variant relation graphs 132ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > keeps cached point results detached and fresh 206ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point semantics through request and statement extensions 189ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > leaves tagged and unsafe raw point results physical 152ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering 134ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases 179ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > includes polygon boundaries and excludes holes 134ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset  414ms
+   ✓ MySQL2 Driver > creates driver with connection string 28ms
+   ✓ MySQL2 Driver > preserves every private result alias exactly 29ms
+   ✓ MySQL2 Driver > includes antimeridian polygon boundaries and excludes its hole 34ms
+   × MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates 1064ms
+     → expected { table_name: 'q0', …(7) } to match object { access_type: 'range', …(1) }
+(11 matching properties omitted from actual)
+   ✓ MySQL2 Driver > self-referencing tree deleteMany succeeds with default referential actions 103ms
+   ✓ MySQL2 Driver > applies and converges a permuted composite foreign key 121ms
+   ✓ MySQL2 Driver > $transaction portable option boundary > rejects removed isolation before the callback 42ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > push enforces the compound primary key 86ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > push enforces the compound unique constraint 105ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > findUnique resolves compound id and compound unique selectors 107ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > nested create from a compound-id parent populates all FK columns 105ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > connect from a compound-id parent populates all FK columns 101ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > include correlates on every compound FK column, not just one 109ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > is null treats a partially-null compound FK as no relation 109ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > update and delete by compound id target only that row 123ms
+   ✓ MySQL2 Driver > MySQL2 compound key behavior > upsert on a compound-id model takes both branches 120ms
+   ✓ MySQL2 Driver > MySQL2 compound junction storage > round-trips two complete string-key sides and their cascade 154ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic member junction storage > creates, enforces and converges the member tables 171ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > direct writes preserve the generated private storage pair 131ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > inverse create publishes a generated parent identity 122ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > direct and inverse reads correlate exact variants without N+1 121ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > target-local omit subtracts from polymorphic select 116ms
+   ↓ MySQL2 Driver > MySQL2 polymorphic relations > inverse reads use the generated discriminator/id index
+   × MySQL2 Driver > MySQL2 polymorphic relations > empty storage is optional but orphaned membership is invalid 121ms
+     → promise resolved "{ id: 2, body: 'optional orphan', …(1) }" instead of rejecting
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > an empty collection reads as a fresh empty array, never null 116ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly 147ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > equal ids in two target tables return two correctly tagged rows 131ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > order, window and distinct stay ARM-LOCAL 145ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a negative arm take restores the logical order 139ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > only narrows the returned variants without reordering 136ms
+   × MySQL2 Driver > MySQL2 polymorphic collection reads > total and filtered counts, and count ordering 149ms
+     → Raptor 3 G1 physical field is not implemented: type
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table 143ms
+   × MySQL2 Driver > MySQL2 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 150ms
+     → promise resolved "{ id: 1, name: 'main', …(1) }" instead of rejecting
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array 130ms
+   × MySQL2 Driver > MySQL2 polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 155ms
+     → promise resolved "{ id: 1, title: 'first', rank: 1, …(2) }" instead of rejecting
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement 142ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a fresh owner writes memberships across several variants at once 126ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > connect is idempotent for the same owner and target 141ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a plural member admits SEVERAL owners for one target 157ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it 147ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > connectOrCreate finds, then creates, without doubling either 131ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set` clears every configured variant once, then refills 198ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row 145ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set: []` empties every variant and deletes no target 129ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > disconnect removes this owner's membership and nothing else 137ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > update and updateMany reach only the connected targets 150ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > upsert creates then updates, scoped to this owner's membership 151ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > createMany writes one bulk group per variant 147ms
+   × MySQL2 Driver > MySQL2 polymorphic collection writes > duplicate singular createMany targets transfer once 143ms
+     → expected [ 't1/left/eu/111' ] to deeply equal [ 't1/right/eu/111' ]
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership 145ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it 143ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER 184ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner 148ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse upsert takes both arms through the membership 167ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote 148ms
+   × MySQL2 Driver > rejects artificial batch-only non-returning writes before provider access 86ms
+     → expected [Function] to throw error including 'cannot execute non-returning upsert w…' but got 'Query execution failed'
+   ✓ MySQL2 Driver > prefix predicate on a collation viborm did not choose > the accelerator alone would answer case-insensitively 41ms
+   ✓ MySQL2 Driver > prefix predicate on a collation viborm did not choose > the shipped conjunction keeps the case-sensitivity contract 40ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the accelerator alone would answer equality case-insensitively 42ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the shipped equality conjunction keeps the case-sensitivity contract 38ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the accelerator alone would answer membership case-insensitively 38ms
+   ✓ MySQL2 Driver > exact equality on a collation viborm did not choose > the shipped membership conjunction keeps the case-sensitivity contract 45ms
+   ✓ MySQL2 Driver > exact equality keeps the index it used to lose > the BINARY wrap alone forecloses the index 93ms
+   ✓ MySQL2 Driver > exact equality keeps the index it used to lose > the emitted equality plans a lookup 114ms
+   ✓ MySQL2 Driver > exact equality keeps the index it used to lose > the emitted membership plans a range 109ms
+   ✓ MySQL2 Driver > emitted equality on a collation viborm did not choose > equals answers exactly, not case-insensitively 93ms
+   ✓ MySQL2 Driver > emitted equality on a collation viborm did not choose > in answers exactly, not case-insensitively 93ms
+   ✓ MySQL namespace containment > pushes and writes into the target, not the connection's database 55ms
+   ✓ MySQL namespace containment > introspects only the target and converges on a second push 118ms
+   × MySQL namespace containment > applies into the TARGET's control tables, over a connection pointing elsewhere 9ms
+     → Query execution failed
+   × MySQL namespace containment > refuses a configured database the server does not have, before any DDL 6ms
+     → expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+   × MySQL namespace containment > refuses the same attested pool when no namespace resolves it 4ms
+     → expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+   ✓ MySQL namespace containment > refuses an inbound cross-database foreign key before planning 48ms
+   × MySQL namespace containment > applies the same portable estate to a second database 42ms
+     → Migration control tables are inconsistent: log is missing after interrupted bootstrap
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 GeoPoint behavior > round-trips point writes and returning projections
+QueryEngineError: Unknown update operation: longitude, latitude
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point values through callback and array transactions
+QueryEngineError: Unknown update operation: longitude, latitude
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates
+AssertionError: expected { table_name: 'q0', …(7) } to match object { access_type: 'range', …(1) }
+(11 matching properties omitted from actual)
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "access_type": "range",[39m
+[32m-   "key": "geopoint_plan_places_location_idx",[39m
+[31m+   "access_type": "ALL",[39m
+[2m  }[22m
+
+ ❯ tests/providers/docker/mysql2.test.ts:256:9
+    254|         { location: { distance: { to: paris, lte: 100_000 } } },
+    255|       ]) {
+    256|         await expect(explain(where)).resolves.toMatchObject({
+       |         ^
+    257|           access_type: "range",
+    258|           key: "geopoint_plan_places_location_idx",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic relations > empty storage is optional but orphaned membership is invalid
+AssertionError: promise resolved "{ id: 2, body: 'optional orphan', …(1) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "body": "optional orphan",[39m
+[31m+   "commentable": null,[39m
+[31m+   "id": 2,[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-relation-behavior.ts:558:32
+    556|         include: { commentable: true },
+    557|       });
+    558|       await expect(optionalRead).rejects.toBeInstanceOf(QueryEngineErr…
+       |                                ^
+    559|       await expect(optionalRead).rejects.toThrow(
+    560|         "Polymorphic relation 'commentable' references a missing 'post…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic collection reads > total and filtered counts, and count ordering
+Error: Raptor 3 G1 physical field is not implemented: type
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:210:9
+    208|     if (field === idColumn.name) return idColumn;
+    209|   }
+    210|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    211| }
+    212| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:542:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:189:17
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:1177:17
+ ❯ src/query-engine/raptor3/shared/query.ts:1156:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:1128:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:978:16
+ ❯ Queries.prepareCounts src/query-engine/raptor3/shared/query.ts:3250:20
+ ❯ Queries.prepareProjection src/query-engine/raptor3/shared/query.ts:3079:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+AssertionError: promise resolved "{ id: 1, name: 'main', …(1) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "id": 1,[39m
+[31m+   "items": [[39m
+[31m+     {[39m
+[31m+       "data": {[39m
+[31m+         "id": 1,[39m
+[31m+         "rank": 1,[39m
+[31m+         "sectionId": null,[39m
+[31m+         "title": "first",[39m
+[31m+       },[39m
+[31m+       "type": "article",[39m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "data": {[39m
+[31m+         "id": 2,[39m
+[31m+         "rank": 2,[39m
+[31m+         "sectionId": null,[39m
+[31m+         "title": "second",[39m
+[31m+       },[39m
+[31m+       "type": "article",[39m
+[31m+     },[39m
+[31m+   ],[39m
+[31m+   "name": "main",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior.ts:453:24
+    451|         include: { items: true },
+    452|       });
+    453|       await expect(full).rejects.toBeInstanceOf(QueryEngineError);
+       |                        ^
+    454|       await expect(full).rejects.toThrow(
+    455|         "Polymorphic relation 'items' references a missing 'clip' reco…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT
+AssertionError: promise resolved "{ id: 1, title: 'first', rank: 1, …(2) }" instead of rejecting
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- Error {[39m
+[32m-   "message": "rejected promise",[39m
+[31m+ {[39m
+[31m+   "gallery": {[39m
+[31m+     "id": 1,[39m
+[31m+     "name": "main",[39m
+[31m+   },[39m
+[31m+   "id": 1,[39m
+[31m+   "rank": 1,[39m
+[31m+   "sectionId": null,[39m
+[31m+   "title": "first",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior.ts:530:7
+    528|           include: { gallery: true },
+    529|         })
+    530|       ).rejects.toBeInstanceOf(QueryEngineError);
+       |       ^
+    531|       // The other half of the §13.3 row — "even when a target filter …
+    532|       // leave one visible row" — is pinned as BYTES in
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic collection writes > duplicate singular createMany targets transfer once
+AssertionError: expected [ 't1/left/eu/111' ] to deeply equal [ 't1/right/eu/111' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "t1/right/eu/111",[39m
+[31m+   "t1/left/eu/111",[39m
+[2m  ][22m
+
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts:567:35
+    565|       });
+    566| 
+    567|       expect(await bookMembers()).toEqual(["t1/right/eu/111"]);
+       |                                   ^
+    568|     });
+    569| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > rejects artificial batch-only non-returning writes before provider access
+AssertionError: expected [Function] to throw error including 'cannot execute non-returning upsert w…' but got 'Query execution failed'
+
+Expected: [32m"cannot execute non-returning upsert writes atomically because public result parsing cannot be rolled back after an atomic batch commits"[39m
+Received: [31m"Query execution failed"[39m
+
+ ❯ tests/providers/docker/mysql2.test.ts:445:7
+    443|     });
+    444|     try {
+    445|       await expect(
+       |       ^
+    446|         client.entry.upsert({
+    447|           where: { email: "entry@test.com" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > applies into the TARGET's control tables, over a connection pointing elsewhere
+QueryError: Query execution failed
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: 1170, sqlState: '42000' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > refuses a configured database the server does not have, before any DDL
+AssertionError: expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[31m+   "_viborm_migration_state",[39m
+[2m    "ns_sentinel",[22m
+[2m  ][22m
+
+ ❯ tests/providers/docker/mysql2.test.ts:1077:41
+    1075|     });
+    1076| 
+    1077|     expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+       |                                         ^
+    1078|   });
+    1079| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > refuses the same attested pool when no namespace resolves it
+AssertionError: expected [ '_viborm_migration_state', …(1) ] to deeply equal [ 'ns_sentinel' ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[31m+   "_viborm_migration_state",[39m
+[2m    "ns_sentinel",[22m
+[2m  ][22m
+
+ ❯ tests/providers/docker/mysql2.test.ts:1093:41
+    1091|     });
+    1092| 
+    1093|     expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+       |                                         ^
+    1094|   });
+    1095| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/13]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL namespace containment > applies the same portable estate to a second database
+MigrationError: Migration control tables are inconsistent: log is missing after interrupted bootstrap
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/13]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  13 failed | 71 passed | 1 skipped (85)
+   Start at  00:30:51
+   Duration  12.83s (transform 1.04s, setup 9ms, collect 1.55s, tests 11.05s, environment 0ms, prepare 26ms)
+
+Vitest resources: 15.18s wall, 703.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

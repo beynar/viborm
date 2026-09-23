@@ -1,0 +1,23 @@
+
+⎯⎯⎯⎯⎯⎯⎯ Startup Error ⎯⎯⎯⎯⎯⎯⎯⎯
+Error: Cannot find module '/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/review-workspace.ts'
+    at ViteNodeRunner._fetchModule (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vite-node@3.1.4_@types+node@22.15.21_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vite-node/dist/client.mjs:223:19)
+    at async ViteNodeRunner.directRequest (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vite-node@3.1.4_@types+node@22.15.21_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vite-node/dist/client.mjs:244:44)
+    at async ViteNodeRunner.cachedRequest (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vite-node@3.1.4_@types+node@22.15.21_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vite-node/dist/client.mjs:168:11)
+    at async ViteNodeRunner.executeId (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vite-node@3.1.4_@types+node@22.15.21_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vite-node/dist/client.mjs:147:10)
+    at async Vitest.resolveWorkspace (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:9034:27)
+    at async Vitest._setServer (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:8906:20)
+    at async handler (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:9840:6)
+    at async _createServer (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vite@6.4.3_@types+node@22.15.21_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38815:20)
+    at async createViteServer (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:6873:17)
+    at async createVitest (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:9881:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  [cause]: Error: Failed to load url /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/review-workspace.ts (resolved id: /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf-safe/review-workspace.ts). Does the file exist?
+      at loadAndTransform (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vite@6.4.3_@types+node@22.15.21_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:35835:17) {
+    code: 'ERR_LOAD_URL'
+  }
+}
+
+
+
+Vitest resources: 0.43s wall, 91.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

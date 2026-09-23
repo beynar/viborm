@@ -1,0 +1,25 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-staleness.test.ts (5 tests) 56ms
+ ✓ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (7 tests) 20ms
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (10 tests) 44ms
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-membership-race.test.ts (3 tests) 20ms
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-route-seam.test.ts (3 tests) 2ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 81ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests) 80ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/generated-key-reach.test.ts (7 tests) 16ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/member-boundary-packaging.test.ts (5 tests) 23ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/increment-key-width.test.ts (1 test) 5ms
+ ✓ |raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 87ms
+ ✓ |raptor3| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests) 125ms
+ ✓ |raptor3| tests/raptor3/g4/parity/generated-key-reach.test.ts (7 tests) 16ms
+ ✓ |raptor3| tests/raptor3/g4/parity/member-boundary-packaging.test.ts (5 tests) 21ms
+ ✓ |raptor3| tests/raptor3/g4/parity/increment-key-width.test.ts (1 test) 4ms
+
+ Test Files  15 passed (15)
+      Tests  140 passed (140)
+   Start at  04:31:42
+   Duration  6.39s (transform 2.89s, setup 33ms, collect 5.26s, tests 601ms, environment 0ms, prepare 79ms)
+
+Vitest resources: 8.35s wall, 721.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

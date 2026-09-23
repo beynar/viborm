@@ -1,0 +1,9 @@
+=== 00:55:53 g4-seeds (/private/tmp/viborm-g4-lane-1) ===
+=== 00:55:53 g4-transport-seeds (/private/tmp/viborm-g4-lane-2) ===
+=== 00:55:53 g4-write-transport-seeds (/private/tmp/viborm-g4-lane-4) ===
+=== 00:55:53 g4-write-seeds (/private/tmp/viborm-g4-lane-3) ===
+=== 00:55:53 g3-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+=== 00:55:53 g3-seeds (/private/tmp/viborm-g4-lane-5) ===
+g4-transport-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-2/viborm-raptor3-g0-cEPxXW
+=== 00:55:56 lane done ===
+=== 00:58:35 g4-transport-seeds (/private/tmp/viborm-g4-lane-2) ===

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 84ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  21:04:28
+   Duration  2.02s (transform 1.09s, setup 13ms, collect 1.65s, tests 84ms, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-WSZRM8/vitest.json
+Vitest resources: 4.13s wall, 469.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-dependency-choices contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-WSZRM8

@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (93 tests) 14428ms
+   ✓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a competing upsert waits on the held row and consumes the committed row, not the one it probed  1114ms
+
+ Test Files  1 passed (1)
+      Tests  93 passed (93)
+   Start at  22:04:11
+   Duration  15.80s (transform 848ms, setup 9ms, collect 1.24s, tests 14.43s, environment 0ms, prepare 25ms)
+
+Vitest resources: 17.49s wall, 651.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

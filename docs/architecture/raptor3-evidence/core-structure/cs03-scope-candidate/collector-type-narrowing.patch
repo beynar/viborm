@@ -1,0 +1,29 @@
+--- a/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
++++ b/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
+@@
++function isSeriesChoiceRecipe(
++  recipe: StructuralRecipe
++): recipe is Extract<
++  StructuralRecipe,
++  { kind: "series-choice-found" | "series-choice-missing" }
++> {
++  return (
++    recipe.kind === "series-choice-found" ||
++    recipe.kind === "series-choice-missing"
++  );
++}
++
+ async function measureRecipe(
+   recipe: StructuralRecipe,
+   replay?: ReplayTape
+ ): Promise<MeasuredCase> {
+-  if (recipe.kind === "depth-create" || recipe.kind === "width-create") {
+-    assert.equal(replay, undefined);
+-    return measureCreate(recipe);
+-  }
++  if (isSeriesChoiceRecipe(recipe)) return measureSeriesChoice(recipe, replay);
+   if (recipe.kind === "width-overlap") return measureOverlap(recipe, replay);
+-  return measureSeriesChoice(recipe, replay);
++  assert.equal(replay, undefined);
++  return measureCreate(recipe);
+ }

@@ -1,0 +1,123 @@
+/**
+ * R2b diagnostic probe (TEMPORARY, not a registered pin) — the repaired SQL.
+ */
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createClient } from "@client/client";
+import { instrumentation } from "@instrumentation/extension";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, it } from "vitest";
+import {
+  createMySQL2Driver,
+  dropEveryLiveTable,
+  TEST_CONNECTION_STRING,
+} from "./mysql2-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+const OUT = process.env.R2B_PROBE_OUT ?? "/private/tmp/viborm-r2ab-tmp/r2b";
+
+const author = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    books: s.toMany(() => book),
+  })
+  .map("r2b_authors");
+
+const book = s
+  .model({
+    id: s.string().id(),
+    title: s.string(),
+    pages: s.int(),
+    authorId: s.string(),
+    author: s.toOne(() => author).fields("authorId").references("id"),
+  })
+  .map("r2b_books");
+
+const entry = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    moments: s.dateTime().array().nullable(),
+    when: s.dateTime().nullable(),
+  })
+  .map("r2b_list_entries");
+
+const schema = { author, book, entry };
+const FIRST = new Date("2024-01-02T03:04:05.000Z");
+const SECOND = new Date("2024-02-03T04:05:06.000Z");
+
+describeIf("R2b probe", () => {
+  it("retains the repaired SQL for both engine repairs", async () => {
+    mkdirSync(OUT, { recursive: true });
+    await dropEveryLiveTable();
+    const statements: { sql: string; params: unknown[] }[] = [];
+    const client = createClient({ schema, driver: createMySQL2Driver() }).$extends(
+      instrumentation({
+        logging: {
+          query: (event) => {
+            statements.push({ sql: event.sql ?? "", params: event.params ?? [] });
+          },
+          includeSql: true,
+          includeParams: true,
+        },
+      }),
+    ) as never;
+    const c = client as unknown as Record<string, any>;
+    await syncLiveSchema(client as never);
+    await c.author.create({
+      data: {
+        id: "author-1",
+        name: "Alice",
+        books: {
+          createMany: {
+            data: [
+              { id: "book-3", title: "Gamma", pages: 300 },
+              { id: "book-1", title: "Alpha", pages: 100 },
+              { id: "book-5", title: "Epsilon", pages: 500 },
+              { id: "book-2", title: "Beta", pages: 200 },
+              { id: "book-4", title: "Delta", pages: 400 },
+            ],
+          },
+        },
+      },
+    });
+    await c.entry.createMany({
+      data: [{ id: "e1", name: "both", moments: [FIRST, SECOND], when: FIRST }],
+    });
+    const probes: Record<string, unknown> = {};
+    const capture = async (name: string, run: () => Promise<unknown>) => {
+      statements.length = 0;
+      const value = await run();
+      probes[name] = { value, sql: statements.map((e) => e) };
+    };
+    await capture("includeDesc", () =>
+      c.author.findUnique({
+        where: { id: "author-1" },
+        include: { books: { orderBy: { pages: "desc" } } },
+      }),
+    );
+    await capture("includeDescTake", () =>
+      c.author.findUnique({
+        where: { id: "author-1" },
+        include: { books: { orderBy: { pages: "desc" }, take: 2 } },
+      }),
+    );
+    await capture("includeUnordered", () =>
+      c.author.findUnique({
+        where: { id: "author-1" },
+        include: { books: true },
+      }),
+    );
+    await capture("rootOrdered", () =>
+      c.book.findMany({ orderBy: { pages: "desc" } }),
+    );
+    await capture("listHas", () =>
+      c.entry.findMany({ where: { moments: { has: SECOND } } }),
+    );
+    await capture("scalarEquals", () => c.entry.findMany({ where: { when: FIRST } }));
+    writeFileSync(`${OUT}/repaired-sql.json`, `${JSON.stringify(probes, null, 2)}\n`);
+    await (client as any).$disconnect();
+  });
+});

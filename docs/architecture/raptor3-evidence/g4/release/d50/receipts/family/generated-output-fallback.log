@@ -1,0 +1,35 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/contracts/engine/write/generated-output-fallback.test.ts (5 tests | 1 failed) 781ms
+   ✓ generated output fallback > a capability-false PostgreSQL batch materializes RETURNING before its child 17ms
+   ✓ generated output fallback > the interactive PostgreSQL path keeps the same generated parent result 6ms
+   ✓ generated output fallback > one demanded member closes RETURNING over a fresh compound generated row key 7ms
+   × generated output exact batch scratch > a nested generated key and relation-supplied publication stay in one native batch 6ms
+     → promise rejected "UnsupportedOperationError: query-engine-v… { …(4) }" instead of resolving
+   ✓ generated root result through exact batch scratch > scratch setup cannot masquerade as a skipped record-series root 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/contracts/engine/write/generated-output-fallback.test.ts > generated output exact batch scratch > a nested generated key and relation-supplied publication stay in one native batch
+AssertionError: promise rejected "UnsupportedOperationError: query-engine-v… { …(4) }" instead of resolving
+ ❯ tests/contracts/engine/write/generated-output-fallback.test.ts:244:5
+    242|         select: { id: true, accountProviderId: true },
+    243|       })
+    244|     ).resolves.toEqual({ id: "badge", accountProviderId: "provider" });
+       |     ^
+    245| 
+    246|     expect(driver.batchCalls).toBe(1);
+
+Caused by: UnsupportedOperationError: query-engine-v2 create cannot resolve the parent id for relation 'account': referenced field 'providerId' is neither this record's primary key nor a knowable value in its own create data.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V8003', meta: {}, timestamp: '2026-09-19T18:58:11.262Z' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  20:58:09
+   Duration  2.25s (transform 874ms, setup 9ms, collect 1.31s, tests 781ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.98s wall, 1489.3 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

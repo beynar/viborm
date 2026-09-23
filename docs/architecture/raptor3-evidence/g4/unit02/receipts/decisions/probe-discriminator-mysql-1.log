@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 1118ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  577ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  17:25:03
+   Duration  3.96s (transform 1.82s, setup 9ms, collect 2.70s, tests 1.12s, environment 0ms, prepare 33ms)
+
+Vitest resources: 4.61s wall, 549.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

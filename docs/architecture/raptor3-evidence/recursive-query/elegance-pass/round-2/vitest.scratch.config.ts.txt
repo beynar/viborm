@@ -1,0 +1,12 @@
+import { defineConfig, mergeConfig } from "/Users/arnaud/code/viborm/node_modules/vitest/dist/config.js";
+import base from "/Users/arnaud/code/viborm/vitest.config.ts";
+
+export default mergeConfig(
+  base,
+  defineConfig({
+    test: {
+      dir: "/private/tmp/viborm-rq-elegance-repair2/scratch",
+      include: ["**/*.scratch.test.ts"],
+    },
+  })
+);

@@ -1,0 +1,16 @@
+G4-02 review follow-up — source identity at probe time
+2026-09-15T02:33:24Z
+git HEAD: 0cc61e61f372945026b0b564fa643de67168c08e
+production.patch sha256: 8295d338569b68a5e181754c0deba94d6c22e5dc83247ce6ddccc3334936d974
+tests.patch sha256: 7ac5724fc757a5396dc6e1fabd6009f0c69f4b5a703f81c5ebb1e3aec9463a67
+git apply -R --check production.patch: OK
+--- unit files ---
+65aa6f5b0b1248b9b62ef737dbcf60f5ec39da9821a7254c0c44054cbb1e0e08  src/query-engine/raptor3/shared/operation-context.ts
+12442b94ac00c25b6edd42a20c4c454998966a9a78035bf74dcad1536fecdf7d  src/query-engine/raptor3/commands/commands.ts
+546adce4cfdc25b30ced0921abb6e45decdcc2f35704130efbc0e7ccca0f033c  src/query-engine/raptor3/commands/index.ts
+1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102  src/query-engine/raptor3/commands/assignments.ts
+54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2  src/query-engine/raptor3/commands/execution.ts
+c7a58c9c61d6781c6a885c81a3eb4126a9f2c99e91f8866ea56aeea0c0c10166  src/query-engine/raptor3/shared/schema.ts
+752215df492fe2feeccf5ec506223212d7c753a1d5f6e54a11f636f7033e57a2  src/query-engine/raptor3/shared/storage.ts
+4aeb2c14e680129d35dda85888d51402d5b94a220f8666dd34db51b763d1e4bd  src/query-engine/raptor3/program/index.ts
+1cd9bcd217bbb1de955cec389b0818c1af29788bc77172524a841f76c093910b  src/query-engine/raptor3/shared/query.ts

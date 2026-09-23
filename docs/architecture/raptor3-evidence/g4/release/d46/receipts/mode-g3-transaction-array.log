@@ -1,0 +1,25 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46
+
+ ✓ |raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 66ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  18:29:34
+   Duration  1.48s (transform 829ms, setup 8ms, collect 1.22s, tests 66ms, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-d46-tmp/viborm-raptor3-g0-pjLrzi/vitest.json
+Vitest resources: 3.46s wall, 468.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Stale Raptor 3 evidence: executed source or runtime changed
++ actual - expected
+
+  {
+    harness: '23b84e87fa8a688872a528b85af802169398cd5324b534f4862c78e5ac31c30c',
++   production: '3bdcfe3f82e2e4b2883138464722f1496fa16963bcb5c10873e24f0a625f8e52',
+-   production: '4fd72f011c5b2af843fa262a74945d1c2db7b88193585afeec7aa92a7998062b',
+    runtime: {
+      architecture: 'arm64',
+      node: 'v24.21.0',
+      platform: 'darwin',
+      sqliteDriver: '12.6.0',
+

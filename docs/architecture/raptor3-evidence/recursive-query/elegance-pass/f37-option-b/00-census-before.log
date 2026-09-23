@@ -1,0 +1,3 @@
+docs/architecture/raptor3-evidence/recursive-query/elegance-pass/f37-option-b/census-before.md: 36 unmatched candidate sentences (55 at the map), 75 inherited, 22 invariant, 203 sites
+Node resources: 1.15s wall, 296.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

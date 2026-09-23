@@ -1,0 +1,58 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ ../viborm-n4-A4-tmp/structural.probe.test.ts (22 tests) 14ms
+ ✓ ../viborm-n4-A4-tmp/executed.probe.test.ts (1 test) 40ms
+ ❯ ../viborm-n4-A4-tmp/classification.probe.test.ts (3 tests | 3 failed) 3ms
+   × N4/A4 — an invariant failure is not a refusal > row 49: a carrier addressed with no arm is an EngineInvariantError 3ms
+     → expected Error: Raptor 3 G1 variant carrier member… to be an instance of EngineInvariantError
+   × N4/A4 — an invariant failure is not a refusal > row 49: an undeclared arm is an EngineInvariantError 0ms
+     → expected Error: Raptor 3 G1 variant carrier member… to be an instance of EngineInvariantError
+   × N4/A4 — an invariant failure is not a refusal > row 48: a field the model does not store is an EngineInvariantError 0ms
+     → expected Error: Raptor 3 G1 physical field is not … to be an instance of EngineInvariantError
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  ../viborm-n4-A4-tmp/classification.probe.test.ts > N4/A4 — an invariant failure is not a refusal > row 49: a carrier addressed with no arm is an EngineInvariantError
+AssertionError: expected Error: Raptor 3 G1 variant carrier member… to be an instance of EngineInvariantError
+ ❯ ../viborm-n4-A4-tmp/classification.probe.test.ts:49:20
+     47|       thrown = failure;
+     48|     }
+     49|     expect(thrown).toBeInstanceOf(EngineInvariantError);
+       |                    ^
+     50|     expect(thrown).not.toBeInstanceOf(VibORMError);
+     51|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  ../viborm-n4-A4-tmp/classification.probe.test.ts > N4/A4 — an invariant failure is not a refusal > row 49: an undeclared arm is an EngineInvariantError
+AssertionError: expected Error: Raptor 3 G1 variant carrier member… to be an instance of EngineInvariantError
+ ❯ ../viborm-n4-A4-tmp/classification.probe.test.ts:60:20
+     58|       thrown = failure;
+     59|     }
+     60|     expect(thrown).toBeInstanceOf(EngineInvariantError);
+       |                    ^
+     61|     expect(thrown).not.toBeInstanceOf(VibORMError);
+     62|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  ../viborm-n4-A4-tmp/classification.probe.test.ts > N4/A4 — an invariant failure is not a refusal > row 48: a field the model does not store is an EngineInvariantError
+AssertionError: expected Error: Raptor 3 G1 physical field is not … to be an instance of EngineInvariantError
+ ❯ ../viborm-n4-A4-tmp/classification.probe.test.ts:71:20
+     69|       thrown = failure;
+     70|     }
+     71|     expect(thrown).toBeInstanceOf(EngineInvariantError);
+       |                    ^
+     72|     expect(thrown).not.toBeInstanceOf(VibORMError);
+     73|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  3 failed | 23 passed (26)
+   Start at  07:48:21
+   Duration  1.45s (transform 831ms, setup 0ms, collect 1.27s, tests 58ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 1.84s wall, 445.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

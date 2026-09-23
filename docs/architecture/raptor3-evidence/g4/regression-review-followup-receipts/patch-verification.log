@@ -1,0 +1,15 @@
+=== unit03/production.patch onto 0cc61e61 ===
+APPLIED OK; 4/4 files byte-identical to the working tree (client/client.ts, query-engine/pending-operation.ts, query-engine/query-engine.ts, raptor3/route/client-route.ts)
+
+=== unit02/production-closure.patch reverse -> base ===
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  shared/query.ts (note: 5143b7b3...)
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  shared/operation-context.ts (note: 8b25f6fe...)
+forward re-apply: 7/7 files byte-identical
+
+=== unit02/tests-closure.patch round-trip ===
+reverse + forward: 10/10 files byte-identical
+
+=== patch sha256 ===
+1a62003e3545c5340ce03406a03227c3ec9c12c5c776ce8bbaa1b7463ad3cc3f  docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+9c1b0a8c51008a9dfa55211ccbf45271a1e8bb088a4a40b54b813d84143f9c81  docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch
+96f956ec604e1ee2e8ad937a75de066501d1825b708e9474f2513d65d51227ae  docs/architecture/raptor3-evidence/g4/unit03/production.patch

@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/native-pool-configuration.review.test.ts (3 tests | 2 skipped) 15ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 2 skipped (3)
+   Start at  05:26:27
+   Duration  1.54s (transform 889ms, setup 9ms, collect 1.33s, tests 15ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 2.08s wall, 437.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+RETRY_WRAPPER: success after 1 attempt(s)

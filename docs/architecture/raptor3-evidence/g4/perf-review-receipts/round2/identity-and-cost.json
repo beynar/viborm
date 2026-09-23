@@ -1,0 +1,19 @@
+{
+  "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+  "harness": "e8436e5e2aeb75b8d75ec6c251b310a6acb3ae375fb2bd0b61bef26a8cd991f7",
+  "queryEngine": {
+    "files": 181,
+    "lines": 86728,
+    "tokenLines": 68628,
+    "functions": 3854,
+    "branchNodes": 8986,
+    "filesOver300Lines": 76
+  },
+  "matchesAuthorRound2Receipt": true,
+  "perfPassPatchSha256": "ad2ab9e5b3deba834ec51355e1e769ccefc3c3d9dfb18ab93269e21a87772c0a",
+  "perfPassPatchSections": 15,
+  "perfPassPatchRoundTrip": "applied to a fresh `git archive 0f25637b`; all 15 paths cmp-identical to the working tree",
+  "productionClosurePatchSha256": "4f07351d171b005d4bb61cecdb5a73b6144e9dacb06e760767734724323924a1",
+  "testsClosurePatchSha256": "4b509c385d654c5c2719932e09affffe52b9e83c5eb95525ed27fe5dd14cde07",
+  "closureReverseApply": "both `git apply -R --check` clean against the working tree"
+}

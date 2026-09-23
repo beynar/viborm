@@ -1,0 +1,59 @@
+{
+  "identity": {
+    "production": "d5c3f9e980370500ddd580ba021b474acbc9fd0ed95ad8b374e4c247fdb45d2b",
+    "harness": "a7ab5e9a0168b643f8dc3428e1e74e1a7efcabb4bf68e98c56aac77757d5ca7a",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "campaign": {
+    "firstSeed": 0,
+    "seedCount": 100,
+    "replayCount": 3,
+    "completionLimit": 2000,
+    "profiles": [
+      "sqlite-interactive",
+      "sqlite-atomic-batch"
+    ]
+  },
+  "fixedCells": 24,
+  "seededCells": 200,
+  "replays": 672,
+  "skipped": 0,
+  "falsifiers": [
+    "wrong-row",
+    "missing-write",
+    "changed-value",
+    "changed-error",
+    "rollback-leak",
+    "equivalent-changed-sql",
+    "success-failure-replay",
+    "corrupt-event-tape",
+    "missing-event",
+    "invalid-replay",
+    "controlled-default-clock",
+    "uncontrolled-source",
+    "harness-exception",
+    "swallowed-failure",
+    "event-limit",
+    "split-atomic-cut",
+    "missing-eligible-cut",
+    "controlled-cut-failure",
+    "atomic-surrounding-faults",
+    "zero-case-selection",
+    "stale-evidence"
+  ],
+  "cutClassification": {
+    "cut": "between-effects",
+    "split": "reached",
+    "atomic": "eliminated by one native SQLite insert",
+    "surroundingFaults": [
+      "before-dispatch",
+      "after-effects"
+    ]
+  }
+}

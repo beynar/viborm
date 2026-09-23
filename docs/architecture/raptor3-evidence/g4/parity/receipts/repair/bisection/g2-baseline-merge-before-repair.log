@@ -1,0 +1,1033 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-legacy.test.ts (8 tests) 105ms
+ ❯ |raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts (8 tests | 2 failed) 87ms
+   ✓ G2 mixed key transitions: legacy sqlite-interactive > g2-key-junction-modify 13ms
+   ✓ G2 mixed key transitions: legacy sqlite-interactive > g2-key-junction-disconnect 8ms
+   ✓ G2 mixed key transitions: legacy sqlite-interactive > g2-key-adopt-coc-mixed 8ms
+   ✓ G2 mixed key transitions: legacy sqlite-interactive > g2-variant-key-transition 6ms
+   × G2 mixed key transitions: legacy sqlite-atomic-batch > g2-key-junction-modify 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   failure: {
++     code: 'V8003',
++     message: `Cannot publish the updated value of 'post.id' for operation "update" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a string field.`,
++     meta: [Object: null prototype] {
++       field: 'id',
++       model: 'post',
++       operation: 'update'
++     },
++     name: 'UnsupportedOperationError'
+-   kind: 'success',
+-   value: {
+-     id: 'a1',
+-     name: 'author'
+    },
++   kind: 'failure'
+  }
+
+   × G2 mixed key transitions: legacy sqlite-atomic-batch > g2-key-junction-disconnect 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   failure: {
++     code: 'V8003',
++     message: `Cannot publish the updated value of 'post.id' for operation "update" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a string field.`,
++     meta: [Object: null prototype] {
++       field: 'id',
++       model: 'post',
++       operation: 'update'
++     },
++     name: 'UnsupportedOperationError'
+-   kind: 'success',
+-   value: {
+-     id: 'a1',
+-     name: 'author'
+    },
++   kind: 'failure'
+  }
+
+   ✓ G2 mixed key transitions: legacy sqlite-atomic-batch > g2-key-adopt-coc-mixed 8ms
+   ✓ G2 mixed key transitions: legacy sqlite-atomic-batch > g2-variant-key-transition 6ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-legacy.test.ts (14 tests) 110ms
+ ❯ |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests | 2 failed) 85ms
+   × G2 captured conditional upserts: legacy SQLite > g2-upsert-skip-replaced: sqlite-atomic-batch 8ms
+     → Skipped or stale upsert must not change any row
++ actual - expected
+... Skipped lines
+
+  {
+    posts: [
+      {
+        id: 409,
+        slug: 'foreign-post',
+...
+      {
++       count: 15,
+-       count: 999,
+        email: 'wanted',
+        id: 2
+      },
+      {
+        count: 999,
+
+   × G2 captured conditional upserts: legacy SQLite > g2-upsert-skip-deleted: sqlite-atomic-batch 4ms
+     → Skipped or stale upsert must not change any row
++ actual - expected
+... Skipped lines
+
+  {
+    posts: [
+      {
+        id: 409,
+        slug: 'foreign-post',
+...
+      },
++     {
++       count: 0,
++       email: 'wanted',
++       id: 42
++     }
+    ]
+  }
+
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-null-unknown: sqlite-interactive 8ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-null-unknown: sqlite-atomic-batch 4ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-setwhere-skip: sqlite-interactive 4ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-setwhere-skip: sqlite-atomic-batch 4ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-setwhere-match-replaced: sqlite-atomic-batch 5ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-conditions-match: sqlite-interactive 4ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-conditions-match: sqlite-atomic-batch 5ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-conditions-missing-create: sqlite-interactive 4ms
+   ✓ G2 captured conditional upserts: legacy SQLite > g2-upsert-conditions-missing-create: sqlite-atomic-batch 5ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-legacy.test.ts (4 tests) 58ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-legacy.test.ts (18 tests) 52ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-legacy.test.ts (2 tests) 64ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-legacy.test.ts (20 tests) 22ms
+ ❯ |raptor3| tests/raptor3/transitions/junctions-legacy.test.ts (26 tests | 2 failed) 46ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-singular-transfer 4ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-supply-modify 3ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-set-owned-refill 2ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-variant-junction-set-all 2ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-disconnect-shared 2ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-delete-shared 2ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-exact-reconnect 1ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-exact-set-refill 1ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-key-reconnect 1ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-key-transfer 1ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-variant-junction-empty-set 1ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-inverse-delete-owner 1ms
+   ✓ G2 junction transitions: legacy sqlite-interactive > g2-junction-inverse-disconnect 1ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-singular-transfer 2ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-supply-modify 2ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-set-owned-refill 1ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-variant-junction-set-all 1ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-disconnect-shared 2ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-delete-shared 2ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-exact-reconnect 2ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-exact-set-refill 2ms
+   × G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-key-reconnect 4ms
+     → {"kind":"failure","failure":{"name":"UnsupportedOperationError","message":"Cannot publish the updated value of 'book.isbn' for operation \"update\" inside an atomic batch: the batch scratch reads back as an integer, and 'isbn' is a string field.","code":"V8003","meta":{"field":"isbn","model":"book","operation":"update"}}}
++ actual - expected
+... Skipped lines
+
+  {
+    bookMembers: [
+      {
+        entry_1: 'eu',
++       entry_2: '111',
+-       entry_2: '333',
+        holder_1: 't1',
+        holder_2: 'left'
+      },
+      {
+        entry_1: 'eu',
+...
+      {
++       isbn: '111',
+-       isbn: '222',
+        region: 'eu',
++       title: 'Exact'
+-       title: 'Crossed ISBN'
+      },
+      {
++       isbn: '222',
+-       isbn: '333',
+        region: 'eu',
++       title: 'Crossed ISBN'
+-       title: 'Exact'
+      },
+      {
+        isbn: '111',
+        region: 'us',
+        title: 'Crossed region'
+...
+    ],
++   membershipAudit: [],
+-   membershipAudit: [
+-     {
+-       effect: 'update',
+-       entry_1: 'eu',
+-       entry_2: '333',
+-       holder_1: 't1',
+-       holder_2: 'left',
+-       seq: 1
+-     }
+-   ],
+    noteMembers: [
+      {
+        entry: 11,
+        holder_1: 't1',
+        holder_2: 'left'
+
+   × G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-key-transfer 3ms
+     → {"kind":"failure","failure":{"name":"UnsupportedOperationError","message":"Cannot publish the updated value of 'book.isbn' for operation \"update\" inside an atomic batch: the batch scratch reads back as an integer, and 'isbn' is a string field.","code":"V8003","meta":{"field":"isbn","model":"book","operation":"update"}}}
++ actual - expected
+... Skipped lines
+
+  {
+    bookMembers: [
+      {
+        entry_1: 'eu',
++       entry_2: '111',
+-       entry_2: '222',
+        holder_1: 't1',
++       holder_2: 'left'
+-       holder_2: 'right'
+      },
+      {
+        entry_1: 'eu',
++       entry_2: '222',
+-       entry_2: '333',
+        holder_1: 't1',
+        holder_2: 'right'
+      },
+      {
+        entry_1: 'us',
+...
+      {
++       isbn: '111',
+-       isbn: '222',
+        region: 'eu',
++       title: 'Exact'
+-       title: 'Crossed ISBN'
+      },
+      {
++       isbn: '222',
+-       isbn: '333',
+        region: 'eu',
++       title: 'Crossed ISBN'
+-       title: 'Exact'
+      },
+      {
+        isbn: '111',
+        region: 'us',
+        title: 'Crossed region'
+
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-variant-junction-empty-set 1ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-inverse-delete-owner 1ms
+   ✓ G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-inverse-disconnect 1ms
+ ✓ |raptor3| tests/raptor3/transitions/required-legacy.test.ts (8 tests) 13ms
+ ❯ |raptor3| tests/raptor3/transitions/series-staleness-legacy.test.ts (4 tests | 1 failed) 15ms
+   ✓ G2 admitted nested series staleness: atomic SQLite legacy > g2-series-captured-member-reparented 6ms
+   × G2 admitted nested series staleness: atomic SQLite legacy > g2-series-parent-reference-reused 4ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ "Cannot update relation 'spokes': a member was added after the plan-time read; retry to converge."
+- "Cannot update relation 'spokes': parent record changed across a committed segment."
+
+   ✓ G2 admitted nested series staleness: atomic SQLite legacy > g2-series-filter-observation 3ms
+   ✓ G2 admitted nested series staleness: atomic SQLite legacy > g2-series-captured-member-missing 1ms
+ ❯ |raptor3| tests/raptor3/transitions/keys-legacy.test.ts (14 tests | 4 failed) 24ms
+   ✓ G2 key transitions: independent legacy sqlite-interactive > g2-key-alt-locator 4ms
+   ✓ G2 key transitions: independent legacy sqlite-interactive > g2-key-compound-final 2ms
+   ✓ G2 key transitions: independent legacy sqlite-interactive > g2-key-arithmetic-final 2ms
+   ✓ G2 key transitions: independent legacy sqlite-interactive > g2-key-null-final-refused 2ms
+   ✓ G2 key transitions: independent legacy sqlite-interactive > g2-key-setnull-occupied-refused 1ms
+   ✓ G2 key transitions: independent legacy sqlite-interactive > g2-key-null-old-empty 1ms
+   ✓ G2 key transitions: independent legacy sqlite-interactive > g2-key-arithmetic-rollback 3ms
+   × G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-alt-locator 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    orgs: [
+      {
+        id: 'o-old',
+        slug: 'decoy'
+      },
+      {
++       id: 'o1',
+-       id: 'o2',
+        slug: 's1'
+      }
+    ],
+    seats: [
+      {
+...
+      },
+-     {
+-       id: 'st1',
+-       name: 'created',
+-       orgId: 'o2'
+-     }
+    ]
+  }
+
+   × G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-compound-final 1ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    spots: [
+      {
+        id: 'decoy-code',
+        name: 'untouched',
+...
+      },
+-     {
+-       id: 'sp1',
+-       name: 'created',
+-       zoneCode: 'east',
+-       zoneRegion: 'eu'
+-     }
+    ],
+    zones: [
+      {
+        code: 'decoy',
+        label: 'same-region',
+...
+      {
++       code: 'west',
+-       code: 'east',
+        label: 'selected',
+        region: 'eu'
+      },
+      {
+        code: 'west',
+
+   ✓ G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-arithmetic-final 1ms
+   ✓ G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-null-final-refused 1ms
+   × G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-setnull-occupied-refused 1ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UnsupportedOperationError'
+- 'NestedWriteError'
+
+   × G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-null-old-empty 1ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    bays: [
+      {
+        area: 'eu',
+        id: 'b1',
++       slot: null
+-       slot: 'west'
+      },
+      {
+        area: 'eu',
+        id: 'b2',
+        slot: 'decoy'
+...
+      },
+-     {
+-       bayArea: 'eu',
+-       baySlot: 'west',
+-       id: 'p1'
+-     }
+    ]
+  }
+
+   ✓ G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-arithmetic-rollback 2ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-legacy.test.ts (3 tests) 7ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-legacy.test.ts (58 tests) 46ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-legacy.test.ts (10 tests) 20ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-legacy.test.ts (8 tests) 19ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts > G2 captured conditional upserts: legacy SQLite > g2-upsert-skip-replaced: sqlite-atomic-batch
+AssertionError: Skipped or stale upsert must not change any row
++ actual - expected
+... Skipped lines
+
+  {
+    posts: [
+      {
+        id: 409,
+        slug: 'foreign-post',
+...
+      {
++       count: 15,
+-       count: 999,
+        email: 'wanted',
+        id: 2
+      },
+      {
+        count: 999,
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -12,11 +12,11 @@[39m
+[2m        "count": 10,[22m
+[2m        "email": "moved",[22m
+[2m        "id": 1,[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "count": 999,[39m
+[31m+       "count": 15,[39m
+[2m        "email": "wanted",[22m
+[2m        "id": 2,[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "count": 999,[22m
+
+ ❯ Object.afterStatement tests/raptor3/transitions/conditional-upsert.ts:285:22
+    283|             if (conditionsMatch || missingCreate) return undefined;
+    284|             if (changed || !stale) {
+    285|               assert.deepEqual(
+       |                      ^
+    286|                 inspect(database),
+    287|                 changed ? final : initial,
+ ❯ ObservedAtomicBatchDriver.completed tests/raptor3/harness/sqlite-world.ts:281:32
+ ❯ ObservedAtomicBatchDriver.execute tests/raptor3/harness/sqlite-world.ts:109:5
+ ❯ tests/raptor3/harness/sqlite-world.ts:132:11
+ ❯ tests/raptor3/harness/sqlite-world.ts:50:20
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ ObservedAtomicBatchDriver.transaction tests/raptor3/harness/sqlite-world.ts:46:14
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:841:29
+ ❯ ObservedAtomicBatchDriver.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts > G2 captured conditional upserts: legacy SQLite > g2-upsert-skip-deleted: sqlite-atomic-batch
+AssertionError: Skipped or stale upsert must not change any row
++ actual - expected
+... Skipped lines
+
+  {
+    posts: [
+      {
+        id: 409,
+        slug: 'foreign-post',
+...
+      },
++     {
++       count: 0,
++       email: 'wanted',
++       id: 42
++     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -11,7 +11,12 @@[39m
+[2m      {[22m
+[2m        "count": 999,[22m
+[2m        "email": "foreign",[22m
+[2m        "id": 9,[22m
+[2m      },[22m
+[31m+     {[39m
+[31m+       "count": 0,[39m
+[31m+       "email": "wanted",[39m
+[31m+       "id": 42,[39m
+[31m+     },[39m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ Object.afterStatement tests/raptor3/transitions/conditional-upsert.ts:285:22
+    283|             if (conditionsMatch || missingCreate) return undefined;
+    284|             if (changed || !stale) {
+    285|               assert.deepEqual(
+       |                      ^
+    286|                 inspect(database),
+    287|                 changed ? final : initial,
+ ❯ ObservedAtomicBatchDriver.completed tests/raptor3/harness/sqlite-world.ts:281:32
+ ❯ ObservedAtomicBatchDriver.execute tests/raptor3/harness/sqlite-world.ts:109:5
+ ❯ tests/raptor3/harness/sqlite-world.ts:132:11
+ ❯ tests/raptor3/harness/sqlite-world.ts:50:20
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ ObservedAtomicBatchDriver.transaction tests/raptor3/harness/sqlite-world.ts:46:14
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:841:29
+ ❯ ObservedAtomicBatchDriver.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/junctions-legacy.test.ts > G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-key-reconnect
+AssertionError: {"kind":"failure","failure":{"name":"UnsupportedOperationError","message":"Cannot publish the updated value of 'book.isbn' for operation \"update\" inside an atomic batch: the batch scratch reads back as an integer, and 'isbn' is a string field.","code":"V8003","meta":{"field":"isbn","model":"book","operation":"update"}}}
++ actual - expected
+... Skipped lines
+
+  {
+    bookMembers: [
+      {
+        entry_1: 'eu',
++       entry_2: '111',
+-       entry_2: '333',
+        holder_1: 't1',
+        holder_2: 'left'
+      },
+      {
+        entry_1: 'eu',
+...
+      {
++       isbn: '111',
+-       isbn: '222',
+        region: 'eu',
++       title: 'Exact'
+-       title: 'Crossed ISBN'
+      },
+      {
++       isbn: '222',
+-       isbn: '333',
+        region: 'eu',
++       title: 'Crossed ISBN'
+-       title: 'Exact'
+      },
+      {
+        isbn: '111',
+        region: 'us',
+        title: 'Crossed region'
+...
+    ],
++   membershipAudit: [],
+-   membershipAudit: [
+-     {
+-       effect: 'update',
+-       entry_1: 'eu',
+-       entry_2: '333',
+-       holder_1: 't1',
+-       holder_2: 'left',
+-       seq: 1
+-     }
+-   ],
+    noteMembers: [
+      {
+        entry: 11,
+        holder_1: 't1',
+        holder_2: 'left'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,10 +1,10 @@[39m
+[2m  {[22m
+[2m    "bookMembers": [[22m
+[2m      {[22m
+[2m        "entry_1": "eu",[22m
+[32m-       "entry_2": "333",[39m
+[31m+       "entry_2": "111",[39m
+[2m        "holder_1": "t1",[22m
+[2m        "holder_2": "left",[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "entry_1": "eu",[22m
+[33m@@ -19,18 +19,18 @@[39m
+[2m        "holder_2": "left",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "books": [[22m
+[2m      {[22m
+[32m-       "isbn": "222",[39m
+[31m+       "isbn": "111",[39m
+[2m        "region": "eu",[22m
+[32m-       "title": "Crossed ISBN",[39m
+[31m+       "title": "Exact",[39m
+[2m      },[22m
+[2m      {[22m
+[32m-       "isbn": "333",[39m
+[31m+       "isbn": "222",[39m
+[2m        "region": "eu",[22m
+[32m-       "title": "Exact",[39m
+[31m+       "title": "Crossed ISBN",[39m
+[2m      },[22m
+[2m      {[22m
+[2m        "isbn": "111",[22m
+[2m        "region": "us",[22m
+[2m        "title": "Crossed region",[22m
+[33m@@ -61,20 +61,11 @@[39m
+[2m      {[22m
+[2m        "id": 12,[22m
+[2m        "label": "Untouched clip",[22m
+[2m      },[22m
+[2m    ],[22m
+[32m-   "membershipAudit": [[39m
+[32m-     {[39m
+[32m-       "effect": "update",[39m
+[32m-       "entry_1": "eu",[39m
+[32m-       "entry_2": "333",[39m
+[32m-       "holder_1": "t1",[39m
+[32m-       "holder_2": "left",[39m
+[32m-       "seq": 1,[39m
+[32m-     },[39m
+[32m-   ],[39m
+[31m+   "membershipAudit": [],[39m
+[2m    "noteMembers": [[22m
+[2m      {[22m
+[2m        "entry": 11,[22m
+[2m        "holder_1": "t1",[22m
+[2m        "holder_2": "left",[22m
+
+ ❯ Object.assert tests/raptor3/transitions/junctions.ts:402:18
+    400|         assert(observation) {
+    401|           assert.deepEqual(observation.initial, initial);
+    402|           assert.deepEqual(
+       |                  ^
+    403|             observation.final,
+    404|             final,
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/junctions-legacy.test.ts:17:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/junctions-legacy.test.ts > G2 junction transitions: legacy sqlite-atomic-batch > g2-junction-key-transfer
+AssertionError: {"kind":"failure","failure":{"name":"UnsupportedOperationError","message":"Cannot publish the updated value of 'book.isbn' for operation \"update\" inside an atomic batch: the batch scratch reads back as an integer, and 'isbn' is a string field.","code":"V8003","meta":{"field":"isbn","model":"book","operation":"update"}}}
++ actual - expected
+... Skipped lines
+
+  {
+    bookMembers: [
+      {
+        entry_1: 'eu',
++       entry_2: '111',
+-       entry_2: '222',
+        holder_1: 't1',
++       holder_2: 'left'
+-       holder_2: 'right'
+      },
+      {
+        entry_1: 'eu',
++       entry_2: '222',
+-       entry_2: '333',
+        holder_1: 't1',
+        holder_2: 'right'
+      },
+      {
+        entry_1: 'us',
+...
+      {
++       isbn: '111',
+-       isbn: '222',
+        region: 'eu',
++       title: 'Exact'
+-       title: 'Crossed ISBN'
+      },
+      {
++       isbn: '222',
+-       isbn: '333',
+        region: 'eu',
++       title: 'Crossed ISBN'
+-       title: 'Exact'
+      },
+      {
+        isbn: '111',
+        region: 'us',
+        title: 'Crossed region'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,16 +1,16 @@[39m
+[2m  {[22m
+[2m    "bookMembers": [[22m
+[2m      {[22m
+[2m        "entry_1": "eu",[22m
+[32m-       "entry_2": "222",[39m
+[31m+       "entry_2": "111",[39m
+[2m        "holder_1": "t1",[22m
+[32m-       "holder_2": "right",[39m
+[31m+       "holder_2": "left",[39m
+[2m      },[22m
+[2m      {[22m
+[2m        "entry_1": "eu",[22m
+[32m-       "entry_2": "333",[39m
+[31m+       "entry_2": "222",[39m
+[2m        "holder_1": "t1",[22m
+[2m        "holder_2": "right",[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "entry_1": "us",[22m
+[33m@@ -19,18 +19,18 @@[39m
+[2m        "holder_2": "left",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "books": [[22m
+[2m      {[22m
+[32m-       "isbn": "222",[39m
+[31m+       "isbn": "111",[39m
+[2m        "region": "eu",[22m
+[32m-       "title": "Crossed ISBN",[39m
+[31m+       "title": "Exact",[39m
+[2m      },[22m
+[2m      {[22m
+[32m-       "isbn": "333",[39m
+[31m+       "isbn": "222",[39m
+[2m        "region": "eu",[22m
+[32m-       "title": "Exact",[39m
+[31m+       "title": "Crossed ISBN",[39m
+[2m      },[22m
+[2m      {[22m
+[2m        "isbn": "111",[22m
+[2m        "region": "us",[22m
+[2m        "title": "Crossed region",[22m
+
+ ❯ Object.assert tests/raptor3/transitions/junctions.ts:402:18
+    400|         assert(observation) {
+    401|           assert.deepEqual(observation.initial, initial);
+    402|           assert.deepEqual(
+       |                  ^
+    403|             observation.final,
+    404|             final,
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/junctions-legacy.test.ts:17:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/keys-legacy.test.ts > G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-alt-locator
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    orgs: [
+      {
+        id: 'o-old',
+        slug: 'decoy'
+      },
+      {
++       id: 'o1',
+-       id: 'o2',
+        slug: 's1'
+      }
+    ],
+    seats: [
+      {
+...
+      },
+-     {
+-       id: 'st1',
+-       name: 'created',
+-       orgId: 'o2'
+-     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,22 +3,17 @@[39m
+[2m      {[22m
+[2m        "id": "o-old",[22m
+[2m        "slug": "decoy",[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "id": "o2",[39m
+[31m+       "id": "o1",[39m
+[2m        "slug": "s1",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m    "seats": [[22m
+[2m      {[22m
+[2m        "id": "decoy-seat",[22m
+[2m        "name": "untouched",[22m
+[2m        "orgId": "o-old",[22m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "id": "st1",[39m
+[32m-       "name": "created",[39m
+[32m-       "orgId": "o2",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/transitions/keys.ts:117:18
+    115|         assert(observation) {
+    116|           assert.deepEqual(observation.initial, initial);
+    117|           assert.deepEqual(
+       |                  ^
+    118|             observation.final,
+    119|             occupied
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/keys-legacy.test.ts:19:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/keys-legacy.test.ts > G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-compound-final
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    spots: [
+      {
+        id: 'decoy-code',
+        name: 'untouched',
+...
+      },
+-     {
+-       id: 'sp1',
+-       name: 'created',
+-       zoneCode: 'east',
+-       zoneRegion: 'eu'
+-     }
+    ],
+    zones: [
+      {
+        code: 'decoy',
+        label: 'same-region',
+...
+      {
++       code: 'west',
+-       code: 'east',
+        label: 'selected',
+        region: 'eu'
+      },
+      {
+        code: 'west',
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -10,25 +10,19 @@[39m
+[2m        "id": "decoy-region",[22m
+[2m        "name": "untouched",[22m
+[2m        "zoneCode": "decoy",[22m
+[2m        "zoneRegion": "eu",[22m
+[2m      },[22m
+[32m-     {[39m
+[32m-       "id": "sp1",[39m
+[32m-       "name": "created",[39m
+[32m-       "zoneCode": "east",[39m
+[32m-       "zoneRegion": "eu",[39m
+[32m-     },[39m
+[2m    ],[22m
+[2m    "zones": [[22m
+[2m      {[22m
+[2m        "code": "decoy",[22m
+[2m        "label": "same-region",[22m
+[2m        "region": "eu",[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "code": "east",[39m
+[31m+       "code": "west",[39m
+[2m        "label": "selected",[22m
+[2m        "region": "eu",[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "code": "west",[22m
+
+ ❯ Object.assert tests/raptor3/transitions/keys.ts:245:16
+    243|       assert(observation) {
+    244|         assert.deepEqual(observation.initial, initial);
+    245|         assert.deepEqual(observation.final, {
+       |                ^
+    246|           zones: [
+    247|             initial.zones[0],
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/keys-legacy.test.ts:19:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/keys-legacy.test.ts > G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-setnull-occupied-refused
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UnsupportedOperationError'
+- 'NestedWriteError'
+
+
+Expected: [32m"[7mNestedWrite[27mError"[39m
+Received: [31m"[7mUnsupportedOperation[27mError"[39m
+
+ ❯ Object.assert tests/raptor3/transitions/keys.ts:143:18
+    141|           assert.equal(observation.outcome.kind, "failure");
+    142|           if (observation.outcome.kind !== "failure") return;
+    143|           assert.equal(observation.outcome.failure.name, "NestedWriteE…
+       |                  ^
+    144|           assert.equal(observation.outcome.failure.code, "V7001");
+    145|           assert.equal(
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/keys-legacy.test.ts:19:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/keys-legacy.test.ts > G2 key transitions: independent legacy sqlite-atomic-batch > g2-key-null-old-empty
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    bays: [
+      {
+        area: 'eu',
+        id: 'b1',
++       slot: null
+-       slot: 'west'
+      },
+      {
+        area: 'eu',
+        id: 'b2',
+        slot: 'decoy'
+...
+      },
+-     {
+-       bayArea: 'eu',
+-       baySlot: 'west',
+-       id: 'p1'
+-     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,11 +1,11 @@[39m
+[2m  {[22m
+[2m    "bays": [[22m
+[2m      {[22m
+[2m        "area": "eu",[22m
+[2m        "id": "b1",[22m
+[32m-       "slot": "west",[39m
+[31m+       "slot": null,[39m
+[2m      },[22m
+[2m      {[22m
+[2m        "area": "eu",[22m
+[2m        "id": "b2",[22m
+[2m        "slot": "decoy",[22m
+[33m@@ -29,13 +29,8 @@[39m
+[2m      },[22m
+[2m      {[22m
+[2m        "bayArea": "eu",[22m
+[2m        "baySlot": null,[22m
+[2m        "id": "p0",[22m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bayArea": "eu",[39m
+[32m-       "baySlot": "west",[39m
+[32m-       "id": "p1",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/transitions/keys.ts:502:18
+    500|         assert(observation) {
+    501|           assert.deepEqual(observation.initial, initial);
+    502|           assert.deepEqual(
+       |                  ^
+    503|             observation.final,
+    504|             refused
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/keys-legacy.test.ts:19:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts > G2 mixed key transitions: legacy sqlite-atomic-batch > g2-key-junction-modify
+ FAIL  |raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts > G2 mixed key transitions: legacy sqlite-atomic-batch > g2-key-junction-disconnect
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   failure: {
++     code: 'V8003',
++     message: `Cannot publish the updated value of 'post.id' for operation "update" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a string field.`,
++     meta: [Object: null prototype] {
++       field: 'id',
++       model: 'post',
++       operation: 'update'
++     },
++     name: 'UnsupportedOperationError'
+-   kind: 'success',
+-   value: {
+-     id: 'a1',
+-     name: 'author'
+    },
++   kind: 'failure'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "kind": "success",[39m
+[32m-   "value": {[39m
+[32m-     "id": "a1",[39m
+[32m-     "name": "author",[39m
+[31m+   "failure": {[39m
+[31m+     "code": "V8003",[39m
+[31m+     "message": "Cannot publish the updated value of 'post.id' for operation \"update\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a string field.",[39m
+[31m+     "meta": {[39m
+[31m+       "field": "id",[39m
+[31m+       "model": "post",[39m
+[31m+       "operation": "update",[39m
+[31m+     },[39m
+[31m+     "name": "UnsupportedOperationError",[39m
+[2m    },[22m
+[31m+   "kind": "failure",[39m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/transitions/mixed-key-transitions.ts:170:18
+    168|         },
+    169|         assert(observation) {
+    170|           assert.deepEqual(observation.outcome, {
+       |                  ^
+    171|             kind: "success",
+    172|             value: { id: "a1", name: "author" },
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts:36:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  |raptor3| tests/raptor3/transitions/series-staleness-legacy.test.ts > G2 admitted nested series staleness: atomic SQLite legacy > g2-series-parent-reference-reused
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ "Cannot update relation 'spokes': a member was added after the plan-time read; retry to converge."
+- "Cannot update relation 'spokes': parent record changed across a committed segment."
+
+
+Expected: [32m"Cannot update relation 'spokes': [7mparent record changed across a committed segment[27m."[39m
+Received: [31m"Cannot update relation 'spokes': [7ma member was added after the plan-time read; retry to converge[27m."[39m
+
+ ❯ Object.assert tests/raptor3/transitions/series-staleness.ts:388:18
+    386|           assert.equal(observation.outcome.failure.name, "NestedWriteE…
+    387|           assert.equal(observation.outcome.failure.code, "V7001");
+    388|           assert.equal(
+       |                  ^
+    389|             observation.outcome.failure.message,
+    390|             parentReused
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ tests/raptor3/transitions/series-staleness-legacy.test.ts:16:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+
+ Test Files  5 failed | 11 passed (16)
+      Tests  11 failed | 205 passed (216)
+   Start at  15:02:41
+   Duration  3.60s (transform 1.10s, setup 20ms, collect 2.62s, tests 773ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-MfhjQ7/vitest.json
+Vitest resources: 5.79s wall, 710.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-MfhjQ7

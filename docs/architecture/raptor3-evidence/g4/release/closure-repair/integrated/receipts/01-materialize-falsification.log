@@ -1,0 +1,52 @@
+=== FALSIFICATION of the whole owner file: execution.ts line 547 (this.attempt.materialize(lookup.fields, row)) deleted on a cp backup and restored by cp afterwards ===
+
+ RUN  v3.1.4 /private/tmp/viborm-sint
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts (12 tests | 1 failed) 2469ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found reference is spent at its CURRENT value, never a key another row acquired 205ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found conditional upsert refuses when the condition it matched has changed 124ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the requirement a FOUND arm consumes > a found nested to-ONE upsert refuses a member reparented out of its membership 111ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the confirmation's lock > holds the FOUND row through the consuming effect  1122ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a CHILD-HELD found connectOrCreate refuses a target replaced under its selector 125ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a correlated to-MANY nested upsert refuses a member moved to another parent 108ms
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a COMPOUND, column-mapped reference is confirmed and spent at its current pair 118ms
+   × the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a found arm that writes no column of its own spends the CURRENT reference through its child 114ms
+     → expected { id: 'h9', badgeCode: 'G' } to match object { badgeCode: 'M' }
+(1 matching property omitted from actual)
+   ✓ the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > inside a borrowed transaction the confirmation is the caller's own lock 106ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > an uncontended found consumption commits its ordinary result 113ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > the missing arm still reads unlocked, and the confirmation is the only locked read 106ms
+   ✓ the shared FOUND-consumption rule on native MySQL > what the rule must not change > a PARENT-HELD found target deleted in the same window fails with its own sentence 116ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-found-consumption.test.ts > the shared FOUND-consumption rule on native MySQL > the rule across placements and key shapes > a found arm that writes no column of its own spends the CURRENT reference through its child
+AssertionError: expected { id: 'h9', badgeCode: 'G' } to match object { badgeCode: 'M' }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "badgeCode": "M",
++   "badgeCode": "G",
+  }
+
+ ❯ tests/providers/docker/mysql2-found-consumption.test.ts:812:22
+    810|       expect(planted.state.planted).toBe(true);
+    811|       const stored = await planter.holder.findUnique({ where: { id: "h…
+    812|       expect(stored).toMatchObject({ badgeCode: "M" });
+       |                      ^
+    813|       expect(
+    814|         await planter.holder.findMany({ where: { badgeCode: "G" } })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  20:46:39
+   Duration  3.66s (transform 763ms, setup 8ms, collect 1.07s, tests 2.47s, environment 0ms, prepare 31ms)
+
+Vitest resources: 5.38s wall, 617.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+EXIT=1

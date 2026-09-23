@@ -1,0 +1,74 @@
+Round-4 INDEPENDENT REVIEW receipts — g4-cutover-execution (C-01), 2026-09-17 01:30–01:50.
+Every command ran from /Users/arnaud/code/viborm (or from a scratch base tree outside
+the repository) on the pinned runtime, serially, under the existing workspace lock.
+Nothing was committed, staged, reset or stashed; no lock was removed; no production
+file was touched — captureRaptor3Identity().production after this review is
+50c0ee97fb1458333c818735da4c92b7bca89daa65929199c00ef551533b7a63, the author's.
+
+THE FOUR LANES, ON THE TREE BEING COMMITTED (my own runs)
+  provider-local-cutover.MINE.log   provider-sqlite3 + provider-libsql: 5 failed files,
+                                    61 failed / 703 passed / 664 skipped of 1,428.
+  pg-cutover.MINE.log               pg-nested-write-races: 13 failed / 82 passed of 95.
+  mysql2-cutover.MINE.log           mysql2: 13 failed / 71 passed / 1 skipped of 85.
+  core.MINE.log                     --project='layer-*': 6 failed files / 11 failed
+                                    tests of 464 files / 9,301 tests.
+
+THE BISECTION, REPRODUCED ON MY OWN SCRATCH BASES
+  provider-local-BASE-legacy.MINE.log     pristine 5a37bcd7: 0 failed / 1,253 passed.
+  provider-local-BASE-candidate.MINE.log  5a37bcd7 + a two-line candidate-route default
+                                          (written independently; byte-identical to
+                                          receipts/round4/bisect/base-tree-route-default.diff):
+                                          71 failed / 1,182 passed. All 61 cutover reds
+                                          reproduce; `comm` of the sorted FAIL lines has
+                                          zero one-sided entries in the cutover direction;
+                                          the 10 extra are in the two suites C-01 deletes.
+  pg-nested-BASE-candidate.MINE.log       8 failed / 69 passed of 77 — the same 8 cells,
+                                          the 5 missing vs the cutover tree being the
+                                          restored batchPrimaryKeyDataflowContract.
+  pg-write-update-BASE-candidate.MINE.log the file C-01 deletes, base + candidate route:
+                                          19 failed / 148 passed — 5 batch primary-key
+                                          dataflow + 14 extended whereUnique. Proves the
+                                          re-registration is not what makes them red.
+  mysql2-BASE-candidate.MINE.log          base + candidate ROUTE only: 12 failed / 72
+                                          passed; the GeoPoint spatial-index cell PASSES
+                                          (the blind spot the round-3 review named).
+  mysql2-BASE-buildoracle.MINE.log        base + candidate route + D-14's six publication
+                                          hunks, so QueryEngine.build answers the
+                                          candidate's Sql while the shipped engine is
+                                          still present: 13 failed / 71 passed, failing
+                                          set IDENTICAL to my own cutover run, spatial
+                                          cell observable byte-identical. Blind spot CLOSED.
+
+THE CLASS-A RESTORATION, CHECKED CELL BY CELL
+  classA-restored-now.json                my run of the 12 restored files: 328 / 328 green.
+  classA-deleted-cells-with-observables.txt
+                                          the 200 cells the 12 files lost, each with the
+                                          failure it produced when the BASE file ran on
+                                          the cutover tree (author receipt
+                                          receipts/round4/classA-restored-run1.json).
+                                          Every deleted cell was red there; every kept
+                                          cell was green; zero cell titles were added and
+                                          zero assertions rewritten.
+
+THE REVIEW PROBE (finding 1)
+  tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts — five cells that
+  restate deleted class-A cells through the PUBLIC client.
+  probe-CUTOVER.log        5 / 5 green on the cutover tree (the refusals are gone).
+  probe-BASE-legacy.log    the same file on pristine 5a37bcd7: 5 / 5 RED — the base
+                           refuses every one, e.g.
+                           "Filter for field 'name' must contain at least one operation."
+                           for updateMany/deleteMany where the cutover tree reports count 2.
+  probe-BASE-candidate.log the same file on 5a37bcd7 + the candidate route: 5 / 5 green —
+                           so these are candidate compatibility differences, NOT cutover
+                           defects.
+
+SUITES I RAN
+  typecheck-final.MINE.log  exactly the two permitted pattern/pack.ts TS2345, with all
+                            four review-probe files present.
+  coverage-policy.MINE.log  11/11, 16/16, 6/6, exit 0.
+  g4-unit01-review.MINE.log 29 files / 198 tests.  g2-contracts.MINE.log 16 / 216.
+  g4-unit02-pg.MINE.log 1/1 (55729).  g4-unit02-mysql.MINE.log 3 files / 17 (55730).
+  review-cutover-all.log    the four review-probe files: 4 files / 21 cells green.
+
+The scratch base trees live outside the repository, under this session's scratchpad
+(.../scratchpad/rev4/base), and are not evidence.

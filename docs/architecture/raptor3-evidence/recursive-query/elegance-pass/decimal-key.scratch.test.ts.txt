@@ -1,0 +1,53 @@
+// SCRATCH (outside the repository): a recursive read over a DECIMAL primary
+// key on SQLite, through the shipped client — node keys and edge endpoints
+// must be encoded alike for every occurrence to be found.
+import { createRequire } from "node:module";
+import { createClient } from "@client/client";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+
+const Database = createRequire("/Users/arnaud/code/viborm/package.json")("better-sqlite3");
+
+const node = s
+  .model({
+    id: s.decimal({ precision: 10, scale: 2 }).id(),
+    label: s.string(),
+    parentId: s.decimal({ precision: 10, scale: 2 }).nullable(),
+    parent: s.toOne(() => node).fields("parentId").references("id").name("decimalTree"),
+    children: s.toMany(() => node).name("decimalTree"),
+  })
+  .map("scratch_decimal_nodes");
+
+it("recurses over a decimal primary key", async () => {
+  const database = new Database(":memory:");
+  const driver = new SQLite3Driver({ client: database });
+  const client = createClient({ schema: { node }, driver });
+  if (!(await syncLiveSchema(client)).applied) throw new Error("schema not applied");
+  await client.node.create({ data: { id: "1.00", label: "root", parentId: null } });
+  await client.node.create({ data: { id: "2.50", label: "child", parentId: "1.00" } });
+  await client.node.create({ data: { id: "3.25", label: "grandchild", parentId: "2.50" } });
+  await client.node.create({ data: { id: "4.75", label: "other", parentId: "1.00" } });
+  const down = await client.node.findMany({
+    where: { label: "root" },
+    select: { label: true, children: { recurse: { depth: 2 }, orderBy: { label: "asc" }, select: { label: true } } },
+  });
+  const all = await client.node.findMany({
+    where: { label: "root" },
+    select: { label: true, children: { recurse: { depth: false }, orderBy: { label: "asc" }, select: { label: true } } },
+  });
+  const up = await client.node.findMany({
+    where: { label: "grandchild" },
+    select: { label: true, parent: { recurse: true, select: { label: true } } },
+  });
+  const out = { down, all, up };
+  process.stdout.write(`DECIMAL-KEY ${JSON.stringify(out)}\n`);
+  const expected = {
+    down: [{ label: "root", children: [{ label: "child", children: [{ label: "grandchild" }] }, { label: "other", children: [] }] }],
+    all: [{ label: "root", children: [{ label: "child", children: [{ label: "grandchild", children: [] }] }, { label: "other", children: [] }] }],
+    up: [{ label: "grandchild", parent: { label: "child", parent: { label: "root", parent: null } } }],
+  };
+  if (JSON.stringify(out) !== JSON.stringify(expected)) throw new Error(`unexpected ${JSON.stringify(out)}`);
+  await client.$disconnect();
+  database.close();
+});

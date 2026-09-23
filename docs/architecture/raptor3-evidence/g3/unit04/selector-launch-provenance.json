@@ -1,0 +1,54 @@
+{
+  "formatVersion": 1,
+  "identity": {
+    "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+    "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "qualificationFreeze": "The selectors ran during the same no-edit qualification window as support/final-identity.json. Their established launcher emits bounded stdout/resource evidence but no JSON identity companion; this record does not claim that the log embeds an identity.",
+  "runtimeInvocation": {
+    "node": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node",
+    "pathPrefix": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin"
+  },
+  "selectors": [
+    {
+      "name": "credential-free aggregate",
+      "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"Raptor 3 fixed\"",
+      "evidence": "aggregate/credential-free.log",
+      "evidenceSha256": "f404a0200b06935ae71297baf89d566f7c627fd9464fc67a03b032a59a6d20c8",
+      "selection": {
+        "testFiles": 65,
+        "tests": 754
+      },
+      "result": {
+        "status": "passed",
+        "wallSeconds": 11.28,
+        "peakRssMiB": 903,
+        "teardownVerified": true,
+        "rssCeilingMiB": 1536
+      }
+    },
+    {
+      "name": "PGlite provider selector",
+      "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"raptor3-provider:\"",
+      "evidence": "providers/pglite.log",
+      "evidenceSha256": "b11051b08357b5119cd196b4c6e54c546313b623080702b32d3daa845688dcd3",
+      "selection": {
+        "testFiles": 5,
+        "tests": 11
+      },
+      "result": {
+        "status": "passed",
+        "largestChildPeakRssMiB": 1554.8,
+        "perChildRssCeilingMiB": 2560,
+        "teardownVerified": true
+      }
+    }
+  ]
+}

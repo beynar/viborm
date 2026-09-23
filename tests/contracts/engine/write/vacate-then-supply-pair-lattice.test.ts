@@ -34,6 +34,12 @@ const PAIR_ARMS: Record<string, unknown> = {
  * the lattice admits can now be refused downstream, and saying only "not
  * VALIDATION-GUARD" would hide which of three owners spoke. `UNCLASSIFIED` keeps its
  * meaning — nobody named below — so a new owner cannot slip in unremarked.
+ *
+ * N1 (D-51) left `OWN-WRITE-LEDGER` with no shape in this file: the dependency sentence
+ * survives only where the ancestor's own write CONSUMES the read (the parent-held
+ * direction, `vacate-then-supply-parent-held-refused.test.ts`). The branch stays because
+ * it is the falsifier — a regression that restores the veto reads as the ledger here,
+ * not as `UNCLASSIFIED`.
  */
 function disposition(error: unknown): string {
   if (error === undefined) return "EXECUTED";
@@ -156,20 +162,54 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
       "disconnect+connectOrCreate+update": "EXECUTED",
       "disconnect+create+update": "EXECUTED",
       "delete+create+update": "EXECUTED",
-      // UNCHANGED, and the reason E did not widen it: `delete` writes the TARGET's
-      // existence with an unknown identity, and a `connect` modify still declares a
-      // construction-time target read, so the analyzer still cannot rule out that the
-      // deleted row is the one the modify reads.
-      "delete+connect+update": "OWN-WRITE-LEDGER",
+      // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'update' on relation
+      // 'badge' depends on an earlier 'delete' target write in the same nested write.
+      // Split these operations into separate queries") — `delete` writes the TARGET's
+      // existence with an unknown identity, and a `connect` modify declares a
+      // construction-time target read, so the analyzer could not rule out that the
+      // deleted row was the one the modify reads. It no longer has to: that read is an
+      // ordered observation taken at its consumer's execution point, behind both
+      // writes, and the canonical to-one order (`delete, connect, update`) is what makes
+      // it correct. The incumbent goes, `b-alt` takes the slot the delete vacated, and
+      // the modify hits `b-alt`. `disconnect` in this position already executed — the
+      // difference between the two was never the end state, only whether the analyzer
+      // could name the row in advance. The end state is pinned below, because a verdict
+      // map records who answered and never what was written.
+      "delete+connect+update": "EXECUTED",
       // `delete` + `connectOrCreate` is the deliberate sixth-that-isn't, refused by the
       // lattice whether or not a modify rides along.
       "delete+connectOrCreate+update": "VALIDATION-GUARD",
     });
+
+    // N1 (D-51) — the path the removed refusal opened, witnessed. `delete+connect+update`
+    // wrote nothing in this file until D-51, so no cell here has ever said what it does.
+    // Re-run it against a fresh bed and pin the end state whole: the incumbent is GONE
+    // (the vacate is a `delete`, not a `disconnect`), the decoy holds the slot, and it
+    // carries the modify's tag rather than its own. A regression that let the modify
+    // correlate on the OUTGOING member would find no row at all here.
+    await resetVacateThenSupply(client);
+    await client.station.update({
+      where: { id: "s1" },
+      data: {
+        badge: {
+          delete: true,
+          connect: { id: "b-alt" },
+          update: { tag: "u" },
+        },
+      },
+    });
+    expect(
+      (await client.badge.findMany({}))
+        .map((row: any) => [row.id, row.tag, row.stationId])
+        .sort((left: unknown[], right: unknown[]) =>
+          String(left[0]) < String(right[0]) ? -1 : 1
+        )
+    ).toEqual([["b-alt", "u", "s1"]]);
   }, 120_000);
 });
 
 describe("Package H — the composed modify declares every field its probe reads", () => {
-  test("a sibling write to the wrapper filter's field is a dependency, not a blind spot", async () => {
+  test("a sibling write to the wrapper filter's field no longer vetoes — the unvacated slot is the database's", async () => {
     const client = getFamily().client as any;
     await resetVacateThenSupply(client);
 
@@ -180,6 +220,19 @@ describe("Package H — the composed modify declares every field its probe reads
     // nested write is a real dependency. Declaring the selector alone would have made
     // this payload compile with the probe silently reading a value the root had already
     // moved — an under-report the analyzer cannot see and no other owner covers.
+    //
+    // N1 (D-51): this cell pinned DESIGN §6.2's veto for exactly that dependency
+    // ("Nested operation 'update' on relation 'badge' depends on an earlier 'update'
+    // target write in the same nested write. Split these operations into separate
+    // queries."). A dependent read is an ordered observation now, so declaring `tag`
+    // buys a PLACEMENT — the parent-held `station` subtree, whose probe reads what the
+    // root's own write changes, moves behind that write — instead of a refusal, and the
+    // payload executes. What it executes into is the slot: nothing in it vacates the
+    // incumbent, and an inverse to-one `connect` over an occupied unique slot does not
+    // vacate one (note §2, "not repaired, recorded"), so `b1` and `b-alt` both claim
+    // `stationId = 's1'` and the child's unique key answers. The declaration is pinned
+    // upstream now (`tests/raptor3/g4/parity/ordered-observation.test.ts`); what this
+    // cell still owns is whose refusal this is and how total it is.
     await expect(
       client.badge.update({
         where: { id: "b1" },
@@ -195,17 +248,21 @@ describe("Package H — the composed modify declares every field its probe reads
           },
         },
       })
-    ).rejects.toThrow(
-      "Nested operation 'update' on relation 'badge' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries."
-    );
+    ).rejects.toThrow("Unique constraint violation");
 
-    // Nothing landed: the same payload with no filter on the written field is the
-    // control, and it is the only difference between the two.
+    // Nothing landed — and that is now a ROLLBACK rather than a veto taken before any
+    // statement ran, so the memberships are pinned beside the rows: the root's `tag`
+    // write on `b1` and the sibling `connect` on `b-alt` are both undone, and the
+    // incumbent still holds the slot the `connect` collided with.
     expect(
-      (await client.badge.findMany({})).map((row: any) => [row.id, row.tag])
+      (await client.badge.findMany({})).map((row: any) => [
+        row.id,
+        row.tag,
+        row.stationId,
+      ])
     ).toEqual([
-      ["b1", "incumbent"],
-      ["b-alt", "alt"],
+      ["b1", "incumbent", "s1"],
+      ["b-alt", "alt", null],
     ]);
   }, 30_000);
 });

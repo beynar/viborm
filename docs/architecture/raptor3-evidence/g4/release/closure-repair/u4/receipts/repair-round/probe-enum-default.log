@@ -1,0 +1,7 @@
+# U4 repair round — where a backslash-bearing ENUM value that is ALSO the column's
+# default is refused. MySQL 8.4.11, lane container, table created and dropped by
+# the probe. Script: probe-enum-default.mjs
+base spelling       | CREATED | COLUMN_TYPE=enum('a') (65 6e 75 6d 28 27 61 8 27 29) | COLUMN_DEFAULT=61 8
+repaired spelling   | REFUSED errno=1067 code=ER_INVALID_DEFAULT | Invalid default value for 'flavour'
+no default          | CREATED | COLUMN_TYPE=enum('a') (65 6e 75 6d 28 27 61 8 27 29) | COLUMN_DEFAULT=null
+both escaped        | CREATED | COLUMN_TYPE=enum('a\\b') (65 6e 75 6d 28 27 61 5c 5c 62 27 29) | COLUMN_DEFAULT=61 5c 62

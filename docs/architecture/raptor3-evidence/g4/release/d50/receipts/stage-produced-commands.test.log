@@ -1,0 +1,30 @@
+
+> viborm@0.1.0 test:all /Users/arnaud/code/viborm
+> node scripts/run-credential-free-tests.mjs --only produced-commands.test
+
+
+[test:all] raptor3-provider: tests/raptor3/expanded/produced-commands.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/expanded/produced-commands.test.ts (3 tests) 731ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  20:57:37
+   Duration  2.09s (transform 818ms, setup 8ms, collect 1.22s, tests 731ms, environment 0ms, prepare 25ms)
+
+[test:all] raptor3-provider: tests/raptor3/expanded/produced-commands.test.ts: 3.84s wall, 1440.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.
+
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-commands.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/expanded/batch-produced-commands.test.ts (2 tests) 694ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:57:41
+   Duration  2.33s (transform 926ms, setup 8ms, collect 1.40s, tests 694ms, environment 0ms, prepare 26ms)
+
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-commands.test.ts: 4.09s wall, 1425.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

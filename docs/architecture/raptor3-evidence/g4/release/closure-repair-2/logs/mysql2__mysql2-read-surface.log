@@ -1,0 +1,39 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-read-surface.test.ts (122 tests) 28727ms
+   ✓ MySQL2 Driver > MySQL2 read-path regression behavior > named inverse relations > include correlates each named relation on its own FK  480ms
+   ✓ MySQL2 Driver > MySQL2 read-path regression behavior > named inverse relations > relation filter correlates each named relation on its own FK  301ms
+   ✓ MySQL2 Driver > MySQL2 read-path regression behavior > named inverse relations > nested create through named relation writes the matching FK  360ms
+   ✓ MySQL2 Driver > MySQL2 read-path regression behavior > named inverse relations > is null / isNot null respect the mapped FK column  337ms
+   ✓ MySQL2 Driver > MySQL2 read-path regression behavior > named inverse relations > string scalars holding JSON-looking text round-trip as strings  442ms
+   ✓ MySQL2 Driver > MySQL2 read-path regression behavior > named inverse relations > groupBy returns mapped scalars under their public names  317ms
+   ✓ MySQL2 Driver > MySQL2 read-path regression behavior > many-to-many with mapped PK columns > relation filter resolves junction join through mapped PK columns  401ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > relation _count selection > select _count returns exact counts, including zero  313ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > relation _count selection > returns multiple counts with a long public relation name  691ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > relation _count selection > includes a long relation under its exact public name  391ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > relation _count selection > select _count on findUnique with zero relations  402ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > relation _count selection > filtered _count only counts rows matching the where  370ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > relation _count selection > _count alongside relation rows returns both  355ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > relation _count selection > _count inside include returns counts alongside relations  667ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > _count: true shorthand > select _count: true counts every to-many relation  424ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > _count: true shorthand > select _count: true equals the explicit object form  400ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > _count: true shorthand > include _count: true counts every to-many relation  325ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > _count: true shorthand > include _count: true sits alongside included relations  325ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > to-one relation filters > isNot with real conditions includes null-FK rows  326ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > to-one relation filters > findMany applies same-object is and isNot filters independent of key order  490ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > to-one relation filters > findMany combines null and object to-one filters  528ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and none filters independent of key order  402ms
+   ✓ MySQL2 Driver > MySQL2 relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches zero related rows  340ms
+   ✓ MySQL2 Driver > MySQL2 nested relation orderBy behavior > orders root rows by a three-hop to-one chain  381ms
+   ✓ MySQL2 Driver > MySQL2 nested relation orderBy behavior > runs the sorting docs three-hop author chain example  360ms
+   ✓ MySQL2 Driver > MySQL2 nested relation orderBy behavior > places null relation-chain rows according to explicit nulls  310ms
+   ✓ MySQL2 Driver > MySQL2 total cursor pagination > 'asc nulls first after non-null'  327ms
+   ✓ MySQL2 Driver > MySQL2 total cursor pagination > 'asc nulls last after non-null'  330ms
+
+ Test Files  1 passed (1)
+      Tests  122 passed (122)
+   Start at  01:30:09
+   Duration  32.78s (transform 2.41s, setup 21ms, collect 3.69s, tests 28.73s, environment 0ms, prepare 70ms)
+
+Vitest resources: 36.42s wall, 554.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -31,8 +31,12 @@ import { describe, expect, test } from "vitest";
  *    target key is produced by the arm's own INSERT and referenced by BOTH the join row
  *    and the arm's grandchildren, and the arm's missing premise stays pinned by the
  *    child unique constraint (`racePin`), never by a notExists guard.
- *  · what the own-write preflight (ATOM §4) already refuses at this root refuses still
- *    — M7's gate, pinned here before the absorption landed and unchanged by it.
+ *  · what the own-write preflight (ATOM §4) refused at this root when the absorption
+ *    landed — M7's gate — is an ordered observation under N1 (D-51) instead: the items
+ *    of one payload run in the relation body's canonical order, each its own mutation,
+ *    and a later item's lookup reads what an earlier one wrote. The three M7 cells pin
+ *    those executed end states now; the gate's sentence survives for the one shape no
+ *    order satisfies, a read the parent's own write consumes.
  */
 export const createJunctionUpsertSchema = (() => {
   // A GENERATED parent key: the junction's parent id is a backward `Ref`, the case that
@@ -357,92 +361,147 @@ export function registerCreateJunctionUpsertBehavior(
     }, 120_000);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // M7 — the own-write preflight gate. These three rejections were measured at
-    // a554419, BEFORE the absorption, and are what made it safe: no `upsert` item at
-    // this root can name a row another item in the same payload wrote.
+    // M7 — what the own-write preflight gate refused. Measured at a554419, BEFORE the
+    // absorption, these three payloads were rejected because one item named a row
+    // another item in the same payload wrote. N1 (D-51) spends that fact on placement
+    // instead: the items run in the relation body's canonical order — both `upsert`
+    // entries at the upsert position in declaration order, and `upsert` ahead of
+    // `connectOrCreate` — and each later lookup is an ordered observation of what the
+    // earlier item left. The three cells pin those end states.
     // ─────────────────────────────────────────────────────────────────────────
-    test("M7: two upsert items on one relation are refused (overlapping selectors)", async () => {
+    test("M7: two upsert items on one relation: the second observes the first and updates the row it made", async () => {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'upsert' on relation
+      // 'topics' depends on an earlier 'upsert' target write in the same nested write.
+      // Split these operations into separate queries."); now each payload entry is its
+      // own mutation and both run at the upsert position in declaration order — the
+      // first finds nothing and creates, the second observes that create and takes the
+      // found arm.
       const client = await connect();
       await reset(client);
-      await expect(
-        client.article.create({
-          data: {
-            title: "two",
-            topics: {
-              upsert: [
-                {
-                  where: { name: "same" },
-                  create: { name: "same" },
-                  update: { weight: 1 },
-                },
-                {
-                  where: { name: "same" },
-                  create: { name: "same" },
-                  update: { weight: 2 },
-                },
-              ],
-            },
-          },
-        })
-      ).rejects.toThrow(
-        "Nested operation 'upsert' on relation 'topics' depends on an earlier 'upsert' target write in the same nested write. Split these operations into separate queries."
-      );
-    }, 120_000);
-
-    test("M7: two upsert items are refused even with DISJOINT selectors", async () => {
-      // Measured, and it is the WALL this unit did not move: the preflight classifies a
-      // second `upsert` on one relation by its FOOTPRINT, not by whether the two
-      // selectors can name one row, so no multi-entry array reaches the junction here.
-      const client = await connect();
-      await reset(client);
-      await expect(
-        client.article.create({
-          data: {
-            title: "two-disjoint",
-            topics: {
-              upsert: [
-                {
-                  where: { name: "left" },
-                  create: { name: "left" },
-                  update: { weight: 1 },
-                },
-                {
-                  where: { name: "right" },
-                  create: { name: "right" },
-                  update: { weight: 2 },
-                },
-              ],
-            },
-          },
-        })
-      ).rejects.toThrow(
-        "Nested operation 'upsert' on relation 'topics' depends on an earlier 'upsert' target write in the same nested write. Split these operations into separate queries."
-      );
-    }, 120_000);
-
-    test("M7: an upsert beside a connectOrCreate on one relation is refused", async () => {
-      const client = await connect();
-      await reset(client);
-      await expect(
-        client.article.create({
-          data: {
-            title: "beside",
-            topics: {
-              upsert: {
-                where: { name: "a" },
-                create: { name: "a" },
+      const made = await executeArticleCreate(client, {
+        data: {
+          title: "two",
+          topics: {
+            upsert: [
+              {
+                where: { name: "same" },
+                create: { name: "same" },
                 update: { weight: 1 },
               },
-              connectOrCreate: {
-                where: { name: "a" },
-                create: { name: "a" },
+              {
+                where: { name: "same" },
+                create: { name: "same" },
+                update: { weight: 2 },
               },
+            ],
+          },
+        },
+      });
+      if (made === undefined) return;
+
+      expect(
+        (await client.article.findMany({ orderBy: { id: "asc" } })).map(
+          (row: any) => row.title
+        )
+      ).toEqual(["two"]);
+      // ONE row: the first entry's absent arm made it, so that entry's update arm
+      // (weight 1) never applied, and the second entry's found arm wrote weight 2.
+      const topics = await client.topic.findMany({ orderBy: { id: "asc" } });
+      expect(topics.map((row: any) => [row.name, row.weight])).toEqual([
+        ["same", 2],
+      ]);
+      // ONE membership: the found arm's join write is idempotent through the junction
+      // primary key.
+      expect(await topicsOf(client, made.id)).toEqual([topics[0].id]);
+    }, 120_000);
+
+    test("M7: two upsert items with DISJOINT selectors each create and join their own target", async () => {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'upsert' on relation
+      // 'topics' depends on an earlier 'upsert' target write in the same nested
+      // write. Split these operations into separate queries.") — the WALL a second
+      // `upsert` hit by its FOOTPRINT, whether or not the selectors could name one
+      // row. The footprint now buys a placement, not a refusal: the second entry's
+      // lookup is taken behind the first entry's write, finds no row of its own name
+      // there, and creates one.
+      const client = await connect();
+      await reset(client);
+      const made = await executeArticleCreate(client, {
+        data: {
+          title: "two-disjoint",
+          topics: {
+            upsert: [
+              {
+                where: { name: "left" },
+                create: { name: "left" },
+                update: { weight: 1 },
+              },
+              {
+                where: { name: "right" },
+                create: { name: "right" },
+                update: { weight: 2 },
+              },
+            ],
+          },
+        },
+      });
+      if (made === undefined) return;
+
+      expect(
+        (await client.article.findMany({ orderBy: { id: "asc" } })).map(
+          (row: any) => row.title
+        )
+      ).toEqual(["two-disjoint"]);
+      // Two rows, each from its own create arm and in declaration order; neither
+      // update arm ran, so both carry the schema default weight.
+      const topics = await client.topic.findMany({ orderBy: { id: "asc" } });
+      expect(topics.map((row: any) => [row.name, row.weight])).toEqual([
+        ["left", 0],
+        ["right", 0],
+      ]);
+      expect(await topicsOf(client, made.id)).toEqual(
+        topics.map((row: any) => row.id)
+      );
+    }, 120_000);
+
+    test("M7: an upsert beside a connectOrCreate: the connectOrCreate observes the upsert's create and joins that row", async () => {
+      // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'connectOrCreate' on
+      // relation 'topics' depends on an earlier 'upsert' target write in the same
+      // nested write. Split these operations into separate queries."); now `upsert`
+      // runs at its canonical position ahead of `connectOrCreate`, whose lookup
+      // observes the row the upsert's absent arm just created and connects it.
+      const client = await connect();
+      await reset(client);
+      const made = await executeArticleCreate(client, {
+        data: {
+          title: "beside",
+          topics: {
+            upsert: {
+              where: { name: "a" },
+              create: { name: "a" },
+              update: { weight: 1 },
+            },
+            connectOrCreate: {
+              where: { name: "a" },
+              create: { name: "a" },
             },
           },
-        })
-      ).rejects.toThrow(
-        "Nested operation 'connectOrCreate' on relation 'topics' depends on an earlier 'upsert' target write in the same nested write. Split these operations into separate queries."
-      );
+        },
+      });
+      if (made === undefined) return;
+
+      expect(
+        (await client.article.findMany({ orderBy: { id: "asc" } })).map(
+          (row: any) => row.title
+        )
+      ).toEqual(["beside"]);
+      // ONE row, made by the upsert's absent arm — its update arm (weight 1) never
+      // applied, and the connectOrCreate's create arm never ran.
+      const topics = await client.topic.findMany({ orderBy: { id: "asc" } });
+      expect(topics.map((row: any) => [row.name, row.weight])).toEqual([
+        ["a", 0],
+      ]);
+      // ONE membership: the connectOrCreate's link lands on the row the upsert joined.
+      expect(await topicsOf(client, made.id)).toEqual([topics[0].id]);
     }, 120_000);
 
     // ─────────────────────────────────────────────────────────────────────────

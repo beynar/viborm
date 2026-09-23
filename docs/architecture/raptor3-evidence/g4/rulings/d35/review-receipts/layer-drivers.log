@@ -1,0 +1,53 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d35
+
+ ✓ |layer-drivers| tests/contracts/drivers/error-mapping.core.test.ts (52 tests) 18ms
+ ✓ |layer-drivers| tests/contracts/drivers/supplied-pool-ownership.core.test.ts (56 tests) 13ms
+ ✓ |layer-drivers| tests/contracts/drivers/namespace-options.core.test.ts (113 tests) 18ms
+ ✓ |layer-drivers| tests/contracts/drivers/provider-result-contracts.core.test.ts (115 tests) 31ms
+ ✓ |layer-drivers| tests/contracts/drivers/protected-observers.core.test.ts (24 tests) 9ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-lifecycle.core.test.ts (20 tests) 8ms
+ ✓ |layer-drivers| tests/contracts/drivers/savepoint-queue.core.test.ts (17 tests) 79ms
+ ✓ |layer-drivers| tests/contracts/drivers/instrumentation-observed-statements.core.test.ts (15 tests) 13ms
+ ✓ |layer-drivers| tests/contracts/drivers/pinned-session-condemned.core.test.ts (12 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-portability.core.test.ts (100 tests) 23ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-base-orchestration.core.test.ts (14 tests) 7ms
+ ✓ |layer-drivers| tests/contracts/drivers/suppressed-failure.core.test.ts (14 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-base-observed-lifecycle.core.test.ts (8 tests) 4ms
+ ✓ |layer-drivers| tests/contracts/drivers/error-mapping-hostile-shapes.core.test.ts (27 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/statement-transforms.core.test.ts (13 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-base-pinned-session.core.test.ts (12 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/d1-null-result-contracts.core.test.ts (43 tests) 6ms
+ ✓ |layer-drivers| tests/contracts/drivers/neon-http-transport-coverage.core.test.ts (9 tests) 10ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-internal-state.core.test.ts (10 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-base-raw-parameters.core.test.ts (20 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/sqlite-statement-execution.core.test.ts (38 tests) 5ms
+ ✓ |layer-drivers| tests/contracts/drivers/provider-managed-transaction.core.test.ts (11 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/provider-parameter-boundary.core.test.ts (11 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-scope-scheduler.core.test.ts (5 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-scheduler.core.test.ts (9 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/sqlite-integer-safety.core.test.ts (5 tests) 4ms
+ ✓ |layer-drivers| tests/contracts/drivers/shared-driver-boundaries.core.test.ts (39 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-failure-union.core.test.ts (14 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/async-dispose.core.test.ts (11 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/consumable-result-proof.core.test.ts (6 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/sqlite-binary-values.core.test.ts (3 tests) 4ms
+ ✓ |layer-drivers| tests/contracts/drivers/normalized-result-and-lifecycle.core.test.ts (35 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/json-parameter-carrier.core.test.ts (12 tests) 2ms
+ ✓ |layer-drivers| tests/contracts/drivers/postgres-transport-coverage.core.test.ts (3 tests) 3ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-option-timers.core.test.ts (6 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-export-surface.core.test.ts (10 tests) 8ms
+ ✓ |layer-drivers| tests/contracts/drivers/statement-classification.core.test.ts (38 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/transaction-options-behavior.core.test.ts (3 tests) 12ms
+ ✓ |layer-drivers| tests/contracts/drivers/error-cause.core.test.ts (4 tests) 0ms
+ ✓ |layer-drivers| tests/contracts/drivers/driver-instrumentation-boundaries.core.test.ts (2 tests) 0ms
+ ✓ |layer-drivers| tests/contracts/drivers/bun-sql-array-parameters.core.test.ts (2 tests) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts (1 test) 1ms
+ ✓ |layer-drivers| tests/contracts/drivers/bind-parameter-capacity.core.test.ts (12 tests) 0ms
+
+ Test Files  43 passed (43)
+      Tests  974 passed (974)
+   Start at  22:43:27
+   Duration  2.95s (transform 854ms, setup 30ms, collect 2.37s, tests 318ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 4.72s wall, 671.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

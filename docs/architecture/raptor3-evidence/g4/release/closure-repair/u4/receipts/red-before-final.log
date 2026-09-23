@@ -1,0 +1,32 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-sm
+
+ ❯ |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts (2 tests | 2 failed) 184ms
+   × MySQL declared defaults, at the database's own oracle > round-trips a backslash, a newline and a CRLF through DDL, catalog and a raw insert 127ms
+     → Manual SQL fragments containing carriage returns are refused
+   × MySQL declared defaults, at the database's own oracle > spells now() at the resolved column's precision, and nowhere else 56ms
+     → This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. The last statement that completed was: (none — the failure came before any statement completed). Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts > MySQL declared defaults, at the database's own oracle > round-trips a backslash, a newline and a CRLF through DDL, catalog and a raw insert
+MigrationError: Manual SQL fragments containing carriage returns are refused
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |provider-mysql2| tests/unit/migrations/mysql-defaults-docker.test.ts > MySQL declared defaults, at the database's own oracle > spells now() at the resolved column's precision, and nowhere else
+MigrationError: This migration program failed partway through. MySQL commits DDL as each statement runs, so NOTHING was rolled back: every statement that completed stands, and VibORM makes no claim about whether the statement that failed took effect. The last statement that completed was: (none — the failure came before any statement completed). Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V2001' }
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: 1067, sqlState: '42000' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  16:42:45
+   Duration  3.14s (transform 1.80s, setup 22ms, collect 2.67s, tests 184ms, environment 0ms, prepare 82ms)
+
+Vitest resources: 5.93s wall, 460.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

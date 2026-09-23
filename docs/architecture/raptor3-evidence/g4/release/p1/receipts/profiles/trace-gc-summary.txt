@@ -1,0 +1,2 @@
+prof/base-parse.gc.json: Scavenge n=68 17.34ms | Mark-Compact n=1 0.71ms || total_gc=18.05ms last_t=686ms
+prof/cand-parse.gc.json: Scavenge n=146 17.79ms | Mark-Compact n=1 0.54ms || total_gc=18.33ms last_t=747ms

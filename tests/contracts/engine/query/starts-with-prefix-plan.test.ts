@@ -46,6 +46,20 @@ const PREFIX_MATCHES = 111;
 const PG_INDEX_RANGE = /Index Cond:.*title >= 'name123'/;
 /** The planner's row estimate, as EXPLAIN spells it on the top plan node. */
 const PG_ROW_ESTIMATE = /rows=(\d+)/;
+/**
+ * The qualifier the engine puts on a column of the statement it builds: that
+ * statement's FIRST alias.
+ *
+ * §7.2: the shipped engine mints it as `q0`, freshly per statement
+ * (`Queries.rootAlias`, `src/query-engine/raptor3/shared/query.ts`). The
+ * retired engine's fixed `t0` is gone; the cutover protocol measured the alias
+ * DRIFT — `q0, q1, … q10000` for the same `findUnique`, a guaranteed miss for
+ * any transport that caches by statement text — as the obstacle, and answered
+ * it by resetting per statement, not by keeping the old letter.
+ */
+const ROOT_ALIAS_QUALIFIER = /["`]q0["`]\./g;
+/** Any alias qualifier at all: this file runs the predicate against a bare table. */
+const ANY_ALIAS_QUALIFIER = /["`][A-Za-z_][A-Za-z0-9_]*["`]\./;
 
 class MockDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter;
@@ -126,12 +140,17 @@ function predicateFor(
   const predicate = statement.slice(
     statement.indexOf("WHERE") + "WHERE ".length
   );
-  // The predicate is qualified with the query's own alias; this file runs it
-  // against a bare table, so the alias qualifier is dropped.
-  return {
-    predicate: predicate.replace(/["`]t0["`]\./g, ""),
-    values: query.values,
-  };
+  // The predicate is qualified with the query's own root alias; this file runs
+  // it against a bare table, so that qualifier is dropped — and the drop is
+  // now CHECKED, so the alias this file depends on is pinned here rather than
+  // assumed the way the retired `t0` was.
+  const bare = predicate.replace(ROOT_ALIAS_QUALIFIER, "");
+  if (bare === predicate || ANY_ALIAS_QUALIFIER.test(bare)) {
+    throw new Error(
+      `predicate is not qualified by the root alias q0 alone: ${predicate}`
+    );
+  }
+  return { predicate: bare, values: query.values };
 }
 
 describe("PostgreSQL prefix plans (C-collated substrate)", () => {

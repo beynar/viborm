@@ -14,6 +14,7 @@ import type {
   RelationState,
 } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
@@ -429,7 +430,7 @@ export const toManyUpdateFactory = <
       data: () => v.array(getCreateSchema()),
       skipDuplicates: v.boolean({ optional: true }),
     },
-    { atLeast: ["data"] }
+    { atLeast: ["data"], refuse: refuseDefaultOnlySkipDuplicates }
   );
 
   const connectOrCreateSchema = v.object(

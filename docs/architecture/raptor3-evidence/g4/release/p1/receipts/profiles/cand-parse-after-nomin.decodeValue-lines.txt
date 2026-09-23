@@ -1,0 +1,29 @@
+# /private/tmp/viborm-p1-tmp/prof/cand-parse-after-nomin.cpuprofile — "decodeValue" : 13882 of 17131 ticks (81.03%)
+   9657  69.56%fn  56.37%prof  gen:4046  src/query-engine/raptor3/shared/query.ts:4446
+          | const decoded = typeof value === "string" ? JSON.parse(value) : value;
+   1814  13.07%fn  10.59%prof  gen:4083  src/query-engine/raptor3/shared/query.ts:4521
+          | document[field] = this.decodeValue(nested, own(source, field), internal, carried || nested.kind !== "scalar");
+    588   4.24%fn   3.43%prof  gen:4081  src/query-engine/raptor3/shared/query.ts:4519
+          | for (const field of Object.keys(shape.fields)) {
+    486   3.50%fn   2.84%prof  gen:4043  src/query-engine/raptor3/shared/query.ts:4435
+          | decodeValue(shape, value, internal, carried = false) {
+    328   2.36%fn   1.91%prof  gen:4071  src/query-engine/raptor3/shared/query.ts:4481
+          | const rows = decoded.map((row) => this.decodeValue(shape.row, row, internal, true));
+    287   2.07%fn   1.68%prof  gen:4044  src/query-engine/raptor3/shared/query.ts:4443
+          | if (shape.kind === "scalar") return this.decodeScalar(shape, value, internal, carried);
+    146   1.05%fn   0.85%prof  gen:1831  src/query-engine/raptor3/shared/query.ts:409
+          | return Object.hasOwn(source, key) ? source[key] : void 0;
+    138   0.99%fn   0.81%prof  gen:4047  src/query-engine/raptor3/shared/query.ts:4449
+          | if (shape.kind === "variants") {
+    124   0.89%fn   0.72%prof  gen:4085  src/query-engine/raptor3/shared/query.ts:4528
+          | return document;
+     86   0.62%fn   0.50%prof  gen:4080  src/query-engine/raptor3/shared/query.ts:4503
+          | const document = {};
+     65   0.47%fn   0.38%prof  gen:4082  src/query-engine/raptor3/shared/query.ts:4519
+          | const nested = shape.fields[field];
+     47   0.34%fn   0.27%prof  gen:4078  src/query-engine/raptor3/shared/query.ts:4495
+          | if (typeof decoded !== "object" || Array.isArray(decoded)) throw new InvalidScalarResult("row", "a requested d
+     36   0.26%fn   0.21%prof  gen:4072  src/query-engine/raptor3/shared/query.ts:4485
+          | return shape.reversed ? rows.reverse() : rows;
+     34   0.24%fn   0.20%prof  gen:4045  src/query-engine/raptor3/shared/query.ts:4445
+          | if (shape.kind === "recursive") throw new TypeError("A recursive shape requires occurrence rows");

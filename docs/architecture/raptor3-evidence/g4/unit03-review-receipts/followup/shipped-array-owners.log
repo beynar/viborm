@@ -1,0 +1,20 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 21ms
+ ✓ |coverage-extensions| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 21ms
+ ✓ |coverage-client| tests/contracts/public-client/array-transaction-closure.core.test.ts (8 tests) 24ms
+ ✓ |coverage-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 3ms
+ ✓ |coverage-client| tests/contracts/public-client/array-transaction-observed-legacy-coverage.core.test.ts (4 tests) 5ms
+ ✓ |coverage-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-closure.core.test.ts (8 tests) 23ms
+ ✓ |layer-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-observed-legacy-coverage.core.test.ts (4 tests) 5ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 2ms
+
+ Test Files  10 passed (10)
+      Tests  104 passed (104)
+   Start at  00:24:44
+   Duration  6.98s (transform 3.86s, setup 31ms, collect 6.22s, tests 109ms, environment 0ms, prepare 115ms)
+
+Vitest resources: 9.15s wall, 655.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

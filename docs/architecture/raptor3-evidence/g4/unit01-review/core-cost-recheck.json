@@ -1,0 +1,126 @@
+{
+  "commands": {
+    "lines": 3241,
+    "tokenLines": 3209,
+    "tokens": 10580,
+    "bytes": 107040
+  },
+  "shared": {
+    "lines": 5510,
+    "tokenLines": 5364,
+    "tokens": 8580,
+    "bytes": 182977
+  },
+  "program": {
+    "lines": 628,
+    "tokenLines": 622,
+    "tokens": 1269,
+    "bytes": 20437
+  },
+  "core": {
+    "lines": 9379,
+    "tokenLines": 9195,
+    "tokens": 20429,
+    "bytes": 310454
+  },
+  "perFile": [
+    {
+      "file": "src/query-engine/raptor3/commands/assignments.ts",
+      "lines": 158,
+      "tokenLines": 153,
+      "tokens": 1040,
+      "bytes": 4831
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/command-attempt.ts",
+      "lines": 88,
+      "tokenLines": 85,
+      "tokens": 654,
+      "bytes": 2948
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "lines": 1131,
+      "tokenLines": 1124,
+      "tokens": 2296,
+      "bytes": 37887
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "lines": 750,
+      "tokenLines": 745,
+      "tokens": 4023,
+      "bytes": 25692
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/index.ts",
+      "lines": 115,
+      "tokenLines": 112,
+      "tokens": 353,
+      "bytes": 3201
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/relation-body.ts",
+      "lines": 852,
+      "tokenLines": 848,
+      "tokens": 1455,
+      "bytes": 28322
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/selection.ts",
+      "lines": 147,
+      "tokenLines": 142,
+      "tokens": 759,
+      "bytes": 4159
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "lines": 1602,
+      "tokenLines": 1587,
+      "tokens": 5195,
+      "bytes": 53686
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "lines": 3355,
+      "tokenLines": 3246,
+      "tokens": 1575,
+      "bytes": 112800
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/schema.ts",
+      "lines": 325,
+      "tokenLines": 316,
+      "tokens": 1277,
+      "bytes": 9513
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/storage.ts",
+      "lines": 210,
+      "tokenLines": 199,
+      "tokens": 415,
+      "bytes": 6289
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+      "lines": 18,
+      "tokenLines": 16,
+      "tokens": 118,
+      "bytes": 689
+    },
+    {
+      "file": "src/query-engine/raptor3/program/index.ts",
+      "lines": 53,
+      "tokenLines": 52,
+      "tokens": 119,
+      "bytes": 1499
+    },
+    {
+      "file": "src/query-engine/raptor3/program/program.ts",
+      "lines": 575,
+      "tokenLines": 570,
+      "tokens": 1150,
+      "bytes": 18938
+    }
+  ]
+}

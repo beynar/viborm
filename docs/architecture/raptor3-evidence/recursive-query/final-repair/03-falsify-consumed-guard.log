@@ -1,0 +1,43 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/recursive-query/carrier-boundary.test.ts (13 tests | 1 failed) 53ms
+   ✓ recursive carrier boundary > rejects wrong-width and sparse identity tuples 3ms
+   ✓ recursive carrier boundary > rejects duplicate nodes and nodes without an identity 0ms
+   ✓ recursive carrier boundary > rejects dangling, unreachable, and duplicate edge facts 0ms
+   ✓ recursive carrier boundary > requires bounded depth facts and forbids them on exhaustive carriers 1ms
+   ✓ recursive carrier boundary > applies cycle policy to a direct root self-loop 2ms
+   × recursive carrier boundary > rejects bounded edge facts attributed to the wrong traversal level 3ms
+     → Missing expected exception.
+   ✓ recursive carrier boundary > refuses a bounded carrier that omits a hop's children at one level a parent is reached 0ms
+   ✓ recursive carrier boundary > rejects sparse node and edge containers and a cyclic JavaScript carrier 0ms
+   ✓ recursive carrier boundary > answers an empty singular carrier with null and rejects multiple successors 0ms
+   ✓ recursive carrier boundary > keeps public fields that collide with every private carrier name 0ms
+   ✓ recursive carrier boundary > materializes fresh diamond occurrences and mutable JSON leaves 0ms
+   ✓ recursive carrier boundary > decodes a synthetic exhaustive chain beyond the public depth ceiling 4ms
+   ✓ recursive carrier boundary > decodes a synthetic chain far beyond a copied ancestry 37ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/carrier-boundary.test.ts > recursive carrier boundary > rejects bounded edge facts attributed to the wrong traversal level
+AssertionError: Missing expected exception.
+
+simple
+
+ ❯ tests/raptor3/recursive-query/carrier-boundary.test.ts:350:12
+    348|     // answer, so the per-level hop check passes it and only the consu…
+    349|     // guard refuses it.
+    350|     assert.throws(
+       |            ^
+    351|       () =>
+    352|         graphDecoder({ depth: 3, cycles: "prevent" })(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Start at  11:58:06
+   Duration  909ms (transform 451ms, setup 11ms, collect 693ms, tests 53ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 2.64s wall, 435.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

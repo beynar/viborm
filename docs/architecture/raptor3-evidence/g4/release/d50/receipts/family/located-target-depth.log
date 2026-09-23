@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/write/located-target-depth.test.ts (8 tests) 906ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  20:58:21
+   Duration  2.29s (transform 826ms, setup 9ms, collect 1.22s, tests 906ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.99s wall, 1517.3 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

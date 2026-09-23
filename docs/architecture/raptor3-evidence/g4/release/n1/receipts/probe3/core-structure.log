@@ -1,0 +1,6 @@
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 49ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 20ms
+ ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 49ms
+ ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 22ms
+ Test Files  4 passed (4)
+      Tests  36 passed (36)
