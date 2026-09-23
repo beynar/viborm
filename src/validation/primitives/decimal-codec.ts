@@ -12,7 +12,6 @@ import {
   admitDecimal,
   canonicalDecimalText,
   type Decimal,
-  fixedText,
   fromCanonical,
   fromCoefficient,
   toCoefficient,
@@ -479,20 +478,28 @@ export function decimalColumnType(
 }
 
 /**
- * The DDL literal for a default. PostgreSQL and MySQL take the value at EXACTLY
+ * The DDL literal for a default. PostgreSQL and MySQL take the value padded to
  * `scale` fraction digits, because that is what MySQL reads back from
  * `information_schema`: canonical `1.2` on a scale-5 column would read back as
  * `1.20000` and the differ would see a change on every push. SQLite takes the
  * coefficient, the same integer the column stores.
+ *
+ * The text is padded, never rounded: PostgreSQL introspection hands back
+ * catalog text the column's scale never touched (`DEFAULT 1.005` on
+ * `NUMERIC(10,2)` stays `1.005`), and the differ compares what the DDL
+ * declared. A scale-0 column keeps the integer part.
  */
 export function decimalDefaultText(
   dialect: DecimalDialect,
   canonical: string,
   descriptor: DecimalDescriptor
 ): string {
-  return dialect === "sqlite"
-    ? toCoefficient(canonical, descriptor.scale)
-    : fixedText(canonical, descriptor.scale);
+  const { scale } = descriptor;
+  if (dialect === "sqlite") return toCoefficient(canonical, scale);
+  const point = canonical.indexOf(".");
+  if (scale === 0) return point === -1 ? canonical : canonical.slice(0, point);
+  if (point === -1) return `${canonical}.${"0".repeat(scale)}`;
+  return canonical.padEnd(point + 1 + scale, "0");
 }
 
 /**

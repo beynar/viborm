@@ -510,15 +510,6 @@ export function toCoefficient(canonical: string, scale: number): string {
 }
 
 /**
- * Canonical text written with exactly `fractionDigits` fraction digits — the
- * `toFixed` rendering, read from the text so no prototype method is consulted.
- */
-export function fixedText(canonical: string, fractionDigits: number): string {
-  const [coefficient, scale] = partsOfCanonical(canonical);
-  return renderFixed(coefficient, scale, fractionDigits);
-}
-
-/**
  * Why canonical text is outside the domain `{ precision, scale }`, or
  * `undefined` when it fits: the one owner of both refusal sentences.
  *

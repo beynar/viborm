@@ -169,7 +169,7 @@ that can answer and it returns `undefined` for anything the constructor never
 built — the two grammar-skipping decode seams `fromCanonical` and
 `fromCoefficient`, and the text-level arithmetic the codec needs:
 `domainRefusal` (the one owner of both descriptor sentences, read from the text
-without allocating), `toCoefficient` and `fixedText`. `DECIMAL_INPUT_REFUSAL`,
+without allocating) and `toCoefficient`. `DECIMAL_INPUT_REFUSAL`,
 the field boundary's sentence, goes to `primitives/decimal.ts` for the same
 reason; the constructor's sentence adds the `bigint` member and shares the
 rest. `src/index.ts` re-exports only the class.

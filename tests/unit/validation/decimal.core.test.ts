@@ -929,6 +929,20 @@ describe("the two DDL renderings", () => {
     ).toBe("-12");
   });
 
+  test("pads a provider default to `scale` and never rounds it", () => {
+    // PostgreSQL introspection hands catalog text that was never checked
+    // against the column's scale (`DEFAULT 1.005` on NUMERIC(10,2) is kept as
+    // written). The rendering pads; it does not round, so the differ compares
+    // the text the DDL declared.
+    const domain = { precision: 10, scale: 2 };
+    expect(decimalDefaultText("pg", "1.005", domain)).toBe("1.005");
+    expect(decimalDefaultText("pg", "-1.005", domain)).toBe("-1.005");
+    const whole = { precision: 10, scale: 0 };
+    expect(decimalDefaultText("pg", "1.5", whole)).toBe("1");
+    expect(decimalDefaultText("pg", "-0.5", whole)).toBe("-0");
+    expect(decimalDefaultText("mysql", "99999999.99", whole)).toBe("99999999");
+  });
+
   test("renders list defaults in the provider's one physical vocabulary", () => {
     const domain = { precision: 10, scale: 2 };
     expect(decimalListDefaultText("pg", ["1.2", "-0.03"], domain)).toBe(
