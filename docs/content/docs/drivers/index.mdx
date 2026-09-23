@@ -84,17 +84,21 @@ more than one batch can, and there the error carries how many segments
 committed so the caller can decide what to do with them.
 
 **What travels in one batch follows the work's own dependencies, not the verb.**
-A `create` or `update` with everything nested under it, and a `createMany` of
-relation-bearing rows with the parent that owns them, are dispatched as ONE
-batch while no part of the write has to read what another part of it wrote. A
-part that must observe an earlier write — a later row's `connectOrCreate` that
-has to find the row an earlier row created, a nested `delete` addressed by a
-value an earlier nested `update` set — takes the boundary: the queued
-statements are dispatched first (on neon-http and d1 that dispatch is a
-committed segment, which is what `committedSegments` counts) and the observing
-work follows in the next one. A key the database generated in one segment
-crosses into the next as a literal, so none of this depends on the transport
-keeping a session between requests.
+A `create` or `update` with everything nested under it, a nested `createMany`
+included, is dispatched as ONE batch while no part of the write has to read
+what another part of it wrote. A ROOT `createMany` of relation-bearing rows is
+different outside `$transaction([...])`: on d1 (measured) and neon-http (the
+same batch route) each row is its own committed segment, so a later row's
+failure leaves the earlier rows written and counted in `committedSegments`;
+inside `$transaction([...])` the rows share the array's one batch. A part that
+must observe an earlier write — a later row's `connectOrCreate` that has to
+find the row an earlier row created, a nested `delete` addressed by a value an
+earlier nested `update` set — takes the boundary: the queued statements are
+dispatched first (on neon-http and d1 that dispatch is a committed segment,
+which is what `committedSegments` counts) and the observing work follows in the
+next one. A key the database generated in one segment crosses into the next as
+a literal, so none of this depends on the transport keeping a session between
+requests.
 :::
 
 ### Captured-set mutations, per route

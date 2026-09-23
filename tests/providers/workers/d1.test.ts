@@ -657,6 +657,56 @@ describe("D1 binding provider", () => {
     ).resolves.toEqual([upserted, created]);
   });
 
+  it("sends a nested createMany in its parent's one batch, and each root relation-bearing createMany row as its own batch outside an array", async () => {
+    const batchSizes: number[] = [];
+    const client = createClient({
+      schema: progressiveSchema,
+      database: observeBatchSizes(env.DB, batchSizes),
+    });
+    const reset = async () => {
+      await client.post.deleteMany({});
+      await client.author.deleteMany({});
+      await client.category.deleteMany({});
+      batchSizes.length = 0;
+    };
+    const rootRows = () => [
+      { id: "p1", title: "one", author: { create: { id: "a1", name: "one" } } },
+      { id: "p2", title: "two", author: { create: { id: "a2", name: "two" } } },
+    ];
+
+    await reset();
+    await client.author.create({
+      data: {
+        id: "a1",
+        name: "one",
+        posts: {
+          createMany: {
+            data: [
+              { id: "p1", title: "one" },
+              { id: "p2", title: "two" },
+            ],
+          },
+        },
+      },
+    });
+    expect(batchSizes).toEqual([4]);
+
+    await reset();
+    await expect(client.post.createMany({ data: rootRows() })).resolves.toEqual(
+      { count: 2 }
+    );
+    expect(batchSizes).toEqual([2, 2]);
+
+    await reset();
+    await expect(
+      client.$transaction([client.post.createMany({ data: rootRows() })])
+    ).resolves.toEqual([{ count: 2 }]);
+    expect(batchSizes).toEqual([4]);
+    await expect(
+      client.post.findMany({ orderBy: { id: "asc" }, select: { id: true } })
+    ).resolves.toEqual([{ id: "p1" }, { id: "p2" }]);
+  });
+
   it("commits a relation DAG with generated output inside one D1 array batch", async () => {
     // The generated parent key crosses the batch reference scratch inside the
     // array's own atomic D1 batch, so the DAG and its sibling commit together.
