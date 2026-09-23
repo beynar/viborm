@@ -2365,7 +2365,12 @@ export class Queries {
   /**
    * One operand, bound in the domain of the expression it is COMPARED WITH.
    *
-   * Everything compares inside the field's own domain except a `_sum` over an
+   * A `_count` compares with `COUNT(col)`, a row count, on every storage: its
+   * operand is an integer (admission's `numericFilterOps`), never a value of
+   * the column — binding it as the field would spell `2` as a `DECIMAL(p,s)`
+   * (refused as a JavaScript number), a JSON document or a point.
+   *
+   * Everything else compares inside the field's own domain except a `_sum` over an
    * exact decimal: the compared expression is `SUM(col)`, whose value is wider
    * than one column can hold, so the operand's cast widens the PRECISION while
    * keeping the field's SCALE — every summed row carries that scale, and an
@@ -2379,6 +2384,8 @@ export class Queries {
     value: unknown,
     id: IdentifierColumn | undefined,
   ): Sql {
+    if (target.kind === "aggregate" && target.aggregate === "_count")
+      return this.value(value);
     const state = scalar.physical.scalar["~"].state;
     const domain =
       target.kind === "aggregate" && target.aggregate === "_sum"
