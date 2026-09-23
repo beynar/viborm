@@ -31,7 +31,6 @@ export const REJECTED_DECIMAL_MODE_MEMBERS = [
 
 export const DECIMAL_FLOAT_TRANSPORT_EXEMPTIONS = [
   "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
-  "src/validation/primitives/decimal-value.ts expandExponentForm Number(exponentText)",
   // `toNumber()` is the value type's documented float boundary: an application
   // asking for a double gets the double its canonical text names, and nothing
   // in VibORM calls it. The conversion is the method's entire purpose, so the

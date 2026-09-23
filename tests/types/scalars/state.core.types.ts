@@ -188,6 +188,10 @@ price.default(true);
 price.schema(v.string());
 
 price.array().nullable();
-price.array().default(["1.5", 2, new Decimal("3.5")]);
+price.array().default(["1.5", "2", new Decimal("3.5")]);
+// @ts-expect-error - a JavaScript number is a double, not an exact decimal
+price.array().default(["1.5", 2]);
+// @ts-expect-error - and so is a scalar one
+price.default(2);
 const readonlyDecimalList = ["1.5", new Decimal("2.5")] as const;
 price.array().default(readonlyDecimalList);

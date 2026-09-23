@@ -2,6 +2,7 @@ import { Decimal } from "@src/index";
 import {
   canonicalDecimalText,
   canonicalizeDecimalInput,
+  DECIMAL_CONSTRUCTOR_REFUSAL,
   fromCanonical,
 } from "@validation/primitives/decimal-value";
 import { describe, expect, test } from "vitest";
@@ -17,9 +18,9 @@ import { describe, expect, test } from "vitest";
  * caller can reach, and construction is the only way into the family.
  *
  * Every expected answer below was executed against `big.js@7.0.1`, the value
- * type this one replaces, before it was written down: the same 16 spellings,
- * the same number inputs, and the same operand pairs across plus, minus, times,
- * div, cmp, toFixed and toNumber. The migration is a dependency change, not an
+ * type this one replaces, before it was written down: the same 16 spellings
+ * and the same operand pairs across plus, minus, times, div, cmp, toFixed and
+ * toNumber. The migration is a dependency change, not an
  * arithmetic change.
  */
 
@@ -50,24 +51,43 @@ describe("decimal value: what it accepts", () => {
     }
   });
 
-  test("names the double a number input actually was", () => {
+  test("refuses every JavaScript number, whatever double it names", () => {
+    // A double is not an exact decimal: each of these used to be spelled
+    // through `String(n)` and admitted. Integral, fractional, exponent-form and
+    // zero doubles are all refused with the one constructor sentence.
+    for (const input of [
+      0,
+      -0,
+      7,
+      -12.345,
+      1e21,
+      -1e21,
+      1e-7,
+      0.1 + 0.2,
+      1_234_567_890_123,
+      5e-324,
+      Number.MAX_VALUE,
+    ]) {
+      expect(() => new Decimal(input as never)).toThrow(
+        DECIMAL_CONSTRUCTOR_REFUSAL
+      );
+    }
+  });
+
+  test("admits a whole bigint as the integer it names", () => {
     for (const [input, canonical] of [
-      [0, "0"],
-      [-0, "0"],
-      [7, "7"],
-      [-12.345, "-12.345"],
-      [1e21, "1000000000000000000000"],
-      [-1e21, "-1000000000000000000000"],
-      [1e-7, "0.0000001"],
-      [0.1 + 0.2, "0.30000000000000004"],
-      [1_234_567_890_123, "1234567890123"],
+      [0n, "0"],
+      [5n, "5"],
+      [-5n, "-5"],
+      [100n, "100"],
+      [
+        123_456_789_012_345_678_901_234_567_890n,
+        "123456789012345678901234567890",
+      ],
     ] as const) {
       expect(new Decimal(input).toString()).toBe(canonical);
     }
-    // The extremes of the double range expand rather than round: the mantissa
-    // digits `String(n)` produced are preserved and only the point moves.
-    expect(new Decimal(5e-324).toString()).toBe(`0.${"0".repeat(323)}5`);
-    expect(new Decimal(Number.MAX_VALUE).toString()).toHaveLength(309);
+    expect(new Decimal("1.5").plus(2n).toString()).toBe("3.5");
   });
 
   test("copies another Decimal without re-reading any spelling", () => {
@@ -93,28 +113,28 @@ describe("decimal value: what it accepts", () => {
       undefined,
       {},
       [],
-      1n,
       true,
       Object.create(Decimal.prototype),
     ]) {
       expect(() => new Decimal(bad as never)).toThrow(TypeError);
     }
     expect(() => new Decimal("x" as never)).toThrow(
-      "Expected an exact decimal: a Decimal, a string like '-12.345' (sign, digits, at most one dot, no exponent), or a finite number"
+      "Expected an exact decimal: a Decimal, a bigint, or a string like '-12.345' (sign, digits, at most one dot, no exponent); a JavaScript number is a double and is not accepted"
     );
   });
 
-  test("admits the same primitives the codec's encode boundary does", () => {
+  test("admits the same strings the codec's encode boundary does", () => {
     // One admission rule, two readers: the constructor throws where
     // `canonicalizeDecimalInput` answers `undefined`, and they never disagree
     // about which spellings are in.
-    for (const input of ["1.50", ".5", "1.", "+2", -0, 1e-7, 0.1 + 0.2]) {
+    for (const input of ["1.50", ".5", "1.", "+2", "-0", "0.0000001"]) {
       expect(canonicalizeDecimalInput(input)).toBe(
         new Decimal(input).toString()
       );
     }
-    for (const input of ["1e3", "abc", "", Number.NaN]) {
+    for (const input of ["1e3", "abc", "", "NaN"]) {
       expect(canonicalizeDecimalInput(input)).toBeUndefined();
+      expect(() => new Decimal(input)).toThrow(DECIMAL_CONSTRUCTOR_REFUSAL);
     }
   });
 });
@@ -142,7 +162,10 @@ describe("decimal value: arithmetic", () => {
       "1000000.0001"
     );
     // A binary operand crosses the same admission grammar the constructor does.
-    expect(new Decimal("1.5").plus(2).toString()).toBe("3.5");
+    expect(new Decimal("1.5").plus("2").toString()).toBe("3.5");
+    expect(() => new Decimal("1.5").plus(2 as never)).toThrow(
+      DECIMAL_CONSTRUCTOR_REFUSAL
+    );
     expect(new Decimal("1.5").minus("0.5").toString()).toBe("1");
     expect(new Decimal("1.5").times(new Decimal("2")).toString()).toBe("3");
   });
@@ -162,31 +185,31 @@ describe("decimal value: arithmetic", () => {
 
   test("divides to a requested number of places, rounding as asked", () => {
     expect(new Decimal("1").div("3").toString()).toBe("0.33333333333333333333");
-    expect(new Decimal("1").div(3, 5).toString()).toBe("0.33333");
+    expect(new Decimal("1").div("3", 5).toString()).toBe("0.33333");
     expect(new Decimal("10").div("4").toString()).toBe("2.5");
     expect(new Decimal("-10").div("4").toString()).toBe("-2.5");
     expect(new Decimal("10").div("-4").toString()).toBe("-2.5");
     expect(new Decimal("-10").div("-4").toString()).toBe("2.5");
     expect(new Decimal("0").div("4").toString()).toBe("0");
     // A tie: half-up sends it away from zero, half-even to the even neighbour.
-    expect(new Decimal("1").div(8, 2).toString()).toBe("0.13");
-    expect(new Decimal("1").div(8, 2, "half-up").toString()).toBe("0.13");
-    expect(new Decimal("1").div(8, 2, "half-even").toString()).toBe("0.12");
-    expect(new Decimal("3").div(8, 2, "half-even").toString()).toBe("0.38");
-    expect(new Decimal("-1").div(8, 2, "half-up").toString()).toBe("-0.13");
-    expect(new Decimal("-1").div(8, 2, "half-even").toString()).toBe("-0.12");
+    expect(new Decimal("1").div("8", 2).toString()).toBe("0.13");
+    expect(new Decimal("1").div("8", 2, "half-up").toString()).toBe("0.13");
+    expect(new Decimal("1").div("8", 2, "half-even").toString()).toBe("0.12");
+    expect(new Decimal("3").div("8", 2, "half-even").toString()).toBe("0.38");
+    expect(new Decimal("-1").div("8", 2, "half-up").toString()).toBe("-0.13");
+    expect(new Decimal("-1").div("8", 2, "half-even").toString()).toBe("-0.12");
     // Below and above the tie, both modes agree.
-    expect(new Decimal("1").div(16, 2, "half-up").toString()).toBe("0.06");
-    expect(new Decimal("1").div(16, 2, "half-even").toString()).toBe("0.06");
-    expect(new Decimal("7").div(8, 2, "half-up").toString()).toBe("0.88");
-    expect(new Decimal("7").div(8, 2, "half-even").toString()).toBe("0.88");
+    expect(new Decimal("1").div("16", 2, "half-up").toString()).toBe("0.06");
+    expect(new Decimal("1").div("16", 2, "half-even").toString()).toBe("0.06");
+    expect(new Decimal("7").div("8", 2, "half-up").toString()).toBe("0.88");
+    expect(new Decimal("7").div("8", 2, "half-even").toString()).toBe("0.88");
   });
 
   test("refuses to divide by zero, however it was spelled", () => {
-    for (const zero of ["0", "-0", "0.000", 0, -0, new Decimal(0)]) {
+    for (const zero of ["0", "-0", "0.000", 0n, new Decimal("0")]) {
       expect(() => new Decimal("1").div(zero)).toThrow(RangeError);
     }
-    expect(() => new Decimal("1").div(0)).toThrow("Division by zero");
+    expect(() => new Decimal("1").div("0")).toThrow("Division by zero");
   });
 
   test("refuses a place count that is not one", () => {

@@ -312,7 +312,7 @@ typeConsumerImports.push(
   `import type { ObservationCompletion as ClientObservationCompletion, ObservationUnit as ClientObservationUnit, ObserveHandler as ClientObserveHandler, StatementContext as ClientStatementContext, StatementHandler as ClientStatementHandler } from ${JSON.stringify(clientRuntimeFile)};`,
   'const rootExtension: RootClientExtension = { name: "root-type-smoke" };',
   'const clientExtension: ClientSubpathExtension = { name: "client-type-smoke" };',
-  'const packagedDecimalValue: PackagedDecimal = new PackagedDecimal("1.2").plus(1);',
+  'const packagedDecimalValue: PackagedDecimal = new PackagedDecimal("1.2").plus("1");',
   "const packagedGeoPoint: SchemaGeoPoint = { longitude: 2, latitude: 48 };",
   "type ExtensionSmokeConfig = { schema: Record<never, never>; driver: never };",
   "declare const extensionSmokeBase: RootVibORMClient<ExtensionSmokeConfig>;",

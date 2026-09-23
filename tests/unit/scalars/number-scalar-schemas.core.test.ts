@@ -26,6 +26,7 @@ import { sql } from "@sql";
 import { Decimal } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type InferInput, type InferOutput, parse } from "@validation";
+import { DECIMAL_INPUT_REFUSAL } from "@validation/primitives/decimal-value";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
 import {
   type Brand,
@@ -1117,7 +1118,7 @@ describe("Decimal Scalar", () => {
   // ===========================================================================
   // RAW DECIMAL SCALAR (required, no modifiers)
   //
-  // A decimal ACCEPTS `Decimal | string | number` and validates to the canonical
+  // A decimal ACCEPTS `Decimal | string` and validates to the canonical
   // private string. The public `Decimal` result is built at the typed result
   // boundary; what a schema emits is the one logical spelling every identity
   // owner keys on.
@@ -1129,9 +1130,9 @@ describe("Decimal Scalar", () => {
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
-      test("type: base accepts Decimal | string | number", () => {
+      test("type: base accepts Decimal | string", () => {
         type Base = InferDecimalInput<State, "base">;
-        expectTypeOf<Base>().toEqualTypeOf<Decimal | string | number>();
+        expectTypeOf<Base>().toEqualTypeOf<Decimal | string>();
       });
 
       test("type: base OUTPUT is the canonical string", () => {
@@ -1153,14 +1154,12 @@ describe("Decimal Scalar", () => {
         expect(r2.value).toBe("0.000000000000000000000000000001");
       });
 
-      test("runtime: parses a number, naming the double it was given", () => {
-        const r1 = parse(schemas.base, 123.45);
-        if (r1.issues) throw new Error("Expected success");
-        expect(r1.value).toBe("123.45");
-
-        const r2 = parse(schemas.base, 100);
-        if (r2.issues) throw new Error("Expected success");
-        expect(r2.value).toBe("100");
+      test("runtime: refuses a number, integral or not", () => {
+        for (const input of [123.45, 100]) {
+          expect(parse(schemas.base, input).issues?.[0]?.message).toBe(
+            DECIMAL_INPUT_REFUSAL
+          );
+        }
       });
 
       test("runtime: parses a Decimal built by the exported constructor", () => {
@@ -1184,7 +1183,7 @@ describe("Decimal Scalar", () => {
         // The constructor builds no NaN at all — `new Decimal(Number.NaN)`
         // throws — so the Decimal-typed value that reaches this boundary is one
         // wearing the prototype the constructor never ran for.
-        expect(() => new Decimal(Number.NaN)).toThrow();
+        expect(() => new Decimal(Number.NaN as never)).toThrow();
         expect(
           parse(schemas.base, Object.create(Decimal.prototype)).issues
         ).toBeDefined();
@@ -1212,14 +1211,16 @@ describe("Decimal Scalar", () => {
     });
 
     describe("create", () => {
-      test("type: create is a required Decimal | string | number", () => {
+      test("type: create is a required Decimal | string", () => {
         type Create = InferDecimalInput<State, "create">;
-        expectTypeOf<Create>().toEqualTypeOf<Decimal | string | number>();
+        expectTypeOf<Create>().toEqualTypeOf<Decimal | string>();
       });
 
-      test("runtime: accepts every spelling", () => {
+      test("runtime: accepts every spelling, and refuses a number", () => {
         expect(parse(schemas.create, "99.99")).toEqual({ value: "99.99" });
-        expect(parse(schemas.create, 99.99)).toEqual({ value: "99.99" });
+        expect(parse(schemas.create, 99.99).issues?.[0]?.message).toBe(
+          DECIMAL_INPUT_REFUSAL
+        );
         expect(parse(schemas.create, new Decimal("99.99"))).toEqual({
           value: "99.99",
         });
@@ -1234,11 +1235,11 @@ describe("Decimal Scalar", () => {
       test("type: update accepts exactly one operation", () => {
         type Update = InferDecimalInput<State, "update">;
         expectTypeOf<string>().toExtend<Update>();
-        expectTypeOf<number>().toExtend<Update>();
+        expectTypeOf<number>().not.toExtend<Update>();
         expectTypeOf<Decimal>().toExtend<Update>();
         expectTypeOf<{ set: string }>().toExtend<Update>();
         expectTypeOf<{ increment: string }>().toExtend<Update>();
-        expectTypeOf<{ increment: number }>().toExtend<Update>();
+        expectTypeOf<{ increment: number }>().not.toExtend<Update>();
         expectTypeOf<{ decrement: string }>().toExtend<Update>();
         expectTypeOf<{ multiply: string }>().toExtend<Update>();
         expectTypeOf<{ divide: string }>().toExtend<Update>();
@@ -1345,9 +1346,9 @@ describe("Decimal Scalar", () => {
     const schemas = getScalarSchemas(scalar["~"].state);
 
     describe("base", () => {
-      test("type: base is Decimal | string | number | null", () => {
+      test("type: base is Decimal | string | null", () => {
         type Base = InferDecimalInput<State, "base">;
-        expectTypeOf<Base>().toEqualTypeOf<Decimal | string | number | null>();
+        expectTypeOf<Base>().toEqualTypeOf<Decimal | string | null>();
       });
     });
 
@@ -1380,9 +1381,7 @@ describe("Decimal Scalar", () => {
     describe("base", () => {
       test("type: base input is a readonly Decimal-input list", () => {
         type Base = InferDecimalInput<State, "base">;
-        expectTypeOf<Base>().toEqualTypeOf<
-          readonly (Decimal | string | number)[]
-        >();
+        expectTypeOf<Base>().toEqualTypeOf<readonly (Decimal | string)[]>();
       });
 
       test("type: base OUTPUT is string[]", () => {
@@ -1394,14 +1393,16 @@ describe("Decimal Scalar", () => {
     describe("create", () => {
       test("type: create is a required readonly Decimal-input list", () => {
         type Create = InferDecimalInput<State, "create">;
-        expectTypeOf<Create>().toEqualTypeOf<
-          readonly (Decimal | string | number)[]
-        >();
+        expectTypeOf<Create>().toEqualTypeOf<readonly (Decimal | string)[]>();
       });
 
       test("runtime: every element canonicalizes and is held to the domain", () => {
-        expect(parse(schemas.create, ["1.10", 2, "-0"])).toEqual({
+        expect(parse(schemas.create, ["1.10", "2", "-0"])).toEqual({
           value: ["1.1", "2", "0"],
+        });
+        expect(parse(schemas.create, ["1.10", 2]).issues?.[0]).toEqual({
+          message: DECIMAL_INPUT_REFUSAL,
+          path: [1],
         });
         expect(parse(schemas.create, ["1.005"]).issues).toBeDefined();
       });
@@ -1455,7 +1456,7 @@ describe("Decimal Scalar", () => {
       test("type: base is a readonly Decimal-input list or null", () => {
         type Base = InferDecimalInput<State, "base">;
         expectTypeOf<Base>().toEqualTypeOf<
-          readonly (Decimal | string | number)[] | null
+          readonly (Decimal | string)[] | null
         >();
       });
     });
@@ -1491,7 +1492,7 @@ describe("Decimal Scalar", () => {
         decimalValueSchema(
           // Whole cents: the value times a hundred is an integer, which is the
           // same question as "rounding it to zero places changes nothing".
-          (value) => value.times(100).eq(value.times(100).toFixed(0)),
+          (value) => value.times("100").eq(value.times("100").toFixed(0)),
           "a price must be a whole number of cents"
         )
       );
@@ -1500,7 +1501,7 @@ describe("Decimal Scalar", () => {
       test("runtime: accepts a well-formed price", () => {
         expect(parse(schemas.base, "0.01")).toEqual({ value: "0.01" });
         expect(parse(schemas.base, "99.99")).toEqual({ value: "99.99" });
-        expect(parse(schemas.base, 10)).toEqual({ value: "10" });
+        expect(parse(schemas.base, "10")).toEqual({ value: "10" });
       });
 
       test("runtime: the schema's own refusal message survives", () => {

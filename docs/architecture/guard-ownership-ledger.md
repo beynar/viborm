@@ -2032,27 +2032,43 @@ brings two refusals of its own. Both are recorded here because they are the only
 ones it has: everything else the old boundary refused is refused by construction
 now, and this entry names what that means as much as what was added.
 
-**`TypeError` in the constructor (`DECIMAL_INPUT_REFUSAL`).** Unique coverage: a
-caller who hands `new Decimal(…)` something that names no exact finite decimal —
-`NaN`, `Infinity`, a string outside the accepted literal grammar (including the
-exponent form `"1e3"`, which the grammar has always refused), or a value of any
-other type. It is not `DECIMAL_ERROR` in `primitives/decimal.ts`: that one
-refuses a FIELD INPUT and returns issues, and its caller is `v.decimal()`. This
-one refuses a VALUE at the constructor, where there is no validation result to
-return and no field in sight, and it is the reason the boundary above can stop
-inspecting what a decimal looks like. The two refusals describe the same
-accepted family, and `canonicalizeDecimalInput` is that family's single owner:
-the constructor throws exactly where that function answers `undefined`. They say
-so in one SENTENCE too — `decimal-value.ts` exports `DECIMAL_INPUT_REFUSAL` and
-`DECIMAL_ERROR` is built from it, so the wording cannot drift at one boundary
-and not the other; `decimal.core.test.ts` pins that the issue message and the
-`TypeError` message are the same string.
+**`TypeError` in the constructor (`DECIMAL_CONSTRUCTOR_REFUSAL`).** Unique
+coverage: a caller who hands `new Decimal(…)` something that names no exact
+decimal — every JavaScript number (a double, including `NaN` and `Infinity`),
+a string outside the accepted literal grammar (including the exponent form
+`"1e3"`, which the grammar has always refused), or a value of any other type.
+It is not `DECIMAL_ERROR` in `primitives/decimal.ts`: that one refuses a FIELD
+INPUT and returns issues, and its caller is `v.decimal()`. This one refuses a
+VALUE at the constructor, where there is no validation result to return and no
+field in sight, and it is the reason the boundary above can stop inspecting
+what a decimal looks like. The two families differ by one member — the
+constructor also takes a whole `bigint` coefficient, which a field does not —
+so there are two sentences, `DECIMAL_INPUT_REFUSAL` (the field's, which
+`DECIMAL_ERROR` is built from) and `DECIMAL_CONSTRUCTOR_REFUSAL`, and they
+share one spelling clause declared once in `decimal-value.ts`. The STRING
+grammar has one owner, `canonicalizeDecimalInput`: the constructor and the
+field both refuse a string exactly where it answers `undefined`, and
+`decimal-value.core.test.ts` pins that they agree on every spelling.
+
+**A JavaScript number at a decimal position (2026-09-23, decision D1).** No
+guard of its own: the number arm of `canonicalizeDecimalInput` and the
+`String(n)` exponent expansion behind it are deleted, so a number reaches the
+same `undefined` every other non-decimal value reaches and the field returns
+`DECIMAL_INPUT_REFUSAL`, the constructor `DECIMAL_CONSTRUCTOR_REFUSAL`. The
+invariant that retires the arm: a field admits only values that already name
+an exact decimal, and a double does not. Witnesses:
+`decimal.core.test.ts` (scalar, list member at `[1]`, empty list still
+admitted), `number-scalar-schemas.core.test.ts` (base, create, list create),
+`decimal-update-union.core.test.ts` (every arithmetic arm and the shorthand),
+`decimal-cache-identity.core.test.ts` (a filter operand never reaches a cache
+key) and `client-construction-boundaries.core.test.ts` (`create` refuses at
+`data.total` before any statement).
 
 **`RangeError("Division by zero")` in `div`.** Unique coverage: a quotient with
 no value at all. Nothing else in the type can fail — `plus`, `minus`, `times`,
 the comparisons, `abs`, `neg` and every rendering are total over the domain —
-and the zero divisor cannot be caught earlier, because `0`, `"-0.000"` and a
-`Decimal` zero are three spellings that only the constructor resolves.
+and the zero divisor cannot be caught earlier, because `"0"`, `"-0.000"`, `0n`
+and a `Decimal` zero are four spellings that only the constructor resolves.
 
 **No guard for `div`'s fraction-digit count, deliberately.** A count that is not
 a non-negative integer is refused by `BigInt(fractionDigits)` (which throws for
@@ -2069,8 +2085,8 @@ the whole admission and `Object.create(Decimal.prototype)` — which passes
 `instanceof` — is refused by it. The render ceiling has no successor either, for
 a narrower reason than "a rendering is as long as the digits allocated": it
 bounded a FOREIGN value's exponent, and CONSTRUCTION bounds that now — the
-accepted grammar admits no exponent and `String(number)` is finite, so a value
-this module built carries exactly the digits it was handed. The length of
+accepted grammar admits no exponent and no number, so a value this module
+built carries exactly the digits it was handed. The length of
 `div(other, fractionDigits)` and `toFixed(dp)` output comes from the caller's
 own small integer argument instead, and is deliberately unguarded:
 `new Decimal("1").div("3", 20000)` renders 20,002 characters for the same reason

@@ -28,8 +28,9 @@ decimal native-type override.
 
 ## Inputs and results
 
-Writes accept `Decimal | string | number`. They do not accept `bigint`.
-Selected values are fresh `Decimal` instances:
+Writes accept `Decimal | string`. They do not accept a JavaScript `number`,
+which is a double rather than an exact decimal, or a `bigint`. Selected values
+are fresh `Decimal` instances:
 
 ```ts
 await db.invoice.create({
@@ -43,30 +44,19 @@ invoice.total.toNumber(); // explicit, potentially lossy conversion
 ```
 
 Strings use plain decimal notation: an optional sign, digits, and at most one
-decimal point. Whitespace, exponent notation, `NaN`, and infinity are refused.
-A `Decimal` constructed from exponent notation is accepted when its expanded
-exact value fits the descriptor.
+decimal point. Whitespace, exponent notation, `NaN`, and infinity are refused,
+by the field and by the `Decimal` constructor alike.
 
 ```ts
 "1234.56"; // accepted for { precision: 10, scale: 2 }
 "+001.20"; // accepted and canonicalized privately to "1.2"
-"1e3"; // rejected as a string
-new Decimal("1e3"); // accepted when 1000 fits
+"1e3"; // rejected
+1.5; // rejected: a JavaScript number is a double, not an exact decimal
 ```
 
-A JavaScript number is only a convenience. VibORM validates `String(number)`;
-it cannot recover digits already lost to binary floating point and never
-rounds the number into the field:
-
-```ts
-await db.invoice.create({
-  data: { total: 0.1 + 0.2 },
-});
-// Rejected by a scale-2 field: the value supplied is
-// "0.30000000000000004", not exact 0.30.
-```
-
-Keep audited input as a string or `Decimal` end to end.
+The `Decimal` constructor takes the same strings, another `Decimal`, or a whole
+`bigint` (`new Decimal(5n)` is `5`). Its arithmetic and comparison methods take
+the same arguments, so `total.plus("0.44")`, never `total.plus(0.44)`.
 
 ### Equality in tests
 
@@ -109,7 +99,7 @@ import { custom } from "valibot";
 
 const positiveAmount = s
   .decimal({ precision: 10, scale: 2 })
-  .schema(custom<Decimal>((value) => value.gt(0)));
+  .schema(custom<Decimal>((value) => value.gt("0")));
 ```
 
 A literal `.default(...)` runs this validation and transformation once when the

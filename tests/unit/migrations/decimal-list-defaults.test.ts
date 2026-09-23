@@ -83,7 +83,7 @@ describe("literal decimal-list defaults converge and populate old rows", () => {
         validate(value: unknown) {
           observe();
           return value instanceof Decimal
-            ? { value: value.plus(1) }
+            ? { value: value.plus("1") }
             : { issues: [{ message: "Expected Decimal" }] };
         },
       },

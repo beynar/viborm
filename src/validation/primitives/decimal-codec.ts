@@ -9,7 +9,7 @@
  * conversion.
  *
  * The VALUE it carries is owned next door, by `decimal-value.ts`: the accepted
- * `Decimal | string | number` grammar, canonical private text, and the
+ * `Decimal | string` grammar, canonical private text, and the
  * construction seam this module decodes into. That module's `Decimal` has a
  * private field installed by its constructor and by nothing else, so a value
  * whose `canonicalDecimalText` answers at all was BUILT by it — it has no
@@ -19,7 +19,7 @@
  * text of a Decimal is reading the Decimal.
  */
 
-import { isNumber, isString } from "../value-guards";
+import { isString } from "../value-guards";
 import {
   canonicalDecimalText,
   canonicalizeDecimalInput,
@@ -84,23 +84,17 @@ export type DecimalPhysicalRepresentation = "text" | "coefficient";
 const LEADING_ZEROS_REGEX = /^0+/;
 
 /**
- * The canonical decimal spelling of a `Decimal | string | number`, or
- * `undefined` when the value does not name an exact finite decimal.
- *
- * A number is rendered through `String(n)`, the shortest decimal that
- * round-trips back to the same double — a faithful name for the double the
- * caller handed over. It does not invent precision the double never had, and it
- * does not launder float error the caller already committed: `0.1 + 0.2` names
- * `"0.30000000000000004"`, which a scale-2 field then refuses.
+ * The canonical decimal spelling of a `Decimal | string`, or `undefined` when
+ * the value does not name an exact decimal. A JavaScript number is a double,
+ * not a spelling, and answers `undefined` like every other type.
  *
  * This is the encode half of the cache/identity boundary too: a `Decimal` in,
  * canonical text out.
  */
 export function canonicalizeDecimal(value: unknown): string | undefined {
-  if (isString(value) || isNumber(value)) {
-    return canonicalizeDecimalInput(value);
-  }
-  return canonicalDecimalText(value);
+  return isString(value)
+    ? canonicalizeDecimalInput(value)
+    : canonicalDecimalText(value);
 }
 
 /**
@@ -328,7 +322,7 @@ export function coefficientToLogical(
  * Validate and locate canonical physical decimal TEXT in one scan.
  *
  * This is deliberately not {@link canonicalizeDecimal}: provider decode
- * accepts only the adapter vocabulary, never a number or caller Decimal. The
+ * accepts only the adapter vocabulary, never a caller Decimal. The
  * returned number is the canonical end offset, with zero reserved for
  * normalized zero. The scan also owns scale and optional precision admission,
  * so field and SUM decoders do not reinterpret the spelling afterward.

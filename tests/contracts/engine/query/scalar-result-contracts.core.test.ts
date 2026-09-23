@@ -791,14 +791,14 @@ function coefficientAdapter(): DatabaseAdapter {
 describe("decimal results are fresh exact values", () => {
   test("native decimal text becomes one Decimal per leaf", () => {
     expect(decimalAt("money", "-0.50").eq("-0.5")).toBe(true);
-    expect(decimalAt("money", "0.00").eq(0)).toBe(true);
+    expect(decimalAt("money", "0.00").eq("0")).toBe(true);
     expect(decimalAt("whole", "9007199254740993").eq("9007199254740993")).toBe(
       true
     );
     // Past 2^53 in the fraction: a double could not tell this apart from 1.
     const exact = decimalAt("decimal", "1.000000000000000000000000000001");
     expect(exact.eq("1.000000000000000000000000000001")).toBe(true);
-    expect(exact.eq(1)).toBe(false);
+    expect(exact.eq("1")).toBe(false);
   });
 
   test("equal values are equal by .eq() and never by identity", () => {
@@ -811,19 +811,19 @@ describe("decimal results are fresh exact values", () => {
   test("a negative zero and a padded zero are the same canonical value", () => {
     // Canonicalization is what makes text equality a value equality: `-0.00`
     // and `0` name one number, so a row key built from either is one key.
-    expect(decimalAt("money", "-0.00").eq(0)).toBe(true);
+    expect(decimalAt("money", "-0.00").eq("0")).toBe(true);
     // The canonical spelling is what reaches the constructor, so an unsigned
     // rendering here witnesses that canonicalization stripped the sign BEFORE
     // construction — the value type has no second rule of its own.
     expect(decimalAt("money", "-0.00").toString()).toBe("0");
-    expect(decimalAt("money", "-0").eq(0)).toBe(true);
+    expect(decimalAt("money", "-0").eq("0")).toBe(true);
   });
 
   test("scale is a domain limit, not a spelling", () => {
     // `1.0` on a scale-ZERO column is the value 1 — the zero is insignificant
     // and canonicalization removes it before the domain is checked. Only a
     // NON-ZERO digit past the scale is outside the column.
-    expect(decimalAt("whole", "1.0").eq(1)).toBe(true);
+    expect(decimalAt("whole", "1.0").eq("1")).toBe(true);
     expect(decimalAt("money", "12.3").eq("12.30")).toBe(true);
   });
 

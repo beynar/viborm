@@ -112,7 +112,13 @@ describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
     return rendered(buildScalarSqlValue(scope, vault, "key", value));
   };
 
-  for (const value of [BIG30, HALF, HALF_UNCANONICAL, 9.5, new Decimal(12)]) {
+  for (const value of [
+    BIG30,
+    HALF,
+    HALF_UNCANONICAL,
+    "+09.500",
+    new Decimal("12"),
+  ]) {
     test(`FK lowering of ${String(value)} equals the referenced column's`, () => {
       const engine = engineFor();
       const fk = rendered(referenceSql(engine, slip, "vaultKey", value));

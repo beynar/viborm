@@ -266,7 +266,7 @@ The two spellings are told apart structurally: an object with a `data` key
   envelope's `data`.
 :::
 
-A fixed-decimal field takes a bare `Decimal | string | number` or an object with
+A fixed-decimal field takes a bare `Decimal | string` or an object with
 exactly one of `set`, `increment`, `decrement`, `multiply`, or `divide`. Nested
 writes use the same schema: an empty or multi-operation decimal bag is refused
 before the relation write starts.

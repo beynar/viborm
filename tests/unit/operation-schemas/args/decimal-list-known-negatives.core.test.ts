@@ -85,7 +85,8 @@ describe("decimal-list retained negative operation keys", () => {
           by: ["id"],
           having: {
             [field]: {
-              has: 1,
+              // Each list's own member spelling, so only the aggregate is wrong.
+              has: field === "amounts" ? "1" : 1,
               [aggregate]: { gt: 1 },
             },
           },

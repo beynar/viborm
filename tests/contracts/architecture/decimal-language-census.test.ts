@@ -79,7 +79,6 @@ const REJECTED_MODE_SPELLINGS = [
 
 const FLOAT_TRANSPORT_EXEMPTION_SPELLINGS = [
   "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
-  "src/validation/primitives/decimal-value.ts expandExponentForm Number(exponentText)",
   // `toNumber()` is the value type's documented float boundary: an application
   // asking for a double gets the double its canonical text names, and nothing
   // in VibORM calls it. The conversion is the method's entire purpose, so the
@@ -423,16 +422,19 @@ function decodeProviderValue(value: string) {
     ).toEqual(["src/query-engine/builders/values-builder.ts Number 1"]);
   });
 
-  it("exempts only the central exponent and stored-descriptor readers", () => {
+  it("exempts only the stored-descriptor reader", () => {
+    // The value module no longer expands `String(number)`'s exponent form —
+    // a number is not a decimal input at all — so a `Number()` spelled there
+    // is ordinary float transport again, with no exemption to hide behind.
     expect(
       decimalFloatTransportEntries(
-        "src/validation/primitives/decimal-codec.ts",
+        "src/validation/primitives/decimal-value.ts",
         `function expandExponentForm(text: string) {
   const exponentText = text.split("e")[1];
   return Number(exponentText);
 }`
       )
-    ).toEqual([]);
+    ).toEqual(["src/validation/primitives/decimal-value.ts Number 1"]);
     expect(
       decimalFloatTransportEntries(
         "src/migrations/decimal.ts",
@@ -441,15 +443,16 @@ function decodeProviderValue(value: string) {
 }`
       )
     ).toEqual([]);
+    // The exemption is one spelling, once: a second use of it still counts.
     expect(
       decimalFloatTransportEntries(
-        "src/validation/primitives/decimal-codec.ts",
-        `function expandExponentForm(exponentText: string) {
-  const exponent = Number(exponentText);
-  return exponent + Number(exponentText);
+        "src/migrations/decimal.ts",
+        `function readStoredDecimalInteger(value: unknown) {
+  const stored = Number(value);
+  return stored + Number(value);
 }`
       )
-    ).toEqual(["src/validation/primitives/decimal-codec.ts Number 1"]);
+    ).toEqual(["src/migrations/decimal.ts Number 1"]);
   });
 });
 

@@ -418,7 +418,7 @@ describe("decimal descriptor", () => {
   describe("defaults", () => {
     it("normalizes a literal default to canonical text", () => {
       expect(decimal(domain()).default("4.20")["~"].state.default).toBe("4.2");
-      expect(decimal(domain()).default(-0)["~"].state.default).toBe("0");
+      expect(decimal(domain()).default("-0")["~"].state.default).toBe("0");
       expect(
         decimal(domain()).default(new Decimal("1.5"))["~"].state.default
       ).toBe("1.5");
@@ -426,7 +426,7 @@ describe("decimal descriptor", () => {
 
     it("normalizes every member of a list default", () => {
       expect(
-        decimal(domain()).array().default(["1.10", 2])["~"].state.default
+        decimal(domain()).array().default(["1.10", "2"])["~"].state.default
       ).toEqual(["1.1", "2"]);
     });
 

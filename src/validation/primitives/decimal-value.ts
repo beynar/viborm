@@ -17,8 +17,9 @@
  *
  * This module owns the ACCEPTED SPELLING too, so the codec beside it imports
  * the grammar rather than the other way round and there is no cycle: one
- * literal grammar, one canonicalization, one exponent expansion, used by the
- * constructor and by the codec's string and number admission alike.
+ * literal grammar and one canonicalization, used by the constructor and by the
+ * codec's string admission alike. A JavaScript number is not a spelling: it is
+ * a double, and neither boundary admits one.
  *
  * A `Decimal` VibORM constructs is trusted BY CONSTRUCTION. Its state is two
  * `#private` fields the constructor alone installs, so `#c in value` is an
@@ -76,68 +77,25 @@ function canonicalizeLiteral(literal: string): string {
 }
 
 /**
- * Expand `String(number)`'s exponent form (`1e+21`, `1e-7`) into plain decimal
- * digits. The mantissa digits are preserved exactly — this only moves the dot.
- */
-function expandExponentForm(text: string): string {
-  const [mantissa = "", exponentText = ""] = text.toLowerCase().split("e");
-  const sign = mantissa.startsWith("-") ? "-" : "";
-  const unsigned = mantissa.replace(LEADING_SIGN_REGEX, "");
-  const [intDigits = "", fracDigits = ""] = unsigned.split(".");
-  const exponent = Number(exponentText);
-  const digits = intDigits + fracDigits;
-  // Where the dot sits after shifting: digits before it, counted from the left.
-  const pointIndex = intDigits.length + exponent;
-  if (pointIndex <= 0) {
-    return `${sign}0.${"0".repeat(-pointIndex)}${digits}`;
-  }
-  // `String(number)` uses exponent notation only when the shifted point is
-  // outside the mantissa digits. Values in the middle range use plain notation.
-  return `${sign}${digits}${"0".repeat(pointIndex - digits.length)}`;
-}
-
-/**
- * The canonical text of one accepted PRIMITIVE input, or `undefined` when it
- * does not name an exact finite decimal.
+ * The canonical text of one decimal STRING, or `undefined` when it is outside
+ * the accepted grammar.
  *
- * The one admission rule for a string and a number, used by the constructor and
- * by the field codec's encode boundary alike, so what `s.decimal()` accepts and
- * what `new Decimal()` accepts cannot drift apart.
- *
- * A number is rendered through `String(n)`, the shortest decimal that
- * round-trips back to the same double — a faithful name for the double the
- * caller handed over. It does not invent precision the double never had, and it
- * does not launder float error the caller already committed: `0.1 + 0.2` names
- * `"0.30000000000000004"`, which a scale-2 field then refuses.
+ * The one admission rule for a spelling, used by the constructor and by the
+ * field codec's encode boundary alike, so what `s.decimal()` accepts and what
+ * `new Decimal()` accepts cannot drift apart.
  */
-export function canonicalizeDecimalInput(
-  value: DecimalPrimitive
-): string | undefined {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) return undefined;
-    // `String(number)` spells its exponent in lowercase for every double there
-    // is — `1e+21`, `1e-7`, `Number.MAX_VALUE` — so there is one spelling to
-    // look for, not two.
-    const text = String(value);
-    return canonicalizeLiteral(
-      text.includes("e") ? expandExponentForm(text) : text
-    );
-  }
+export function canonicalizeDecimalInput(value: string): string | undefined {
   return DECIMAL_LITERAL_REGEX.test(value)
     ? canonicalizeLiteral(value)
     : undefined;
 }
 
 /**
- * The two PRIMITIVE spellings of an exact decimal a caller may hand over.
- *
- * Named rather than written inline at each parameter because a `number` in a
- * decimal module is worth looking at twice: this is the one place a double is
- * admitted, and it is admitted as a SPELLING — `String(n)` — rather than
- * arithmetic, which is what keeps the float error the caller already committed
- * from being laundered here.
+ * The two PRIMITIVE forms of an exact decimal a caller may hand the value type:
+ * a spelling, or a whole coefficient. Both name an exact decimal; a JavaScript
+ * number names a double, so it is not one of them.
  */
-export type DecimalPrimitive = string | number;
+export type DecimalPrimitive = string | bigint;
 
 /**
  * How a quotient resolves a value exactly between two representable ones.
@@ -177,19 +135,23 @@ function roundQuotient(
     : quotient;
 }
 
+/** The accepted spelling, named once for both refusal sentences below. */
+const DECIMAL_SPELLING =
+  "a string like '-12.345' (sign, digits, at most one dot, no exponent); a JavaScript number is a double and is not accepted";
+
 /**
- * The ONE sentence that names the accepted family, wherever it is refused.
- *
- * The constructor throws it and `v.decimal()` returns it as its issue message,
- * because they admit exactly the same values — `canonicalizeDecimalInput` is
- * the single owner of that grammar and both refuse where it answers
- * `undefined`. Exported so the field boundary next door spells it by reference:
- * two copies of a sentence are two things to keep in step, and a caller who
- * reads the message at one boundary and meets it at the other would be reading
- * two claims that only look like one.
+ * The FIELD boundary's refusal: `v.decimal()` returns it as its issue message.
+ * A field admits a `Decimal` or a string; `canonicalizeDecimalInput` owns the
+ * string grammar, so the field refuses where that function answers `undefined`.
  */
-export const DECIMAL_INPUT_REFUSAL =
-  "Expected an exact decimal: a Decimal, a string like '-12.345' (sign, digits, at most one dot, no exponent), or a finite number";
+export const DECIMAL_INPUT_REFUSAL = `Expected an exact decimal: a Decimal or ${DECIMAL_SPELLING}`;
+
+/**
+ * The constructor's refusal. It names one more member than the field's,
+ * because the value type also takes a whole `bigint` coefficient, and it shares
+ * the grammar and the spelling clause with it.
+ */
+export const DECIMAL_CONSTRUCTOR_REFUSAL = `Expected an exact decimal: a Decimal, a bigint, or ${DECIMAL_SPELLING}`;
 
 /**
  * Write one normalized coefficient and scale as canonical text: the integer
@@ -239,8 +201,8 @@ function partsOfCanonical(canonical: string): [bigint, number] {
  * step: a method added to one side and not the other stops compiling.
  *
  * @example
- * new Decimal("19.99").times(3).toString(); // "59.97"
- * new Decimal("1").div(3, 5).toString(); // "0.33333"
+ * new Decimal("19.99").times("3").toString(); // "59.97"
+ * new Decimal("1").div("3", 5).toString(); // "0.33333"
  */
 export interface Decimal {
   /** This value plus `other`, exactly. */
@@ -322,21 +284,18 @@ let textOf: (value: ExactDecimal) => string;
  *
  * Module-private: what the package exports is {@link Decimal} below, whose
  * declared type carries ONE construct signature — the public grammar. The
- * two-argument form here is the internal seam an already-normalized coefficient
- * arrives through, and nothing outside this module can spell it.
+ * two-argument form here is the internal seam a coefficient at a non-zero
+ * scale arrives through, and nothing outside this module can spell it.
  */
 class ExactDecimal implements Decimal {
   readonly #c: bigint;
   readonly #scale: number;
 
-  constructor(value: Decimal | DecimalPrimitive | bigint, scale?: number) {
-    // The coefficient form is the internal seam: an already-computed
-    // coefficient and its scale, normalized here so every result in this file
-    // is normalized in one place. BOTH parts are required — a lone `bigint`
-    // from JavaScript, which the published construct signature does not admit,
-    // falls through to the refusal below rather than being read as a scale-0
-    // value the caller never asked for.
-    if (typeof value === "bigint" && scale !== undefined) {
+  constructor(value: Decimal | DecimalPrimitive, scale = 0) {
+    // A `bigint` is a coefficient: a public one is a whole number (scale 0),
+    // and the internal seam passes its scale. Normalized here so every result
+    // in this file is normalized in one place.
+    if (typeof value === "bigint") {
       let coefficient = value;
       let places = scale;
       while (places > 0 && coefficient % TEN === 0n) {
@@ -355,11 +314,11 @@ class ExactDecimal implements Decimal {
       this.#scale = value.#scale;
       return;
     }
-    if (typeof value !== "string" && typeof value !== "number") {
-      throw new TypeError(DECIMAL_INPUT_REFUSAL);
+    const canonical =
+      typeof value === "string" ? canonicalizeDecimalInput(value) : undefined;
+    if (canonical === undefined) {
+      throw new TypeError(DECIMAL_CONSTRUCTOR_REFUSAL);
     }
-    const canonical = canonicalizeDecimalInput(value);
-    if (canonical === undefined) throw new TypeError(DECIMAL_INPUT_REFUSAL);
     const [coefficient, places] = partsOfCanonical(canonical);
     this.#c = coefficient;
     this.#scale = places;
@@ -495,10 +454,11 @@ class ExactDecimal implements Decimal {
  */
 export const Decimal: {
   /**
-   * @param value a `Decimal` to copy, an exact decimal string, or a finite
-   * number.
-   * @throws {TypeError} for every other value, including `NaN`, `Infinity`, a
-   * string outside the accepted grammar, and a value of any other type.
+   * @param value a `Decimal` to copy, an exact decimal string, or a whole
+   * `bigint`.
+   * @throws {TypeError} for every other value, including every JavaScript
+   * number, a string outside the accepted grammar, and a value of any other
+   * type.
    */
   new (value: Decimal | DecimalPrimitive): Decimal;
   readonly prototype: Decimal;

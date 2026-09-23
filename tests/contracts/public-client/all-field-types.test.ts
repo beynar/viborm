@@ -285,10 +285,10 @@ describe("All Scalar Types Integration Test", () => {
         // numberWithDefault uses default
 
         // Decimal scalars
-        decimalRequired: 100.5,
-        decimalNullable: 200.75,
-        decimalArray: [10.1, 20.2, 30.3],
-        decimalArrayNullable: [50.5, 60.6],
+        decimalRequired: "100.5",
+        decimalNullable: "200.75",
+        decimalArray: ["10.1", "20.2", "30.3"],
+        decimalArrayNullable: ["50.5", "60.6"],
         // decimalWithDefault uses default
 
         // BigInt scalars
@@ -602,7 +602,7 @@ describe("All Scalar Types Integration Test", () => {
         intArray: [],
         numberRequired: 0,
         numberArray: [],
-        decimalRequired: 0,
+        decimalRequired: "0",
         decimalArray: [],
         bigintRequired: 0n,
         bigintArray: [],
@@ -688,7 +688,7 @@ describe("All Scalar Types Integration Test", () => {
         stringUnique: "unique-empty-arrays",
         intRequired: 1,
         numberRequired: 1.0,
-        decimalRequired: 1.0,
+        decimalRequired: "1.0",
         bigintRequired: 1n,
         booleanRequired: true,
         datetimeRequired: testDate1,

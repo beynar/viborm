@@ -11,6 +11,7 @@ import {
   prepareSchema,
 } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
+import { DECIMAL_INPUT_REFUSAL } from "@validation/primitives/decimal-value";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -151,7 +152,9 @@ describe("decimal cache identity", () => {
     const canonical = keyFor("1.2");
     expect(keyFor(new Decimal("1.2"))).toBe(canonical);
     expect(keyFor("1.2000")).toBe(canonical);
-    expect(keyFor(1.2)).toBe(canonical);
+    expect(keyFor("+01.20")).toBe(canonical);
+    // A double is not a spelling of the value, so it never reaches a key.
+    expect(() => keyFor(1.2)).toThrow(DECIMAL_INPUT_REFUSAL);
     expect(keyFor("1.3")).not.toBe(canonical);
   });
 });

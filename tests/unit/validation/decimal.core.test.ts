@@ -29,6 +29,10 @@ import {
   sameDecimalDescriptor,
   toDecimal,
 } from "@validation/primitives/decimal-codec";
+import {
+  DECIMAL_CONSTRUCTOR_REFUSAL,
+  DECIMAL_INPUT_REFUSAL,
+} from "@validation/primitives/decimal-value";
 import v from "@validation/primitives/v";
 import { getScalarSchemas } from "@validation/scalars";
 import { isRecord } from "@validation/value-guards";
@@ -122,57 +126,67 @@ describe("decimal validation", () => {
     expect(refused({})).toBe(true);
   });
 
-  test("refuses in the same words the constructor does", () => {
-    // Two boundaries, one accepted family: `v.decimal()` returns issues and
+  test("refuses in the value module's words, one grammar for both boundaries", () => {
+    // Two boundaries over one string grammar: `v.decimal()` returns issues and
     // `new Decimal()` throws, and both refuse exactly where
-    // `canonicalizeDecimalInput` answers `undefined`. The sentence is the value
-    // module's, imported rather than copied — a caller who reads it from one
-    // and meets it at the other is reading one claim, not two that match today.
+    // `canonicalizeDecimalInput` answers `undefined`. The field's sentence is
+    // the value module's, imported rather than copied; the constructor's names
+    // one more member (a whole bigint) and the same spelling.
     const result = parse("1e3");
     if (!("issues" in result)) throw new Error("Expected `1e3` to be refused.");
     const [issue] = result.issues;
     if (!isRecord(issue) || typeof issue.message !== "string") {
       throw new Error("Expected an issue carrying a message.");
     }
-    let thrown: unknown;
-    try {
-      construct("1e3");
-    } catch (error) {
-      thrown = error;
-    }
-    if (!(thrown instanceof TypeError)) {
-      throw new Error("Expected the constructor to refuse `1e3`.");
-    }
-    expect(issue.message).toBe(thrown.message);
+    expect(issue.message).toBe(DECIMAL_INPUT_REFUSAL);
+    expect(DECIMAL_INPUT_REFUSAL).toBe(
+      "Expected an exact decimal: a Decimal or a string like '-12.345' (sign, digits, at most one dot, no exponent); a JavaScript number is a double and is not accepted"
+    );
+    expect(() => construct("1e3")).toThrow(DECIMAL_CONSTRUCTOR_REFUSAL);
   });
 
-  test("accepts a number, and names the double it was actually given", () => {
-    expect(accepted(1.5)).toBe("1.5");
-    expect(accepted(-42)).toBe("-42");
-    expect(accepted(0)).toBe("0");
-    // The documented caveat, made explicit: a number operand carries whatever
-    // float error the caller already made. We name the double faithfully rather
-    // than launder it into a value the caller never had.
-    expect(accepted(0.1 + 0.2)).toBe("0.30000000000000004");
+  test("refuses a number with one issue, whatever double it names", () => {
+    // Each of these used to be spelled through `String(n)` and admitted,
+    // including the exponent forms `1e+21` and `1e-7` and the float error of
+    // `0.1 + 0.2`. A double is not an exact decimal, so the field refuses it
+    // with the same one issue it gives every other non-decimal value.
+    for (const input of [
+      1.5,
+      -42,
+      0,
+      -0,
+      0.1 + 0.2,
+      1e21,
+      1e-7,
+      -1.5e-8,
+      1.2e22,
+    ]) {
+      expect(parse(input)).toEqual({
+        issues: [{ message: DECIMAL_INPUT_REFUSAL }],
+      });
+    }
+    expect(
+      v
+        .decimal({ decimal: { precision: 10, scale: 2 } })
+        ["~standard"].validate(1.5)
+    ).toEqual({ issues: [{ message: DECIMAL_INPUT_REFUSAL }] });
   });
 
-  test("refuses a bigint: the accepted input family is Decimal | string | number", () => {
-    // It used to be canonicalized silently, which made `bigint` a fourth input
-    // form no public type ever mentioned.
+  test("refuses a bigint: the field's input family is Decimal | string", () => {
+    // Only the value type's constructor reads a bigint as a coefficient; a
+    // field would make it a third input form no public type mentions.
     expect(refused(9007199254740993n)).toBe(true);
   });
 
-  test("expands the exponent form String(number) produces", () => {
-    // String(1e21) is "1e+21" — plain digits are the only exact spelling
-    expect(accepted(1e21)).toBe("1000000000000000000000");
-    expect(accepted(1e-7)).toBe("0.0000001");
-    expect(accepted(-1.5e-8)).toBe("-0.000000015");
-    expect(accepted(1.2e22)).toBe("12000000000000000000000");
-  });
-
-  test("string and number spellings of the same value agree", () => {
-    expect(accepted("1.5")).toBe(accepted(1.5));
-    expect(accepted("0.0000001")).toBe(accepted(1e-7));
+  test("refuses a number list member at its index, and keeps an empty list", () => {
+    const list = v.decimal({
+      decimal: { precision: 10, scale: 2 },
+      array: true,
+    })["~standard"];
+    expect(list.validate(["1.5", 2])).toEqual({
+      issues: [{ message: DECIMAL_INPUT_REFUSAL, path: [1] }],
+    });
+    expect(list.validate([])).toEqual({ value: [] });
   });
 
   test("nullable and array options compose", () => {
@@ -181,7 +195,7 @@ describe("decimal validation", () => {
 
     const list = v
       .decimal({ array: true })
-      ["~standard"].validate(["1.10", 2, "-0"]);
+      ["~standard"].validate(["1.10", "2", "-0"]);
     expect(list).toEqual({ value: ["1.1", "2", "0"] });
 
     const badList = v.decimal({ array: true })["~standard"].validate(["1e3"]);
@@ -193,10 +207,11 @@ describe("decimal value boundary", () => {
   test("accepts a Decimal and renders it exactly", () => {
     expect(accepted(new Decimal("1.2300"))).toBe("1.23");
     expect(accepted(new Decimal("-0"))).toBe("0");
-    // A Decimal built from a double whose own spelling is exponential is valid
-    // once expanded; the exponent STRING stays outside the grammar on both
-    // sides of the boundary, so the constructor refuses it too.
-    expect(accepted(new Decimal(1e21))).toBe("1000000000000000000000");
+    // The exponent STRING stays outside the grammar on both sides of the
+    // boundary, so the constructor refuses it too.
+    expect(accepted(new Decimal("1000000000000000000000"))).toBe(
+      "1000000000000000000000"
+    );
     expect(refused("1e21")).toBe(true);
     expect(() => new Decimal("1e21")).toThrow(TypeError);
     expect(accepted(new Decimal("9007199254740993"))).toBe("9007199254740993");
@@ -205,10 +220,15 @@ describe("decimal value boundary", () => {
   test("constructs no non-finite value at all", () => {
     // The refusal is the constructor's: there is no NaN Decimal and no infinite
     // Decimal to hand this codec, so `canonicalizeDecimal` never sees one and
-    // the application learns about it at its own construction site.
-    expect(() => new Decimal(Number.NaN)).toThrow(TypeError);
-    expect(() => new Decimal(Number.POSITIVE_INFINITY)).toThrow(TypeError);
-    expect(() => new Decimal(Number.NEGATIVE_INFINITY)).toThrow(TypeError);
+    // the application learns about it at its own construction site. They are
+    // numbers, so they are refused as every number is.
+    expect(() => new Decimal(Number.NaN as never)).toThrow(TypeError);
+    expect(() => new Decimal(Number.POSITIVE_INFINITY as never)).toThrow(
+      TypeError
+    );
+    expect(() => new Decimal(Number.NEGATIVE_INFINITY as never)).toThrow(
+      TypeError
+    );
     expect(() => new Decimal("abc")).toThrow(TypeError);
   });
 
@@ -453,8 +473,11 @@ describe("declared domain", () => {
 
   test("refuses non-zero digits past the scale, rather than rounding them", () => {
     expect(inDomain(10, 2, "1.005")).toHaveProperty("issues");
-    // The plan's own example: a double that already lost the value.
-    expect(inDomain(10, 2, 0.1 + 0.2)).toHaveProperty("issues");
+    // A double that already lost the value is refused before the domain is
+    // asked, as every number is.
+    expect(inDomain(10, 2, 0.1 + 0.2)).toEqual({
+      issues: [{ message: DECIMAL_INPUT_REFUSAL }],
+    });
     // ...while the value the caller MEANT fits.
     expect(inDomain(10, 2, "0.3")).toEqual({ value: "0.3" });
   });
@@ -563,7 +586,9 @@ describe("custom schema over the decimal value", () => {
     const schema = v.decimal({
       schema: observe((value) => ({ value })),
     });
-    expect(schema["~standard"].validate(1.5)).toEqual({ value: "1.5" });
+    expect(schema["~standard"].validate(1.5)).toEqual({
+      issues: [{ message: DECIMAL_INPUT_REFUSAL }],
+    });
     expect(schema["~standard"].validate("1.50")).toEqual({ value: "1.5" });
     expect(schema["~standard"].validate(new Decimal("1.5"))).toEqual({
       value: "1.5",
@@ -727,11 +752,11 @@ describe("provider physical representation", () => {
     expect(text?.eq("1.2")).toBe(true);
     expect(coefficient).toBeInstanceOf(Decimal);
     expect(coefficient?.eq("1.2")).toBe(true);
-    expect(coefficientZero?.eq(0)).toBe(true);
+    expect(coefficientZero?.eq("0")).toBe(true);
     // Zero has no sign to carry: the canonical spelling the codec hands the
     // constructor is "0", and the value renders it back unsigned.
     expect(coefficientZero?.toString()).toBe("0");
-    expect(zero?.eq(0)).toBe(true);
+    expect(zero?.eq("0")).toBe(true);
     expect(zero?.toString()).toBe("0");
     expect(materializePhysicalDecimal(1.2, money, "text")).toBeUndefined();
     expect(

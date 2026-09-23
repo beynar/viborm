@@ -21,15 +21,10 @@ import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
 // =============================================================================
 
 /**
- * What a decimal accepts on the way IN.
- *
- * A `Decimal` is the public value type and the exact one. A `string` is its
- * lossless spelling. A `number` is a convenience: it is accepted, but a JS
- * number is a double, so whatever float error the caller already introduced
- * (`0.1 + 0.2`) travels in with it — we name the double's own shortest exact
- * spelling rather than pretend otherwise, and the field's scale then refuses it.
+ * What a decimal accepts on the way IN: the public value type, or its lossless
+ * spelling. A JavaScript number is a double and is refused.
  */
-export type DecimalInput = Decimal | string | number;
+export type DecimalInput = Decimal | string;
 
 /**
  * What a VALIDATED decimal is inside the engine: the canonical private string.
@@ -57,7 +52,7 @@ export interface DecimalOptions<TSchemaOut = Decimal>
  * A custom `.schema()` REFINES the Decimal the base already built; it does not
  * redefine what the field accepts or what the pipeline emits. So neither
  * computed side may take its types from the schema the way every other scalar's
- * does: input stays `Decimal | string | number`, output stays canonical text.
+ * does: input stays `Decimal | string`, output stays canonical text.
  */
 type DecimalValueOptions<Opts> =
   Opts extends ScalarOptions<any, any, any>
@@ -86,12 +81,7 @@ export interface DecimalSchema<TInput = DecimalInput, TOutput = DecimalOutput>
     | undefined;
 }
 
-/**
- * The FIELD boundary's refusal, in the value module's own words.
- *
- * The two boundaries accept the same family — this one returns issues and the
- * constructor throws — so they say the same thing, and they say it once.
- */
+/** The FIELD boundary's refusal, in the value module's own words. */
 const DECIMAL_ERROR: ValidationFailure = Object.freeze({
   issues: Object.freeze([Object.freeze({ message: DECIMAL_INPUT_REFUSAL })]),
 });

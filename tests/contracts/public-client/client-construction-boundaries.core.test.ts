@@ -9,6 +9,7 @@ import {
   type PlanningDialect,
   PlanningDriver,
 } from "@tests/fixtures/drivers/planning";
+import { DECIMAL_INPUT_REFUSAL } from "@validation/primitives/decimal-value";
 import { describe, expect, test } from "vitest";
 
 const record = s.model({
@@ -16,8 +17,13 @@ const record = s.model({
   name: s.string(),
 });
 
+const invoice = s.model({
+  id: s.string().id(),
+  total: s.decimal({ precision: 10, scale: 2 }),
+});
+
 const client = createClient({
-  schema: { record },
+  schema: { record, invoice },
   driver: new PlanningDriver("postgresql"),
 });
 
@@ -219,6 +225,24 @@ describe("unique selector validation", () => {
         model: "record",
         operation: "findUnique",
       },
+    });
+  });
+});
+
+describe("decimal input admission", () => {
+  test("a JavaScript number is refused at the field, before any statement", async () => {
+    const failure = await captureFailure(() =>
+      client.invoice.create({
+        // @ts-expect-error a decimal admits `Decimal | string`; this probes the
+        // runtime refusal a JavaScript caller reaches with a double.
+        data: { id: "invoice-1", total: 1.5 },
+      })
+    );
+
+    expect(failure).toBeInstanceOf(ValidationError);
+    expect(failure).toMatchObject({
+      operation: "create",
+      issues: [{ path: "data.total", message: DECIMAL_INPUT_REFUSAL }],
     });
   });
 });
