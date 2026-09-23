@@ -16,9 +16,12 @@
  *
  * Derivation is a FIXPOINT because a referenced key may itself be a foreign
  * key — a one-to-one child whose primary key is its parent reference is the
- * ordinary case, and a chain of them is not unusual. A cycle with no
- * declaration anywhere on it simply has no domain; it is not an error, it is a
- * schema of plain strings.
+ * ordinary case, and a chain of them is not unusual. A reference CYCLE is
+ * one answer, not several: every field on it holds every other's values, so
+ * it holds the one domain its declarations and the keys it reaches outside
+ * itself agree on, whatever order the schema lists its models in. A cycle with
+ * no declaration anywhere on it simply has no domain; it is not an error, it
+ * is a schema of plain strings.
  *
  * Two things make it fail, and both are the same failure: DISAGREEMENT. A field
  * reached through several references (a shared foreign key, a compound member,
@@ -109,9 +112,13 @@ function nameOf(ctx: ValidationContext | undefined, model: Model<any>): string {
 /**
  * Derive every foreign key's domain, and say where two answers met.
  *
- * The walk memoizes per (model, field) and marks a field IN PROGRESS while its
- * targets resolve, so a self-relation and a reference cycle terminate on their
- * own rather than through a depth budget.
+ * The unit of derivation is a STRONGLY CONNECTED COMPONENT of the reference
+ * graph, not a field. Every field on a reference cycle holds every other's
+ * values, so the component holds one domain: the one every declaration on it
+ * and every key it references outside itself agree on. Tarjan's walk settles a
+ * component only once every component it references is settled, so the answer
+ * is a function of the graph and never of the order the schema registered it
+ * in — a field is never asked about while it is still being answered.
  */
 export function deriveIdDomains(
   index: ResolvedRelationIndex,
@@ -121,86 +128,117 @@ export function deriveIdDomains(
   const domains = new Map<Model<any>, Map<string, IdDomain>>();
   const issues: SchemaValidationIssue[] = [];
   const settled = new Map<Model<any>, Map<string, IdDomain | undefined>>();
-  // Keyed by model IDENTITY, not by name: a name is for the message, and two
-  // models that happen to render the same one must not share a cycle mark.
-  const active = new Map<Model<any>, Set<string>>();
+  // Tarjan's discovery index per field. Keyed by model IDENTITY, not by name:
+  // a name is for the message, and two models that happen to render the same
+  // one must not share a node.
+  const discovered = new Map<Model<any>, Map<string, number>>();
+  const open: ReferenceTarget[] = [];
+  let discoveries = 0;
 
-  const publish = (
-    model: Model<any>,
-    field: string,
-    domain: IdDomain | undefined
-  ): IdDomain | undefined => {
-    let bySettled = settled.get(model);
+  const marker = (node: ReferenceTarget): string =>
+    `${nameOf(ctx, node.model)}.${node.field}`;
+
+  const publish = (node: ReferenceTarget, domain: IdDomain | undefined) => {
+    let bySettled = settled.get(node.model);
     if (bySettled === undefined) {
       bySettled = new Map();
-      settled.set(model, bySettled);
+      settled.set(node.model, bySettled);
     }
-    bySettled.set(field, domain);
+    bySettled.set(node.field, domain);
     if (domain !== undefined) {
-      let byField = domains.get(model);
+      let byField = domains.get(node.model);
       if (byField === undefined) {
         byField = new Map();
-        domains.set(model, byField);
+        domains.set(node.model, byField);
       }
-      byField.set(field, domain);
+      byField.set(node.field, domain);
     }
-    return domain;
+  };
+
+  /**
+   * One component's domain: its members' declarations and the settled keys it
+   * references outside itself, which must all be one. A target not yet settled
+   * is a member — Tarjan pops a component only when every edge leaving it
+   * reaches a settled one.
+   */
+  const settleComponent = (members: readonly ReferenceTarget[]) => {
+    let agreed: IdDomain | undefined;
+    let agreedFrom: string | undefined;
+    let conflicted = false;
+    for (const member of members) {
+      const own = marker(member);
+      const declared = declaredDomainOf(member.model, member.field);
+      const answers: { domain: IdDomain | undefined; from: string }[] =
+        declared === undefined ? [] : [{ domain: declared, from: own }];
+      for (const target of graph.get(member.model)?.get(member.field) ?? []) {
+        const outside = settled.get(target.model);
+        if (outside?.has(target.field) !== true) continue;
+        answers.push({
+          domain: outside.get(target.field),
+          from: marker(target),
+        });
+      }
+      for (const answer of answers) {
+        if (agreedFrom === undefined) {
+          agreed = answer.domain;
+          agreedFrom = answer.from;
+          continue;
+        }
+        if (sameIdDomain(agreed, answer.domain)) continue;
+        conflicted = true;
+        const other = answer.from === own ? agreedFrom : answer.from;
+        issues.push({
+          code: "FK012",
+          message:
+            `'${own}' would hold ${describeIdDomain2(agreed)} through '${agreedFrom}' ` +
+            `and ${describeIdDomain2(answer.domain)} through '${answer.from}'. ` +
+            "A column stores one identifier domain.",
+          severity: "error",
+          model: nameOf(ctx, member.model),
+          field: member.field,
+          candidates: [agreedFrom, answer.from],
+          repair:
+            declared === undefined
+              ? `Give every key '${own}' references the same identifier format, prefix and length`
+              : `Declare '${own}' with the same identifier format, prefix and length as '${other}', or declare nothing and let it derive`,
+        });
+      }
+    }
+    for (const member of members) {
+      publish(member, conflicted ? undefined : agreed);
+    }
+  };
+
+  /** Tarjan's walk from one field; answers the lowest discovery it reaches. */
+  const connect = (node: ReferenceTarget): number => {
+    const discovery = discoveries;
+    discoveries += 1;
+    let byField = discovered.get(node.model);
+    if (byField === undefined) {
+      byField = new Map();
+      discovered.set(node.model, byField);
+    }
+    byField.set(node.field, discovery);
+    open.push(node);
+    let lowest = discovery;
+    for (const target of graph.get(node.model)?.get(node.field) ?? []) {
+      const seen = discovered.get(target.model)?.get(target.field);
+      if (seen === undefined) {
+        lowest = Math.min(lowest, connect(target));
+      } else if (settled.get(target.model)?.has(target.field) !== true) {
+        // Discovered and not settled: still open, so on this component.
+        lowest = Math.min(lowest, seen);
+      }
+    }
+    // The root of a component: everything opened since it is the component.
+    if (lowest === discovery) settleComponent(open.splice(open.indexOf(node)));
+    return lowest;
   };
 
   const resolve = (model: Model<any>, field: string): IdDomain | undefined => {
     const cached = settled.get(model);
-    if (cached?.has(field) === true) return cached.get(field);
-
-    const declared = declaredDomainOf(model, field);
-    const targets = graph.get(model)?.get(field);
-    if (targets === undefined || targets.length === 0) {
-      return publish(model, field, declared);
-    }
-
-    let inProgress = active.get(model);
-    if (inProgress === undefined) {
-      inProgress = new Set();
-      active.set(model, inProgress);
-    }
-    if (inProgress.has(field)) {
-      // A reference that is still resolving cannot answer about itself. The
-      // declaration it may carry is the only answer there is on this arm.
-      return declared;
-    }
-    inProgress.add(field);
-    const marker = `${nameOf(ctx, model)}.${field}`;
-
-    let agreed = declared;
-    let agreedFrom = agreed === undefined ? undefined : marker;
-    let conflicted = false;
-    for (const target of targets) {
-      const targetDomain = resolve(target.model, target.field);
-      const targetMarker = `${nameOf(ctx, target.model)}.${target.field}`;
-      if (agreedFrom === undefined) {
-        agreed = targetDomain;
-        agreedFrom = targetMarker;
-        continue;
-      }
-      if (sameIdDomain(agreed, targetDomain)) continue;
-      conflicted = true;
-      issues.push({
-        code: "FK012",
-        message:
-          `'${marker}' would hold ${describeIdDomain2(agreed)} through '${agreedFrom}' ` +
-          `and ${describeIdDomain2(targetDomain)} through '${targetMarker}'. ` +
-          "A column stores one identifier domain.",
-        severity: "error",
-        model: nameOf(ctx, model),
-        field,
-        candidates: [agreedFrom, targetMarker],
-        repair:
-          declared === undefined
-            ? `Give every key '${marker}' references the same identifier format, prefix and length`
-            : `Declare '${marker}' with the same identifier format, prefix and length as '${targetMarker}', or declare nothing and let it derive`,
-      });
-    }
-    inProgress.delete(field);
-    return publish(model, field, conflicted ? undefined : agreed);
+    if (cached?.has(field) !== true) connect({ model, field });
+    return settled.get(model)?.get(field);
   };
 
   for (const [model, byField] of graph) {
