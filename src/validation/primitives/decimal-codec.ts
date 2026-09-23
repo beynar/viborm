@@ -50,11 +50,14 @@ export function sameDecimalDescriptor(
 export type DecimalPhysicalRepresentation = "text" | "coefficient";
 
 /**
- * The codec's names for four value-module seams, kept because the engine's
- * binders and result cache reach them by these names: the admission rule
+ * The codec's names for four value-module seams: the admission rule
  * (`admitDecimal`), the brand reader (`canonicalDecimalText`), the
  * grammar-skipping decode seam (`fromCanonical`) and the coefficient at a
  * scale (`toCoefficient`). Each is the same function, not a wrapper around it.
+ * They are the names every other module reaches: the language census lets only
+ * this codec and the root entry import a construction seam from the value
+ * module at runtime, so `primitives/decimal.ts`, the engine's binders, result
+ * parser and cache, and the migration readers build and admit through here.
  */
 export const canonicalizeDecimal = admitDecimal;
 export const canonicalizeMaterializedDecimal = canonicalDecimalText;
