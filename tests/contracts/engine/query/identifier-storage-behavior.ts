@@ -614,6 +614,28 @@ export function runIdentifierStorageBehavior(options: {
       expect(account?.invited.map((row: { id: string }) => row.id)).toEqual([
         ACCOUNT_C,
       ]);
+      // A RECURSIVE walk matches its root, nodes and edges by the raw key the
+      // recursive carrier holds, so that key travels in the transported
+      // spelling too — down the self-relation and back up it.
+      const down = await client.account.findUnique({
+        where: { id: ACCOUNT_A },
+        select: { id: true, invited: { recurse: true, select: { id: true } } },
+      });
+      expect(down).toEqual({
+        id: ACCOUNT_A,
+        invited: [{ id: ACCOUNT_C, invited: [] }],
+      });
+      const up = await client.account.findUnique({
+        where: { id: ACCOUNT_C },
+        select: {
+          id: true,
+          invitedBy: { recurse: true, select: { id: true } },
+        },
+      });
+      expect(up).toEqual({
+        id: ACCOUNT_C,
+        invitedBy: { id: ACCOUNT_A, invitedBy: null },
+      });
     });
 
     test("a many-to-many junction stores the two keys compactly", async () => {
