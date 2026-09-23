@@ -74,3 +74,13 @@ pins) against `engine.build`.
 Estimated size: a few hundred lines inside a 5,400-line file the engine team
 is still changing. Owner's call whether the engine team adds the identifier
 leaf before the merge, or the port lands on this branch after it.
+
+## Closed on branch `port-ids` (2026-09-23)
+
+The port landed as `raptor3/shared/identifier.ts` and its four consumers in
+`raptor3/shared/query.ts` (see `native-ids-plan.md` §"Engine seams", amended);
+`src/query-engine/builders/` is deleted and the dead-symbol gate is green.
+Measured after the port: sqlite3, pg and mysql2 `identifier-storage` 31/31
+each; `identifier-storage-sql.core.test.ts` re-spelled against `engine.build`
+(47 tests); text-stored identifiers build byte-identical SQL to the engine
+before the port (a 148-case dump over three dialects).

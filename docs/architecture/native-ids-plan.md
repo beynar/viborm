@@ -272,6 +272,25 @@ crosses seams 3, 4 and 5 like any other, and it NAMES the key it stands in for
 (`idColumnOfPrivate`) rather than reading its own scalar: those columns hold
 some model key's values, and that key's domain may be derived.
 
+> **AMENDED FOR THE RAPTOR 3 PORT (2026-09-23).** The engine that owns every
+> operation since the C-01 cutover is `src/query-engine/raptor3/`; the old
+> engine's seam owners named above are deleted, and seams 3–6 attach there:
+>
+> | Seam | Raptor 3 owner |
+> | --- | --- |
+> | resolution (1, engine side) | `raptor3/shared/identifier.ts` `identifierColumn` → `Leaf.id`, once per (adapter, model, field); a carrier column resolves through `PhysicalField.reference` |
+> | 3, parameter | `Queries.scalarValue` (`literals.id(encodePhysicalId(…))`), reached by `fieldValue` and a column target's operand (`targetValue`) |
+> | 4, projection | `identifier.ts` `transportedIdentifier` in `projectedColumn`, the junction probe and `recursiveIdentity`; the JSON carrier takes the flat spelling unchanged |
+> | 5, decode | `Queries.decodeScalar`'s identifier arm; an internal read of a text-stored domain keeps the stored spelling |
+> | 6, aggregate | `identifier.ts` `aggregatedIdentifier` in `Queries.aggregateExpression` |
+>
+> Two parts of the contract have no Raptor 3 counterpart. The DEFERRED arm of
+> seam 3 (`idLiteral` → `expressions.idCast`) is not ported: a located key is a
+> raw column sub-select, already physical, so `idCast` has no engine caller
+> and stays a pinned adapter member. The engine-side text-predicate narrowing
+> is not ported: admission is its one owner. The identity fast path of seam 5
+> does not exist in Raptor 3, whose decoder already runs every leaf.
+
 Raw SQL stays physical. Cache keys use validated (normalized) args; snapshots
 hold public strings, so the snapshot revision does not move.
 

@@ -58,34 +58,39 @@ member.
 
 A field whose format the caller NAMED — `.uuid()`, `.uuidv7()`, `.ulid()`,
 `.ksuid()`, `.nanoid()`, `.cuid()` — carries a DOMAIN, and a foreign key derives
-its target's. `builders/id-field.ts` is the one lookup: `idColumnOf(adapter,
-model, field, relations)` for a model field (a foreign key needs the index), and
-`idColumnOfPrivate(adapter, reference, relations)` for a private column — a
-junction side, a polymorphic row carrier's id column — which NAMES the key it
-stands in for and resolves it through that same lookup, because that key's own
-domain may be derived (the one-to-one child whose primary key is its parent
-foreign key) and because derivation is keyed by (model, field), never by a
-scalar instance two models may share. Both answer
-`{ domain, representation }`, and the REPRESENTATION is the adapter's
-(`result.idRepresentation`): `bytea` on PostgreSQL and `BINARY(16)` on MySQL are
-the same ULID and the engine is not allowed to know which dialect it is building
-for.
+its target's. `raptor3/shared/identifier.ts` is the one lookup, the sibling of
+`raptor3/shared/decimal.ts`: `identifierColumn(adapter, index, model, field,
+physical)` answers `{ domain, representation }` for a stored column. A declared
+scalar is its own key; a PRIVATE column — a polymorphic row carrier's id column
+— NAMES the key it stands in for (`PhysicalField.reference`, filled from the
+resolved `PolymorphicStorageColumn`) and is resolved through the same
+`idDomainOf`, because that key's own domain may be derived (the one-to-one child
+whose primary key is its parent foreign key) and derivation is keyed by (model,
+field), never by a scalar instance two models may share. A junction side needs
+no name of its own: every binding of it already goes through the referenced
+key. The REPRESENTATION is the adapter's (`result.idRepresentation`): `bytea` on
+PostgreSQL and `BINARY(16)` on MySQL are the same ULID and the engine is not
+allowed to know which dialect it is building for. The answer is cached on the
+projection leaf (`Leaf.id`), once per (adapter, model, field), beside
+`decimal` and `dateTime`.
 
 These seams touch it, and there is no format switch anywhere else:
 
 | Seam | Owner |
 | --- | --- |
-| Parameter | `builders/id-field.ts` `idLiteral` — the ONE binding, reached by `builders/values-builder.ts` (`buildScalarSqlValue`, `scalarValueLiteral`) and `write-engine/fragment-builders.ts` (`referenceScalarSql`), through `adapter.literals.id` / `expressions.idCast` |
-| Projection | `builders/scalar-transport.ts` — a byte column travels as lowercase hex, flat and inside a JSON carrier alike |
-| Aggregate | `builders/aggregate-utils.ts` `aggregateOperandExpression` — what an aggregate runs OVER, for the select list and for `having` alike; `MIN`/`MAX` take the TRANSPORTED value through the same `projectIdBytes`; see below |
-| Decode | `result/ResultParser.ts`, one chain per (scalar, column); the generic string arm never sees a physical value. `parseAggregate` takes the same lookup |
-| Operators | `builders/scalar-filter-operators.ts` and `builders/where-builder.ts` |
+| Parameter | `Queries.scalarValue` — the ONE binding, through `adapter.literals.id(encodePhysicalId(…))`, reached by `fieldValue` (writes, identities, cursors, junction sides, carrier columns) and by a COLUMN target's operand (`lowerOperation` → `targetValue`) |
+| Projection | `identifier.ts` `transportedIdentifier` — a byte column travels as lowercase hex, null-guarded, in `projectedColumn`, the junction probe and the recursive identity; the JSON carrier reads that spelling unchanged |
+| Aggregate | `identifier.ts` `aggregatedIdentifier`, called by `Queries.aggregateExpression` — what `MIN`/`MAX` run OVER, for the select list, `having` and a grouped `orderBy` alike; see below |
+| Decode | `Queries.decodeScalar`'s identifier arm (`decodePhysicalId`), for every domain field, flat or carried |
+| Operators | admission (`validation/scalars/string.ts`): a compact format has no `contains`/`startsWith`/`endsWith`/`mode`; `lowerOperation` compares a compact column as the bytes it holds, never as collated text |
+| Field references | `Queries.prepareOperand` via `identifier.ts` `incomparableIdentifiers` |
 | DDL | `src/migrations` — same `idStorageOf` the adapter's promise comes from |
 
-A DEFERRED identifier — a `Ref` into a step output — is the transport spelling,
-because a step output is a row the driver returned. `expressions.idCast` is the
-inverse of that transport, not a plain cast: it decodes the lowercase hex a byte
-column travels as. The two are one round trip and neither moves alone.
+A located value is a raw column sub-select and is already physical; the batch
+scratch carries integers only. So there is no DEFERRED identifier to cast, and
+`expressions.idCast` — the inverse of the transport spelling, which the retired
+engine applied to a `Ref` into a step output — has no engine caller. It stays a
+declared, pinned adapter member (`tests/contracts/adapters/identifier-storage.core.test.ts`).
 
 `MIN`/`MAX` aggregate the spelling the column TRAVELS in, not the one it is
 stored in, and the answer is the same: every compact format's canonical text is
@@ -93,14 +98,18 @@ fixed-width and lowercase, so its text order IS its byte order. Two facts force
 it independently — PostgreSQL 16 has no `min(uuid)` and no `max(bytea)`, and
 JSON cannot hold binary — and the null guard travels inside the aggregate with
 it, because SQLite's `hex(NULL)` is the empty string and would win every `MIN`.
+A `having` operand over an aggregate is a number at admission, so it never
+takes an identifier's spelling.
 
-A SUBSTRING is not a value of the domain: `contains`/`startsWith`/`endsWith`
-bind their operand through `scalarValueLiteral`'s explicit substring escape
-hatch, and only a text-stored domain can reach them at all. A compactly stored
-column is never collated or ASCII-folded as text, the identity fast path is off
-for every domain field, and a decoded row takes the copy policy. Captured row
-keys stay primitive canonical strings — what `fkEquals`, deduplication and the
-identity map compare. Raw SQL stays physical.
+A SUBSTRING is not a value of the domain, and only a text-stored domain can be
+asked one at all. A compactly stored column is never collated or ASCII-folded as
+text. Every domain field is decoded through the codec: publicly to its
+canonical string, prefix re-applied; internally a compact value decodes to that
+same canonical string, and a text-stored one keeps the spelling the row holds,
+so a captured key re-binds bytes that address its own row. Captured row keys
+stay primitive strings. Raw SQL stays physical. A text-stored domain binds and
+projects exactly as a plain string column
+(`tests/contracts/engine/query/identifier-storage-sql.core.test.ts`).
 
 ## DateTime semantics
 

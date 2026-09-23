@@ -143,6 +143,29 @@ decode leaf, which refuses to hand a list's native type to a literal. Every
 other scalar crosses a container exactly as it crosses its column. Do not add
 an operator-local converter for `has`.
 
+*Addendum (identifier storage, 2026-09-23).* An identifier column's physical
+form is the third such fact, and it is a fact of the COLUMN, not of the scalar:
+a foreign key DERIVES its domain from the key it references, and a polymorphic
+row carrier's id column names the key it stands in for
+(`PhysicalField.reference`). `shared/identifier.ts` resolves it once per
+(adapter, model, field) onto `Leaf.id`, beside `decimal` and `dateTime`, and
+its four consumers read that leaf: `scalarValue` binds a COMPACT identifier
+(payload bytes, or a PostgreSQL `uuid`) through `adapter.literals.id` — reached
+by `fieldValue` and by a column target's operand, never by an aggregate's
+`having` operand, which admission types as a number; `projectedColumn`, the
+junction probe and `recursiveIdentity` carry a byte column as lowercase hex
+(`transportedIdentifier`, null-guarded because SQLite's `hex(NULL)` is `''`);
+`aggregateExpression` runs `MIN`/`MAX` over that transported text
+(`aggregatedIdentifier` — PostgreSQL has no `min(uuid)`/`max(bytea)`); and
+`decodeScalar` turns every domain field's physical value into the canonical
+public string, keeping a text-stored value's own spelling on an INTERNAL read
+exactly as the datetime arm does (FC-02B). A text-stored domain takes the
+ordinary string arms everywhere and builds the SQL a plain string column
+builds. The encode arm's out-of-domain case is an invariant (admission
+canonicalizes every identifier operand; a captured key decodes to the
+canonical string), and the text-predicate narrowing is admission's alone
+(`validation/scalars/string.ts`), so there is no operator switch here for it.
+
 `Queries.wholeValue` is the one answer to "does an admitted scalar payload name
 a whole value?". A non-plain object is one whole value in EVERY domain — a
 `Uint8Array`, `Decimal` or `Date` inherits methods with the same names, and a

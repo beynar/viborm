@@ -328,8 +328,16 @@ export interface DatabaseAdapter {
 
     /**
      * Bind a DEFERRED identifier back into its column's physical type — the
-     * INVERSE of the transport spelling {@link projectScalarForTransport}
-     * publishes.
+     * INVERSE of the transport spelling a byte column travels in (lowercase
+     * hex, `query-engine/raptor3/shared/identifier.ts`
+     * `transportedIdentifier`).
+     *
+     * NO ENGINE CALLER since the Raptor 3 port: that engine has no deferred
+     * identifier — a located key is a raw column sub-select, already physical,
+     * and the batch scratch carries integers only. The member stays declared
+     * and pinned (`tests/contracts/adapters/identifier-storage.core.test.ts`)
+     * until its owner retires or re-adopts it; the provenance below is the
+     * retired engine's.
      *
      * The sibling of {@link DatabaseAdapter.expressions.decimalCast}, and
      * needed for the same reason: a relation key whose value does not exist at

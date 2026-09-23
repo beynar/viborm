@@ -1904,7 +1904,12 @@ the field round-trips as a bare `{"type":"string"}`. Not reachable from
 from any hand-authored or externally produced document.
 
 **The engine's text-predicate refusal
-(`query-engine/builders/scalar-filter-operators.ts`).** Not a new guard: the
+(`query-engine/builders/scalar-filter-operators.ts`).** *RETIRED by the Raptor 3
+port (2026-09-23): admission (`validation/scalars/string.ts`,
+`buildCompactIdFilterSchema`) is the one owner, raptor3 keeps no second
+operator switch (`raptor3/AGENTS.md`), and the pins now state the refusal as
+admission's `ValidationError` (`identifier-storage-sql.core.test.ts`). What
+follows is the retired engine's reasoning.* Not a new guard: the
 existing `assertSupportedScalarFilterOperator` gains a narrower operator set for
 a compactly stored identifier, and a message that says why rather than
 "unsupported". The validation schema already removed the four operators from the
@@ -1913,7 +1918,17 @@ trusted internal program can reach without one, exactly as every other entry in
 that function is.
 
 **The encode-side refusals (`query-engine/builders/id-field.ts`
-`encodeIdValue`).** Two, and each names a case the other cannot. `Identifier
+`encodeIdValue`).** *Became ONE INVARIANT in the Raptor 3 port (2026-09-23):
+`raptor3/shared/identifier.ts` `encodeIdentifier`, an `assertInvariant`, not a
+refusal (N4). Every path the two sentences below named is, in raptor3, a value
+admission canonicalized (a `{ set }` crosses the validated base schema; filter
+operands, cursors, unique selectors and connect keys are validated) or a
+captured row key the decoder returned as the canonical public string; a
+relation-correlated key is a raw column sub-select that never reaches the
+encoder, and `referenceSql`'s deferred `Ref` has no raptor3 counterpart. The
+provider cell "a value outside the declared domain is refused, not stored" is
+answered by admission. What follows is the retired engine's reasoning.* Two, and
+each names a case the other cannot. `Identifier
 field '…' received <typeof>`: a NON-STRING reached a binding for a column whose
 values are strings — a value that never crossed the field's schema, which is the
 only thing that could have typed it (a `set` inside an atomic update object, a
@@ -1925,7 +1940,9 @@ the same seam — a value with no bytes has no binding, and writing one would
 store a row no read could return.
 
 **The decode-side refusal (`query-engine/result/ResultParser.ts`
-`createFieldChain`).** Unique coverage: a PHYSICAL value the column's codec
+`createFieldChain`; since the Raptor 3 port, `raptor3/shared/query.ts`
+`decodeScalar`'s identifier arm, `InvalidScalarResult("string", "the value is
+not in this column's declared identifier domain")`).** Unique coverage: a PHYSICAL value the column's codec
 cannot name — bytes of the wrong width, text outside the domain, a shape no
 driver spelling normalizes. It is not the generic malformed-string arm beside
 it, which asks only whether the driver returned a string at all; this one asks
@@ -2002,7 +2019,10 @@ in) and not `FK012` (two answers to what a column holds): both of those are
 schema facts decided at resolution, and this one is a fact about the call.
 
 **`assertComparableIdStorage` (`query-engine/builders/where-builder.ts`,
-reached from `fieldRefColumn`).** Unique coverage: a FIELD REFERENCE operand
+reached from `fieldRefColumn`; since the Raptor 3 port,
+`raptor3/shared/query.ts` `Queries.prepareOperand`, beside the decimal-domain
+refusal it twins, with its sentence built by `raptor3/shared/identifier.ts`
+`incomparableIdentifiers` — the same words).** Unique coverage: a FIELD REFERENCE operand
 whose column does not spell one public value the way the filtered column does —
 one side compact or `uuid`-typed and the other plain text, or two compact
 columns of different domains, where equal payload bytes stand for different

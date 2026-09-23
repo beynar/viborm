@@ -144,7 +144,7 @@ owns exactly three statements about that:
 | --- | --- |
 | `result.idRepresentation(domain, nativeType)` | what the column physically holds here — `"text"`, `"uuid"` or `"bytes"` |
 | `literals.id(physical, representation)` | how an operand in that form BINDS |
-| `expressions.idCast(expr, representation)` | how a DEFERRED value is cast into the column's type |
+| `expressions.idCast(expr, representation)` | how a DEFERRED value is cast into the column's type (no engine caller since the Raptor 3 port; see below) |
 
 All three derive from `@schema/scalars/string/id-domain`'s `idStorageOf`, which
 is also where the migration column type comes from — so the column a push
@@ -155,10 +155,21 @@ adapter: the value arrives already encoded by the codec.
 A PostgreSQL `uuid` operand is TYPED (`CAST($1 AS UUID)`) because there is no
 `uuid = text` operator; every byte-stored column takes the payload as the
 ordinary binary parameter blob scalars already bind, so nine drivers' nine
-binary spellings stay the drivers' business. `idCast` exists for the same reason
-`decimalCast` does: a relation key whose value does not exist at build time
-cannot go through `literals.id`, and the generic `text` cast names a type the
-column does not have.
+binary spellings stay the drivers' business. `idCast` was written for the same
+reason `decimalCast` was: a relation key whose value does not exist at build
+time cannot go through `literals.id`. The engine that replaced the one that
+needed it has no such value — a located key is a raw column sub-select, already
+physical — so `idCast` has NO engine caller since the Raptor 3 port
+(`query-engine/raptor3/shared/identifier.ts`). It remains a declared member,
+pinned by `tests/contracts/adapters/identifier-storage.core.test.ts`, until its
+owner retires or re-adopts it.
+
+The engine's half: `result.idRepresentation` is read once per column into the
+projection leaf; `literals.id` is the one binding (`Queries.scalarValue`); and
+`expressions.blobToHex` is how a byte column TRAVELS, flat and inside a JSON
+carrier, and what `MIN`/`MAX` run over — with `expressions.cast(…, "text")` for
+a PostgreSQL `uuid` inside an aggregate, which PostgreSQL has no `min(uuid)`
+for.
 
 ### Rule 8: GeoPoint Is One Settled Protocol
 
