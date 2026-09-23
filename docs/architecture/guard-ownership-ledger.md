@@ -2098,8 +2098,8 @@ call to `validateGeoPoint` now propagates it. The one direct caller outside a
 boundary, `parsePointValue` (`src/query-engine/result/scalar-structured-parser.ts`),
 reads provider rows, which are plain values decoded from JSON. Witnesses:
 `tests/unit/validation/point.core.test.ts` ("reads the point as an ordinary
-record", "names the offending key", "refuses a coordinate removed after the key
-snapshot").
+record", "names the offending key", "refuses a coordinate removed while the point
+is read").
 
 **Kept normalization: longitude `-180` becomes `180`** (`validateGeoPoint`).
 Consumers: the SQLite CHECK in `src/migrations/drivers/sqlite/geo-point.ts`

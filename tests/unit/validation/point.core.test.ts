@@ -136,7 +136,7 @@ describe("GeoPoint validation boundary", () => {
     }
   });
 
-  test("refuses a coordinate removed after the key snapshot", () => {
+  test("refuses a coordinate removed while the point is read", () => {
     const value = Object.defineProperties(
       {},
       {

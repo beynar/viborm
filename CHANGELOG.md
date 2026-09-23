@@ -10,9 +10,10 @@ Versioning.
 ### Geo: a geographic value is validated as the record VibORM returns
 
 A `GeoPoint`, `GeoBounds` or `GeoArea` argument is now read by the same record
-walker as every other object operand, not by a bespoke reader. The accepted
-values are unchanged for ordinary input; what changes is the posture toward
-unusual objects and the wording of refusals.
+walker as every other object operand, not by a bespoke reader. For points and
+bounds the accepted values are unchanged for ordinary input; what changes is
+the posture toward unusual objects and the wording of refusals. Polygons are
+checked for their shape only, and the database judges their geometry.
 
 - Refusals name the key: `{ longitude, latitude, latitdue }` fails with
   `Unknown key: latitdue` at path `latitdue` (was `Expected GeoPoint with
@@ -51,8 +52,8 @@ unusual objects and the wording of refusals.
 - A polygon without `outer` fails with `Missing required field: outer` (was
   `Expected GeoPolygon with outer and optional holes`), and a ring that is not
   an array with `Expected array` (was `Expected outer ring array`). A ring is
-  read by index like every array operand: an empty slot in a sparse ring fails as
-  `Expected object` at its index, and an inherited index is read.
+  read by index like every array operand: an empty slot in a sparse ring fails
+  as `Expected object` at its index, and an inherited index is read.
 - Polygon rings are sent in the order given. VibORM no longer rewinds the outer
   ring counterclockwise and holes clockwise; PostGIS `geography` and MySQL
   SRID 4326 decide the interior without regard to winding. The bound GeoJSON
