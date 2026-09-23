@@ -1,19 +1,19 @@
 import {
   assembleAdapterSelect,
-  getAdapterInternals
+  getAdapterInternals,
 } from "@adapters/adapter-internals";
 import type { AnyDriver } from "@drivers";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   bindExecutionTransactionPhases,
-  deriveStatementExecutionContext
+  deriveStatementExecutionContext,
 } from "@drivers/execution-context";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import type {
   BatchQuery,
   QueryExecutionContext,
-  QueryResult
+  QueryResult,
 } from "@drivers/types";
 import {
   attachRecordSeriesProgress,
@@ -26,24 +26,21 @@ import {
   retainWriteOutcomeFailure,
   TransactionError,
   UniqueConstraintError,
-  VibORMErrorCode
+  VibORMErrorCode,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import {
   compileBindBudgetChunks,
-  normalizedBindParameterLimit
+  normalizedBindParameterLimit,
 } from "../../bind-budget";
-import type {
-  PreparedBatchGuard,
-  PreparedBatchOperation
-} from "../../types";
+import type { PreparedBatchGuard, PreparedBatchOperation } from "../../types";
 import {
   InvalidScalarResult,
-  Queries,
   type PreparedProjection,
   type PreparedSelector,
   type ProjectionShape,
+  Queries,
   type Query,
   type Read,
   returningSafeProjection,
@@ -54,7 +51,7 @@ import {
   type Input,
   isReadOperation,
   type Operation,
-  record
+  record,
 } from "./schema";
 import { type Membership, physicalField } from "./storage";
 import { type ScratchPublication, TransportAttempt } from "./transport-attempt";
@@ -69,7 +66,7 @@ export type Member = object;
 const ATOMIC_RESOLUTION_OPERATIONS: ReadonlySet<string> = new Set([
   "update",
   "delete",
-  "upsert"
+  "upsert",
 ]);
 
 export type MemberRollback = <T>(
@@ -380,22 +377,30 @@ export class OperationContext {
       "Raptor 3 operation requires its physical envelope"
     ));
   }
+  readonly schema: EngineSchema;
+  readonly modelName: string;
+  readonly operation: Operation;
+  /**
+   * The caller's own trusted execution context. It already carries this
+   * operation's model, verb, correlation id, instrumentation and resolved
+   * extension chain, and the chain is held by the identity of that exact
+   * object, so the candidate passes it through rather than minting a second
+   * attribution (g4/unit03/note.md B-4).
+   */
+  private readonly callerAttribution: QueryExecutionContext | undefined;
   constructor(
-    readonly schema: EngineSchema,
+    schema: EngineSchema,
     factoryDriver: AnyDriver,
-    readonly modelName: string,
-    readonly operation: Operation,
+    modelName: string,
+    operation: Operation,
     binding?: ExecutionBinding,
     prepareBatch = false,
-    /**
-     * The caller's own trusted execution context. It already carries this
-     * operation's model, verb, correlation id, instrumentation and resolved
-     * extension chain, and the chain is held by the identity of that exact
-     * object, so the candidate passes it through rather than minting a second
-     * attribution (g4/unit03/note.md B-4).
-     */
-    private readonly callerAttribution?: QueryExecutionContext
+    callerAttribution?: QueryExecutionContext
   ) {
+    this.schema = schema;
+    this.modelName = modelName;
+    this.operation = operation;
+    this.callerAttribution = callerAttribution;
     this.ownership = prepareBatch
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
@@ -421,7 +426,7 @@ export class OperationContext {
       this.callerAttribution ?? {
         model: this.modelName,
         operation: this.operation,
-        correlationId: this.correlationId
+        correlationId: this.correlationId,
       }
     );
   }
@@ -434,7 +439,7 @@ export class OperationContext {
     return {
       model: this.modelName,
       operation: this.operation,
-      correlationId: this.correlationId
+      correlationId: this.correlationId,
     };
   }
   /**
@@ -474,7 +479,7 @@ export class OperationContext {
     // not carry the provenance silently drops every deferred transform.
     const query = transferPreparedStatement(prepared, {
       ...prepared,
-      context
+      context,
     });
     this.attempt.pending.push(query);
     if (member) this.attempt.recordMember(member);
@@ -600,7 +605,8 @@ export class OperationContext {
       : outer.withTransaction(withinRollback, undefined, this.attribution);
   }
   suppressionRefusal(): TransactionError | undefined {
-    return (this.ownership === "borrowed-transaction" && !this.memberRollback) ||
+    return (this.ownership === "borrowed-transaction" &&
+      !this.memberRollback) ||
       this.ownership === "batch-preparation" ||
       this.usesBatch
       ? new TransactionError(
@@ -609,8 +615,8 @@ export class OperationContext {
             meta: {
               driver: this.driver.driverName,
               model: this.modelName,
-              operation: this.operation
-            }
+              operation: this.operation,
+            },
           }
         )
       : undefined;
@@ -673,7 +679,7 @@ export class OperationContext {
           ...(attribution ? { totalMembers: attribution.totalMembers } : {}),
           ...(this.mayHaveCommittedSegment
             ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
-            : {})
+            : {}),
         })
       : failure;
   }
@@ -731,7 +737,9 @@ export class OperationContext {
   }
   /** Run the operation inside the one region it owns. */
   private async withinRegion<T>(
-    region: (execute: (driver: AnyDriver) => Promise<unknown>) => Promise<unknown>,
+    region: (
+      execute: (driver: AnyDriver) => Promise<unknown>
+    ) => Promise<unknown>,
     body: () => Promise<T>
   ): Promise<T> {
     this.openRegionPhase();
@@ -1355,7 +1363,9 @@ export class OperationContext {
           statements,
           undefined,
           this.attribution,
-          this.driver.supportsOrderedCommittedSegments ? acknowledged : undefined
+          this.driver.supportsOrderedCommittedSegments
+            ? acknowledged
+            : undefined
         )
       );
       if (!this.driver.supportsOrderedCommittedSegments) await acknowledged();
@@ -1560,7 +1570,7 @@ export class OperationContext {
           "",
           {
             code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
-            cause: error
+            cause: error,
           }
         );
       }
@@ -1713,7 +1723,7 @@ export class OperationContext {
       {
         select: Object.fromEntries(
           this.schema.keys(model).map((field) => [field, true])
-        )
+        ),
       },
       undefined,
       { selector }
@@ -1730,10 +1740,10 @@ export class OperationContext {
         // (`batch-error-attribution.ts`), where being CONSTANT per model and
         // verb is what makes two guards of the same shape agree.
         message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
-        raceable: false
+        raceable: false,
       },
       model: model["~"].names.ts!,
-      operation: this.operation
+      operation: this.operation,
     });
     this.queue(
       this.driver.adapter.assertions.exists(probe.sql),
@@ -1848,13 +1858,13 @@ export class OperationContext {
         transferPreparedStatement(query, {
           sql: query.sql,
           params: query.params ?? [],
-          context: query.context ?? this.attribution
+          context: query.context ?? this.attribution,
         })
       ),
       ...(this.preparedGuardList?.length
         ? { guards: this.preparedGuardList }
         : {}),
-      parseResult: this.preparedParser
+      parseResult: this.preparedParser,
     };
   }
   private async setMutation(
@@ -2042,7 +2052,7 @@ export class OperationContext {
     model: AnyModel,
     columns: readonly string[],
     rows: readonly Input[],
-    skipDuplicates = false,
+    skipDuplicates = false
   ): Sql {
     const q = this.queries;
     const mutations = this.driver.adapter.mutations;
@@ -2054,9 +2064,9 @@ export class OperationContext {
       q.table(model),
       columns.map((field) => q.columnName(model, field)),
       rows.map((row) =>
-        columns.map((field) => q.fieldValue(model, field, row[field])),
+        columns.map((field) => q.fieldValue(model, field, row[field]))
       ),
-      duplicate?.prefix,
+      duplicate?.prefix
     );
     return duplicate?.suffix
       ? sql`${statement} ${duplicate.suffix}`
@@ -2067,12 +2077,12 @@ export class OperationContext {
     model: AnyModel,
     statement: Sql,
     projection?: PreparedProjection,
-    single?: () => Error,
+    single?: () => Error
   ): Promise<unknown> {
     const q = this.queries;
     const output = projection
       ? sql`${statement} ${this.driver.adapter.mutations.returning(
-          sql.join(q.lowerProjection(projection).columns, ", "),
+          sql.join(q.lowerProjection(projection).columns, ", ")
         )}`
       : statement;
     return this.setMutation(
@@ -2083,11 +2093,11 @@ export class OperationContext {
           ? this.published(
               this.publishedProjection(
                 projection.shape,
-                result.rows.map(record),
+                result.rows.map(record)
               ),
-              single,
+              single
             )
-          : { count: result.rowCount },
+          : { count: result.rowCount }
     );
   }
   async createMany(
@@ -2118,7 +2128,8 @@ export class OperationContext {
       recoverableSkip ||
       (projection && !adapter.capabilities.supportsReturning)
     ) {
-      if (this.ownership === "batch-preparation") throw this.incompletePreparation;
+      if (this.ownership === "batch-preparation")
+        throw this.incompletePreparation;
       if (recoverableSkip) this.requireSuppression();
       const identityPlans = projection
         ? rows.map((row) => {
@@ -2169,10 +2180,12 @@ export class OperationContext {
         if (!identityPlans) continue;
         const generated = identityPlans[index];
         if (generated && response.insertId === undefined)
-          throw new TypeError("INSERT did not produce the required record identity");
+          throw new TypeError(
+            "INSERT did not produce the required record identity"
+          );
         identities.push({
           ...this.schema.identity(model, row),
-          ...(generated ? { [generated]: response.insertId } : {})
+          ...(generated ? { [generated]: response.insertId } : {}),
         });
       }
       if (!projection) return { count };
@@ -2212,7 +2225,7 @@ export class OperationContext {
           if (returning) statement = sql`${statement} ${returning}`;
           statements.push({
             sql: statement,
-            context: this.statementContext(model, this.operation)
+            context: this.statementContext(model, this.operation),
           });
         }
         continue;
@@ -2225,7 +2238,7 @@ export class OperationContext {
             model,
             group.columns,
             group.rows.slice(start, end),
-            skipDuplicates,
+            skipDuplicates
           );
           return returning ? sql`${mutation} ${returning}` : mutation;
         }
@@ -2233,7 +2246,7 @@ export class OperationContext {
       for (const chunk of chunks)
         statements.push({
           sql: chunk.statement,
-          context: this.statementContext(model, this.operation)
+          context: this.statementContext(model, this.operation),
         });
     }
     return this.setMutations(statements, (results) => {
@@ -2306,7 +2319,7 @@ export class OperationContext {
       model,
       sql`${insert} ${conflict}`,
       projection,
-      single,
+      single
     );
   }
   async updateMany(
@@ -2430,10 +2443,7 @@ export class OperationContext {
     }
     this.packagedPresence(model, selector, single);
     const limited = q.lowerMutationLimit(model, selector, limit);
-    const mutation = adapter.mutations.delete(
-      q.table(model),
-      limited.where
-    );
+    const mutation = adapter.mutations.delete(q.table(model), limited.where);
     const statement = limited.suffix
       ? sql`${mutation} ${limited.suffix}`
       : mutation;
@@ -2451,7 +2461,7 @@ export class OperationContext {
       model,
       {
         select: Object.fromEntries(keys.map((field) => [field, true])),
-        take: limit
+        take: limit,
       },
       undefined,
       { selector, forUpdate: !this.usesBatch }
@@ -2514,8 +2524,8 @@ export class OperationContext {
       q.select(model, { take: 1 }, undefined, {
         selector: q.andSelectors(model, [
           selector,
-          q.excludeIdentities(model, identities)
-        ])
+          q.excludeIdentities(model, identities),
+        ]),
       }),
       changed()
     );
@@ -2623,17 +2633,19 @@ export class OperationContext {
   ): Input {
     const q = this.queries;
     return Object.fromEntries(
-      this.schema.keys(model).map((field) => [
-        field,
-        Object.hasOwn(values, field)
-          ? q.updateValue(
-              model,
-              field,
-              values[field],
-              q.fieldValue(model, field, identity[field])
-            )
-          : identity[field]
-      ])
+      this.schema
+        .keys(model)
+        .map((field) => [
+          field,
+          Object.hasOwn(values, field)
+            ? q.updateValue(
+                model,
+                field,
+                values[field],
+                q.fieldValue(model, field, identity[field])
+              )
+            : identity[field],
+        ])
     );
   }
   /**
@@ -2758,7 +2770,7 @@ export class OperationContext {
     if (!this.usesBatch) {
       const producedProjection = produced.length
         ? q.prepareProjection(model, {
-            select: Object.fromEntries(produced.map((field) => [field, true]))
+            select: Object.fromEntries(produced.map((field) => [field, true])),
           })
         : undefined;
       const insertIdField = adapter.capabilities.supportsReturning
@@ -2800,7 +2812,7 @@ export class OperationContext {
         throw new TypeError("INSERT did not produce the required record");
       return {
         ...values,
-        ...producedValues
+        ...producedValues,
       };
     }
     // The row this one is a MEMBER of, re-pinned in every segment AFTER the one
@@ -2854,7 +2866,7 @@ export class OperationContext {
           );
         // The next segment must prove the actual stored owner, including supplied row-key fields.
         const returned = [
-          ...new Set([...this.schema.keys(model), ...demanded])
+          ...new Set([...this.schema.keys(model), ...demanded]),
         ];
         const select = Object.fromEntries(
           returned.map((field) => [field, true])
@@ -2953,7 +2965,7 @@ export class OperationContext {
     member: Member,
     operation = "update",
     demanded: ReadonlySet<string> = new Set(),
-    missing?: () => Error,
+    missing?: () => Error
   ): Promise<Input> {
     if (Object.keys(values).length === 0) return {};
     const q = this.queries;
@@ -3093,12 +3105,12 @@ export class OperationContext {
     // and the value comes back decoded, a literal for the consumer's own write
     // in the next batch (D-51's succession of statements).
     const projection = q.prepareProjection(model, {
-      select: Object.fromEntries(observed.map((field) => [field, true]))
+      select: Object.fromEntries(observed.map((field) => [field, true])),
     });
     const rows = await this.flush(
       q.select(model, {}, undefined, {
         projection,
-        identity: this.updatedIdentity(model, identity, values)
+        identity: this.updatedIdentity(model, identity, values),
       }),
       member
     );
@@ -3135,12 +3147,12 @@ export class OperationContext {
       Object.fromEntries([
         ...edge.sourceSide.members.map((pair) => [
           pair.junctionField,
-          source[pair.referencedField]
+          source[pair.referencedField],
         ]),
         ...edge.targetSide.members.map((pair) => [
           pair.junctionField,
-          target[pair.referencedField]
-        ])
+          target[pair.referencedField],
+        ]),
       ]),
       member
     );
@@ -3178,7 +3190,7 @@ export class OperationContext {
     const q = this.queries;
     const columns = [
       ...edge.sourceSide.members,
-      ...edge.targetSide.members
+      ...edge.targetSide.members,
     ].map((pair) => pair.junctionField);
     if (captured) {
       if (columns.every((field) => Object.is(captured[field], values[field]))) {
@@ -3248,7 +3260,7 @@ export class OperationContext {
           adapter.joins.left(
             adapter.identifiers.table(edge.table, membershipAlias),
             q.junctionWhere(edge, values, membershipAlias)
-          )
+          ),
         ],
         where: adapter.operators.and(
           ...edge.targetSide.members.map((pair) =>
@@ -3264,7 +3276,7 @@ export class OperationContext {
           adapter.operators.isNull(
             adapter.identifiers.column(membershipAlias, columns[0]!)
           )
-        )
+        ),
       });
       await this.effect(
         adapter.mutations.insert(
@@ -3337,7 +3349,7 @@ export class OperationContext {
       const conditions: Sql[] = [];
       for (const [side, values] of [
         [edge.sourceSide, source],
-        [edge.targetSide, target]
+        [edge.targetSide, target],
       ] as const) {
         if (!values) continue;
         conditions.push(...q.junctionSideConditions(side, undefined, values));
@@ -3348,11 +3360,7 @@ export class OperationContext {
             a.operators.or(
               ...keep.map((row) =>
                 a.operators.and(
-                  ...q.junctionSideConditions(
-                    edge.targetSide,
-                    undefined,
-                    row,
-                  ),
+                  ...q.junctionSideConditions(edge.targetSide, undefined, row)
                 )
               )
             )
@@ -3380,7 +3388,7 @@ export class OperationContext {
             a.operators.eq(
               q.column(edge.target, edge.discriminator.field),
               q.value(edge.discriminator.value)
-            )
+            ),
           ]
         : []),
       ...(target
@@ -3395,15 +3403,14 @@ export class OperationContext {
         ? [
             a.operators.not(
               a.operators.or(
-                ...keep.map(
-                  (row) =>
-                    q.lowerIdentity(
-                      edge.target,
-                      this.schema.identity(edge.target, row)
-                    )
+                ...keep.map((row) =>
+                  q.lowerIdentity(
+                    edge.target,
+                    this.schema.identity(edge.target, row)
+                  )
                 )
               )
-            )
+            ),
           ]
         : [])
     );
