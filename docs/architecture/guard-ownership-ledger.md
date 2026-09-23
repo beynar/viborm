@@ -2162,10 +2162,18 @@ the JSON Schema projection states the same minimum as `minItems`. Falsifier:
 removing it fails "still refuses a ring shorter than three vertices before any
 SQL" (`geopoint-sql.core.test.ts`).
 
-**Winding normalization (outer counterclockwise, holes clockwise).** Kept at
-this step as output normalization, computed by `signedArea` over longitudes
-unwrapped across the antimeridian; it is not a refusal and judges nothing. Its
-retirement is the next, separately revertible step.
+**Retired: winding normalization** (outer counterclockwise, holes clockwise,
+computed by `signedArea` over longitudes unwrapped across the antimeridian).
+It was output normalization, not a refusal, and it was retired in its own
+commit so that it can be reverted alone. Invariant: PostGIS `geography` and
+MySQL SRID 4326 decide a polygon's interior without regard to ring
+orientation. Falsifier (Docker only, not runnable in the provider-free
+lanes): `tests/contracts/drivers/behaviors/geopoint-behavior.ts`, "includes
+polygon boundaries and excludes holes", whose last assertion sends the outer
+ring and the hole reversed and expects the same members, on pg, postgres and
+mysql2; `tests/providers/docker/mysql2.test.ts` sends a counterclockwise hole.
+If MySQL answers differently, the reversal returns as a kept normalization
+naming `withinPolygon` in `src/adapters/databases/mysql/mysql-adapter.ts`.
 
 **Kept output normalization: `holes: []` is omitted** (`validateGeoPolygon`).
 An empty and an absent hole list emit the same GeoJSON; one spelling keeps them

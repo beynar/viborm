@@ -130,45 +130,17 @@ const polygonRecord = object(
 );
 
 /**
- * Twice the signed planar area over longitudes unwrapped across the
- * antimeridian: positive for a counterclockwise ring.
- */
-function signedArea(ring: readonly GeoPoint[]): number {
-  let twiceArea = 0;
-  let first: { x: number; y: number } | undefined;
-  let previous: { x: number; y: number } | undefined;
-  for (const { longitude, latitude } of ring) {
-    let x = longitude;
-    if (previous) {
-      while (x - previous.x > 180) x -= 360;
-      while (x - previous.x < -180) x += 360;
-      twiceArea += previous.x * latitude - x * previous.y;
-    }
-    previous = { x, y: latitude };
-    first ??= previous;
-  }
-  if (first && previous) {
-    twiceArea += previous.x * first.y - first.x * previous.y;
-  }
-  return twiceArea;
-}
-
-function wound(ring: GeoPoint[], counterClockwise: boolean): GeoPoint[] {
-  return signedArea(ring) < 0 === counterClockwise ? ring.reverse() : ring;
-}
-
-/**
  * The polygon's shape only: exact keys, finite in-range vertices, at least
- * three per ring. Geometric validity (self-intersection, hole placement, poles,
- * extent) is the database's execution fact.
+ * three per ring, in input order. Geometric validity (self-intersection, hole
+ * placement, poles, extent) and the interior a winding encloses are the
+ * database's execution facts.
  */
 export function validateGeoPolygon(
   value: unknown
 ): ValidationResult<GeoPolygon> {
   const polygon = validateSchema(polygonRecord, value);
   if (polygon.issues) return polygon;
-  const outer = wound(polygon.value.outer, true);
-  const holes = polygon.value.holes?.map((hole) => wound(hole, false));
+  const { outer, holes } = polygon.value;
   // An empty and an absent holes list emit the same GeoJSON; one spelling
   // keeps them one validated argument, and so one cache key.
   return ok(holes?.length ? { outer, holes } : { outer });

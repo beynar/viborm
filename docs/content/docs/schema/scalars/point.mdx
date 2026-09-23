@@ -138,8 +138,10 @@ const places = await db.place.findMany({
 
 Rings are open: do not repeat the first vertex at the end. VibORM closes each
 ring once, so a repeated closing vertex is sent as written and closed again.
-Input winding does not matter. Membership includes the outer boundary and every
-hole boundary; a point strictly inside a hole does not match.
+Input winding does not matter: VibORM sends rings in the order given, and
+PostgreSQL and MySQL decide the interior regardless of orientation. Membership
+includes the outer boundary and every hole boundary; a point strictly inside a
+hole does not match.
 
 VibORM checks the polygon's shape: exactly `outer` and optional `holes`, finite
 in-range vertices, and at least three vertices per ring. Geometric validity is

@@ -195,7 +195,7 @@ describe("GeoPoint adapter SQL", () => {
     expect(sqlite.values).toEqual([12, 34]);
   });
 
-  test("binds canonical polygons and never concatenates caller geometry", () => {
+  test("binds polygons in input order and never concatenates caller geometry", () => {
     const expectedPolygon = JSON.stringify({
       type: "Polygon",
       coordinates: [
@@ -207,11 +207,11 @@ describe("GeoPoint adapter SQL", () => {
           [170, -10],
         ],
         [
-          [175, 2],
-          [-175, 2],
-          [-175, -2],
           [175, -2],
+          [-175, -2],
+          [-175, 2],
           [175, 2],
+          [175, -2],
         ],
       ],
     });
@@ -612,9 +612,8 @@ describe("GeoPoint query lowering", () => {
   /**
    * Polygon validity is the database's execution fact. Each input below was
    * refused by a VibORM geometry pre-check before decision D2; it now passes
-   * admission and reaches the adapter emission unchanged, rings closed once.
-   * Holes are written clockwise and outers counterclockwise, so the emitted
-   * order is the input order.
+   * admission and reaches the adapter emission unchanged: rings in input
+   * order, each closed once.
    */
   const g = (longitude: number, latitude: number) => ({ longitude, latitude });
   const square = [g(0, 0), g(4, 0), g(4, 4), g(0, 4)];

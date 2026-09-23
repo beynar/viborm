@@ -53,6 +53,10 @@ unusual objects and the wording of refusals.
   an array with `Expected array` (was `Expected outer ring array`). A ring is
   read by index like every array operand: an empty slot in a sparse ring fails as
   `Expected object` at its index, and an inherited index is read.
+- Polygon rings are sent in the order given. VibORM no longer rewinds the outer
+  ring counterclockwise and holes clockwise; PostGIS `geography` and MySQL
+  SRID 4326 decide the interior without regard to winding. The bound GeoJSON
+  text therefore follows the input order.
 - Unchanged: longitude `-180` still becomes `180`, `-0` still becomes `0`, and
   `holes: []` is still the same argument as no `holes`.
 
