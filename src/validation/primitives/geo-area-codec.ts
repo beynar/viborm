@@ -1,24 +1,22 @@
 import type { ValidationResult, VibSchema } from "../types";
 import {
+  geoLatitude,
+  geoLongitude,
   prefixGeoFailure,
-  readExactGeoRecord,
   readGeoRecordWithOptional,
-  readGeoVariantRecord,
   validateGeoPoint,
 } from "./geo-point-codec";
 import {
   GEO_BOUNDS_KEYS,
   GEO_LATITUDE_MAX,
-  GEO_LATITUDE_MIN,
-  GEO_LONGITUDE_MAX,
-  GEO_LONGITUDE_MIN,
   GEO_POLYGON_MIN_RING_POINTS,
   type GeoArea,
   type GeoBounds,
   type GeoPoint,
   type GeoPolygon,
 } from "./geo-values";
-import { createSchema, fail, ok } from "./helpers";
+import { createSchema, fail, ok, validateSchema } from "./helpers";
+import { object } from "./object";
 
 export type { GeoArea, GeoBounds, GeoPolygon } from "./geo-values";
 
@@ -95,65 +93,27 @@ function prefix<T>(
   return result.issues ? prefixGeoFailure(result, path) : result;
 }
 
-function finiteBound(
-  values: Readonly<Record<string, unknown>>,
-  key: keyof GeoBounds,
-  low: number,
-  high: number
-): ValidationResult<number> {
-  const value = values[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fail(`Expected finite ${key}`, [key]);
-  }
-  if (value < low || value > high) {
-    return fail(`${key} must be between ${low} and ${high}`, [key]);
-  }
-  return ok(Object.is(value, -0) ? 0 : value);
-}
+const boundsRecord = object(
+  {
+    [GEO_BOUNDS_KEYS[0]]: geoLatitude,
+    [GEO_BOUNDS_KEYS[1]]: geoLongitude,
+    [GEO_BOUNDS_KEYS[2]]: geoLatitude,
+    [GEO_BOUNDS_KEYS[3]]: geoLongitude,
+  },
+  { partial: false }
+);
 
 export function validateGeoBounds(value: unknown): ValidationResult<GeoBounds> {
-  const snapshot = readExactGeoRecord(value, GEO_BOUNDS_KEYS, "GeoBounds");
-  if (snapshot.issues) return snapshot;
-  const { values } = snapshot.value;
-  const south = finiteBound(
-    values,
-    "south",
-    GEO_LATITUDE_MIN,
-    GEO_LATITUDE_MAX
-  );
-  if (south.issues) return south;
-  const west = finiteBound(
-    values,
-    "west",
-    GEO_LONGITUDE_MIN,
-    GEO_LONGITUDE_MAX
-  );
-  if (west.issues) return west;
-  const north = finiteBound(
-    values,
-    "north",
-    GEO_LATITUDE_MIN,
-    GEO_LATITUDE_MAX
-  );
-  if (north.issues) return north;
-  const east = finiteBound(
-    values,
-    "east",
-    GEO_LONGITUDE_MIN,
-    GEO_LONGITUDE_MAX
-  );
-  if (east.issues) return east;
-  if (south.value > north.value) {
+  const bounds = validateSchema(boundsRecord, value);
+  if (bounds.issues) return bounds;
+  // An inverted rectangle is no database error: the latitude arm of
+  // withinBounds (adapters/shared/geo-point.ts) would silently match nothing.
+  if (bounds.value.south > bounds.value.north) {
     return fail("GeoBounds south must be less than or equal to north", [
       "south",
     ]);
   }
-  return ok({
-    south: south.value,
-    west: west.value,
-    north: north.value,
-    east: east.value,
-  });
+  return bounds;
 }
 
 function snapshotDenseArray(
@@ -519,15 +479,22 @@ export function validateGeoPolygon(
   });
 }
 
+const areaRecord = object({
+  bounds: createSchema("object", validateGeoBounds),
+  polygon: createSchema("object", validateGeoPolygon),
+});
+
 export function validateGeoArea(value: unknown): ValidationResult<GeoArea> {
-  const area = readGeoVariantRecord(value, ["bounds", "polygon"], "GeoArea");
+  const area = validateSchema(areaRecord, value);
   if (area.issues) return area;
-  if (area.value.variant === "bounds") {
-    const decoded = prefix(validateGeoBounds(area.value.value), ["bounds"]);
-    return decoded.issues ? decoded : ok({ bounds: decoded.value });
-  }
-  const decoded = prefix(validateGeoPolygon(area.value.value), ["polygon"]);
-  return decoded.issues ? decoded : ok({ polygon: decoded.value });
+  const { bounds, polygon } = area.value;
+  // Exactly one variant: buildGeoPointWithin (query-engine/builders/
+  // geo-point-builder.ts) branches on `"bounds" in area`, so a second variant
+  // would be dropped silently and a missing one would reach geoPolygonJson as
+  // undefined and throw a TypeError instead of a database error.
+  if (bounds && !polygon) return ok({ bounds });
+  if (polygon && !bounds) return ok({ polygon });
+  return fail("Expected GeoArea with exactly one of bounds or polygon");
 }
 
 export function geoAreaSchema(): VibSchema<GeoArea, GeoArea> {

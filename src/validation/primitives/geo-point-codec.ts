@@ -101,23 +101,6 @@ function snapshotGeoRecord(
   return ok({ keys: stringKeys, values });
 }
 
-export function readExactGeoRecord(
-  source: unknown,
-  expectedKeys: readonly string[],
-  label: string
-): ValidationResult<ExactGeoRecord> {
-  const snapshot = snapshotGeoRecord(source, label);
-  if (snapshot.issues) return snapshot;
-  const expected = new Set(expectedKeys);
-  if (
-    snapshot.value.keys.length !== expected.size ||
-    snapshot.value.keys.some((key) => !expected.has(key))
-  ) {
-    return fail(`Expected ${label} with exactly ${expectedKeys.join(" and ")}`);
-  }
-  return ok({ values: snapshot.value.values });
-}
-
 export function readGeoRecordWithOptional(
   source: unknown,
   requiredKeys: readonly string[],
@@ -138,29 +121,6 @@ export function readGeoRecordWithOptional(
   return ok({ values: snapshot.value.values });
 }
 
-export function readGeoVariantRecord(
-  source: unknown,
-  variants: readonly string[],
-  label: string
-): ValidationResult<{ readonly variant: string; readonly value: unknown }> {
-  const snapshot = snapshotGeoRecord(source, label);
-  if (snapshot.issues) {
-    return fail(
-      `Expected ${label} with exactly one of ${variants.join(" or ")}`
-    );
-  }
-  if (
-    snapshot.value.keys.length !== 1 ||
-    !variants.includes(snapshot.value.keys[0]!)
-  ) {
-    return fail(
-      `Expected ${label} with exactly one of ${variants.join(" or ")}`
-    );
-  }
-  const variant = snapshot.value.keys[0]!;
-  return ok({ variant, value: snapshot.value.values[variant] });
-}
-
 /**
  * One finite coordinate inside its inclusive range, with -0 read as 0: the
  * type VibORM returns has no -0, and points decode provider rows and cache
@@ -177,12 +137,12 @@ function geoCoordinate(label: string, low: number, high: number) {
   });
 }
 
-const geoLongitude = geoCoordinate(
+export const geoLongitude = geoCoordinate(
   "Longitude",
   GEO_LONGITUDE_MIN,
   GEO_LONGITUDE_MAX
 );
-const geoLatitude = geoCoordinate(
+export const geoLatitude = geoCoordinate(
   "Latitude",
   GEO_LATITUDE_MIN,
   GEO_LATITUDE_MAX

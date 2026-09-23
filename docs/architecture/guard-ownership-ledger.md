@@ -2111,6 +2111,28 @@ assume the `+180` spelling.
 schema). Consumer: the returned-value contract. The same codec decodes provider
 rows and cache snapshots, and the type VibORM returns has no `-0`.
 
+**Retired: `finiteBound` and `readGeoVariantRecord`.** Successors: the bounds
+record (the one coordinate schema per key, walker-owned keys) and the area
+record (fully partial, strict), both in `geo-area-codec.ts`. A bounds
+coordinate now reports the coordinate's range sentence (`Latitude must be …`)
+at the bound's own path. Witnesses: `tests/unit/validation/geo-area.core.test.ts`
+("reads bounds and areas as ordinary records") and
+`tests/unit/operation-schemas/args/geopoint-known-negatives.core.test.ts`.
+
+**Kept guard: `south <= north`** (`validateGeoBounds`). Unique coverage: an
+inverted rectangle is no database error; the latitude arm of `withinBounds` in
+`src/adapters/shared/geo-point.ts` would compile to a predicate that silently
+matches nothing. Falsifier: removing it fails "refuses invalid bounds 0" and
+"reads bounds and areas as ordinary records".
+
+**Kept guard: exactly one of `bounds` or `polygon`** (`validateGeoArea`). Unique
+coverage: `buildGeoPointWithin` (`src/query-engine/builders/geo-point-builder.ts`)
+branches on `"bounds" in area`, so a second variant would be dropped silently,
+and an area with neither would reach `geoPolygonJson(undefined)` and throw a
+`TypeError` rather than a database error. One guard covers both cases, so the
+area record carries no `requiresOneOf`. Falsifier: removing the `!polygon` arm
+fails "discriminates GeoArea exactly".
+
 **Moved, not added: the coordinate domain constants.** `GEO_POINT_KEYS`, the
 longitude and latitude limits, `GEO_BOUNDS_KEYS` and
 `GEO_POLYGON_MIN_RING_POINTS` now live in the import-free

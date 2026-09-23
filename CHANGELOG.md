@@ -9,10 +9,10 @@ Versioning.
 
 ### Geo: a geographic value is validated as the record VibORM returns
 
-A `GeoPoint` argument is now read by the same record walker as every other
-object operand, not by a bespoke reader. The accepted values are unchanged for
-ordinary input; what changes is the posture toward unusual objects and the
-wording of refusals.
+A `GeoPoint`, `GeoBounds` or `GeoArea` argument is now read by the same record
+walker as every other object operand, not by a bespoke reader. The accepted
+values are unchanged for ordinary input; what changes is the posture toward
+unusual objects and the wording of refusals.
 
 - Refusals name the key: `{ longitude, latitude, latitdue }` fails with
   `Unknown key: latitdue` at path `latitdue` (was `Expected GeoPoint with
@@ -21,6 +21,16 @@ wording of refusals.
   (was `Expected GeoPoint object`), and a non-finite coordinate with
   `Expected finite number` (was `Expected finite longitude`). Range messages
   and every path are unchanged.
+- Bounds and areas follow the same rule: `{ bounds: { …, nort: 49 } }` fails
+  with `Unknown key: nort` at `bounds.nort` (was `Expected GeoBounds with
+  exactly south and west and north and east`), `{ bounds, extra }` with
+  `Unknown key: extra`, and a bounds coordinate out of range with
+  `Latitude must be between -90 and 90` or `Longitude must be between -180 and
+  180` (was `south must be between -90 and 90`, and so on; paths unchanged).
+  `GeoBounds south must be less than or equal to north` and `Expected GeoArea
+  with exactly one of bounds or polygon` are kept word for word.
+- An area spelled `{ bounds: undefined, polygon }` is now the polygon area: an
+  explicit `undefined` is an absent key, as everywhere else.
 - Newly accepted: an inherited enumerable coordinate, a class instance, and an
   object carrying extra symbol or non-enumerable keys; the walker reads
   enumerable string keys only, as it does for every other argument.

@@ -148,6 +148,47 @@ describe("GeoArea validation boundary", () => {
     ).toBeDefined();
   });
 
+  test("reads bounds and areas as ordinary records", () => {
+    const bounds = { south: 0, west: 0, north: 1, east: 1 };
+    const polygon = { outer: [point(0, 0), point(1, 0), point(1, 1)] };
+    const exactlyOne = [
+      { message: "Expected GeoArea with exactly one of bounds or polygon" },
+    ];
+
+    expect(validateGeoArea({ bounds: { ...bounds, nort: 1 } }).issues).toEqual([
+      { message: "Unknown key: nort", path: ["bounds", "nort"] },
+    ]);
+    expect(validateGeoArea({ bounds, extra: true }).issues).toEqual([
+      { message: "Unknown key: extra", path: ["extra"] },
+    ]);
+    expect(validateGeoArea(null).issues).toEqual([
+      { message: "Expected object" },
+    ]);
+    expect(validateGeoBounds({ ...bounds, south: "0" }).issues).toEqual([
+      { message: "Expected finite number", path: ["south"] },
+    ]);
+    expect(validateGeoBounds({ ...bounds, south: -91 }).issues).toEqual([
+      { message: "Latitude must be between -90 and 90", path: ["south"] },
+    ]);
+    expect(validateGeoBounds({ ...bounds, west: -181 }).issues).toEqual([
+      { message: "Longitude must be between -180 and 180", path: ["west"] },
+    ]);
+    // Kept: an inverted rectangle would silently match nothing downstream.
+    expect(validateGeoBounds({ ...bounds, south: 2 }).issues).toEqual([
+      {
+        message: "GeoBounds south must be less than or equal to north",
+        path: ["south"],
+      },
+    ]);
+    // Kept: the builder branches on one variant and must see exactly one.
+    expect(validateGeoArea({ bounds, polygon }).issues).toEqual(exactlyOne);
+    expect(validateGeoArea({}).issues).toEqual(exactlyOne);
+    // The walker reads an explicit undefined as an absent key.
+    expect(validateGeoArea({ bounds: undefined, polygon })).toEqual({
+      value: { polygon },
+    });
+  });
+
   test("requires the polygon outer ring and contains hostile inspection", () => {
     expect(validateGeoPolygon(null).issues).toBeDefined();
     expect(validateGeoPolygon({ holes: [] }).issues?.[0]?.message).toBe(

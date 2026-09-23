@@ -210,9 +210,7 @@ describe("GeoPoint retained negative operation keys", () => {
       },
     });
 
-    expect(firstMessage(result.issues)).toContain(
-      "Expected GeoBounds with exactly south and west and north and east"
-    );
+    expect(firstMessage(result.issues)).toContain("Unknown key: nort");
   });
 
   test("variant nested filter refuses a non-fresh area typo", () => {
@@ -228,8 +226,6 @@ describe("GeoPoint retained negative operation keys", () => {
       },
     });
 
-    expect(firstMessage(result.issues)).toContain(
-      "Expected GeoBounds with exactly south and west and north and east"
-    );
+    expect(firstMessage(result.issues)).toContain("Unknown key: nort");
   });
 });
