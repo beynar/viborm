@@ -430,7 +430,7 @@ What changes for application code that does arithmetic on returned values:
   `toPrecision`, `isZero`, `isNeg`, `isNaN`, `isFinite`, `floor`, `ceil`,
   `trunc`, `toDP`, `toSD`, `dp`, `sd`, `ln`, `log`, `exp`, the trigonometric
   methods, `toFraction`, `toNearest`, `clamp`, and the radix conversions.
-  `x.isZero()` becomes `x.eq(0)`; `x.isNeg()` becomes `x.lt(0)`; rounding to a
+  `x.isZero()` becomes `x.eq("0")`; `x.isNeg()` becomes `x.lt("0")` (a JavaScript number is refused; write the string or a bigint); rounding to a
   fixed number of places is `x.toFixed(n)`.
 - **No NaN and no Infinity.** `new Decimal("abc")`, `new Decimal(NaN)` and
   `new Decimal(Infinity)` throw `TypeError` where decimal.js produced a NaN

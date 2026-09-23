@@ -1,5 +1,16 @@
 # Definitive Exact Decimal Plan
 
+> **Historical (2026-09-23).** This plan described the exact fixed-decimal
+> language over `big.js`. The language (descriptor, canonical text, storage,
+> limits, DDL) is unchanged, but the value type is now VibORM's own `Decimal`
+> (`src/validation/primitives/decimal-value.ts`, an immutable BigInt
+> coefficient and a scale) with no runtime dependency; a JavaScript number is
+> refused at every decimal position (decision D1). Where this document says
+> `big.js` or `Big`, read the own value type; see
+> [`validation-kinds-report.md`](validation-kinds-report.md) and the
+> CHANGELOG "Decimal" entries.
+
+
 ## Status
 
 Implementation-ready V1 design. This document replaces the earlier split
