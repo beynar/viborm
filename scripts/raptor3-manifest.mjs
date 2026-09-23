@@ -480,6 +480,56 @@ export const G4_READ_RECURSIVE_FIT_COUNTS = Object.freeze({
 export const G4_READ_RECURSIVE_FIT_TESTS = Object.freeze(
   Object.keys(G4_READ_RECURSIVE_FIT_COUNTS)
 );
+export const RQ06_GRAPH_ORACLE_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/graph-oracle.test.ts": 9,
+});
+export const RQ06_GRAPH_ORACLE_TESTS = Object.freeze(
+  Object.keys(RQ06_GRAPH_ORACLE_COUNTS)
+);
+export const RQ06_CARRIER_BOUNDARY_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/carrier-boundary.test.ts": 13,
+});
+export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
+  Object.keys(RQ06_CARRIER_BOUNDARY_COUNTS)
+);
+export const RQ01_SQLITE_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/provider-sql-sqlite.test.ts": 15,
+});
+export const RQ01_SQLITE_TESTS = Object.freeze(
+  Object.keys(RQ01_SQLITE_COUNTS)
+);
+export const RQ05_CACHE_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/cache-codec.test.ts": 10,
+  "tests/raptor3/recursive-query/cache-lifecycle.test.ts": 7,
+});
+export const RQ05_CACHE_TESTS = Object.freeze(
+  Object.keys(RQ05_CACHE_COUNTS)
+);
+export const RQ06_COMPOSITION_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/composition.test.ts": 13,
+  "tests/raptor3/recursive-query/campaign-sqlite.test.ts": 7,
+});
+export const RQ06_COMPOSITION_TESTS = Object.freeze(
+  Object.keys(RQ06_COMPOSITION_COUNTS)
+);
+export const RQ07_FOLLOWUP_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/distance-key-collision.test.ts": 4,
+});
+export const RQ07_FOLLOWUP_TESTS = Object.freeze(
+  Object.keys(RQ07_FOLLOWUP_COUNTS)
+);
+export const RQ06_NATIVE_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/campaign-native.test.ts": 4,
+});
+export const RQ01_PGLITE_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/provider-sql-pglite.test.ts": 14,
+});
+export const RQ01_PGLITE_TESTS = Object.freeze(
+  Object.keys(RQ01_PGLITE_COUNTS)
+);
+export const RQ01_NATIVE_COUNTS = Object.freeze({
+  "tests/raptor3/recursive-query/provider-sql-native.test.ts": 3,
+});
 /** Every fixed C01/C12 read witness, for one whole-family run. */
 export const G4_READ_COUNTS = Object.freeze({
   ...G4_READ_OPERATIONS_COUNTS,
@@ -608,6 +658,8 @@ export const G4_GENERATION_SELFTEST_TESTS = Object.freeze(
 );
 export const G4_NATIVE_PROVIDER_COUNTS = Object.freeze({
   "tests/raptor3/g4/native/read-envelope-native.test.ts": 5,
+  ...RQ01_NATIVE_COUNTS,
+  ...RQ06_NATIVE_COUNTS,
 });
 export const G4_NATIVE_PG_COUNTS = G4_NATIVE_PROVIDER_COUNTS;
 export const G4_NATIVE_PG_TESTS = Object.freeze(
@@ -1428,6 +1480,7 @@ export const RAPTOR3_PROVIDER_TESTS = Object.freeze([
   ...G1_PROVIDER_BASELINE_TESTS,
   ...D50_PROVIDER_TESTS,
   ...D53_PROVIDER_TESTS,
+  ...RQ01_PGLITE_TESTS,
 ]);
 
 /**
@@ -1459,6 +1512,12 @@ export const RAPTOR3_DETERMINISTIC_TESTS = Object.freeze([
   ...G3_GENERATED_TRANSPORT_SMOKE_TESTS,
   ...G3_GENERATED_MINIMIZATION_TESTS,
   ...G4_READ_TESTS,
+  ...RQ06_GRAPH_ORACLE_TESTS,
+  ...RQ06_CARRIER_BOUNDARY_TESTS,
+  ...RQ01_SQLITE_TESTS,
+  ...RQ05_CACHE_TESTS,
+  ...RQ06_COMPOSITION_TESTS,
+  ...RQ07_FOLLOWUP_TESTS,
   ...G4_GENERATION_SELFTEST_TESTS,
   ...G4_UNIT01_AUTHOR_TESTS,
   ...G4_UNIT01_REVIEW_TESTS,

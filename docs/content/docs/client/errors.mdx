@@ -147,7 +147,15 @@ look like one and are not:
   check will catch it; branch on the code, or on `UnsupportedOperationError` itself, when
   you mean one and not the other.
 - **`V9001` `QueryEngineError`** — the engine broke its own invariant. That is a bug; please
-  report it.
+  report it (two exceptions: a recursive projection's
+  `Recursive relation '…' contains a cycle.` refuses cyclic data, and the malformed driver
+  answer below). The same code reports a driver answer the engine refused to decode,
+  `Driver "…" returned a malformed … scalar for operation "…": ….`, with `meta.scalarType`
+  naming what was malformed: a value, a row, a relation, or the kind of check a recursive
+  projection's answer failed, such as `recursive depth`. That report is not a broken engine
+  invariant: the driver's answer was malformed, and for a recursive projection the usual
+  cause is a volatile node filter (see
+  [Recursive relations](/docs/client/selecting#recursive-relations)).
 
 Everything else in the taxonomy is a refusal of some kind: the database said no, the
 payload said no, the driver cannot do it, or the record was not there.
@@ -173,7 +181,7 @@ payload said no, the driver cannot do it, or the record was not there.
 | `NestedWriteAssertionError` | `V7006` | A batch-plan precondition (a connect target, an ownership check) did not hold |
 | `FeatureNotSupportedError` | `V8001` | The driver or dialect does not have the feature (pgvector, PostGIS) |
 | `UnsupportedOperationError` | `V8003` | A documented shape the query engine does not express |
-| `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug |
+| `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug; or a driver answer could not be decoded |
 | `CacheInvalidTTLError` | `V10001` | A cache TTL was malformed |
 | `CacheInvalidKeyError` | `V10002` | A cache key could not be built from the payload |
 | `CacheOperationNotCacheableError` | `V10003` | A write operation was asked to cache |

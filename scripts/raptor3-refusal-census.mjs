@@ -8,8 +8,9 @@
  * (`g4/release/plan/refusals-map.md`) kept 55 after dropping the comment
  * fragments a line-regex extractor had mistaken for throws.
  *
- * This census makes the three distinctions that one lacked, and it makes each
- * of them BY CONSTRUCTION, never by reading a message:
+ * This census makes the distinctions that one lacked, and it makes each of
+ * them BY CONSTRUCTION, never by reading a message. A site has one of two
+ * outcomes:
  *
  *   INVARIANT  the site throws through the engine's invariant owner
  *              (`shared/invariant.ts`: `assertInvariant`, `unreachable`,
@@ -17,13 +18,6 @@
  *              cannot be in when it is right; it is not a refusal, and it is
  *              told from one by CLASS. The owner is import-resolved, so a
  *              same-named local helper elsewhere is not mistaken for it.
- *   INTERNAL   the site lies inside a declared private fit — a mechanism no
- *              admitted public payload reaches. Each fit carries the evidence
- *              for its own privacy and the census CHECKS it: if any file
- *              outside the fit's owner names one of its entry symbols, the fit
- *              is contradicted, its sites go back to being refusals, and the
- *              run exits non-zero. A declaration that the tree stopped
- *              supporting fails loudly instead of exempting sites silently.
  *   REFUSAL    everything else thrown in `raptor3/**`. A refusal is REGISTERED
  *              when the shipped engine carries the same sentence (an inherited
  *              contract) and PUBLIC when it does not — the candidate's own
@@ -56,10 +50,10 @@
  * a value the site did not build stays unread, and the declaration is checked
  * against the tree on every run.
  *
- * Reachability is what this census can establish and no more. An invariant and
- * a verified private fit are foreclosures the tree proves. For a candidate
- * refusal it says only that nothing forecloses it; which admitted payload
- * reaches that one is the map's per-row ruling, and stays there. And a count
+ * Reachability is what this census can establish and no more. An invariant is
+ * a foreclosure the tree proves. For a candidate refusal it says only that
+ * nothing forecloses it; which admitted payload reaches that one is the map's
+ * per-row ruling, and stays there. And a count
  * of sentences is never a count of capabilities: what this engine supports is
  * the behavioural closure inventory's fact
  * (`g4/release/closure/fc00/inventory.md`), one row per admitted fact.
@@ -67,13 +61,13 @@
  * Read-only, no network. `--at <rev>` censuses a revision instead of the
  * working tree, which is how a run is compared against its own base. The run
  * exits non-zero when the census could not be produced as described — the
- * corpus unreadable, or a declared private fit the tree contradicts.
+ * corpus unreadable, or the declared failure owner not where it is read.
  *
  *   node scripts/raptor3-refusal-census.mjs [--out <file>] [--at <rev>] [--shipped-rev <rev>] [--root <dir>]
  */
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { posix, relative, resolve } from "node:path";
 import ts from "typescript";
 
 const ENGINE = "src/query-engine/raptor3";
@@ -91,30 +85,6 @@ const MAP_SENTENCES = 55;
 
 /** The receipts' threshold, unchanged. */
 const FRAGMENT_MIN = 12;
-
-/**
- * The mechanisms no admitted public payload reaches. One entry, D-54's: the
- * recursive read is built, unit-tested and wired to no public verb, so its
- * sentences are internal until a public argument reaches them. `evidence` is
- * what makes that a checked claim rather than an exemption list — the entry
- * symbols that a public caller would have to name, and the only file allowed
- * to name them.
- */
-const PRIVATE_FITS = [
-  {
-    id: "recursive-read",
-    decision: "D-54",
-    title: "the private recursive-read fit",
-    why: "`Queries.recursive`, `decodeRecursive` and the route's recursive cache codec are built and tested, and no public verb, argument or schema option builds a recursive traversal or asks for a `recursive` published shape.",
-    files: [`${ENGINE}/shared/query.ts`, `${ENGINE}/route/client-route.ts`],
-    declarations: ["recursive", "decodeRecursive"],
-    discriminant: "recursive",
-    evidence: {
-      needles: [".recursive(", 'kind: "recursive"'],
-      owners: [`${ENGINE}/shared/query.ts`],
-    },
-  },
-];
 
 /**
  * The failure owner a sentence reaches the outside world THROUGH.
@@ -243,9 +213,11 @@ const renderSentences = (node, at) => {
       return left.flatMap((head) => right.map((tail) => head + tail));
     }
   }
-  // A named constant (`CURSOR_ORDER_REFUSAL`) is the sentence it is bound to.
+  // A named constant (`CURSOR_ORDER_REFUSAL`) is the sentence it is bound to,
+  // and so is one this file imports (`DISTANCE_NAME_COLLISION`).
   if (ts.isIdentifier(node) && at) {
-    const bound = localBinding(at, node.text);
+    const local = localBinding(at, node.text);
+    const bound = local === undefined ? importedConstant(at, node.text) : local;
     return bound?.kind === "value"
       ? renderSentences(bound.expression, bound.node)
       : [];
@@ -268,54 +240,6 @@ const messageArgument = (args, at) => {
     if (spelled.length) return spelled;
   }
   return [];
-};
-
-const declarationName = (node) => {
-  if (
-    (ts.isFunctionDeclaration(node) ||
-      ts.isMethodDeclaration(node) ||
-      ts.isFunctionExpression(node) ||
-      ts.isPropertyDeclaration(node) ||
-      ts.isVariableDeclaration(node)) &&
-    node.name
-  )
-    return node.name.getText();
-  return null;
-};
-
-const selectsDiscriminant = (expression, discriminant) =>
-  ts.isBinaryExpression(expression) &&
-  expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
-  [expression.left, expression.right].some(
-    (side) => ts.isStringLiteralLike(side) && side.text === discriminant
-  );
-
-/** The fit anchor that covers this site, or null: a declaration, a case clause, a guard. */
-const fitAnchor = (node, file, fit) => {
-  if (!fit.files.includes(file)) return null;
-  let child = node;
-  for (
-    let current = node.parent;
-    current;
-    child = current, current = current.parent
-  ) {
-    const name = declarationName(current);
-    if (name !== null && fit.declarations.includes(name))
-      return `inside \`${name}\``;
-    if (
-      ts.isCaseClause(current) &&
-      ts.isStringLiteralLike(current.expression) &&
-      current.expression.text === fit.discriminant
-    )
-      return `under \`case "${fit.discriminant}"\``;
-    if (
-      ts.isIfStatement(current) &&
-      child === current.thenStatement &&
-      selectsDiscriminant(current.expression, fit.discriminant)
-    )
-      return `under \`=== "${fit.discriminant}"\``;
-  }
-  return null;
 };
 
 /** The local names this file bound to the invariant owner's exports. */
@@ -419,7 +343,11 @@ const returnedConstructions = (body, at, depth) => {
   return found;
 };
 
-/** The nearest enclosing declaration of `name`: a `const`/`let` or a function. */
+/**
+ * The nearest enclosing declaration of `name`: a `const`/`let` or a function.
+ * `null` when a parameter, a catch clause or a declaration without a value
+ * binds the name first; `undefined` when nothing in the file declares it.
+ */
 const localBinding = (at, name) => {
   for (let scope = at.parent; scope; scope = scope.parent) {
     // A parameter or a catch clause binds the name first: what it holds is
@@ -456,7 +384,130 @@ const localBinding = (at, name) => {
             : null;
     }
   }
-  return null;
+  return undefined;
+};
+
+/** The censused tree's path aliases (`tsconfig.json` `paths`), read once. */
+let pathAliases;
+const aliasesOf = () => {
+  if (pathAliases !== undefined) return pathAliases;
+  pathAliases = [];
+  try {
+    const { config } = ts.parseConfigFileTextToJson(
+      "tsconfig.json",
+      readSource("tsconfig.json")
+    );
+    pathAliases = Object.entries(config?.compilerOptions?.paths ?? {});
+  } catch {
+    // A tree without a root `tsconfig.json` resolves relative imports only.
+  }
+  return pathAliases;
+};
+
+/** Repository-relative paths the censused revision tracks, listed once. */
+let trackedAtRevision;
+const sourceExists = (path) => {
+  if (at === undefined) return existsSync(resolve(root, path));
+  trackedAtRevision ??= new Set(
+    git("ls-tree", "-r", "--name-only", at).split("\n")
+  );
+  return trackedAtRevision.has(path);
+};
+
+/** The module an import specifier names, as a repository-relative `.ts` path. */
+const modulePath = (importer, specifier) => {
+  const bases = [];
+  if (specifier.startsWith(".")) {
+    bases.push(posix.join(posix.dirname(importer), specifier));
+  } else {
+    for (const [pattern, targets] of aliasesOf()) {
+      const target = targets?.[0];
+      if (typeof target !== "string") continue;
+      if (pattern.endsWith("/*") && target.endsWith("/*")) {
+        const prefix = pattern.slice(0, -1);
+        if (specifier.startsWith(prefix))
+          bases.push(
+            posix.join(target.slice(0, -1), specifier.slice(prefix.length))
+          );
+      } else if (pattern === specifier) bases.push(posix.normalize(target));
+    }
+  }
+  for (const base of bases)
+    for (const candidate of base.endsWith(".ts")
+      ? [base]
+      : [`${base}.ts`, `${base}/index.ts`])
+      if (sourceExists(candidate)) return candidate;
+  return undefined;
+};
+
+/** Parsed modules another module's import led to, by path. */
+const importedModules = new Map();
+
+/**
+ * A constant this file imports, read where it is declared: the named import
+ * that binds `name`, followed to the exporting module's top-level
+ * `export const`. That is how a sentence one owner states for several files
+ * stays read at every throw that spells it. Only a message is resolved this
+ * way; a thrown value or a factory stays the site's own
+ * ({@link constructionsOf}).
+ */
+const importedConstant = (at, name) => {
+  const importer = at.getSourceFile();
+  for (const statement of importer.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const specifier = statement.moduleSpecifier;
+    const bindings = statement.importClause?.namedBindings;
+    if (
+      !(
+        ts.isStringLiteral(specifier) &&
+        bindings &&
+        ts.isNamedImports(bindings)
+      )
+    )
+      continue;
+    const element = bindings.elements.find((entry) => entry.name.text === name);
+    if (!element) continue;
+    const path = modulePath(importer.fileName, specifier.text);
+    if (path === undefined) return undefined;
+    if (!importedModules.has(path))
+      importedModules.set(
+        path,
+        ts.createSourceFile(
+          path,
+          readSource(path),
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS
+        )
+      );
+    const exported = (element.propertyName ?? element.name).text;
+    for (const declared of importedModules.get(path).statements) {
+      if (
+        !(
+          ts.isVariableStatement(declared) &&
+          declared.modifiers?.some(
+            (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+          ) &&
+          declared.declarationList.getFirstToken()?.kind ===
+            ts.SyntaxKind.ConstKeyword
+        )
+      )
+        continue;
+      for (const declaration of declared.declarationList.declarations)
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === exported &&
+          declaration.initializer
+        )
+          return {
+            kind: "value",
+            expression: declaration.initializer,
+            node: declaration,
+          };
+    }
+    return undefined;
+  }
+  return undefined;
 };
 
 /** The method `name` of the class the throw is in — a method, never an accessor. */
@@ -652,26 +703,6 @@ const isRegistered = (sentence) => {
 };
 
 // ---------------------------------------------------------------------------
-// The private fits, checked before they are used.
-// ---------------------------------------------------------------------------
-
-const sourcePaths = listSources("src");
-const checkFit = (fit) => {
-  const contradictions = [];
-  for (const path of sourcePaths) {
-    if (fit.evidence.owners.includes(path)) continue;
-    const text = readSource(path);
-    for (const needle of fit.evidence.needles)
-      if (text.includes(needle)) contradictions.push({ path, needle });
-  }
-  return contradictions;
-};
-const fits = PRIVATE_FITS.map((fit) => ({
-  ...fit,
-  contradictions: checkFit(fit),
-}));
-
-// ---------------------------------------------------------------------------
 // Classify.
 // ---------------------------------------------------------------------------
 
@@ -688,23 +719,11 @@ for (const site of sites) {
     site.outcome = "INVARIANT";
     continue;
   }
-  const fit = fits.find(
-    (candidate) =>
-      candidate.contradictions.length === 0 &&
-      fitAnchor(site.node, site.file, candidate) !== null
-  );
-  if (fit) {
-    site.outcome = "INTERNAL";
-    site.fit = fit;
-    site.anchor = fitAnchor(site.node, site.file, fit);
-    continue;
-  }
   site.outcome = "REFUSAL";
   site.public = site.sentences.filter((sentence) => !isRegistered(sentence));
 }
 
 const invariants = sites.filter((site) => site.outcome === "INVARIANT");
-const internals = sites.filter((site) => site.outcome === "INTERNAL");
 const refusals = sites.filter((site) => site.outcome === "REFUSAL");
 const wordless = refusals.filter((site) => site.sentences.length === 0);
 const registeredSites = refusals.filter(
@@ -727,7 +746,6 @@ const bySentence = (group, sentencesOf = (site) => site.sentences) => {
 };
 const publicSentences = bySentence(publicSites, (site) => site.public);
 const registeredSentences = bySentence(registeredSites);
-const internalSentences = bySentence(internals);
 const invariantSentences = bySentence(invariants);
 
 // ---------------------------------------------------------------------------
@@ -766,9 +784,8 @@ lines.push(
 );
 lines.push("");
 lines.push(
-  "Three outcomes, told apart by construction. An **invariant** throws through" +
-    " `shared/invariant.ts` and is not a refusal. An **internal** sentence lies" +
-    " inside a declared private fit whose privacy this run re-checked. A" +
+  "Two outcomes, told apart by construction. An **invariant** throws through" +
+    " `shared/invariant.ts` and is not a refusal. A" +
     " **refusal** is everything else: *inherited* when the sentence is matched" +
     " in the old engine's own corpus at the revision named above, a" +
     " *candidate* sentence when it is not."
@@ -803,16 +820,6 @@ if (failureOwnerError !== null)
       " sites as sentence-less.",
     ""
   );
-for (const fit of fits)
-  if (fit.contradictions.length)
-    lines.push(
-      `> **The private fit \`${fit.id}\` (${fit.decision}) is contradicted.** ` +
-        fit.contradictions
-          .map((hit) => `\`${hit.path}\` names \`${cell(hit.needle)}\``)
-          .join("; ") +
-        ". Its sites are counted as refusals and this run exits non-zero.",
-      ""
-    );
 
 lines.push("## Counts");
 lines.push("");
@@ -820,9 +827,6 @@ lines.push("| outcome | sites | distinct sentences |");
 lines.push("| --- | --- | --- |");
 lines.push(
   `| invariant | ${invariants.length} | ${invariantSentences.length} |`
-);
-lines.push(
-  `| internal (private fits) | ${internals.length} | ${internalSentences.length} |`
 );
 lines.push(
   `| refusal — inherited (matched in the old-engine corpus) | ${registeredSites.length} | ${registeredSentences.length} |`
@@ -882,25 +886,6 @@ section(
   sentenceRows(registeredSentences, (row) => `\`${cell(row.sites[0].class)}\``)
 );
 
-lines.push("## Internal — the private fits", "");
-for (const fit of fits)
-  section(
-    `### \`${fit.id}\` (${fit.decision}) — ${fit.title}`,
-    `${fit.why}\n\nPrivacy re-checked this run: ${fit.evidence.needles
-      .map((needle) => `\`${cell(needle)}\``)
-      .join(", ")} named anywhere in \`src/**\` outside ${fit.evidence.owners
-      .map((owner) => `\`${owner}\``)
-      .join(", ")} — ` +
-      (fit.contradictions.length
-        ? `**${fit.contradictions.length} hit(s); the fit is contradicted**.`
-        : "no hits; the fit holds."),
-    ["sites", "class", "anchor", "sentence"],
-    sentenceRows(
-      bySentence(internals.filter((site) => site.fit === fit)),
-      (row) => `\`${cell(row.sites[0].class)}\` | ${cell(row.sites[0].anchor)}`
-    )
-  );
-
 section(
   "## Invariants",
   "States the code cannot be in when it is right, thrown through the engine's" +
@@ -939,17 +924,10 @@ else {
   process.stdout.write(
     `${outPath}: ${publicSentences.length} unmatched candidate sentences ` +
       `(${MAP_SENTENCES} at the map), ${registeredSentences.length} inherited, ` +
-      `${internalSentences.length} internal, ${invariantSentences.length} invariant, ` +
-      `${sites.length} sites\n`
+      `${invariantSentences.length} invariant, ${sites.length} sites\n`
   );
 }
-// A census that could not read the corpus, whose declared private fit the tree
-// contradicts, or whose declared failure owner has moved, is not the census
-// this report claims to be. Each failure is stated in the report and answered
-// here, so a pipeline sees it too.
-if (
-  corpusError !== null ||
-  failureOwnerError !== null ||
-  fits.some((fit) => fit.contradictions.length)
-)
-  process.exitCode = 1;
+// A census that could not read the corpus, or whose declared failure owner has
+// moved, is not the census this report claims to be. Each failure is stated in
+// the report and answered here, so a pipeline sees it too.
+if (corpusError !== null || failureOwnerError !== null) process.exitCode = 1;

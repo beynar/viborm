@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ ../../../../private/tmp/viborm-rq-elegance-repair2/scratch/judge-total.scratch.test.ts (4 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  16:32:00
+   Duration  989ms (transform 460ms, setup 22ms, collect 774ms, tests 3ms, environment 0ms, prepare 64ms)
+
+Vitest resources: 1.71s wall, 260.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

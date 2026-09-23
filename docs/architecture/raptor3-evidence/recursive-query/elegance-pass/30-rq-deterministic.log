@@ -1,0 +1,23 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/recursive-query/composition.test.ts (12 tests) 1142ms
+   ✓ RQ-06 recursive projections composed through the shipped client > 2. create, update, both upsert arms and delete read back through their ordinary route under select and include  319ms
+ ✓ |raptor3| tests/raptor3/recursive-query/cache-codec.test.ts (10 tests) 747ms
+   ✓ RQ-05 live recursive cache codec > parses, stores and restores an exhaustive chain of 12,000 levels  401ms
+ ✓ |raptor3| tests/raptor3/recursive-query/cache-lifecycle.test.ts (7 tests) 287ms
+ ✓ |raptor3| tests/raptor3/recursive-query/carrier-boundary.test.ts (13 tests) 232ms
+ ✓ |raptor3| tests/raptor3/recursive-query/campaign-sqlite.test.ts (7 tests) 3845ms
+   ✓ RQ-06 saved recursive cases on SQLite > singular-fk: 100 saved cases, one public read each, against the oracle  487ms
+   ✓ RQ-06 saved recursive cases on SQLite > junction: 100 saved cases, one public read each, against the oracle  2908ms
+ ✓ |raptor3| tests/raptor3/recursive-query/graph-oracle.test.ts (9 tests) 30ms
+ ✓ |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts (4 tests) 17ms
+ ✓ |raptor3| tests/raptor3/recursive-query/provider-sql-sqlite.test.ts (15 tests) 331ms
+
+ Test Files  8 passed (8)
+      Tests  77 passed (77)
+   Start at  15:04:21
+   Duration  44.35s (transform 16.24s, setup 214ms, collect 35.83s, tests 6.63s, environment 0ms, prepare 398ms)
+
+Vitest resources: 58.36s wall, 583.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

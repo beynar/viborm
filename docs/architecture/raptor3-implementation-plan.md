@@ -1,11 +1,48 @@
 # Raptor 3 — central implementation plan
 
-Status updated 2026-09-14. **G3 and its bounded structural correction are
-qualified and accepted. G4 is next, followed by separately authorized cutover.** This document
-owns future implementation order, acceptance gates and autonomous-work limits.
-It contains current instructions, not completed-stage assignments.
+Status updated 2026-09-23. **The candidate has become the shipped source route;
+the current release work is local engine closure plus public recursive queries.**
+The [local closure checkpoint](raptor3-local-release-finish.md) owns the remaining
+engine repairs. The [recursive-query implementation plan](../../features-docs/recursive-query.md)
+owns the feature Arnaud now wants in the same release. Both must qualify on the
+same integrated source before release acceptance. Publication still requires
+separate authorization; hosted-provider qualification remains deferred.
 
-Start from the accepted [CS-04 checkpoint](raptor3-evidence/core-structure/cs04-root-acceptance.md):
+Recursive-query RQ-00 is independently accepted on source
+`076fad02b1c77435ce7389a51996163c66aad819`. Its
+[contract, placement and baseline ledger](raptor3-evidence/recursive-query/rq00-contract-baseline.md)
+records equality with measured checkpoint `bd264d329221f1c6257aac264fedd59c413707e6`
+and the 10/10 focused private-fit baseline.
+
+Status 2026-09-23 (RQ-07's one local commit over that source, not pushed):
+RQ-01's SQL placement is executed
+([ledger](raptor3-evidence/recursive-query/rq01-sql-placement.md)) and RQ-01 is
+accepted as one unit
+([final review](raptor3-evidence/recursive-query/rq07-final-review.md));
+RQ-03/RQ-04 ([rq34](raptor3-evidence/recursive-query/rq34-chains-hierarchies-graphs.md)),
+RQ-02/RQ-05 types and rendering ([rq-types](raptor3-evidence/recursive-query/rq-types.md)),
+RQ-05's live cache ([rq-cache](raptor3-evidence/recursive-query/rq-cache.md)) and
+RQ-06's composition and 300-case SQLite campaign ([rq6](raptor3-evidence/recursive-query/rq6.md))
+are implemented and independently reviewed. The native PostgreSQL and MySQL
+lanes (RQ-01's matrix, RQ-03/04's worlds, RQ-06's 600 native cases) executed
+on 2026-09-23 once the Docker engine was restarted
+([rq07-native-lanes](raptor3-evidence/recursive-query/rq07-native-lanes.md)):
+one production defect (MySQL materializes a twice-read correlated recursive
+CTE once per statement; the carrier now lives in a lateral derived table where
+the provider spells `LATERAL`) and two native-runner defects repaired, then
+12 / 12 per provider and 300 / 300 campaign cases on each. Hosted providers
+remain deferred. The source-bound
+[release verdict](raptor3-evidence/recursive-query/rq07-release-verdict.md) owns
+the feature's outcome and numbers.
+
+The G3/G4/cutover sequence below records the rewrite's gates and constraints,
+not instructions to restart completed units or restore the old public route.
+The two current checkpoint plans take precedence over earlier scheduling and
+recursive-feature deferral text. Preserve historical evidence and repair budgets.
+Legacy-test links in the historical inventory may name retired files; retrieve
+those witnesses at their recorded checkpoint revisions, not as current paths.
+
+Historical foundation: the accepted [CS-04 checkpoint](raptor3-evidence/core-structure/cs04-root-acceptance.md):
 production `36103eff…`, harness `87bc63c2…`, Node 24.21.0, **6,598 core /
 10,672 complete charged code-bearing LOC**. These are the frozen checkpoint
 figures, not an assertion that later working-tree changes share its identity.
@@ -49,16 +86,16 @@ Preserve:
   SQL qualification, scalar/bulk fast paths, and provider support claims.
 
 Do not broaden this into a schema API redesign, dependency-pruning project,
-migration rewrite, new public execution API, or release. The deferred
-[recursive-query feature](../../features-docs/recursive-query.md) is a design
-witness, not an additional feature to ship during replacement. Do not weaken
+migration rewrite or new public execution API. Public recursive queries are now
+an explicitly authorized co-release feature under their
+[own implementation gate](../../features-docs/recursive-query.md), extending
+ordinary relation projection rather than the mutation language. Do not weaken
 existing refusals without a separately approved compatibility decision.
 
-The old engine remains the public route throughout G3/G4 verification. The
-candidate has a private test entry and its own compiler, lowering, runner, and
-projection path. No fallback to the old engine for an unsupported candidate
-case: it must fail the gate visibly. Do not mix old and new execution inside
-one public operation.
+The old engine stayed public during private verification; the authorized C-01
+cutover has since made Raptor 3 the public route and retired the old engine.
+Preserve that route. Never restore an old-engine fallback for an unsupported
+case or mix interpreters inside one operation.
 
 ## 2. Shared laws before implementation form
 
@@ -1206,11 +1243,17 @@ and assess data separately. No automatic destructive repair or replay.
 
 ## 10. Current handoff
 
-The accepted checkpoint and its [independent review](raptor3-evidence/core-structure/cs04-qualification/independent-review.md)
-qualify the current private foundation. The [architecture guide](../../src/query-engine/raptor3/AGENTS.md)
-owns its durable implementation rules. The [evidence ledger](raptor3-evidence/core-structure.md)
-retains previous qualification, approved deviations and consumed repair budgets;
-this plan does not repeat completed assignments or superseded design hypotheses.
+The [recursive-query plan](../../features-docs/recursive-query.md) is
+implemented and locally qualified on the integrated source
+([release verdict](raptor3-evidence/recursive-query/rq07-release-verdict.md));
+the [final local closure checkpoint](raptor3-local-release-finish.md) keeps its
+own record. Neither checkpoint's acceptance substitutes for the other.
+
+The [architecture guide](../../src/query-engine/raptor3/AGENTS.md) owns the
+implemented engine's durable rules. The [evidence ledger](raptor3-evidence/core-structure.md)
+and later G4/closure records retain qualification, approved deviations and
+consumed repair budgets. The following G3 checkpoints are historical provenance,
+not the current release identity.
 
 **Historical qualified checkpoint:** G3-01's zero-production-change construction handoff is
 [accepted](raptor3-evidence/g3/unit01-review.md), and G3-02's execution unit is
@@ -1225,13 +1268,10 @@ The later bounded structural correction is frozen at production
 [independent acceptance](raptor3-evidence/g3/structure-correction/qualification-review.md)
 and [root acceptance](raptor3-evidence/g3/structure-correction/root-acceptance.md).
 The [G3 ledger](raptor3-evidence/g3.md) records the current evidence and costs.
-**Next implementation:** G4-01 and G4-03 may proceed on
-their existing distinct ownership boundaries; G4-02 follows the verified
-G4-01 handoff. No new foundation stage or repeated G3 implementation is required.
-Each completed unit receives independent Sol 5.6/high review; the root performs
-one final global review, beginning with code before full qualification and
-closing on its evidence under §6.3. No new foundation stage is authorized by
-this handoff.
+Do not restart G4-01/G4-02/G4-03 from this older handoff. Current checkpoint
+units receive independent Sol 5.6/high review; the root reviews integrated code
+before expensive final qualification and closes on source-bound evidence.
+No new foundation rewrite is authorized.
 
 Preserve these established facts throughout:
 
@@ -1246,8 +1286,9 @@ Preserve these established facts throughout:
 - Scalar sets and ordered record series have distinct physical needs, but do
   not own separate admission, assignment or relation languages.
 
-G3/G4 and cutover retain their existing gates. The shipped client remains on
-the current engine until separately authorized candidate-only cutover.
+G3/G4 and cutover retain their recorded evidence. The current shipped-source
+route remains Raptor 3; local closure and recursive queries add co-release gates,
+not another cutover or permission to publish.
 
 ## Sources and planning verification
 

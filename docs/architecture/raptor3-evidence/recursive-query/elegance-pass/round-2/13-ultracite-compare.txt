@@ -1,0 +1,17 @@
+src/query-engine/raptor3/shared/query.ts assist/source/organizeImports: before=1 after=1
+src/query-engine/raptor3/shared/query.ts format: before=1 after=1
+src/query-engine/raptor3/shared/query.ts lint/complexity/useSimplifiedLogicExpression: before=5 after=5
+src/query-engine/raptor3/shared/query.ts lint/correctness/noUnusedFunctionParameters: before=2 after=2
+src/query-engine/raptor3/shared/query.ts lint/correctness/noUnusedVariables: before=1 after=1
+src/query-engine/raptor3/shared/query.ts lint/style/noParameterProperties: before=4 after=4
+src/query-engine/raptor3/shared/query.ts lint/style/useAtIndex: before=2 after=2
+src/query-engine/raptor3/shared/query.ts lint/style/useDefaultSwitchClause: before=2 after=2
+src/query-engine/raptor3/shared/query.ts lint/style/useForOf: before=1 after=1
+tests/raptor3/recursive-query/distance-key-collision.test.ts format: before=1 after=1
+tests/raptor3/recursive-query/distance-key-collision.test.ts lint/performance/useTopLevelRegex: before=6 after=6
+tests/raptor3/recursive-query/provider-sql-fixture.ts format: before=1 after=1
+tests/raptor3/recursive-query/provider-sql-fixture.ts lint/style/useNumericSeparators: before=1 after=1
+/private/tmp/viborm-rq-elegance-repair2/logs/ultracite-before.txt:Found 27 errors.
+/private/tmp/viborm-rq-elegance-repair2/logs/ultracite-before.txt:Found 1 info.
+/private/tmp/viborm-rq-elegance-repair2/logs/ultracite-after.txt:Found 27 errors.
+/private/tmp/viborm-rq-elegance-repair2/logs/ultracite-after.txt:Found 1 info.

@@ -1,0 +1,41 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts (106 tests) 25902ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic operations  306ms
+   ✓ MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select returns [] when nothing matches and deletes nothing  374ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect is idempotent  377ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect of a missing record fails  724ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > create connects and creates through the junction on parent create  632ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate connects existing and creates missing  398ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > disconnect removes the association and keeps the row  564ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > set replaces the association set  524ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > delete removes the child row and all its associations  566ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > delete of a record not connected to the parent fails  429ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > deleteMany deletes only connected rows matching the filter  418ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > writes from the side without junction config resolve the same junction  401ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > implicit default junction works end to end  480ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > rows participating in a many-to-many can be deleted directly  389ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested update modifies a connected record only  396ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested updateMany touches only connected rows matching the filter  399ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert updates a connected record  394ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert creates and connects a missing record  375ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert of an existing but unconnected record fails  322ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect lands after a deleteMany that cannot see it  372ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association  697ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > boolean disconnect on a many-to-many relation is rejected  810ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > named duplicate pairs keep isolated junction tables  468ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL  495ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > self-referential many-to-many round trip  459ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > create through the junction with a DB-generated target primary key  462ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > junction create with a generated target PK under an update root  451ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing  858ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > upsert through the junction creates a target whose PK the database generates  435ms
+   ✓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with some relation filter affects only matching rows  306ms
+
+ Test Files  1 passed (1)
+      Tests  106 passed (106)
+   Start at  13:27:04
+   Duration  27.72s (transform 1.03s, setup 11ms, collect 1.66s, tests 25.90s, environment 0ms, prepare 38ms)
+
+Vitest resources: 29.78s wall, 629.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

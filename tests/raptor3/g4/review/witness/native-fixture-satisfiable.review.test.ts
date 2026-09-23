@@ -4,15 +4,16 @@
  * Claim under attack, after the repair of must-fix 4: the native read-envelope
  * suite "could not have passed before" and now can — it seeds every NOT NULL
  * column with a real value, projects the codecs its header claims, and its
- * fourth cell is the real `Queries.recursive` fit.
+ * fourth cell is the recursive read, entered through the candidate engine's
+ * ordinary `findMany` with `recurse` on its `children` node.
  *
  * The file still cannot be imported (`tests/raptor3/transitions/live-world.ts`
  * asserts a live provider and port at module load) and no provider answers, so
  * this probe checks the part that is decidable offline: it derives the NOT NULL
  * column set from the fixture's OWN DDL builders and requires that no seeded row
  * supplies a NULL for one of them, and it pins the projected field set and the
- * private-fit entry point against the file's own text. It asserts nothing about
- * provider behaviour, which stays unverified.
+ * recursive read's entry point against the file's own text. It asserts nothing
+ * about provider behaviour, which stays unverified.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -94,9 +95,12 @@ describe("review probe: the repaired native fixture is satisfiable offline", () 
     assert.equal(/s\.point\(\)|s\.vector\(\)/.test(source), false);
   });
 
-  it("enters the recursive cell through the private fit and pins one statement", () => {
-    assert.match(source, /context\.queries\.recursive\(nativeNode,/);
-    assert.match(source, /new OperationContext\(/);
+  it("enters the recursive cell through the ordinary findMany with recurse and pins one statement", () => {
+    // Contract change (features-docs/recursive-query.md §3.6): the root-only
+    // `Queries.recursive` builder and its `OperationContext` entry are
+    // retired; the cell reads `recurse` on the ordinary `children` node.
+    assert.match(source, /candidate\.execute\("node", "findMany", \{/);
+    assert.match(source, /children: \{\s*recurse: \{ depth: 2 \},/);
     assert.match(
       source,
       /world\.statements\.length,\s*\n?\s*1,/,

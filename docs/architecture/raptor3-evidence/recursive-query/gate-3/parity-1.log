@@ -1,0 +1,29 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (6 tests) 42ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (18 tests) 105ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests) 97ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts (14 tests) 71ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/correlated-membership.test.ts (5 tests) 18ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 22ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-observed-publication.test.ts (10 tests) 47ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/blind-premise-attribution.test.ts (1 test) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/combinator-named-scalar.test.ts (4 tests) 16ms
+ ✓ |raptor3| tests/raptor3/g4/parity/captured-identity-domains.test.ts (18 tests) 115ms
+ ✓ |raptor3| tests/raptor3/g4/parity/cascaded-current-identity.test.ts (21 tests) 119ms
+ ✓ |raptor3| tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts (14 tests) 91ms
+ ✓ |raptor3| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests) 22ms
+ ✓ |raptor3| tests/raptor3/g4/parity/correlated-membership.test.ts (5 tests) 21ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 69ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-observed-publication.test.ts (10 tests) 39ms
+ ✓ |raptor3| tests/raptor3/g4/parity/blind-premise-attribution.test.ts (1 test) 9ms
+ ✓ |raptor3| tests/raptor3/g4/parity/combinator-named-scalar.test.ts (4 tests) 22ms
+
+ Test Files  19 passed (19)
+      Tests  172 passed (172)
+   Start at  12:56:01
+   Duration  8.59s (transform 3.40s, setup 49ms, collect 6.89s, tests 947ms, environment 0ms, prepare 113ms)
+
+Vitest resources: 10.98s wall, 769.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

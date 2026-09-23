@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-generated-key.test.ts (5 tests) 128ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  11:07:59
+   Duration  1.76s (transform 983ms, setup 9ms, collect 1.50s, tests 128ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.51s wall, 466.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

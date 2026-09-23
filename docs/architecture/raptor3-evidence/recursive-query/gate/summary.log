@@ -1,0 +1,188 @@
+head 076fad02b1c77435ce7389a51996163c66aad819
+tree: dirty tracked 36, untracked 563
+src-digest 717fd6b407b8d7c894fd234ab2dd5ea8f215773befa2745d9da06befc2b5289e (tracked src files at their working-tree bytes)
+untracked-src src/validation/relations/recurrence.ts 
+harness-identity 4145275a0d4217b5c69460f470681007ae397793c9bfb59529422d49597c47f2
+node v24.21.0 pnpm 10.11.0 lockfile c366c9806e268e19970626c34e0c5ea1bb74cc7c24b388fa072d580d7bf9aceb
+started 2026-09-23T02:30:43Z
+ 4:30  up 23 days,  4:10, 3 users, load averages: 7.62 7.57 7.75
+=== typecheck
+exit=0
+=== fixed
+exit=0
+ Test Files  96 passed (96)
+      Tests  1028 passed (1028)
+Vitest resources: 18.05s wall, 903.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== rq-deterministic
+exit=0
+ Test Files  7 passed (7)
+      Tests  72 passed (72)
+Vitest resources: 5.25s wall, 678.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== rq-migrated-pins
+exit=0
+ Test Files  4 passed (4)
+      Tests  13 passed (13)
+Vitest resources: 3.72s wall, 542.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== rq-admission-introspection
+exit=0
+ Test Files  4 passed (4)
+      Tests  61 passed (61)
+Vitest resources: 7.41s wall, 1509.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== rq-pglite
+exit=0
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+=== parity-1
+exit=0
+ Test Files  19 passed (19)
+      Tests  172 passed (172)
+Vitest resources: 8.66s wall, 753.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== parity-2
+exit=0
+ Test Files  15 passed (15)
+      Tests  140 passed (140)
+Vitest resources: 8.35s wall, 721.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== parity-3
+exit=0
+ Test Files  21 passed (21)
+      Tests  215 passed (215)
+Vitest resources: 9.44s wall, 740.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== conf-fk
+exit=0
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+Vitest resources: 4.96s wall, 1616.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-m2m
+exit=0
+ Test Files  1 passed (1)
+      Tests  34 passed (34)
+Vitest resources: 5.21s wall, 1660.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-membership
+exit=0
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+Vitest resources: 4.63s wall, 1541.3 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-root-dependency
+exit=0
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+Vitest resources: 4.60s wall, 1546.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-to-one
+exit=0
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+Vitest resources: 4.63s wall, 1533.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== conf-transitive
+exit=0
+ Test Files  1 passed (1)
+      Tests  31 passed (31)
+Vitest resources: 5.18s wall, 1679.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== g2-baseline
+exit=0
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+Vitest resources: 5.10s wall, 710.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== g2-contracts
+exit=0
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+Vitest resources: 6.29s wall, 747.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== g1-compare
+exit=0
+ Test Files  4 passed (4)
+      Tests  36 passed (36)
+Vitest resources: 4.03s wall, 636.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== g4-read-recursive-fit
+exit=0
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+Vitest resources: 3.87s wall, 489.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== g3p05-recursive-read-fit
+exit=0
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+Vitest resources: 3.13s wall, 454.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== transport-smoke
+exit=0
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+Vitest resources: 3.69s wall, 508.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== transaction-array
+exit=0
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+Vitest resources: 3.55s wall, 471.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== pglite-provider
+exit=0
+ Test Files  3 passed (3)
+      Tests  7 passed (7)
+Vitest resources: 5.38s wall, 1740.2 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.
+=== census
+exit=0
+=== census-selftest
+exit=0
+ℹ tests 7
+ℹ pass 7
+ℹ fail 0
+Node resources: 4.51s wall, 308.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== campaign-receipts
+exit=0
+ℹ tests 41
+ℹ pass 41
+ℹ fail 0
+Node resources: 0.58s wall, 77.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== coverage-policy
+exit=0
+ℹ fail 0
+Node resources: 0.60s wall, 0.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+ℹ tests 7
+ℹ pass 7
+ℹ fail 0
+Node resources: 7.13s wall, 273.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== build
+exit=0
+ℹ dist/diagnostics-CFGk6R7k.mjs.map                    48.47 kB │ gzip:  11.73 kB
+ℹ dist/diagnostics-CFGk6R7k.mjs                        11.81 kB │ gzip:   4.53 kB
+Node resources: 2.85s wall, 927.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+=== source-size
+exit=0
+=== recount
+exit=0
+=== docs-validate
+not run: docs workspace dependencies are not installed in this tree
+=== native-pg
+not run: loopback port unreachable (Docker engine down)
+=== native-mysql
+not run: loopback port unreachable (Docker engine down)
+finished 2026-09-23T02:33:35Z
+ 4:33  up 23 days,  4:13, 3 users, load averages: 10.28 8.82 8.23
+docs-validate not-run
+native-pg not-run
+native-mysql not-run
+GATE DONE
+=== native round re-gate 2026-09-23T07:14:42Z head dc662e184 + uncommitted native repairs
+typecheck exit=0 (0 diagnostics, gate/typecheck.log)
+native-pg exit=0 12/12; native-mysql exit=0 12/12; rq-pglite 14/14; rq sqlite-facing 46/46; g3p05/g4fit exit 0
+=== census
+exit=0
+Three outcomes, told apart by construction. An **invariant** throws through `shared/invariant.ts` and is not a refusal. An **internal** sentence lies 
+**These are counts of SENTENCES, not of capabilities.** A candidate sentence is one this engine spells and the old one did not; it is not an unsupport
+| invariant | 24 | 23 |
+| refusal — candidate (unmatched) | 46 | 36 |
+=== census-selftest
+exit=0
+=== campaign-receipts
+exit=0
+=== coverage-policy
+exit=0
+=== build
+exit=0
+ℹ dist/diagnostics-CFGk6R7k.mjs.map                    48.47 kB │ gzip:  11.73 kB
+ℹ dist/diagnostics-CFGk6R7k.mjs                        11.81 kB │ gzip:   4.53 kB
+ℹ dist/consumable-result-candidate-BDaeUgD1.mjs.map     4.09 kB │ gzip:   1.21 kB
+ℹ dist/consumable-result-candidate-BDaeUgD1.mjs         0.38 kB │ gzip:   0.27 kB
+=== source-size
+exit=0
+=== recount
+exit=0
+=== docs-validate (post-native round, docs modules re-linked to the lockfile's virtual-store entries) exit=0

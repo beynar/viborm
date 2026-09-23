@@ -5,6 +5,33 @@ Versioning.
 
 ## Unreleased
 
+- **Recursive relation projections.** A self-relation's node — `parent`,
+  `children`, a proven one-to-one inverse or a paired junction graph — takes
+  `recurse` in `select` and `include`: `true`/`{}` follow the relation to depth
+  100, `{ depth: n }` to `n` levels (1–1000), `{ depth: false }` exhaustively;
+  a junction graph prunes cycles path-locally by default and may unfold them
+  with `{ preventCycles: false }` under a bounded depth, while a foreign-key
+  cycle inside the traversed window is an error. The node's own projection
+  repeats at every level, filters prune every hop, each level keeps its
+  `orderBy`, and the repeated key is absent at a numeric cutoff and present
+  (`[]` or `null`) where the data ends. One provider statement serves any
+  depth; the result composes with the cache, `omit`, extensions, arrays and
+  callback transactions like any other relation projection, and
+  `renderOperationResultType` renders a recursive result as named declarations.
+  Output grows with paths, not rows: a graph can return exponentially more
+  occurrences than it stores, even with cycle prevention, so depth 100 is not a
+  size bound. Executed locally on SQLite, PGlite, native PostgreSQL 16 and
+  native MySQL 8.4 (the placement matrix and the hierarchy and graph worlds on
+  all four; the composition matrix on SQLite; 300 generated cases each on
+  SQLite, native PostgreSQL and native MySQL); hosted providers are not yet
+  qualified. Where the provider spells `LATERAL` the carrier's recursive CTE
+  lives in a lateral derived table, because MySQL materializes a correlated
+  CTE that is read twice once per statement. Providers cap exhaustive
+  traversals with their own limits: MySQL's `cte_max_recursion_depth` surfaces
+  as the provider's error (errno 3636), never as a truncated result. The
+  output key `_distance` has one producer: a relation named `_distance`
+  (recursive or not) cannot be projected beside a point's distance, in either
+  order — the refusal a scalar of that name already met.
 - **A connection must be representable.** An explicit `connect`, and the found
   and the create arm of `connectOrCreate`, establish a relation by writing the
   value the target holds for the referenced field. Every component that

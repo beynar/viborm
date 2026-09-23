@@ -1,8 +1,18 @@
+/**
+ * G4-01 RF-16 — recursive reads keep the fuller codec vocabulary.
+ *
+ * This cell once entered the retired private root-only `Queries.recursive`
+ * through an `OperationContext`; that slice is gone
+ * (features-docs/recursive-query.md §3.6). The same read is now an ordinary
+ * `include` of the `children` relation modified by `recurse`, through the
+ * command engine: decimal, DateTime and list leaves decode at every occurrence
+ * exactly as they do in any other projection. Depth 8 still reaches every row;
+ * the last row is a natural end before that cutoff, so it carries `[]`.
+ */
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
-import type { Queries } from "@query-engine/raptor3/shared/query";
-import { EngineSchema, type Input } from "@query-engine/raptor3/shared/schema";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
+import type { Input } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -41,39 +51,22 @@ function createWorld() {
   insert.run(2, "child", 250n, "2024-02-02T00:00:00.000Z", '["b","c"]', 1);
   insert.run(3, "grandchild", 25n, "2024-03-03T00:00:00.000Z", "[]", 2);
   const driver = new SQLite3Driver({ client: database });
-  return { database, driver, engineSchema: new EngineSchema(schema) };
+  return { database, driver };
 }
 
-interface RecursiveQueries {
-  recursive(
-    model: typeof node,
-    traversal: {
-      seeds: readonly { args: Record<string, unknown> }[];
-      relation: string;
-      depth: number;
-      args?: Record<string, unknown>;
-    }
-  ): Parameters<OperationContext["read"]>[0];
-}
-
-describe("G4-01 recursive-read fit keeps the fuller codec vocabulary (RF-16)", () => {
+describe("G4-01 recursive reads keep the fuller codec vocabulary (RF-16)", () => {
   it("decodes decimal, DateTime and list leaves at every occurrence", async () => {
     const world = createWorld();
     try {
-      const context = new OperationContext(
-        world.engineSchema,
-        world.driver,
-        "node",
-        "findMany"
-      );
-      const queries = context.queries as Queries & RecursiveQueries;
-      const query = queries.recursive(node, {
-        seeds: [{ args: { where: { id: 1 } } }],
-        relation: "children",
-        depth: 8,
-        args: { orderBy: { id: "asc" } },
-      });
-      const rows = (await context.run(() => context.read(query))) as Input[];
+      const rows = (await createCommandEngine({
+        schema,
+        driver: world.driver,
+      }).execute("node", "findMany", {
+        where: { id: 1 },
+        include: {
+          children: { recurse: { depth: 8 }, orderBy: { id: "asc" } },
+        },
+      })) as Input[];
       assert.equal(rows.length, 1);
       const root = rows[0]!;
       assert.equal(root.label, "root");
@@ -91,6 +84,7 @@ describe("G4-01 recursive-read fit keeps the fuller codec vocabulary (RF-16)", (
         (grandchildren[0]!.seenAt as Date).toISOString(),
         "2024-03-03T00:00:00.000Z"
       );
+      assert.deepEqual(grandchildren[0]!.children, []);
     } finally {
       await world.driver.disconnect();
       world.database.close();

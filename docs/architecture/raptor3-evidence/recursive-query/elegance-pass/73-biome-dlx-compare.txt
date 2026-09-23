@@ -1,0 +1,46 @@
+scripts/credential-free-test-manifest.mjs assist/source/organizeImports: head=1 after=1
+scripts/raptor3-manifest.mjs format: head=1 after=1
+scripts/raptor3-manifest.mjs lint/performance/useTopLevelRegex: head=1 after=1
+scripts/raptor3-manifest.mjs lint/suspicious/noMisplacedAssertion: head=71 after=71
+src/client/result-types.ts format: head=1 after=1
+src/client/types.ts format: head=1 after=1
+src/query-engine/raptor3/shared/query.ts assist/source/organizeImports: head=1 after=1
+src/query-engine/raptor3/shared/query.ts format: head=1 after=1
+src/query-engine/raptor3/shared/query.ts lint/complexity/useSimplifiedLogicExpression: head=5 after=5
+src/query-engine/raptor3/shared/query.ts lint/correctness/noUnusedFunctionParameters: head=2 after=2
+src/query-engine/raptor3/shared/query.ts lint/correctness/noUnusedVariables: head=1 after=1
+src/query-engine/raptor3/shared/query.ts lint/style/noParameterProperties: head=4 after=4
+src/query-engine/raptor3/shared/query.ts lint/style/useAtIndex: head=2 after=2
+src/query-engine/raptor3/shared/query.ts lint/style/useDefaultSwitchClause: head=2 after=2
+src/query-engine/raptor3/shared/query.ts lint/style/useForOf: head=1 after=1
+src/query-engine/result/cache-value-codecs.ts lint/style/noNegationElse: head=1 after=1
+src/validation/relations/select-include.ts format: head=1 after=1
+tests/raptor3/g4/read-recursive-fit.test.ts assist/source/organizeImports: head=1 after=0  (fewer)
+tests/raptor3/g4/read-recursive-fit.test.ts lint/suspicious/noMisplacedAssertion: head=2 after=0  (fewer)
+tests/raptor3/g4/review/perf/alias-scope.review.test.ts format: head=1 after=1
+tests/raptor3/g4/review/perf/alias-scope.review.test.ts lint/suspicious/noMisplacedAssertion: head=2 after=2
+tests/raptor3/g4/review/witness/native-fixture-satisfiable.review.test.ts lint/performance/useTopLevelRegex: head=6 after=6
+tests/raptor3/g4/unit02/recursive-codec-fit.test.ts assist/source/organizeImports: head=1 after=0  (fewer)
+tests/raptor3/g4/unit02/recursive-codec-fit.test.ts lint/suspicious/noMisplacedAssertion: head=2 after=0  (fewer)
+tests/raptor3/recursive-query/carrier-boundary.test.ts format: head=1 after=1
+tests/raptor3/recursive-query/carrier-boundary.test.ts lint/performance/useTopLevelRegex: head=22 after=22
+tests/raptor3/recursive-query/carrier-boundary.test.ts lint/style/useConsistentBuiltinInstantiation: head=3 after=3
+tests/raptor3/recursive-query/carrier-boundary.test.ts lint/style/useNumericSeparators: head=2 after=2
+tests/raptor3/recursive-query/distance-key-collision.test.ts format: head=1 after=1
+tests/raptor3/recursive-query/distance-key-collision.test.ts lint/performance/useTopLevelRegex: head=6 after=6
+tests/raptor3/recursive-query/provider-sql-fixture.ts format: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-fixture.ts lint/performance/useTopLevelRegex: head=1 after=0  (fewer)
+tests/raptor3/recursive-query/provider-sql-fixture.ts lint/style/useNumericSeparators: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-fixture.ts lint/suspicious/noMisplacedAssertion: head=18 after=0  (fewer)
+tests/raptor3/recursive-query/provider-sql-native.test.ts assist/source/organizeImports: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-native.test.ts format: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-native.test.ts lint/performance/useTopLevelRegex: head=4 after=4
+tests/raptor3/recursive-query/provider-sql-native.test.ts lint/suspicious/noMisplacedAssertion: head=4 after=4
+tests/raptor3/recursive-query/provider-sql-pglite.test.ts assist/source/organizeImports: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-pglite.test.ts format: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-pglite.test.ts lint/performance/useTopLevelRegex: head=6 after=0  (fewer)
+tests/raptor3/recursive-query/provider-sql-pglite.test.ts lint/style/useImportType: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-sqlite.test.ts assist/source/organizeImports: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-sqlite.test.ts format: head=1 after=1
+tests/raptor3/recursive-query/provider-sql-sqlite.test.ts lint/performance/useTopLevelRegex: head=6 after=0  (fewer)
+tests/unit/operation-schemas/relations/recursive-query.core.test.ts format: head=1 after=1

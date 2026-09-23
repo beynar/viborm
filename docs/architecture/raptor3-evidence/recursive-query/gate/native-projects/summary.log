@@ -1,0 +1,28 @@
+started 2026-09-23T08:56:34Z head 4ead1c591 dirty=7
+=== provider-pg (7 files, PG_TEST_CONNECTION_STRING from pg, value hidden)
+provider-pg pg-batch-reference-reuse exit=0  Tests 6 passed (6)
+provider-pg pg-captured-set-concurrency exit=0  Tests 28 passed (28)
+provider-pg pg-nested-write-races exit=0  Tests 95 passed (95)
+provider-pg pg-polymorphism-ddl exit=0  Tests 60 passed (60)
+provider-pg pg-read-surface exit=0  Tests 76 passed (76)
+provider-pg pg-reference-representability exit=0  Tests 5 passed (5)
+provider-pg pg exit=0  Tests 220 passed | 7 skipped (227)
+provider-pg: 7 files, 0 failed
+=== provider-mysql2 (15 files, MYSQL_TEST_CONNECTION_STRING from mysql, value hidden)
+provider-mysql2 decimal-wide-arithmetic-docker exit=0  Tests 35 passed (35)
+provider-mysql2 mysql2-cascaded-identity exit=0  Tests 4 passed (4)
+provider-mysql2 mysql2-concurrency-policy exit=0  Tests 11 passed (11)
+provider-mysql2 mysql2-found-consumption exit=0  Tests 15 passed (15)
+provider-mysql2 mysql2-generated-key exit=0  Tests 5 passed (5)
+provider-mysql2 mysql2-read-surface exit=0  Tests 122 passed (122)
+provider-mysql2 mysql2-reference-representability exit=0  Tests 5 passed (5)
+provider-mysql2 mysql2-relations-ddl exit=0  Tests 106 passed (106)
+provider-mysql2 mysql2-scalars exit=0  Tests 293 passed (293)
+provider-mysql2 mysql2-schema-attestation exit=0  Tests 6 passed (6)
+provider-mysql2 mysql2-writes-raw exit=0  Tests 93 passed (93)
+provider-mysql2 mysql2 exit=0  Tests 84 passed | 1 skipped (85)
+provider-mysql2 decimal-list-defaults-mysql-docker exit=0  Tests 1 passed (1)
+provider-mysql2 mysql-defaults-docker exit=0  Tests 4 passed (4)
+provider-mysql2 mysql-strict-mode-docker exit=0  Tests 9 passed (9)
+provider-mysql2: 15 files, 0 failed
+finished 2026-09-23T09:10:11Z provider-pg failed=0 provider-mysql2 failed=0

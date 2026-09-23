@@ -1,0 +1,34 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts (4 tests | 1 failed) 13ms
+   × the output key `_distance` has one producer > refuses a distance beside a relation named `_distance`, in either order, before any statement 7ms
+     → Missing expected exception: {"select":{"id":true,"_distance":{"recurse":{"depth":2},"select":{"id":true,"at":{"_distance":{"to":{"longitude":2.3522,"latitude":48.8566}}}}}}}
+   ✓ the output key `_distance` has one producer > renders the same refusal for the schema-only result shape 4ms
+   ✓ the output key `_distance` has one producer > refuses the included spelling in the schema-only shape below admission 0ms
+   ✓ the output key `_distance` has one producer > keeps the key for each producer alone 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts > the output key `_distance` has one producer > refuses a distance beside a relation named `_distance`, in either order, before any statement
+AssertionError: Missing expected exception: {"select":{"id":true,"_distance":{"recurse":{"depth":2},"select":{"id":true,"at":{"_distance":{"to":{"longitude":2.3522,"latitude":48.8566}}}}}}}
+
+simple
+
+ ❯ tests/raptor3/recursive-query/distance-key-collision.test.ts:142:14
+    140|   it("refuses a distance beside a relation named `_distance`, in eithe…
+    141|     for (const args of [distanceFirst, relationFirst, included, nested…
+    142|       assert.throws(
+       |              ^
+    143|         () => queries().select(place, args as never),
+    144|         (error: unknown) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  11:58:55
+   Duration  1.68s (transform 880ms, setup 11ms, collect 1.33s, tests 13ms, environment 0ms, prepare 40ms)
+
+Vitest resources: 3.50s wall, 459.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

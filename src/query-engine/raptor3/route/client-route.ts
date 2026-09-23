@@ -30,6 +30,7 @@ import {
   nullableCodec,
   numberCodec,
   recordCodec,
+  recursiveRelationCodec,
   taggedRelationCodec,
   type ValueCodec,
 } from "../../result/cache-value-codecs";
@@ -325,13 +326,18 @@ function shapeCodec(
       return shape.many ? arrayCodec(tagged) : nullableCodec(tagged);
     }
     case "recursive":
-      // A recursive read publishes a depth the prepared shape does not bound,
-      // so no fixed codec describes it. The shipped compiler refuses the same
-      // shape (`compileRowCodec`'s `unknown` column), and refusing is what
-      // keeps a half-encoded entry out of the store.
-      throw new UnsupportedOperationError(
-        `The Raptor 3 route cannot encode a cached result for '${requestedOperation}': a recursive read's published depth is not a fixed shape.`,
-        { meta: { operation: requestedOperation } }
+      // The decoder published every occurrence; the entry keeps them as they
+      // were published. The node is the ordinary row codec, and the structural
+      // owner reads only the slot's own prepared facts — never an identity,
+      // never the cycle policy the decoder already applied.
+      return recursiveRelationCodec(
+        {
+          relation: shape.relation,
+          many: shape.many,
+          optional: shape.optional,
+          depth: shape.recurrence.depth,
+        },
+        shapeCodec(shape.row, requestedOperation)
       );
   }
 }

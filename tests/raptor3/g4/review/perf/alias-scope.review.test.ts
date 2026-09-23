@@ -38,13 +38,19 @@ import {
 } from "../../read-schema";
 import { createWitnessWorld, type WitnessWorld } from "../../witness-world";
 
-/** The six methods of `Queries` that open a statement's alias scope. */
+/**
+ * The five methods of `Queries` that open a statement's alias scope.
+ *
+ * Contract change: `recursive` left this list with the retired root-only
+ * builder (features-docs/recursive-query.md §3.6); a recursive relation is now
+ * an ordinary projected field, lowered inside the alias scope of the statement
+ * that asks for it.
+ */
 const STATEMENT_OWNERS = [
   "select",
   "aggregated",
   "grouped",
   "selectSeries",
-  "recursive",
   "junction",
 ] as const;
 

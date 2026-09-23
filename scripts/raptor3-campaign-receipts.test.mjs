@@ -1080,12 +1080,16 @@ test("G4 fixed modes admit their exact contract without filters", () => {
   );
   // The G4-01 evidence landed from that unit's worktree. Its two registered
   // totals are the numbers the unit reported (83 author checks) and the number
-  // the reviewer probes actually contain, measured on the landed files.
+  // the reviewer probes actually contain, measured on the landed files. 84
+  // since 076fad02b (share rules and fuse exact found consumption) registered
+  // `g4/unit01/count-output-slots.test.ts` (1 cell) beside the author checks
+  // without moving this pin; the recursive-query program measured the drift
+  // at its baseline and re-froze it here.
   const sum = (counts) =>
     Object.values(counts).reduce((carried, count) => carried + count, 0);
   assert.equal(
     sum(G4_UNIT01_AUTHOR_COUNTS),
-    83,
+    84,
     "The landed G4-01 author checks lost or gained a cell"
   );
   // 200 until C-01 retired the two cells that pinned the deleted engine's

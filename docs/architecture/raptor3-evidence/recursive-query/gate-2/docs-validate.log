@@ -1,0 +1,50 @@
+
+> docs@ validate /Users/arnaud/code/viborm/docs
+> blume validate
+
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "client/index.mdx" has title "Client API", but its folder's meta.title is "Client" — the sidebar shows the folder title while the page's own <title>/heading still say "Client API".
+  [2mat content/docs/client/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Client"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "drivers/index.mdx" has title "Database Drivers", but its folder's meta.title is "Drivers" — the sidebar shows the folder title while the page's own <title>/heading still say "Database Drivers".
+  [2mat content/docs/drivers/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Drivers"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "extensions/cache/drivers/index.mdx" has title "Cache Drivers", but its folder's meta.title is "Drivers" — the sidebar shows the folder title while the page's own <title>/heading still say "Cache Drivers".
+  [2mat content/docs/extensions/cache/drivers/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Drivers"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "extensions/cache/index.mdx" has title "Caching", but its folder's meta.title is "Cache" — the sidebar shows the folder title while the page's own <title>/heading still say "Caching".
+  [2mat content/docs/extensions/cache/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Cache"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "getting-started/index.mdx" has title "Installation", but its folder's meta.title is "Getting Started" — the sidebar shows the folder title while the page's own <title>/heading still say "Installation".
+  [2mat content/docs/getting-started/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Getting Started"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "internals/index.mdx" has title "Internals Overview", but its folder's meta.title is "Internals" — the sidebar shows the folder title while the page's own <title>/heading still say "Internals Overview".
+  [2mat content/docs/internals/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Internals"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "internals/validation/index.mdx" has title "Overview", but its folder's meta.title is "L1: Validation" — the sidebar shows the folder title while the page's own <title>/heading still say "Overview".
+  [2mat content/docs/internals/validation/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("L1: Validation"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "schema/index.mdx" has title "Schema Definition", but its folder's meta.title is "Schema" — the sidebar shows the folder title while the page's own <title>/heading still say "Schema Definition".
+  [2mat content/docs/schema/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Schema"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "schema/relations/index.mdx" has title "Relations Overview", but its folder's meta.title is "Relations" — the sidebar shows the folder title while the page's own <title>/heading still say "Relations Overview".
+  [2mat content/docs/schema/relations/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Relations"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_NAV_INDEX_TITLE_MISMATCH[0m Index page "schema/scalars/index.mdx" has title "Scalars Overview", but its folder's meta.title is "Scalars" — the sidebar shows the folder title while the page's own <title>/heading still say "Scalars Overview".
+  [2mat content/docs/schema/scalars/index.mdx[0m
+  [36mfix: Update the page's frontmatter title to match ("Scalars"), or leave it if the divergence is intentional.[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+[33m[1mBLUME_DUPLICATE_SIDEBAR_ORDER[0m "Getting Started" and "Why We Built This" both have sidebar order 1; falling back to alphabetical order.
+  [2mat content/docs/why.mdx[0m
+  [36mfix: Give each item a distinct sidebar.order (or folder meta order).[0m
+  [2mdocs: https://useblume.dev/docs/content/navigation[0m
+
+11 warning(s)

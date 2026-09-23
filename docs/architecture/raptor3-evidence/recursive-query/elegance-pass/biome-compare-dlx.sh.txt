@@ -1,0 +1,23 @@
+#!/bin/bash
+set -u
+export PATH=/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin:$PATH
+REPO=/Users/arnaud/code/viborm
+T=/private/tmp/viborm-rq-elegance-repair
+M=$T/biome-head
+read -r -a FILES < "$T/touched-files.txt"
+(cd "$M" && pnpm dlx @biomejs/biome check --no-errors-on-unmatched --max-diagnostics=10000 "${FILES[@]}") > "$T/logs/biome-dlx-head.txt" 2>&1
+(cd "$REPO" && pnpm dlx @biomejs/biome check --no-errors-on-unmatched --max-diagnostics=10000 "${FILES[@]}" "$@") > "$T/logs/biome-dlx-after.txt" 2>&1
+python3 - "$T/logs/biome-dlx-head.txt" "$T/logs/biome-dlx-after.txt" <<'PY'
+import re, sys, collections
+def counts(path):
+    c = collections.Counter()
+    for line in open(path, encoding="utf8", errors="replace"):
+        m = re.match(r'^(\S+?)(?::\d+:\d+)? (lint/\S+|assist/\S+|format)\b', line)
+        if m: c[(m.group(1), m.group(2))] += 1
+    return c
+h, a = counts(sys.argv[1]), counts(sys.argv[2])
+for k in sorted(set(h) | set(a)):
+    hv, av = h[k], a[k]
+    flag = "" if hv == av else ("  <-- MORE" if av > hv else "  (fewer)")
+    print(f"{k[0]} {k[1]}: head={hv} after={av}{flag}")
+PY

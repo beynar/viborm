@@ -1,0 +1,413 @@
+[
+ {
+  "dialect": "postgresql",
+  "label": "tree bounded",
+  "chars": 1682,
+  "sql": "SELECT (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 2) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE \"q3\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q7\".\"id\"), $8::text, json_build_object($9::text, \"q7\".\"rank\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q8\".\"__q1_parent_0\"), $11::text, json_build_array(\"q8\".\"__q1_child_0\"), $12::text, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"children\" FROM \"public\".\"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = $13",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   2,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "postgresql",
+  "label": "tree exhaustive",
+  "chars": 1552,
+  "sql": "SELECT (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 2) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"public\".\"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE TRUE\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($4::text, json_build_array(\"q7\".\"id\"), $5::text, json_build_object($6::text, \"q7\".\"rank\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($7::text, json_build_array(\"q8\".\"__q1_parent_0\"), $8::text, json_build_array(\"q8\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"children\" FROM \"public\".\"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = $9",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "postgresql",
+  "label": "tree upward singular bounded",
+  "chars": 1663,
+  "sql": "SELECT (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 2) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"parent_id\" = \"q2\".\"id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"parent_id\" = \"q5\".\"id\" WHERE \"q3\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q7\".\"id\"), $8::text, json_build_object($9::text, \"q7\".\"rank\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q8\".\"__q1_parent_0\"), $11::text, json_build_array(\"q8\".\"__q1_child_0\"), $12::text, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"id\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"parent\" FROM \"public\".\"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = $13",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   32,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "postgresql",
+  "label": "tree multi-root findMany",
+  "chars": 1672,
+  "sql": "SELECT (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 2) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE \"q3\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q7\".\"id\"), $8::text, json_build_object($9::text, \"q7\".\"rank\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q8\".\"__q1_parent_0\"), $11::text, json_build_array(\"q8\".\"__q1_child_0\"), $12::text, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" DESC, \"q9\".\"id\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"children\" FROM \"public\".\"rq07_measure_nodes\" AS \"q0\" WHERE TRUE",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   3,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth"
+  ]
+ },
+ {
+  "dialect": "postgresql",
+  "label": "graph bounded, prevention off",
+  "chars": 1879,
+  "sql": "SELECT (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q14\".\"__q1_nodes\", $3::text, \"q14\".\"__q1_edges\") FROM (SELECT 2) AS \"q13\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\", (\"q4\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE \"q4\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q9\".\"id\"), $8::text, json_build_object($9::text, \"q9\".\"rank\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q4\".\"__q1_child_0\") \"q4\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q4\") AS \"q8\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q12\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q10\".\"__q1_parent_0\"), $11::text, json_build_array(\"q10\".\"__q1_child_0\"), $12::text, \"q10\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC) AS \"q12\") AS \"__q1_edges\") AS \"q14\" ON TRUE) AS \"out\" FROM \"public\".\"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = $13",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   8,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "k0"
+  ]
+ },
+ {
+  "dialect": "postgresql",
+  "label": "graph exhaustive",
+  "chars": 1748,
+  "sql": "SELECT (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q14\".\"__q1_nodes\", $3::text, \"q14\".\"__q1_edges\") FROM (SELECT 2) AS \"q13\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"public\".\"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE TRUE\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($4::text, json_build_array(\"q9\".\"id\"), $5::text, json_build_object($6::text, \"q9\".\"rank\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q4\".\"__q1_child_0\") \"q4\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q4\") AS \"q8\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q12\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($7::text, json_build_array(\"q10\".\"__q1_parent_0\"), $8::text, json_build_array(\"q10\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC) AS \"q12\") AS \"__q1_edges\") AS \"q14\" ON TRUE) AS \"out\" FROM \"public\".\"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = $9",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "k0"
+  ]
+ },
+ {
+  "dialect": "postgresql",
+  "label": "compound mapped key, multi-root",
+  "chars": 2314,
+  "sql": "SELECT (SELECT json_build_object($1::text, json_build_array(\"q0\".\"tenant_key\", \"q0\".\"node_code\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 2) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"tenant_key\" AS \"__q1_parent_0\", \"q0\".\"node_code\" AS \"__q1_parent_1\", \"q2\".\"tenant_key\" AS \"__q1_child_0\", \"q2\".\"node_code\" AS \"__q1_child_1\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq_provider_nodes\" AS \"q2\" WHERE (\"q0\".\"tenant_key\" = \"q2\".\"parent_tenant\" AND \"q0\".\"node_code\" = \"q2\".\"parent_code\")\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q3\".\"__q1_child_1\" AS \"__q1_parent_1\", \"q5\".\"tenant_key\" AS \"__q1_child_0\", \"q5\".\"node_code\" AS \"__q1_child_1\", (\"q3\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq_provider_nodes\" AS \"q4\" ON (\"q4\".\"tenant_key\" = \"q3\".\"__q1_child_0\" AND \"q4\".\"node_code\" = \"q3\".\"__q1_child_1\") INNER JOIN \"public\".\"rq_provider_nodes\" AS \"q5\" ON (\"q4\".\"tenant_key\" = \"q5\".\"parent_tenant\" AND \"q4\".\"node_code\" = \"q5\".\"parent_code\") WHERE \"q3\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q7\".\"tenant_key\", \"q7\".\"node_code\"), $8::text, json_build_object($9::text, \"q7\".\"rank\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\", \"q3\".\"__q1_child_1\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", \"q3\".\"__q1_child_1\" AS \"__q1_id_1\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq_provider_nodes\" AS \"q7\" ON (\"q7\".\"tenant_key\" = \"q6\".\"__q1_id_0\" AND \"q7\".\"node_code\" = \"q6\".\"__q1_id_1\")) AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q8\".\"__q1_parent_0\", \"q8\".\"__q1_parent_1\"), $11::text, json_build_array(\"q8\".\"__q1_child_0\", \"q8\".\"__q1_child_1\"), $12::text, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq_provider_nodes\" AS \"q9\" ON (\"q9\".\"tenant_key\" = \"q8\".\"__q1_child_0\" AND \"q9\".\"node_code\" = \"q8\".\"__q1_child_1\") ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q8\".\"__q1_parent_1\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"tenant_key\" ASC, \"q9\".\"node_code\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"children\" FROM \"public\".\"rq_provider_nodes\" AS \"q0\" WHERE TRUE",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   2,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth"
+  ]
+ },
+ {
+  "dialect": "mysql",
+  "label": "tree bounded",
+  "chars": 1673,
+  "sql": "SELECT (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`id`), ?, `q12`.`__q1_nodes`, ?, `q12`.`__q1_edges`) FROM (SELECT 2) AS `q11` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`id` AS `__q1_parent_0`, `q2`.`id` AS `__q1_child_0`, CAST(? AS SIGNED) AS `__q1_depth` FROM `rq07_measure_nodes` AS `q2` WHERE `q0`.`id` = `q2`.`parent_id`\n        UNION\n        SELECT `q3`.`__q1_child_0` AS `__q1_parent_0`, `q5`.`id` AS `__q1_child_0`, (`q3`.`__q1_depth` + ?) AS `__q1_depth` FROM `__q1_recursive` AS `q3` INNER JOIN `rq07_measure_nodes` AS `q4` ON `q4`.`id` = `q3`.`__q1_child_0` INNER JOIN `rq07_measure_nodes` AS `q5` ON `q4`.`id` = `q5`.`parent_id` WHERE `q3`.`__q1_depth` < ?\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q7`.`id`), ?, JSON_OBJECT(?, `q7`.`rank`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0` FROM (SELECT `q3`.`__q1_child_0` AS `__q1_id_0`, ROW_NUMBER() OVER (PARTITION BY `q3`.`__q1_child_0` ORDER BY `q3`.`__q1_child_0`) AS `_rn` FROM `__q1_recursive` AS `q3`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q6` INNER JOIN `rq07_measure_nodes` AS `q7` ON `q7`.`id` = `q6`.`__q1_id_0`) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q10`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q8`.`__q1_parent_0`), ?, JSON_ARRAY(`q8`.`__q1_child_0`), ?, `q8`.`__q1_depth`) AS `__q1_edge` FROM `__q1_recursive` AS `q8` INNER JOIN `rq07_measure_nodes` AS `q9` ON `q9`.`id` = `q8`.`__q1_child_0` ORDER BY `q8`.`__q1_parent_0` ASC, `q9`.`rank` ASC, `q9`.`id` ASC LIMIT 18446744073709551615) AS `q10`) AS `__q1_edges`) AS `q12` ON TRUE) AS `children` FROM `rq07_measure_nodes` AS `q0` WHERE `q0`.`id` = ?",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   2,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "mysql",
+  "label": "tree exhaustive",
+  "chars": 1558,
+  "sql": "SELECT (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`id`), ?, `q12`.`__q1_nodes`, ?, `q12`.`__q1_edges`) FROM (SELECT 2) AS `q11` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`id` AS `__q1_parent_0`, `q2`.`id` AS `__q1_child_0` FROM `rq07_measure_nodes` AS `q2` WHERE `q0`.`id` = `q2`.`parent_id`\n        UNION\n        SELECT `q3`.`__q1_child_0` AS `__q1_parent_0`, `q5`.`id` AS `__q1_child_0` FROM `__q1_recursive` AS `q3` INNER JOIN `rq07_measure_nodes` AS `q4` ON `q4`.`id` = `q3`.`__q1_child_0` INNER JOIN `rq07_measure_nodes` AS `q5` ON `q4`.`id` = `q5`.`parent_id` WHERE TRUE\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q7`.`id`), ?, JSON_OBJECT(?, `q7`.`rank`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0` FROM (SELECT `q3`.`__q1_child_0` AS `__q1_id_0`, ROW_NUMBER() OVER (PARTITION BY `q3`.`__q1_child_0` ORDER BY `q3`.`__q1_child_0`) AS `_rn` FROM `__q1_recursive` AS `q3`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q6` INNER JOIN `rq07_measure_nodes` AS `q7` ON `q7`.`id` = `q6`.`__q1_id_0`) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q10`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q8`.`__q1_parent_0`), ?, JSON_ARRAY(`q8`.`__q1_child_0`)) AS `__q1_edge` FROM `__q1_recursive` AS `q8` INNER JOIN `rq07_measure_nodes` AS `q9` ON `q9`.`id` = `q8`.`__q1_child_0` ORDER BY `q8`.`__q1_parent_0` ASC, `q9`.`rank` ASC, `q9`.`id` ASC LIMIT 18446744073709551615) AS `q10`) AS `__q1_edges`) AS `q12` ON TRUE) AS `children` FROM `rq07_measure_nodes` AS `q0` WHERE `q0`.`id` = ?",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "mysql",
+  "label": "tree upward singular bounded",
+  "chars": 1654,
+  "sql": "SELECT (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`id`), ?, `q12`.`__q1_nodes`, ?, `q12`.`__q1_edges`) FROM (SELECT 2) AS `q11` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`id` AS `__q1_parent_0`, `q2`.`id` AS `__q1_child_0`, CAST(? AS SIGNED) AS `__q1_depth` FROM `rq07_measure_nodes` AS `q2` WHERE `q0`.`parent_id` = `q2`.`id`\n        UNION\n        SELECT `q3`.`__q1_child_0` AS `__q1_parent_0`, `q5`.`id` AS `__q1_child_0`, (`q3`.`__q1_depth` + ?) AS `__q1_depth` FROM `__q1_recursive` AS `q3` INNER JOIN `rq07_measure_nodes` AS `q4` ON `q4`.`id` = `q3`.`__q1_child_0` INNER JOIN `rq07_measure_nodes` AS `q5` ON `q4`.`parent_id` = `q5`.`id` WHERE `q3`.`__q1_depth` < ?\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q7`.`id`), ?, JSON_OBJECT(?, `q7`.`rank`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0` FROM (SELECT `q3`.`__q1_child_0` AS `__q1_id_0`, ROW_NUMBER() OVER (PARTITION BY `q3`.`__q1_child_0` ORDER BY `q3`.`__q1_child_0`) AS `_rn` FROM `__q1_recursive` AS `q3`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q6` INNER JOIN `rq07_measure_nodes` AS `q7` ON `q7`.`id` = `q6`.`__q1_id_0`) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q10`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q8`.`__q1_parent_0`), ?, JSON_ARRAY(`q8`.`__q1_child_0`), ?, `q8`.`__q1_depth`) AS `__q1_edge` FROM `__q1_recursive` AS `q8` INNER JOIN `rq07_measure_nodes` AS `q9` ON `q9`.`id` = `q8`.`__q1_child_0` ORDER BY `q8`.`__q1_parent_0` ASC, `q9`.`id` ASC LIMIT 18446744073709551615) AS `q10`) AS `__q1_edges`) AS `q12` ON TRUE) AS `parent` FROM `rq07_measure_nodes` AS `q0` WHERE `q0`.`id` = ?",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   32,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "mysql",
+  "label": "tree multi-root findMany",
+  "chars": 1665,
+  "sql": "SELECT (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`id`), ?, `q12`.`__q1_nodes`, ?, `q12`.`__q1_edges`) FROM (SELECT 2) AS `q11` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`id` AS `__q1_parent_0`, `q2`.`id` AS `__q1_child_0`, CAST(? AS SIGNED) AS `__q1_depth` FROM `rq07_measure_nodes` AS `q2` WHERE `q0`.`id` = `q2`.`parent_id`\n        UNION\n        SELECT `q3`.`__q1_child_0` AS `__q1_parent_0`, `q5`.`id` AS `__q1_child_0`, (`q3`.`__q1_depth` + ?) AS `__q1_depth` FROM `__q1_recursive` AS `q3` INNER JOIN `rq07_measure_nodes` AS `q4` ON `q4`.`id` = `q3`.`__q1_child_0` INNER JOIN `rq07_measure_nodes` AS `q5` ON `q4`.`id` = `q5`.`parent_id` WHERE `q3`.`__q1_depth` < ?\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q7`.`id`), ?, JSON_OBJECT(?, `q7`.`rank`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0` FROM (SELECT `q3`.`__q1_child_0` AS `__q1_id_0`, ROW_NUMBER() OVER (PARTITION BY `q3`.`__q1_child_0` ORDER BY `q3`.`__q1_child_0`) AS `_rn` FROM `__q1_recursive` AS `q3`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q6` INNER JOIN `rq07_measure_nodes` AS `q7` ON `q7`.`id` = `q6`.`__q1_id_0`) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q10`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q8`.`__q1_parent_0`), ?, JSON_ARRAY(`q8`.`__q1_child_0`), ?, `q8`.`__q1_depth`) AS `__q1_edge` FROM `__q1_recursive` AS `q8` INNER JOIN `rq07_measure_nodes` AS `q9` ON `q9`.`id` = `q8`.`__q1_child_0` ORDER BY `q8`.`__q1_parent_0` ASC, `q9`.`rank` DESC, `q9`.`id` ASC LIMIT 18446744073709551615) AS `q10`) AS `__q1_edges`) AS `q12` ON TRUE) AS `children` FROM `rq07_measure_nodes` AS `q0` WHERE TRUE",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   3,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth"
+  ]
+ },
+ {
+  "dialect": "mysql",
+  "label": "graph bounded, prevention off",
+  "chars": 1852,
+  "sql": "SELECT (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`id`), ?, `q14`.`__q1_nodes`, ?, `q14`.`__q1_edges`) FROM (SELECT 2) AS `q13` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`id` AS `__q1_parent_0`, `q2`.`id` AS `__q1_child_0`, CAST(? AS SIGNED) AS `__q1_depth` FROM `rq_provider_vertices` AS `q2` WHERE EXISTS (SELECT 1 FROM `rq_provider_arcs` AS `q3` WHERE (`q3`.`tail` = `q0`.`id` AND `q3`.`head` = `q2`.`id`))\n        UNION\n        SELECT `q4`.`__q1_child_0` AS `__q1_parent_0`, `q6`.`id` AS `__q1_child_0`, (`q4`.`__q1_depth` + ?) AS `__q1_depth` FROM `__q1_recursive` AS `q4` INNER JOIN `rq_provider_vertices` AS `q5` ON `q5`.`id` = `q4`.`__q1_child_0` INNER JOIN `rq_provider_vertices` AS `q6` ON EXISTS (SELECT 1 FROM `rq_provider_arcs` AS `q7` WHERE (`q7`.`tail` = `q5`.`id` AND `q7`.`head` = `q6`.`id`)) WHERE `q4`.`__q1_depth` < ?\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q9`.`id`), ?, JSON_OBJECT(?, `q9`.`rank`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0` FROM (SELECT `q4`.`__q1_child_0` AS `__q1_id_0`, ROW_NUMBER() OVER (PARTITION BY `q4`.`__q1_child_0` ORDER BY `q4`.`__q1_child_0`) AS `_rn` FROM `__q1_recursive` AS `q4`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q8` INNER JOIN `rq_provider_vertices` AS `q9` ON `q9`.`id` = `q8`.`__q1_id_0`) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q12`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q10`.`__q1_parent_0`), ?, JSON_ARRAY(`q10`.`__q1_child_0`), ?, `q10`.`__q1_depth`) AS `__q1_edge` FROM `__q1_recursive` AS `q10` INNER JOIN `rq_provider_vertices` AS `q11` ON `q11`.`id` = `q10`.`__q1_child_0` ORDER BY `q10`.`__q1_parent_0` ASC, `q11`.`rank` ASC, `q11`.`id` ASC LIMIT 18446744073709551615) AS `q12`) AS `__q1_edges`) AS `q14` ON TRUE) AS `out` FROM `rq_provider_vertices` AS `q0` WHERE `q0`.`id` = ?",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   8,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "k0"
+  ]
+ },
+ {
+  "dialect": "mysql",
+  "label": "graph exhaustive",
+  "chars": 1736,
+  "sql": "SELECT (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`id`), ?, `q14`.`__q1_nodes`, ?, `q14`.`__q1_edges`) FROM (SELECT 2) AS `q13` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`id` AS `__q1_parent_0`, `q2`.`id` AS `__q1_child_0` FROM `rq_provider_vertices` AS `q2` WHERE EXISTS (SELECT 1 FROM `rq_provider_arcs` AS `q3` WHERE (`q3`.`tail` = `q0`.`id` AND `q3`.`head` = `q2`.`id`))\n        UNION\n        SELECT `q4`.`__q1_child_0` AS `__q1_parent_0`, `q6`.`id` AS `__q1_child_0` FROM `__q1_recursive` AS `q4` INNER JOIN `rq_provider_vertices` AS `q5` ON `q5`.`id` = `q4`.`__q1_child_0` INNER JOIN `rq_provider_vertices` AS `q6` ON EXISTS (SELECT 1 FROM `rq_provider_arcs` AS `q7` WHERE (`q7`.`tail` = `q5`.`id` AND `q7`.`head` = `q6`.`id`)) WHERE TRUE\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q9`.`id`), ?, JSON_OBJECT(?, `q9`.`rank`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0` FROM (SELECT `q4`.`__q1_child_0` AS `__q1_id_0`, ROW_NUMBER() OVER (PARTITION BY `q4`.`__q1_child_0` ORDER BY `q4`.`__q1_child_0`) AS `_rn` FROM `__q1_recursive` AS `q4`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q8` INNER JOIN `rq_provider_vertices` AS `q9` ON `q9`.`id` = `q8`.`__q1_id_0`) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q12`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q10`.`__q1_parent_0`), ?, JSON_ARRAY(`q10`.`__q1_child_0`)) AS `__q1_edge` FROM `__q1_recursive` AS `q10` INNER JOIN `rq_provider_vertices` AS `q11` ON `q11`.`id` = `q10`.`__q1_child_0` ORDER BY `q10`.`__q1_parent_0` ASC, `q11`.`rank` ASC, `q11`.`id` ASC LIMIT 18446744073709551615) AS `q12`) AS `__q1_edges`) AS `q14` ON TRUE) AS `out` FROM `rq_provider_vertices` AS `q0` WHERE `q0`.`id` = ?",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "k0"
+  ]
+ },
+ {
+  "dialect": "mysql",
+  "label": "compound mapped key, multi-root",
+  "chars": 2341,
+  "sql": "SELECT (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`tenant_key`, `q0`.`node_code`), ?, `q12`.`__q1_nodes`, ?, `q12`.`__q1_edges`) FROM (SELECT 2) AS `q11` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`tenant_key` AS `__q1_parent_0`, `q0`.`node_code` AS `__q1_parent_1`, `q2`.`tenant_key` AS `__q1_child_0`, `q2`.`node_code` AS `__q1_child_1`, CAST(? AS SIGNED) AS `__q1_depth` FROM `rq_provider_nodes` AS `q2` WHERE (`q0`.`tenant_key` = `q2`.`parent_tenant` AND `q0`.`node_code` = `q2`.`parent_code`)\n        UNION\n        SELECT `q3`.`__q1_child_0` AS `__q1_parent_0`, `q3`.`__q1_child_1` AS `__q1_parent_1`, `q5`.`tenant_key` AS `__q1_child_0`, `q5`.`node_code` AS `__q1_child_1`, (`q3`.`__q1_depth` + ?) AS `__q1_depth` FROM `__q1_recursive` AS `q3` INNER JOIN `rq_provider_nodes` AS `q4` ON (`q4`.`tenant_key` = `q3`.`__q1_child_0` AND `q4`.`node_code` = `q3`.`__q1_child_1`) INNER JOIN `rq_provider_nodes` AS `q5` ON (`q4`.`tenant_key` = `q5`.`parent_tenant` AND `q4`.`node_code` = `q5`.`parent_code`) WHERE `q3`.`__q1_depth` < ?\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q7`.`tenant_key`, `q7`.`node_code`), ?, JSON_OBJECT(?, `q7`.`rank`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0`, `__q1_id_1` FROM (SELECT `q3`.`__q1_child_0` AS `__q1_id_0`, `q3`.`__q1_child_1` AS `__q1_id_1`, ROW_NUMBER() OVER (PARTITION BY `q3`.`__q1_child_0`, `q3`.`__q1_child_1` ORDER BY `q3`.`__q1_child_0`, `q3`.`__q1_child_1`) AS `_rn` FROM `__q1_recursive` AS `q3`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q6` INNER JOIN `rq_provider_nodes` AS `q7` ON (`q7`.`tenant_key` = `q6`.`__q1_id_0` AND `q7`.`node_code` = `q6`.`__q1_id_1`)) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q10`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q8`.`__q1_parent_0`, `q8`.`__q1_parent_1`), ?, JSON_ARRAY(`q8`.`__q1_child_0`, `q8`.`__q1_child_1`), ?, `q8`.`__q1_depth`) AS `__q1_edge` FROM `__q1_recursive` AS `q8` INNER JOIN `rq_provider_nodes` AS `q9` ON (`q9`.`tenant_key` = `q8`.`__q1_child_0` AND `q9`.`node_code` = `q8`.`__q1_child_1`) ORDER BY `q8`.`__q1_parent_0` ASC, `q8`.`__q1_parent_1` ASC, `q9`.`rank` ASC, `q9`.`tenant_key` ASC, `q9`.`node_code` ASC LIMIT 18446744073709551615) AS `q10`) AS `__q1_edges`) AS `q12` ON TRUE) AS `children` FROM `rq_provider_nodes` AS `q0` WHERE TRUE",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_edges",
+   1,
+   1,
+   2,
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth"
+  ]
+ },
+ {
+  "dialect": "sqlite",
+  "label": "tree bounded",
+  "chars": 1557,
+  "sql": "SELECT (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE \"q3\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"id\"), ?, json_object(?, \"q7\".\"rank\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\" ORDER BY \"q3\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\"), ?, json_array(\"q8\".\"__q1_child_0\"), ?, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC LIMIT -1) AS \"q10\")))) AS \"children\" FROM \"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = ?",
+  "values": [
+   1,
+   1,
+   2,
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_edges",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "sqlite",
+  "label": "tree exhaustive",
+  "chars": 1438,
+  "sql": "SELECT (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE 1\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"id\"), ?, json_object(?, \"q7\".\"rank\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\" ORDER BY \"q3\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\"), ?, json_array(\"q8\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC LIMIT -1) AS \"q10\")))) AS \"children\" FROM \"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = ?",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_edges",
+   "__rq_parent",
+   "__rq_child",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "sqlite",
+  "label": "tree upward singular bounded",
+  "chars": 1538,
+  "sql": "SELECT (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"parent_id\" = \"q2\".\"id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"parent_id\" = \"q5\".\"id\" WHERE \"q3\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"id\"), ?, json_object(?, \"q7\".\"rank\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\" ORDER BY \"q3\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\"), ?, json_array(\"q8\".\"__q1_child_0\"), ?, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"id\" ASC LIMIT -1) AS \"q10\")))) AS \"parent\" FROM \"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = ?",
+  "values": [
+   1,
+   1,
+   32,
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_edges",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "c2"
+  ]
+ },
+ {
+  "dialect": "sqlite",
+  "label": "tree multi-root findMany",
+  "chars": 1546,
+  "sql": "SELECT (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE \"q3\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"id\"), ?, json_object(?, \"q7\".\"rank\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\" ORDER BY \"q3\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\"), ?, json_array(\"q8\".\"__q1_child_0\"), ?, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" DESC, \"q9\".\"id\" ASC LIMIT -1) AS \"q10\")))) AS \"children\" FROM \"rq07_measure_nodes\" AS \"q0\" WHERE 1",
+  "values": [
+   1,
+   1,
+   3,
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_edges",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth"
+  ]
+ },
+ {
+  "dialect": "sqlite",
+  "label": "graph bounded, prevention off",
+  "chars": 1736,
+  "sql": "SELECT (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\", (\"q4\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE \"q4\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q9\".\"id\"), ?, json_object(?, \"q9\".\"rank\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q4\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q4\".\"__q1_child_0\" ORDER BY \"q4\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q4\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q8\" INNER JOIN \"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q12\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q10\".\"__q1_parent_0\"), ?, json_array(\"q10\".\"__q1_child_0\"), ?, \"q10\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC LIMIT -1) AS \"q12\")))) AS \"out\" FROM \"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = ?",
+  "values": [
+   1,
+   1,
+   8,
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_edges",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth",
+   "k0"
+  ]
+ },
+ {
+  "dialect": "sqlite",
+  "label": "graph exhaustive",
+  "chars": 1616,
+  "sql": "SELECT (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE 1\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q9\".\"id\"), ?, json_object(?, \"q9\".\"rank\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q4\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q4\".\"__q1_child_0\" ORDER BY \"q4\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q4\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q8\" INNER JOIN \"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q12\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q10\".\"__q1_parent_0\"), ?, json_array(\"q10\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC LIMIT -1) AS \"q12\")))) AS \"out\" FROM \"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = ?",
+  "values": [
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_edges",
+   "__rq_parent",
+   "__rq_child",
+   "k0"
+  ]
+ },
+ {
+  "dialect": "sqlite",
+  "label": "compound mapped key, multi-root",
+  "chars": 2222,
+  "sql": "SELECT (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"tenant_key\" AS \"__q1_parent_0\", \"q0\".\"node_code\" AS \"__q1_parent_1\", \"q2\".\"tenant_key\" AS \"__q1_child_0\", \"q2\".\"node_code\" AS \"__q1_child_1\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq_provider_nodes\" AS \"q2\" WHERE (\"q0\".\"tenant_key\" = \"q2\".\"parent_tenant\" AND \"q0\".\"node_code\" = \"q2\".\"parent_code\")\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q3\".\"__q1_child_1\" AS \"__q1_parent_1\", \"q5\".\"tenant_key\" AS \"__q1_child_0\", \"q5\".\"node_code\" AS \"__q1_child_1\", (\"q3\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq_provider_nodes\" AS \"q4\" ON (\"q4\".\"tenant_key\" = \"q3\".\"__q1_child_0\" AND \"q4\".\"node_code\" = \"q3\".\"__q1_child_1\") INNER JOIN \"rq_provider_nodes\" AS \"q5\" ON (\"q4\".\"tenant_key\" = \"q5\".\"parent_tenant\" AND \"q4\".\"node_code\" = \"q5\".\"parent_code\") WHERE \"q3\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"tenant_key\", \"q0\".\"node_code\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"tenant_key\", \"q7\".\"node_code\"), ?, json_object(?, \"q7\".\"rank\")))), json_array()) FROM (SELECT \"__q1_id_0\", \"__q1_id_1\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", \"q3\".\"__q1_child_1\" AS \"__q1_id_1\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\", \"q3\".\"__q1_child_1\" ORDER BY \"q3\".\"__q1_child_0\", \"q3\".\"__q1_child_1\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq_provider_nodes\" AS \"q7\" ON (\"q7\".\"tenant_key\" = \"q6\".\"__q1_id_0\" AND \"q7\".\"node_code\" = \"q6\".\"__q1_id_1\"))), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\", \"q8\".\"__q1_parent_1\"), ?, json_array(\"q8\".\"__q1_child_0\", \"q8\".\"__q1_child_1\"), ?, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq_provider_nodes\" AS \"q9\" ON (\"q9\".\"tenant_key\" = \"q8\".\"__q1_child_0\" AND \"q9\".\"node_code\" = \"q8\".\"__q1_child_1\") ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q8\".\"__q1_parent_1\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"tenant_key\" ASC, \"q9\".\"node_code\" ASC LIMIT -1) AS \"q10\")))) AS \"children\" FROM \"rq_provider_nodes\" AS \"q0\" WHERE 1",
+  "values": [
+   1,
+   1,
+   2,
+   "__rq_root",
+   "__rq_nodes",
+   "__rq_key",
+   "__rq_row",
+   "rank",
+   "__rq_edges",
+   "__rq_parent",
+   "__rq_child",
+   "__rq_depth"
+  ]
+ }
+]

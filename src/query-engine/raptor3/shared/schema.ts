@@ -8,6 +8,7 @@ import {
   type ClearableMembership,
 } from "@schema/relation/clearability";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { validateClientSchemaOrThrow } from "@schema/validation";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { isRecord } from "@validation/value-guards";
@@ -101,6 +102,7 @@ export interface Arguments extends Input {
   having?: Input;
   limit?: number;
   omit?: Input;
+  recurse?: NormalizedRecurrence;
   skipDuplicates?: boolean;
   _count?: true | Input;
   _avg?: Input;

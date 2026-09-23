@@ -1,26 +1,28 @@
 /**
- * G4-02 phase-2 review — the recursive carrier and its TEXT path element.
+ * G4-02 phase-2 review — the recursive carrier's identities, through the
+ * ordinary projection.
  *
- * Phase 2 changed two things inside `Queries.recursive`: the carried row now
- * crosses through the ONE carrier transport owner (`carriedValue`, §P.4.2), and
- * every path element is the identity document's own TEXT so the cycle stop is
- * portable (§P.4.12). The author's `recursive-codec-fit.test.ts` re-checks the
- * codec values with a corrected flatten. These probes attack the two properties
- * the TEXT element could break and that no cell covers:
+ * Phase 2's private `Queries.recursive` carried a TEXT path element per hop;
+ * that slice and its growing paths are gone (features-docs/recursive-query.md
+ * §3.6). A recursive relation is now one ordinary projected field whose private
+ * carrier transports complete row-key TUPLES for the root, each node and each
+ * edge, and the decoder unfolds path occurrences. These probes keep attacking
+ * what an identity encoding could break, now through the command engine:
  *
- *  1. the path-local cycle stop, over a real cycle;
- *  2. two seeds reaching one row — separate overlapping occurrences;
+ *  1. an FK cycle — it now fails inside the traversed window and is simply not
+ *     reached outside it (contract change: the private fit pruned it);
+ *  2. two roots reaching one row — separate overlapping occurrences (contract
+ *     change: the operation, not a seed list, owns the roots);
  *  3. identity text that needs JSON escaping (a quote, a backslash, a newline
- *     and a non-ASCII code point in a compound key member).
+ *     and a non-ASCII code point in a compound key member);
+ *  4. a large bigint decoded exactly at every depth (RF-16's own property).
  */
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
+import { QueryEngineError } from "@errors";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { Input } from "@query-engine/raptor3/shared/schema";
-import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-import type { Queries, Query } from "@query-engine/raptor3/shared/query";
-import type { AnyModel } from "@schema/model";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -48,23 +50,6 @@ const node = s
 
 const schema = { node };
 
-interface RecursiveTraversal {
-  readonly seeds: readonly { readonly args: Record<string, unknown> }[];
-  readonly relation: string;
-  readonly depth: number;
-  readonly args?: Record<string, unknown>;
-}
-
-interface RecursiveQueries {
-  recursive(model: AnyModel, traversal: RecursiveTraversal): Query;
-}
-
-function assertRecursive(
-  queries: Queries
-): asserts queries is Queries & RecursiveQueries {
-  assert.equal(typeof Reflect.get(queries, "recursive"), "function");
-}
-
 function buildClient(driver: SQLite3Driver) {
   return createClient({ schema, driver });
 }
@@ -72,7 +57,6 @@ function buildClient(driver: SQLite3Driver) {
 let database: Database.Database;
 let driver: SQLite3Driver;
 let client: ReturnType<typeof buildClient>;
-let engineSchema: EngineSchema;
 
 beforeEach(async () => {
   database = new Database(":memory:");
@@ -80,7 +64,6 @@ beforeEach(async () => {
   driver = new SQLite3Driver({ client: database });
   client = buildClient(driver);
   assert.equal((await syncLiveSchema(client)).applied, true);
-  engineSchema = new EngineSchema(schema);
 });
 
 afterEach(async () => {
@@ -101,70 +84,89 @@ function insert(
     .run("t", code, rank, String(big), parent === null ? null : "t", parent);
 }
 
-async function traverse(traversal: RecursiveTraversal): Promise<Input[]> {
-  const context = new OperationContext(engineSchema, driver, "node", "findMany");
-  assertRecursive(context.queries);
-  const query = context.queries.recursive(node, traversal);
-  return await context.run(() => context.read(query));
+/** The ordinary `findMany`, descending `children` from the named roots. */
+async function descend(
+  roots: readonly string[],
+  depth: number,
+  select: Input = { code: true }
+): Promise<Input[]> {
+  const rows = await createCommandEngine({ schema, driver }).execute(
+    "node",
+    "findMany",
+    {
+      where: { tenant: "t", code: { in: [...roots] } },
+      orderBy: { rank: "asc" },
+      select: {
+        ...select,
+        children: {
+          recurse: { depth },
+          orderBy: [{ rank: "asc" }],
+          select,
+        },
+      },
+    }
+  );
+  assert(Array.isArray(rows));
+  return rows as Input[];
 }
 
 /** Only the traversal relation is descended — never a row's own payload. */
 function flatten(rows: readonly Input[]): Record<string, unknown>[] {
   const flat: Record<string, unknown>[] = [];
-  const walk = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      for (const member of value) walk(member);
-      return;
-    }
-    if (value === null || typeof value !== "object") return;
+  const pending: unknown[] = [...rows].reverse();
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (value === null || typeof value !== "object") continue;
     const row = value as Record<string, unknown>;
     flat.push(row);
-    walk(row.children);
-  };
-  walk(rows as unknown);
+    if (Array.isArray(row.children))
+      pending.push(...[...row.children].reverse());
+  }
   return flat;
 }
 
-describe("G4-02 review — the recursive path carrier", () => {
-  it("stops a real cycle path-locally", async () => {
+describe("G4-02 review — the recursive carrier's identities", () => {
+  it("fails an FK cycle inside the window and does not reach it outside", async () => {
     insert("root", 0, "leaf");
     insert("mid", 1, "root");
     insert("leaf", 2, "mid");
-    const rows = await traverse({
-      seeds: [
-        { args: { where: { tenant: "t", code: "root" }, select: { code: true } } },
-      ],
-      relation: "children",
-      depth: 8,
-      args: { orderBy: [{ rank: "asc" }], select: { code: true } },
-    });
-    const codes = flatten(rows).map((row) => String(row.code));
+    // Contract change: the private fit pruned the revisit path-locally; the
+    // public contract refuses an FK cycle that closes inside the window. The
+    // ring closes at hop 3.
+    for (const depth of [3, 8])
+      await assert.rejects(
+        descend(["root"], depth),
+        (error: unknown) =>
+          error instanceof QueryEngineError &&
+          error.message === "Recursive relation 'children' contains a cycle."
+      );
+    const codes = flatten(await descend(["root"], 2)).map((row) =>
+      String(row.code)
+    );
     assert.deepEqual(
       codes,
       ["root", "mid", "leaf"],
-      `a cycle must stop on the path, once per occurrence: ${JSON.stringify(codes)}`
+      `outside the window the ring is not reached: ${JSON.stringify(codes)}`
     );
   });
 
-  it("keeps two seeds reaching one row as separate occurrences", async () => {
+  it("keeps two roots reaching one row as separate occurrences", async () => {
     insert("root", 0, null);
     insert("shared", 1, "root");
     insert("under", 2, "shared");
-    const rows = await traverse({
-      seeds: [
-        { args: { where: { tenant: "t", code: "root" }, select: { code: true } } },
-        { args: { where: { tenant: "t", code: "shared" }, select: { code: true } } },
-      ],
-      relation: "children",
-      depth: 4,
-      args: { orderBy: [{ rank: "asc" }], select: { code: true } },
-    });
-    const codes = flatten(rows).map((row) => String(row.code)).sort();
+    // Contract change: the roots are the operation's rows, not seeds.
+    const rows = await descend(["root", "shared"], 4);
+    const codes = flatten(rows)
+      .map((row) => String(row.code))
+      .sort();
     assert.deepEqual(
       codes,
       ["root", "shared", "shared", "under", "under"],
-      `each seed keeps its own occurrence: ${JSON.stringify(codes)}`
+      `each root keeps its own occurrence: ${JSON.stringify(codes)}`
     );
+    const nested = (rows[0]!.children as Input[])[0]!;
+    assert.equal(nested.code, "shared");
+    assert.notStrictEqual(nested, rows[1]);
   });
 
   it("carries an identity whose text needs JSON escaping", async () => {
@@ -172,15 +174,7 @@ describe("G4-02 review — the recursive path carrier", () => {
     insert("root", 0, null);
     insert(tricky, 1, "root");
     insert("under", 2, tricky);
-    const rows = await traverse({
-      seeds: [
-        { args: { where: { tenant: "t", code: "root" }, select: { code: true, big: true } } },
-      ],
-      relation: "children",
-      depth: 4,
-      args: { orderBy: [{ rank: "asc" }], select: { code: true, big: true } },
-    });
-    const flat = flatten(rows);
+    const flat = flatten(await descend(["root"], 4, { code: true, big: true }));
     const codes = flat.map((row) => String(row.code));
     assert.deepEqual(
       codes,
@@ -188,22 +182,20 @@ describe("G4-02 review — the recursive path carrier", () => {
       `an escaped identity must still traverse: ${JSON.stringify(codes)}`
     );
     for (const row of flat)
-      assert.equal(typeof row.big, "bigint", `bigint stays exact: ${JSON.stringify(row, (_k, v) => (typeof v === "bigint" ? `${v}n` : v))}`);
+      assert.equal(
+        typeof row.big,
+        "bigint",
+        `bigint stays exact: ${JSON.stringify(row, (_k, v) => (typeof v === "bigint" ? `${v}n` : v))}`
+      );
   });
 
   it("decodes a large bigint exactly at every depth (RF-16's own property)", async () => {
     insert("root", 0, null, 9_007_199_254_740_993n);
     insert("child", 1, "root", -9_007_199_254_740_993n);
-    const rows = await traverse({
-      seeds: [
-        { args: { where: { tenant: "t", code: "root" }, select: { code: true, big: true } } },
-      ],
-      relation: "children",
-      depth: 2,
-      args: { orderBy: [{ rank: "asc" }], select: { code: true, big: true } },
-    });
     const byCode = new Map(
-      flatten(rows).map((row) => [String(row.code), row.big])
+      flatten(await descend(["root"], 2, { code: true, big: true })).map(
+        (row) => [String(row.code), row.big]
+      )
     );
     assert.equal(byCode.get("root"), 9_007_199_254_740_993n);
     assert.equal(byCode.get("child"), -9_007_199_254_740_993n);

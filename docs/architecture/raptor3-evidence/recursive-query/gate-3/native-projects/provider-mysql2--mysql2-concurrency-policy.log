@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (11 tests) 1943ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  13:26:23
+   Duration  3.66s (transform 1.00s, setup 10ms, collect 1.51s, tests 1.94s, environment 0ms, prepare 30ms)
+
+Vitest resources: 5.76s wall, 626.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

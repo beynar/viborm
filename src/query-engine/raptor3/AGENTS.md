@@ -692,14 +692,20 @@ is lazy.
 
 A cached read's value codec is composed from the official owners in
 `result/cache-value-codecs.ts` (`compileScalarCodec`, `compileWidenedSumCodec`,
-`recordCodec`, `arrayCodec`, `nullableCodec`, `taggedRelationCodec`) through the
+`recordCodec`, `arrayCodec`, `nullableCodec`, `taggedRelationCodec`,
+`recursiveRelationCodec`) through the
 leaf's own declaring `Scalar`, carried as `Leaf.scalar` by the read owner. It is
 never re-dispatched from a leaf's `type` name, which would be a second
 scalar-meaning authority. The leaves with no declaring scalar are the read
 owner's OWN values — `_count`, `exist`, a non-decimal `_avg` and `_distance` —
-and naming those three is the same classification the shipped compiler makes; a
-shape with no fixed codec, such as a recursive read's unbounded depth, is
-refused rather than half-encoded.
+and naming those three is the same classification the shipped compiler makes. A
+recursive slot composes `recursiveRelationCodec` from the node's own row codec and the
+prepared slot's cardinality, optionality and normalized depth: one iterative
+enter/leave walker on both snapshot and materialization, the repeated key
+exactly ABSENT at a numeric cutoff and PRESENT at an exhaustive natural end, a
+cyclic value refused as a malformed snapshot, fresh objects and leaves on every
+hit (RQ-05, `recursive-query/rq-cache.md`). The cache never
+re-derives physical identity or the cycle policy — the decoder answered those.
 
 The private `prepareBatch(modelName, operation, rawArgs)` boundary enters the
 same schema admission and command dispatch with a preparation-owned
@@ -790,19 +796,50 @@ clear/write keeps the captured target; a physical batch rechecks the target at
 the established mutation boundary. Do not fork a variant interpreter or a
 second series protocol.
 
-The private recursive-read fit is one `Queries.recursive(model, traversal)`
-operation for one chosen ordinary self-relation. Seeds shape roots; descendant
-arguments apply `where`, `select`, `include`, and `orderBy` at every level.
-There is no recursive `take`/`skip`, nested edge graph, or public schema. One
-adapter-composed recursive CTE carries seed, depth, a complete mapped identity
-path, and the ordinary projected value into `OperationContext.read`; the
-existing decoder reconstructs path occurrences without global key deduplication.
-Seed-local ordering is not emitted inside a recursive UNION anchor. The final
-projection orders roots by seed and each seed's admitted order terms, then
-orders descendant siblings by the traversal terms.
-Keep provider rows flat when useful. Measure statement/bind/provider-row/output
-growth separately from source-derived occurrence and transient-copy counts; do
-not invent an allocation metric API.
+A recursive relation projection (`recurse` on a self relation node in `select`
+or `include`) is an ordinary field of the node that asks for it; the private
+root-only `Queries.recursive` fit is retired (ledgers under
+`docs/architecture/raptor3-evidence/recursive-query/`).
+`Queries.lowerRecursiveRelationProjection` lowers it into that relation's
+column: a statement-local recursive CTE (`UNION DISTINCT`) that discovers only
+complete parent/child identity facts through the resolved membership and the
+collection filter, with a depth column only under a numeric cutoff; then one
+ordinary projected document per distinct node, and the edge facts ordered per
+parent by `Queries.completeOrder` — the ordinary window's one tie-break —
+packed into the private `__rq_root`/`__rq_nodes`/`__rq_edges` carrier, whose
+root is the outer row's own key (the CTE is evaluated per outer row, so it
+carries no root column). The carrier's member names are one module constant
+(`RECURSIVE_CARRIER`) and every identity in it — root, node key, edge endpoint
+— is encoded by one owner (`Queries.recursiveIdentity`) from the raw key
+columns, so the texts the decoder matches agree by construction. Where
+the adapter spells `LATERAL` (PostgreSQL, MySQL) that CTE and its two readers
+live in a lateral derived table inside the carrier's scalar subquery: MySQL
+materializes a correlated CTE that is read twice once per statement and would
+hand every later outer row the first row's facts; SQLite has no `LATERAL` and
+evaluates the correlated CTE per row as written, once per reader — twice per
+carrier (nodes and edges) — where PostgreSQL materializes it once per outer
+row.
+`Queries.decodeRecursiveCarrier` validates that carrier — every bounded edge
+reachable at its recorded level, every bounded hop below the cutoff carrying
+the parent's one set of children at the next level, every fact consumed, every
+node reached — and unfolds fresh public occurrences iteratively along one
+active path seeded by the outer row; the live cache stores and restores them
+through `recursiveRelationCodec`. Its carrier checks refuse through
+`InvalidScalarResult`, whose `scalarType` names the kind of check
+(`recursive depth`, `recursive edge endpoint`, …), so a carrier refused
+there reaches the caller as the operation's one malformed-result
+`QueryEngineError`, as a malformed ordinary row does (except as a member of
+a `$transaction([...])` array on a batch-only transport: the array owner
+parses that member's result and, like an ordinary malformed member, it
+surfaces as `QueryError` V2001); the FK-cycle refusal, a property of the
+data, is its own `QueryEngineError`. The output key
+`_distance` has one producer:
+`prepareProjection` refuses a scalar or a relation of that name beside a
+distance in either order, and `relationShape` refuses a recursive `_distance`
+slot whose repeated node selects a distance (the schema-only mirror is
+`result/result-shape.ts` `addSelectedRelations`). Measure
+statement/bind/provider-row/output growth separately from source-derived
+occurrence and transient-copy counts; do not invent an allocation metric API.
 
 Independent SQLite fixtures own expected results, database state, defaults,
 failure timing and causal cuts. Cross-engine comparison is semantic; exact SQL
@@ -1154,11 +1191,13 @@ upstream by a type or by an earlier owner, and is `EngineInvariantError`
 (`shared/invariant.ts`: `assertInvariant(condition, message)` states the fact
 in one place; `unreachable(value: never, message)` closes a `switch` over a
 closed union so the compiler proves the arm). The refusal census
-(`scripts/raptor3-refusal-census.mjs`, its report under
-`docs/architecture/raptor3-evidence/g4/release/n4/census.md`) tells the two
-apart by CLASS, never by message text, and counts a third bucket apart: the
-sentences of the private recursive-read fit, internal until a public argument
-reaches them (D-54). Do not add a second enumeration of an admitted
+(`scripts/raptor3-refusal-census.mjs`, its N4 report under
+`docs/architecture/raptor3-evidence/g4/release/n4/census.md`, which predates
+the recursive feature; the recursive-query gate's last run is
+`docs/architecture/raptor3-evidence/recursive-query/gate-3/census.log`) tells the two
+apart by CLASS, never by message text; D-54's recursive-read fit, its last
+private fit, became the public `recurse` option, and its sentences are counted
+with the public ones. Do not add a second enumeration of an admitted
 vocabulary inside a lowerer to close a union the admission already closed —
 where the type cannot say the invariant, the class carries the distinction.
 A declared field named like a combinator (`AND`, `OR`, `NOT`) is that field:

@@ -89,8 +89,12 @@ const toOneSchemas = <
     update: v.lazy(() =>
       toOneUpdateFactory<Source, Key, S, T>(state, resolved, targetSchemas)
     ),
-    select: v.lazy(() => toOneSelectFactory<S, T>(relation, targetSchemas)),
-    include: v.lazy(() => toOneIncludeFactory<S, T>(relation, targetSchemas)),
+    select: v.lazy(() =>
+      toOneSelectFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+    ),
+    include: v.lazy(() =>
+      toOneIncludeFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+    ),
     orderBy: toOneOrderByFactory<S, T>(relation, targetSchemas),
     countFilter: v.lazy(() => countFilterFactory(state, targetSchemas)),
   };
@@ -115,8 +119,12 @@ const toManySchemas = <
     update: v.lazy(() =>
       toManyUpdateFactory<Source, Key, S, T>(resolved, targetSchemas)
     ),
-    select: v.lazy(() => toManySelectFactory<S, T>(relation, targetSchemas)),
-    include: v.lazy(() => toManyIncludeFactory<S, T>(relation, targetSchemas)),
+    select: v.lazy(() =>
+      toManySelectFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+    ),
+    include: v.lazy(() =>
+      toManyIncludeFactory<Source, Key, S, T>(relation, resolved, targetSchemas)
+    ),
     orderBy: v.lazy(() => toManyOrderByFactory(state)),
     countFilter: v.lazy(() => countFilterFactory(state, targetSchemas)),
   };
@@ -134,8 +142,8 @@ export type ToOneSchemas<
   filter: ToOneFilterSchema<Source, Key, S>;
   create: ToOneCreateSchema<Source, Key, S>;
   update: ToOneUpdateSchema<Source, Key, S>;
-  select: ToOneSelectSchema<S>;
-  include: ToOneIncludeSchema<S>;
+  select: ToOneSelectSchema<Source, Key, S>;
+  include: ToOneIncludeSchema<Source, Key, S>;
   orderBy: ToOneOrderBySchema<S>;
   countFilter: CountFilterSchema<S>;
 };
@@ -148,8 +156,8 @@ export type ToManySchemas<
   filter: ToManyFilterSchema<S>;
   create: ToManyCreateSchema<Source, Key, S>;
   update: ToManyUpdateSchema<Source, Key, S>;
-  select: ToManySelectSchema<S>;
-  include: ToManyIncludeSchema<S>;
+  select: ToManySelectSchema<Source, Key, S>;
+  include: ToManyIncludeSchema<Source, Key, S>;
   orderBy: ToManyOrderBySchema<S>;
   countFilter: CountFilterSchema<S>;
 };

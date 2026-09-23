@@ -23,11 +23,13 @@ import type { ScalarState } from "@schema/scalars/common";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { NativeType } from "@schema/scalars/native-types";
 import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
+import { slotMayBeEmpty } from "@schema/relation/clearability";
 import {
   CURSOR_CARRIER_PREFIX,
   EMPTY_ROW_RESULT_KEY,
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
 } from "@query-engine/result-aliases";
+import { DISTANCE_NAME_COLLISION } from "@query-engine/result/result-shape";
 import type { DriverResultParser } from "@drivers";
 import type { Operation } from "../../types";
 import { Sql, sql } from "@sql";
@@ -61,6 +63,10 @@ import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
 import type { GeoArea, GeoPoint } from "@validation/primitives/geo-values";
 import {
+  carriesRepeatedKey,
+  type NormalizedRecurrence,
+} from "@validation/relations/recurrence";
+import {
   assertInvariant,
   EngineInvariantError,
   unreachable,
@@ -79,7 +85,6 @@ import {
   type Membership,
   physicalField,
   type PhysicalField,
-  storedFields,
 } from "./storage";
 
 export type Leaf = {
@@ -145,14 +150,10 @@ export type ProjectionShape =
       kind: "recursive";
       relation: string;
       many: boolean;
-      seeds: ProjectionShape[];
-      descendant: ProjectionShape;
-      carriers: {
-        seed: string;
-        depth: string;
-        path: string;
-        value: string;
-      };
+      optional: boolean;
+      recurrence: NormalizedRecurrence;
+      row: ProjectionShape;
+      identity: readonly Leaf[];
     };
 type Shape = ProjectionShape;
 type RelationProjectionArguments = Pick<
@@ -163,6 +164,7 @@ interface PreparedRelationProjection {
   readonly edge: Membership;
   readonly arguments: RelationProjectionArguments;
   readonly projection: PreparedProjection;
+  readonly recurrence?: NormalizedRecurrence;
 }
 /** One counted slot: its memberships, and the filter that narrows them. */
 export type PreparedCount = {
@@ -458,16 +460,6 @@ export interface PreparedSelector {
   readonly uniqueValues?: ReadonlyMap<string, unknown>;
   readonly predicate?: PreparedPredicate;
 }
-export type TraversalArgs = Partial<
-  Pick<Arguments, "where" | "select" | "include" | "orderBy">
->;
-export interface RecursiveTraversal {
-  readonly seeds: readonly { readonly args: TraversalArgs }[];
-  readonly relation: string;
-  readonly depth: number;
-  readonly args?: TraversalArgs;
-}
-
 /** The decoder identifies the invalid value; its operation owns public errors. */
 export class InvalidScalarResult extends TypeError {
   constructor(
@@ -480,9 +472,20 @@ export class InvalidScalarResult extends TypeError {
 
 /** The public output name of a `_distance` projection, stated once. */
 const DISTANCE_FIELD = "_distance";
-/** The registered sentence for that name being claimed twice. */
-const DISTANCE_NAME_COLLISION =
-  "A distance result cannot be selected together with a model field named '_distance'.";
+/**
+ * The private recursive carrier's member names, stated once: the one wire
+ * vocabulary the recursive lowering writes and `decodeRecursiveCarrier` reads.
+ */
+const RECURSIVE_CARRIER = Object.freeze({
+  root: "__rq_root",
+  nodes: "__rq_nodes",
+  edges: "__rq_edges",
+  key: "__rq_key",
+  row: "__rq_row",
+  parent: "__rq_parent",
+  child: "__rq_child",
+  depth: "__rq_depth",
+});
 const AGGREGATES = ["_count", "_avg", "_sum", "_min", "_max"] as const;
 /**
  * The aggregate vocabulary as a TYPE, so the lowering switch over it is
@@ -733,7 +736,7 @@ export class Queries {
    * The FIRST alias of one statement, which opens that statement's alias scope.
    *
    * An alias is a fact of the statement it names, not of this owner's history,
-   * so a statement whose first alias is minted by one of the six owners named
+   * so a statement whose first alias is minted by one of the owners named
    * below starts at `q0`, and the same logical query always emits the same
    * text. Without it the engine-lifetime read owner
    * (`commands/index.ts`) minted `q0, q1, … q10000` for the SAME
@@ -742,9 +745,9 @@ export class Queries {
    * guaranteed miss for any transport that caches by statement text
    * (PostgreSQL named statements, `mysql2`'s prepare cache, D1/PlanetScale).
    *
-   * The SIX owners that open a statement are {@link select}, {@link aggregated},
-   * {@link grouped}, {@link selectSeries}, {@link recursive} and
-   * {@link junction} — every method here that assembles a complete statement —
+   * The statement owners are {@link select}, {@link aggregated},
+   * {@link grouped}, {@link selectSeries} and {@link junction} — every method
+   * here that assembles a complete statement —
    * and each calls this before any other alias of that statement. Nothing else
    * may: a `lower…` fragment continues the statement it is part of, because a
    * mutation statement is assembled from several of them by the physical owner
@@ -2863,25 +2866,45 @@ export class Queries {
           })
         : term,
     );
-    const ordered = new Set(terms.map((term) => term.field!));
-    const append = (fields: readonly string[]) => {
-      for (const field of fields) {
-        if (ordered.has(field)) continue;
-        ordered.add(field);
-        const physical = physicalField(this.schema, model, field);
-        terms.push(
-          this.sortKey(
-            this.column(model, field, alias),
-            false,
-            "last",
-            physical.nullable,
-            field,
-          ),
-        );
-      }
-    };
-    append(this.identityOrder(model));
-    if (cursor) append(Object.keys(this.identityEntries(model, cursor)));
+    return this.completeOrder(
+      model,
+      terms,
+      alias,
+      cursor ? Object.keys(this.identityEntries(model, cursor)) : [],
+    );
+  }
+  /**
+   * The caller's terms completed by the model's identity: the ONE complete-key
+   * tie-break. A windowed page and a recursive sibling order both need a
+   * deterministic order and both read it here, so equal sort keys break the
+   * same way wherever one parent's rows are ordered — a second spelling (the
+   * row key in constraint order) ordered the same tied siblings differently
+   * under recursion than under the ordinary window.
+   */
+  private completeOrder(
+    model: AnyModel,
+    requested: readonly OrderTerm[],
+    alias: string,
+    cursorFields: readonly string[] = [],
+  ): OrderTerm[] {
+    const terms = [...requested];
+    const ordered = new Set(
+      terms.flatMap((term) => (term.field === undefined ? [] : [term.field])),
+    );
+    for (const field of [...this.identityOrder(model), ...cursorFields]) {
+      if (ordered.has(field)) continue;
+      ordered.add(field);
+      const physical = physicalField(this.schema, model, field);
+      terms.push(
+        this.sortKey(
+          this.column(model, field, alias),
+          false,
+          "last",
+          physical.nullable,
+          field,
+        ),
+      );
+    }
     return terms;
   }
   /** The cursor's tie-break identity: a bare scalar id, else the row key. */
@@ -3408,247 +3431,6 @@ export class Queries {
       },
     };
   }
-  recursive(model: AnyModel, traversal: RecursiveTraversal): Query {
-    if (traversal.seeds.length === 0)
-      throw new Error("A recursive traversal requires at least one seed");
-    const resolved = this.schema.index.get(model)!.get(traversal.relation);
-    if (
-      !resolved ||
-      resolved.edge.kind === "variantRowCarrier" ||
-      resolved.edge.kind === "variantJunctionCarrier"
-    )
-      throw new Error(
-        `Raptor 3 recursive traversal requires one ordinary relation: ${traversal.relation}`,
-      );
-    const edge = bindMembership(this.schema, model, traversal.relation);
-    if (edge.target !== model)
-      throw new Error(
-        `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`,
-      );
-    const a = this.adapter;
-    const cteName = this.rootAlias();
-    const occupied = new Set(
-      storedFields(this.schema, model).map((field) =>
-        this.columnName(model, field),
-      ),
-    );
-    const carrier = (base: string) => {
-      let name = `__${cteName}_${base}`;
-      while (occupied.has(name)) name = `_${name}`;
-      occupied.add(name);
-      return name;
-    };
-    const carriers = {
-      seed: carrier("seed"),
-      depth: carrier("depth"),
-      path: carrier("path"),
-      value: carrier("value"),
-    };
-    const withoutRelation = (args: TraversalArgs): TraversalArgs => ({
-      ...args,
-      ...(args.select
-        ? {
-            select: Object.fromEntries(
-              Object.entries(args.select).filter(
-                ([field]) => field !== traversal.relation,
-              ),
-            ),
-          }
-        : {}),
-      ...(args.include
-        ? {
-            include: Object.fromEntries(
-              Object.entries(args.include).filter(
-                ([field]) => field !== traversal.relation,
-              ),
-            ),
-          }
-        : {}),
-    });
-    const identityDocument = (alias: string) =>
-      a.json.object(
-        this.schema
-          .keys(model)
-          .map((field) => [field, this.projectedColumn(model, field, alias)]),
-      );
-    /**
-     * One path element: the identity document's own TEXT.
-     *
-     * The path is an ordinary array container and the cycle stop is an ordinary
-     * membership test, so the element has to be a value every dialect can
-     * compare. PostgreSQL's `json` type has no equality operator at all — the
-     * membership test lowers to `element = ANY(path)` and the provider answers
-     * `42883` — while SQLite's `json_each` and MySQL's `JSON_CONTAINS` compare
-     * text and JSON documents alike. Text is the one spelling all three share.
-     */
-    const pathElement = (alias: string) =>
-      a.expressions.cast(a.json.document(identityDocument(alias)), "text");
-    /**
-     * The carried row, through the ONE carrier transport rule
-     * ({@link carriedValue}): a nested carrier stays a document, a `bigint`
-     * crosses as text, a blob as hex, and a value that is already JSON is
-     * wrapped so it survives this one encoding. A recursive carrier is a JSON
-     * carrier like any other and states no rule of its own.
-     */
-    const projectedDocument = (
-      projection: PreparedProjection,
-      lowered: { readonly entries: [string, Sql][] },
-    ) =>
-      a.json.object(
-        lowered.entries.map(([field, expression]) => [
-          field,
-          this.carriedValue(projection.shape.fields[field]!, expression),
-        ]),
-      );
-    const carried = (alias: string) =>
-      storedFields(this.schema, model).map((field) =>
-        a.identifiers.aliased(
-          this.column(model, field, alias),
-          this.columnName(model, field),
-        ),
-      );
-    const seedShapes: Shape[] = [];
-    const anchors = traversal.seeds.map((seed, index) => {
-      const alias = this.alias();
-      const args = withoutRelation(seed.args);
-      const projection = this.prepareProjection(model, args);
-      const lowered = this.lowerProjection(projection, alias);
-      seedShapes.push(projection.shape);
-      return assembleAdapterSelect(a, {
-        columns: sql.join(
-          [
-            // The anchor states the carrier's TYPE, because it is what the
-            // recursive term's own columns are typed from: an untyped parameter
-            // is `unknown` on PostgreSQL, which resolves to `text`, and the
-            // recursive `depth + 1` then asks for an operator that does not
-            // exist (`42883: operator does not exist: text + unknown`).
-            a.identifiers.aliased(
-              a.expressions.cast(this.value(index), "integer"),
-              carriers.seed,
-            ),
-            a.identifiers.aliased(
-              a.expressions.cast(this.value(0), "integer"),
-              carriers.depth,
-            ),
-            a.identifiers.aliased(
-              a.arrays.literal([pathElement(alias)]),
-              carriers.path,
-            ),
-            a.identifiers.aliased(
-              projectedDocument(projection, lowered),
-              carriers.value,
-            ),
-            ...carried(alias),
-          ],
-          ", ",
-        ),
-        from: this.table(model, alias),
-        where: this.lowerWhere(model, args.where, alias),
-      });
-    });
-    const childAlias = this.alias();
-    const walkAlias = this.alias();
-    const descendantArgs = withoutRelation(traversal.args ?? {});
-    const descendant = this.prepareProjection(model, descendantArgs);
-    const loweredDescendant = this.lowerProjection(descendant, childAlias);
-    const walkColumn = (name: string) => a.identifiers.column(walkAlias, name);
-    const childIdentity = pathElement(childAlias);
-    const recursive = assembleAdapterSelect(a, {
-      columns: sql.join(
-        [
-          a.identifiers.aliased(walkColumn(carriers.seed), carriers.seed),
-          a.identifiers.aliased(
-            a.expressions.add(walkColumn(carriers.depth), this.value(1)),
-            carriers.depth,
-          ),
-          a.identifiers.aliased(
-            a.arrays.push(walkColumn(carriers.path), childIdentity),
-            carriers.path,
-          ),
-          a.identifiers.aliased(
-            projectedDocument(descendant, loweredDescendant),
-            carriers.value,
-          ),
-          ...carried(childAlias),
-        ],
-        ", ",
-      ),
-      from: sql`${this.table(model, childAlias)} ${a.joins.inner(
-        a.identifiers.aliased(a.identifiers.escape(cteName), walkAlias),
-        this.correlation(edge, walkAlias, childAlias),
-      )}`,
-      where: a.operators.and(
-        a.operators.lt(walkColumn(carriers.depth), this.value(traversal.depth)),
-        ...(descendantArgs.where
-          ? [this.lowerWhere(model, descendantArgs.where, childAlias)!]
-          : []),
-        a.operators.not(a.arrays.has(walkColumn(carriers.path), childIdentity)),
-      ),
-    });
-    const finalAlias = this.alias();
-    const finalColumn = (name: string) =>
-      a.identifiers.column(finalAlias, name);
-    const rootOrder = traversal.seeds.flatMap((seed, index) =>
-      this.orderTerms(model, seed.args.orderBy, finalAlias).map(
-        ({ expression, descending }) => {
-          const selected = a.expressions.caseWhen(
-            [
-              {
-                when: a.operators.and(
-                  a.operators.eq(finalColumn(carriers.seed), this.value(index)),
-                  a.operators.eq(finalColumn(carriers.depth), this.value(0)),
-                ),
-                then: expression,
-              },
-            ],
-            this.value(null),
-          );
-          return descending
-            ? a.orderBy.desc(selected)
-            : a.orderBy.asc(selected);
-        },
-      ),
-    );
-    const siblingOrder = this.order(model, descendantArgs.orderBy, finalAlias);
-    const final = assembleAdapterSelect(a, {
-      columns: sql.join(
-        Object.values(carriers).map((name) =>
-          a.identifiers.aliased(finalColumn(name), name),
-        ),
-        ", ",
-      ),
-      from: a.identifiers.aliased(a.identifiers.escape(cteName), finalAlias),
-      orderBy: sql.join(
-        [
-          a.orderBy.asc(finalColumn(carriers.seed)),
-          a.orderBy.asc(finalColumn(carriers.depth)),
-          ...rootOrder,
-          ...(siblingOrder ? [siblingOrder] : []),
-          ...this.schema
-            .keys(model)
-            .map((field) =>
-              a.orderBy.asc(this.column(model, field, finalAlias)),
-            ),
-        ],
-        ", ",
-      ),
-    });
-    return {
-      sql: sql`${a.cte.recursive(
-        cteName,
-        a.setOperations.unionAll(...anchors),
-        recursive,
-      )} ${final}`,
-      shape: {
-        kind: "recursive",
-        relation: traversal.relation,
-        many: edge.many,
-        seeds: seedShapes,
-        descendant: descendant.shape,
-        carriers,
-      },
-    };
-  }
   /**
    * One immutable alias-free projection description and decoder shape.
    *
@@ -3714,9 +3496,11 @@ export class Queries {
             throw new QueryEngineError(
               "Distance select supports only one _distance field per select.",
             );
-          // The OTHER registered collision (`result/result-shape.ts:164`): the
-          // output key `_distance` is the distance's, and a model that owns a
-          // scalar of that name cannot publish both under it.
+          // The OTHER registered collision (`result/result-shape.ts`
+          // `buildModelShape`, the guard after every producer): the output key
+          // `_distance` is the distance's, and a model that owns a field of
+          // that name: scalar, relation or variant slot, cannot publish both
+          // under it.
           if (fields[DISTANCE_FIELD])
             throw new QueryEngineError(DISTANCE_NAME_COLLISION);
           distanceSelected = true;
@@ -3731,8 +3515,15 @@ export class Queries {
           fields[DISTANCE_FIELD] = this.distanceLeaf(model, name);
           continue;
         }
-        if (name === DISTANCE_FIELD && distanceSelected)
-          throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+      }
+      // The output key `_distance` has ONE producer. A distance prepared
+      // earlier in this projection owns it; a scalar OR a relation of that
+      // name prepared after it — a recursive slot included — would otherwise
+      // overwrite the leaf silently and publish under one key at some levels
+      // and the other at the rest.
+      if (name === DISTANCE_FIELD && distanceSelected)
+        throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+      if (!model["~"].state.relations[name]) {
         prepared.push(Object.freeze({ kind: "scalar", name }));
         fields[name] = this.scalarShape(model, name);
         continue;
@@ -3832,6 +3623,30 @@ export class Queries {
    * logical order by the one decoder that reads this shape.
    */
   private relationShape(nested: PreparedRelationProjection): Shape {
+    if (nested.recurrence) {
+      // The repeated slot publishes under the relation's name inside its own
+      // node. Admission refuses that name there, so a field of it in the node
+      // is a distance: `_distance` would have two producers — the slot at every
+      // level before the cutoff, the distance at the cutoff.
+      if (nested.projection.shape.fields[nested.edge.name])
+        throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+      const resolved = this.schema.index
+        .get(nested.edge.source)!
+        .get(nested.edge.name)!;
+      return Object.freeze({
+        kind: "recursive",
+        relation: nested.edge.name,
+        many: nested.edge.many,
+        optional: slotMayBeEmpty(resolved),
+        recurrence: nested.recurrence,
+        row: nested.projection.shape,
+        identity: Object.freeze(
+          this.schema.keys(nested.edge.target).map((field) =>
+            this.scalarShape(nested.edge.target, field),
+          ),
+        ),
+      });
+    }
     if (!nested.edge.many) return nested.projection.shape;
     const take = nested.arguments.take;
     return Object.freeze({
@@ -3869,6 +3684,7 @@ export class Queries {
         distinct: nested.distinct,
       }),
       projection: this.prepareProjection(edge.target, nested),
+      recurrence: nested.recurse,
     });
   }
   /**
@@ -3988,7 +3804,13 @@ export class Queries {
         expression = this.duplicateMembershipGuard(
           field.edge,
           alias ?? "",
-          this.lowerRelationProjection(field, alias ?? ""),
+          field.recurrence
+            ? this.lowerRecursiveRelationProjection(
+                field,
+                field.recurrence,
+                alias ?? "",
+              )
+            : this.lowerRelationProjection(field, alias ?? ""),
         );
       } else if (field.kind === "counts") {
         expression = a.json.objectFromColumns(
@@ -4301,6 +4123,269 @@ export class Queries {
     );
     return expression;
   }
+
+  /**
+   * One physical row identity, encoded through the existing JSON carrier rule:
+   * the one encoder of the carrier's root, node keys and edge endpoints, whose
+   * texts the decoder matches.
+   */
+  private recursiveIdentity(model: AnyModel, key: readonly Sql[]): Sql {
+    return this.adapter.json.array(
+      this.schema.keys(model).map((field, index) =>
+        this.carriedValue(this.scalarShape(model, field), key[index]!),
+      ),
+    );
+  }
+
+  /**
+   * A recursive relation remains one ordinary projected field. The recursive
+   * CTE carries only edge facts; one node table supplies each projected row,
+   * and the decoder owns path occurrences and cutoff omission. The recursive
+   * member expands every reached row below the bound with the same
+   * correlation and filter and prunes nothing (the cycle policy belongs to the
+   * decoder), because `decodeRecursiveCarrier` refuses a carrier in which a
+   * parent lacks its children at any level it is reached below the cutoff.
+   */
+  private lowerRecursiveRelationProjection(
+    relation: PreparedRelationProjection,
+    recurrence: NormalizedRecurrence,
+    parentAlias: string,
+  ): Sql {
+    const a = this.adapter;
+    const model = relation.edge.target;
+    const keys = this.schema.keys(model);
+    const scope = this.alias();
+    const cteName = `__${scope}_recursive`;
+    const parentColumns = keys.map((_, index) => `__${scope}_parent_${index}`);
+    const childColumns = keys.map((_, index) => `__${scope}_child_${index}`);
+    const depthColumn = `__${scope}_depth`;
+    const columns = (
+      names: readonly string[],
+      expressions: readonly Sql[],
+    ): Sql[] =>
+      names.map((name, index) =>
+        a.identifiers.aliased(expressions[index]!, name),
+      );
+    const rawIdentity = (alias: string): Sql[] =>
+      keys.map((field) => this.column(model, field, alias));
+    /** The complete-key join of one model alias to carried key columns. */
+    const sameRow = (alias: string, carried: readonly Sql[]): Sql =>
+      a.operators.and(
+        ...rawIdentity(alias).map((column, index) =>
+          a.operators.eq(column, carried[index]!),
+        ),
+      );
+
+    const anchorChild = this.alias();
+    const anchorColumns = [
+      ...columns(parentColumns, rawIdentity(parentAlias)),
+      ...columns(childColumns, rawIdentity(anchorChild)),
+      ...(recurrence.depth === false
+        ? []
+        : [
+            a.identifiers.aliased(
+              a.expressions.cast(this.value(1), "integer"),
+              depthColumn,
+            ),
+          ]),
+    ];
+    const anchor = assembleAdapterSelect(a, {
+      columns: sql.join(anchorColumns, ", "),
+      from: this.table(model, anchorChild),
+      where: a.operators.and(
+        this.correlation(relation.edge, parentAlias, anchorChild),
+        ...(relation.arguments.selector
+          ? [this.lowerSelector(relation.arguments.selector, anchorChild)!]
+          : []),
+      ),
+    });
+
+    const walk = this.alias();
+    const current = this.alias();
+    const next = this.alias();
+    const walkColumn = (name: string) => a.identifiers.column(walk, name);
+    const recursiveColumns = [
+      ...columns(parentColumns, childColumns.map(walkColumn)),
+      ...columns(childColumns, rawIdentity(next)),
+      ...(recurrence.depth === false
+        ? []
+        : [
+            a.identifiers.aliased(
+              a.expressions.add(walkColumn(depthColumn), this.value(1)),
+              depthColumn,
+            ),
+          ]),
+    ];
+    const recursive = assembleAdapterSelect(a, {
+      columns: sql.join(recursiveColumns, ", "),
+      from: sql`${a.identifiers.aliased(
+        a.identifiers.escape(cteName),
+        walk,
+      )} ${a.joins.inner(
+        this.table(model, current),
+        sameRow(current, childColumns.map(walkColumn)),
+      )} ${a.joins.inner(
+        this.table(model, next),
+        this.correlation(relation.edge, current, next),
+      )}`,
+      where: a.operators.and(
+        ...(recurrence.depth === false
+          ? []
+          : [
+              a.operators.lt(
+                walkColumn(depthColumn),
+                this.value(recurrence.depth),
+              ),
+            ]),
+        ...(relation.arguments.selector
+          ? [this.lowerSelector(relation.arguments.selector, next)!]
+          : []),
+      ),
+    });
+
+    const ids = this.alias();
+    const idColumns = childColumns.map((_, index) => `__${scope}_id_${index}`);
+    const distinctIds = assembleAdapterSelect(a, {
+      distinct: sql.join(childColumns.map(walkColumn), ", "),
+      distinctColumnAliases: idColumns,
+      columns: sql.join(
+        columns(idColumns, childColumns.map(walkColumn)),
+        ", ",
+      ),
+      from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
+    });
+    const node = this.alias();
+    const nodeProjection = this.lowerProjection(relation.projection, node);
+    const nodeDocument = a.json.object(
+      nodeProjection.entries.map(([field, expression]) => [
+        field,
+        this.carriedValue(relation.projection.shape.fields[field]!, expression),
+      ]),
+    );
+    const nodeCarrier = a.json.object([
+      [RECURSIVE_CARRIER.key, this.recursiveIdentity(model, rawIdentity(node))],
+      [RECURSIVE_CARRIER.row, nodeDocument],
+    ]);
+    const nodes = a.subqueries.scalar(
+      assembleAdapterSelect(a, {
+        columns: a.json.agg(nodeCarrier),
+        from: sql`${a.subqueries.correlate(distinctIds, ids)} ${a.joins.inner(
+          this.table(model, node),
+          sameRow(
+            node,
+            idColumns.map((name) => a.identifiers.column(ids, name)),
+          ),
+        )}`,
+      }),
+    );
+
+    const edgeWalk = this.alias();
+    const edgeChild = this.alias();
+    const edgeColumn = (name: string) =>
+      a.identifiers.column(edgeWalk, name);
+    const edgeCarrierName = `__${scope}_edge`;
+    const edgePairs: [string, Sql][] = [
+      [
+        RECURSIVE_CARRIER.parent,
+        this.recursiveIdentity(model, parentColumns.map(edgeColumn)),
+      ],
+      [
+        RECURSIVE_CARRIER.child,
+        this.recursiveIdentity(model, childColumns.map(edgeColumn)),
+      ],
+    ];
+    if (recurrence.depth !== false)
+      edgePairs.push([RECURSIVE_CARRIER.depth, edgeColumn(depthColumn)]);
+    const edgeCarrier = a.json.object(edgePairs);
+    // Each parent's siblings in the caller's order, ties broken by the order
+    // owner's one complete key — the ordinary window's tie-break, not another.
+    const siblingOrder = this.lowerOrder(
+      this.completeOrder(
+        model,
+        this.orderTerms(model, relation.arguments.orderBy, edgeChild),
+        edgeChild,
+      ),
+    );
+    const edgePage = assembleAdapterSelect(a, {
+      columns: a.identifiers.aliased(edgeCarrier, edgeCarrierName),
+      from: sql`${a.identifiers.aliased(
+        a.identifiers.escape(cteName),
+        edgeWalk,
+      )} ${a.joins.inner(
+        this.table(model, edgeChild),
+        sameRow(edgeChild, childColumns.map(edgeColumn)),
+      )}`,
+      orderBy: sql.join(
+        [
+          ...parentColumns.map((name) => a.orderBy.asc(edgeColumn(name))),
+          ...(siblingOrder ? [siblingOrder] : []),
+        ],
+        ", ",
+      ),
+      // MySQL otherwise merges the derived page into the aggregate reader and
+      // drops its ORDER BY. The adapter's unbounded LIMIT prevents that merge.
+      limit: a.noLimitValue,
+    });
+    const edgePageAlias = this.alias();
+    const edges = a.subqueries.scalar(
+      assembleAdapterSelect(a, {
+        columns: a.json.agg(
+          a.json.document(
+            a.identifiers.column(edgePageAlias, edgeCarrierName),
+          ),
+        ),
+        from: a.subqueries.correlate(edgePage, edgePageAlias),
+      }),
+    );
+
+    const carrier = (nodeFacts: Sql, edgeFacts: Sql) =>
+      a.json.object([
+        [
+          RECURSIVE_CARRIER.root,
+          this.recursiveIdentity(model, rawIdentity(parentAlias)),
+        ],
+        [RECURSIVE_CARRIER.nodes, a.json.document(nodeFacts)],
+        [RECURSIVE_CARRIER.edges, a.json.document(edgeFacts)],
+      ]);
+    const cte = a.cte.recursive(cteName, anchor, recursive, "distinct");
+    if (!a.capabilities.supportsLateralJoins)
+      return a.subqueries.scalar(
+        sql`${cte} ${a.clauses.select(carrier(nodes, edges))}`,
+      );
+    // MySQL materializes a correlated recursive CTE that is read twice (the
+    // nodes and the edges) once for the whole statement and hands every outer
+    // row the first row's facts. A lateral derived table is re-evaluated per
+    // outer row by definition, so the CTE and both readers live inside one
+    // wherever the provider spells LATERAL (PostgreSQL, MySQL); SQLite, which
+    // has no LATERAL, evaluates the correlated CTE per row as written above.
+    const one = this.alias();
+    const facts = this.alias();
+    const nodeFacts = `__${scope}_nodes`;
+    const edgeFacts = `__${scope}_edges`;
+    return a.subqueries.scalar(
+      assembleAdapterSelect(a, {
+        columns: carrier(
+          a.identifiers.column(facts, nodeFacts),
+          a.identifiers.column(facts, edgeFacts),
+        ),
+        from: a.subqueries.correlate(a.clauses.select(sql`1`), one),
+        joins: [
+          a.joins.lateral(
+            sql`${cte} ${a.clauses.select(
+              sql.join(
+                [
+                  a.identifiers.aliased(nodes, nodeFacts),
+                  a.identifiers.aliased(edges, edgeFacts),
+                ],
+                ", ",
+              ),
+            )}`,
+            facts,
+          ),
+        ],
+      }),
+    );
+  }
   grouped(model: AnyModel, args: Arguments): Query {
     const a = this.adapter;
     const alias = this.rootAlias();
@@ -4469,69 +4554,281 @@ export class Queries {
     rows: Input[],
     internal = false,
   ): Input[] {
-    if (shape.kind === "recursive")
-      return this.decodeRecursive(shape, rows, internal);
     return rows.map((row) => this.decodeValue(shape, row, internal) as Input);
   }
-  private decodeRecursive(
+  private decodeRecursiveCarrier(
     shape: Extract<Shape, { kind: "recursive" }>,
-    rows: Input[],
+    value: unknown,
     internal: boolean,
-  ): Input[] {
-    const roots: Input[] = [];
-    const occurrences = new Map<string, Input>();
-    for (const row of rows) {
-      const rawSeed = row[shape.carriers.seed];
-      const rawDepth = row[shape.carriers.depth];
-      const seed = typeof rawSeed === "bigint" ? Number(rawSeed) : rawSeed;
-      const depth = typeof rawDepth === "bigint" ? Number(rawDepth) : rawDepth;
-      if (
-        typeof seed !== "number" ||
-        typeof depth !== "number" ||
-        !Number.isSafeInteger(seed) ||
-        !Number.isSafeInteger(depth)
-      )
-        throw new TypeError("Invalid provider recursive occurrence");
-      const rawPath = row[shape.carriers.path];
-      const path = typeof rawPath === "string" ? JSON.parse(rawPath) : rawPath;
-      if (!Array.isArray(path))
-        throw new TypeError("Invalid provider recursive path");
-      const occurrenceShape =
-        depth === 0 ? shape.seeds[seed] : shape.descendant;
-      if (!occurrenceShape)
-        throw new TypeError("Invalid provider recursive seed");
-      const decoded = this.decodeValue(
-        occurrenceShape,
-        row[shape.carriers.value],
-        internal,
+  ): unknown {
+    const decodedCarrier = typeof value === "string" ? JSON.parse(value) : value;
+    if (
+      decodedCarrier === null ||
+      typeof decodedCarrier !== "object" ||
+      Array.isArray(decodedCarrier)
+    )
+      throw new InvalidScalarResult(
+        "recursive carrier",
+        "the carrier is not an object",
       );
-      if (
-        decoded === null ||
-        typeof decoded !== "object" ||
-        Array.isArray(decoded)
-      )
-        throw new TypeError("Invalid provider recursive row");
-      const occurrence = record(decoded);
-      occurrence[shape.relation] = shape.many ? [] : null;
-      const pathKey = `${seed}:${JSON.stringify(path)}`;
-      occurrences.set(pathKey, occurrence);
-      if (depth === 0) {
-        roots.push(occurrence);
-        continue;
-      }
-      const parent = occurrences.get(
-        `${seed}:${JSON.stringify(path.slice(0, -1))}`,
+    const carrier = record(decodedCarrier);
+    const root = own(carrier, RECURSIVE_CARRIER.root);
+    const rawNodes = own(carrier, RECURSIVE_CARRIER.nodes);
+    const rawEdges = own(carrier, RECURSIVE_CARRIER.edges);
+    if (!Array.isArray(root) || !Array.isArray(rawNodes) || !Array.isArray(rawEdges))
+      throw new InvalidScalarResult(
+        "recursive carrier",
+        "the carrier's root, nodes or edges member is not an array",
       );
-      if (!parent)
-        throw new TypeError("Invalid provider recursive parent occurrence");
-      if (shape.many) {
-        const children = parent[shape.relation];
-        if (!Array.isArray(children))
-          throw new TypeError("Invalid provider recursive collection");
-        children.push(occurrence);
-      } else parent[shape.relation] = occurrence;
+
+    const identity = (tuple: unknown): string => {
+      if (!Array.isArray(tuple) || tuple.length !== shape.identity.length)
+        throw new InvalidScalarResult(
+          "recursive identity",
+          "an identity is not a tuple of the key's width",
+        );
+      for (let index = 0; index < tuple.length; index += 1)
+        this.decodeScalar(shape.identity[index]!, tuple[index], true, true);
+      return JSON.stringify(tuple);
+    };
+    const rootKey = identity(root);
+    const nodes = new Map<string, unknown>();
+    for (const rawNode of rawNodes) {
+      if (rawNode === null || typeof rawNode !== "object" || Array.isArray(rawNode))
+        throw new InvalidScalarResult(
+          "recursive node",
+          "a node entry is not an object",
+        );
+      const node = record(rawNode);
+      const key = identity(own(node, RECURSIVE_CARRIER.key));
+      if (nodes.has(key))
+        throw new InvalidScalarResult(
+          "duplicate recursive node",
+          "two nodes carry the same identity",
+        );
+      nodes.set(key, own(node, RECURSIVE_CARRIER.row));
     }
-    return roots;
+
+    type Edge = { readonly child: string; readonly depth?: number };
+    const edges = new Map<string, Edge[]>();
+    const facts = new Set<string>();
+    for (const rawEdge of rawEdges) {
+      if (rawEdge === null || typeof rawEdge !== "object" || Array.isArray(rawEdge))
+        throw new InvalidScalarResult(
+          "recursive edge",
+          "an edge entry is not an object",
+        );
+      const edge = record(rawEdge);
+      const parent = identity(own(edge, RECURSIVE_CARRIER.parent));
+      const child = identity(own(edge, RECURSIVE_CARRIER.child));
+      if (!nodes.has(child))
+        throw new InvalidScalarResult(
+          "recursive edge endpoint",
+          "an edge's child is not a carried node",
+        );
+      const rawDepth = own(edge, RECURSIVE_CARRIER.depth);
+      let depth: number | undefined;
+      if (shape.recurrence.depth === false) {
+        if (rawDepth !== undefined)
+          throw new InvalidScalarResult(
+            "exhaustive recursive depth",
+            "an exhaustive carrier states an edge depth",
+          );
+      } else {
+        if (
+          typeof rawDepth !== "number" ||
+          !Number.isSafeInteger(rawDepth) ||
+          rawDepth < 1 ||
+          rawDepth > shape.recurrence.depth
+        )
+          throw new InvalidScalarResult(
+            "recursive depth",
+            "an edge depth is not an integer from 1 to the cutoff",
+          );
+        depth = rawDepth;
+      }
+      const fact = JSON.stringify([parent, child, depth ?? null]);
+      if (facts.has(fact))
+        throw new InvalidScalarResult(
+          "duplicate recursive edge",
+          "an edge fact is carried twice",
+        );
+      facts.add(fact);
+      const siblings = edges.get(parent);
+      const entry = Object.freeze({ child, ...(depth === undefined ? {} : { depth }) });
+      if (siblings) siblings.push(entry);
+      else edges.set(parent, [entry]);
+    }
+
+    /**
+     * One parent, one answer, taken once over the COMPLETE edge index: the
+     * distinct successors it offers, in transported sibling order. Their count
+     * is also where singular cardinality is answerable at all, so the parent's
+     * endpoint, its cardinality and its successors are decided here — over
+     * every transported fact — instead of being rediscovered at each
+     * occurrence that happens to unfold this parent.
+     */
+    const successors = new Map<string, readonly string[]>();
+    for (const [parent, entries] of edges) {
+      if (parent !== rootKey && !nodes.has(parent))
+        throw new InvalidScalarResult(
+          "recursive edge endpoint",
+          "an edge's parent is neither the root nor a carried node",
+        );
+      const unique = [...new Set(entries.map((entry) => entry.child))];
+      if (!shape.many && unique.length > 1)
+        throw new InvalidScalarResult(
+          "recursive singular relation",
+          "a singular parent has several successors",
+        );
+      successors.set(parent, unique);
+    }
+    /**
+     * ONE walk over the transported facts, before any of them is unfolded.
+     *
+     * The root is reached at level 0, and a bounded edge is reachable only one
+     * level below its own recorded `__rq_depth` — the only meaning that number
+     * has, and the reason the provider transports it. An identity reached by
+     * several distinct paths keeps EVERY level it was reached at, so a diamond
+     * and a re-entered junction node stay legal; an exhaustive carrier records
+     * no level, collapses to the identity alone, and so still terminates on a
+     * legal cyclic graph.
+     *
+     * Three facts fall out of that one walk. A BOUNDED edge no level can
+     * consume is a depth attributed to a hop it was not discovered at. A
+     * bounded hop below the cutoff whose children at the next level are not
+     * the parent's one answer is a hop the provider did not discover: the
+     * statement discovers a parent's children at EVERY level it reaches that
+     * parent (a filter prunes each hop the same way, and prevention is this
+     * decoder's, not the statement's), so unfolding the one answer there would
+     * invent an occurrence the carrier never transported. An identity no
+     * consumed edge reaches is a node outside this answer. Only a stated depth
+     * can be misattributed or missing, so only a bounded carrier is asked the
+     * first two questions: on an exhaustive one an unconsumed edge means its
+     * parent was never reached, which is the third question's answer.
+     */
+    const consumed = new Set<Edge>();
+    const reached = new Set<string>();
+    const levels = new Set<string>();
+    const pending: (readonly [string, number])[] = [[rootKey, 0]];
+    for (let index = 0; index < pending.length; index += 1) {
+      const [parent, level] = pending[index]!;
+      const children = new Set<string>();
+      for (const entry of edges.get(parent) ?? []) {
+        if (entry.depth !== undefined && entry.depth !== level + 1) continue;
+        consumed.add(entry);
+        reached.add(entry.child);
+        children.add(entry.child);
+        const at =
+          entry.depth === undefined
+            ? entry.child
+            : `${entry.depth} ${entry.child}`;
+        if (levels.has(at)) continue;
+        levels.add(at);
+        pending.push([entry.child, level + 1]);
+      }
+      if (
+        shape.recurrence.depth !== false &&
+        carriesRepeatedKey(shape.recurrence.depth, level) &&
+        children.size !== (successors.get(parent)?.length ?? 0)
+      )
+        throw new InvalidScalarResult(
+          "recursive depth",
+          "a hop below the cutoff omits some of its parent's children",
+        );
+    }
+    if (shape.recurrence.depth !== false && consumed.size !== facts.size)
+      throw new InvalidScalarResult(
+        "recursive depth",
+        "an edge is not reachable at its recorded depth",
+      );
+    if (reached.size !== nodes.size)
+      throw new InvalidScalarResult(
+        "unreachable recursive node",
+        "a carried node is not reachable from the root",
+      );
+
+    /** A numeric cutoff reached: this occurrence omits the repeated slot. */
+    const cutoff = (depth: number) =>
+      !carriesRepeatedKey(shape.recurrence.depth, depth);
+    /** One slot's successors, collapsed by its cardinality and emptiness. */
+    const collapse = (rows: Input[]): unknown => {
+      if (rows.length > 0) return shape.many ? rows : rows[0]!;
+      assertInvariant(
+        shape.many || shape.optional,
+        "A singular recursive slot may be empty: CM002 refuses a required self foreign key.",
+      );
+      return shape.many ? [] : null;
+    };
+    type Frame = {
+      readonly key: string;
+      readonly depth: number;
+      readonly row: Input;
+      readonly childKeys: readonly string[];
+      readonly childRows: Input[];
+      next: number;
+    };
+    /**
+     * ONE active path, seeded by the outer row and kept by enter and leave.
+     *
+     * Copying the ancestry prefix into every descended occurrence held those
+     * identities once per hop and made a chain quadratic in its own depth;
+     * the stack already holds them.
+     */
+    const active = new Set<string>([rootKey]);
+    const stack: Frame[] = [];
+    /**
+     * The one admission EVERY followed edge passes, the first hop included —
+     * which is what seeding the path with the root makes possible: a graph
+     * edge straight back to the outer row is a revisit like any other, and an
+     * FK one is the same refusal at the first hop as at the hundredth.
+     */
+    const follow = (from: number, key: string): void => {
+      if (active.has(key)) {
+        if (shape.recurrence.cycles === "reject")
+          throw new QueryEngineError(
+            `Recursive relation '${shape.relation}' contains a cycle.`,
+          );
+        if (shape.recurrence.cycles === "prevent") return;
+      }
+      active.add(key);
+      const decoded = this.decodeValue(
+        shape.row,
+        nodes.get(key),
+        internal,
+        true,
+      );
+      if (decoded === null)
+        throw new InvalidScalarResult("recursive row", "a node's row is null");
+      const depth = from + 1;
+      stack.push({
+        key,
+        depth,
+        row: record(decoded),
+        childKeys: cutoff(depth) ? [] : (successors.get(key) ?? []),
+        childRows: [],
+        next: 0,
+      });
+    };
+    const rootRows: Input[] = [];
+    for (const child of successors.get(rootKey) ?? []) {
+      follow(0, child);
+      while (stack.length > 0) {
+        const current = stack[stack.length - 1]!;
+        if (current.next < current.childKeys.length) {
+          follow(current.depth, current.childKeys[current.next++]!);
+          continue;
+        }
+        active.delete(current.key);
+        stack.pop();
+        if (!cutoff(current.depth))
+          current.row[shape.relation] = collapse(current.childRows);
+        const parent = stack[stack.length - 1];
+        if (parent) parent.childRows.push(current.row);
+        else rootRows.push(current.row);
+      }
+    }
+    return collapse(rootRows);
   }
   private decodeValue(
     shape: Shape | Leaf,
@@ -4542,7 +4839,7 @@ export class Queries {
     if (shape.kind === "scalar")
       return this.decodeScalar(shape, value, internal, carried);
     if (shape.kind === "recursive")
-      throw new TypeError("A recursive shape requires occurrence rows");
+      return this.decodeRecursiveCarrier(shape, value, internal);
     const decoded: unknown =
       typeof value === "string" ? JSON.parse(value) : value;
     if (shape.kind === "variants") {
@@ -4906,8 +5203,17 @@ export class Queries {
    * caller who wrote `42` must read `42` — and a non-finite number, a sparse
    * array or an exotic prototype is a malformed provider value rather than
    * something to publish. (The shipped `scalar-structured-parser.ts:144-200`.)
+   *
+   * A JavaScript value can also contain ITSELF, which provider text never can:
+   * a recursive read's node row arrives as an object, not as text this decoder
+   * parsed. That is the same fact as every other one here — the value is not
+   * in the JSON domain — so this boundary answers it instead of recursing into
+   * a `RangeError`. `enclosing` is the containers this value is being
+   * normalized INSIDE, entered before a container's members and left after
+   * them, so a document that merely REPEATS one object still normalizes it
+   * twice and only a container reached from within itself is refused.
    */
-  private jsonValue(value: unknown): unknown {
+  private jsonValue(value: unknown, enclosing?: Set<object>): unknown {
     if (
       value === null ||
       typeof value === "string" ||
@@ -4927,29 +5233,48 @@ export class Queries {
       );
     }
     if (Array.isArray(value)) {
+      const path = this.enterJsonContainer(value, enclosing);
       const members = new Array<unknown>(value.length);
       for (let index = 0; index < value.length; index += 1) {
         if (!Object.hasOwn(value, index))
           throw new InvalidScalarResult("json", "a JSON array is sparse");
-        members[index] = this.jsonValue(value[index]);
+        members[index] = this.jsonValue(value[index], path);
       }
+      path.delete(value);
       return members;
     }
     if (isPlainJsonRecord(value)) {
+      const path = this.enterJsonContainer(value, enclosing);
       const members: Record<string, unknown> = {};
       for (const [key, member] of Object.entries(value))
         Object.defineProperty(members, key, {
           configurable: true,
           enumerable: true,
-          value: this.jsonValue(member),
+          value: this.jsonValue(member, path),
           writable: true,
         });
+      path.delete(value);
       return members;
     }
     throw new InvalidScalarResult(
       "json",
       "the value is outside the JSON value domain",
     );
+  }
+  /**
+   * The one entry into a JSON container: the containers already being
+   * normalized around it, plus this one. A container that is already open is
+   * inside itself, which no JSON document is.
+   */
+  private enterJsonContainer(
+    container: object,
+    enclosing: Set<object> | undefined,
+  ): Set<object> {
+    const path = enclosing ?? new Set<object>();
+    if (path.has(container))
+      throw new InvalidScalarResult("json", "a JSON value contains itself");
+    path.add(container);
+    return path;
   }
   /**
    * The field's own output schema, run at that same boundary (Arnaud's D-33).

@@ -1,0 +1,30 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > the error registry census > has a row for every concrete VibORMError subclass declared in src/
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > the error registry census > registers nothing the source does not declare
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > the error registry census > holds at the pinned count, in both the registry and the source
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > the error registry census > builds each row at the class and code it claims
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 1 — the DriverFailure union > lists every class the registry marks driver-constructed
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 1 — the DriverFailure union > lists nothing else
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 1 — the DriverFailure union > matches the shipped type exactly
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 1 — the DriverFailure union > carries every registered class on QueryFailure's error arm
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 2 — classifyFailure > gives every registered class the disposition its row pins
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 2 — classifyFailure > keeps the V8003 refusal and the V9001 defect on opposite sides
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 3 — the prismaCode map > publishes the pinned Prisma code, or none at all
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 3 — the prismaCode map > agrees with the map read directly, class by class
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 3 — the prismaCode map > names the viborm-only classes explicitly
+ ✓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 4 — the user-facing errors docs > has a code-table row for every registered class 1ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 4 — the user-facing errors docs > lists each class's code in that class's row 0ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 4 — the user-facing errors docs > names no class the registry does not know 0ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 4 — the user-facing errors docs > documents every code in the taxonomy somewhere on the page 0ms
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 5 — the execution-context clone table > declares the table this gate audits
+ ↓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts > surface 5 — the execution-context clone table > lists every registered class, or handles it by name
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 15 skipped (19)
+   Start at  18:15:04
+   Duration  5.14s (transform 1.37s, setup 32ms, collect 4.56s, tests 2ms, environment 0ms, prepare 233ms)
+
+Vitest resources: 10.42s wall, 470.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

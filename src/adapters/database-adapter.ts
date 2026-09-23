@@ -374,7 +374,10 @@ export interface DatabaseAdapter {
     array: (items: Sql[]) => Sql;
     /** Empty JSON array literal: '[]'::json (PG), JSON_ARRAY() (MySQL), '[]' (SQLite) */
     emptyArray: () => Sql;
-    /** Aggregate rows into JSON array */
+    /**
+     * Aggregate rows into a JSON array. An empty aggregate is the empty array,
+     * never SQL NULL, so no caller wraps it in its own COALESCE.
+     */
     agg: (expr: Sql) => Sql;
     /** Build JSON object from explicit column list (works on all databases) */
     objectFromColumns: (columns: [string, Sql][]) => Sql;
@@ -433,7 +436,9 @@ export interface DatabaseAdapter {
    * Array operations (PG: native arrays, MySQL/SQLite: JSON-based)
    */
   arrays: {
-    /** Create array literal */
+    /**
+     * Create array literal. Reserved — not called by the query engine yet.
+     */
     literal: (items: Sql[]) => Sql;
     /**
      * Parameterized value for a complete list in the dialect's storage
@@ -485,7 +490,9 @@ export interface DatabaseAdapter {
     length: (column: Sql) => Sql;
     /** Get element at index. Reserved — not called by the query engine yet. */
     get: (column: Sql, index: Sql) => Sql;
-    /** Append value to array */
+    /**
+     * Append value to array. Reserved — not called by the query engine yet.
+     */
     push: (column: Sql, value: Sql) => Sql;
     /** Set value at index. Reserved — not called by the query engine yet. */
     set: (column: Sql, index: Sql, value: Sql) => Sql;
@@ -609,7 +616,11 @@ export interface DatabaseAdapter {
   cte: {
     /** Build WITH clause: WITH name AS (query), ... */
     with: (definitions: { name: string; query: Sql }[]) => Sql;
-    /** Build recursive CTE: WITH RECURSIVE name AS (anchor UNION ALL recursive) */
+    /**
+     * Build recursive CTE: WITH RECURSIVE name AS (anchor UNION ALL recursive).
+     * The query engine calls only the `"distinct"` mode (`UNION`); the default
+     * `"all"` mode is reserved — not called by the query engine yet.
+     */
     recursive: (
       name: string,
       anchor: Sql,
@@ -739,7 +750,10 @@ export interface DatabaseAdapter {
   setOperations: {
     /** UNION (removes duplicates) */
     union: (...queries: Sql[]) => Sql;
-    /** UNION ALL (keeps duplicates) */
+    /**
+     * UNION ALL (keeps duplicates). Reserved — not called by the query engine
+     * yet.
+     */
     unionAll: (...queries: Sql[]) => Sql;
     /** INTERSECT */
     intersect: (...queries: Sql[]) => Sql;

@@ -26,10 +26,13 @@
  * 3. `g4-native-cursor-pagination-and-aggregate-shapes` — cursor windows
  *    forwards and backwards (Q-P01) and the `groupBy` `_count`/`_min`/`_max`
  *    shapes (Q-S02, Q-A01).
- * 4. `g4-native-recursive-read-fit` — the private `Queries.recursive` fit
- *    (RF-16) lowered to ONE native recursive CTE over a mapped compound
- *    identity path, entered through `OperationContext` exactly as
- *    `tests/raptor3/g4/read-recursive-fit.test.ts` does on SQLite.
+ * 4. `g4-native-recursive-read-fit` — a recursive read (RF-16) lowered to ONE
+ *    native statement over a mapped compound identity path, entered through
+ *    the candidate engine's ordinary `findMany` with `recurse` on the
+ *    `children` node, exactly as `tests/raptor3/g4/read-recursive-fit.test.ts`
+ *    reads it on SQLite. (It once entered the retired private
+ *    `Queries.recursive` fit through `OperationContext`; that slice is gone,
+ *    features-docs/recursive-query.md §3.6.)
  *
  * NOT covered here, and why: scalar LISTS (SL-01…SL-10) have no cross-provider
  * column type — PostgreSQL has arrays and MySQL has none, so a shared fixture
@@ -43,9 +46,6 @@ import assert from "node:assert/strict";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
-import type { Queries } from "@query-engine/raptor3/shared/query";
-import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
@@ -400,10 +400,9 @@ async function runCursorAndAggregates(factory: CandidateEngineFactory) {
 }
 
 /**
- * The recursive fit is a PRIVATE capability, not a public verb: it is reached
- * through `OperationContext.queries.recursive(model, traversal)` and must lower
- * to exactly one provider statement. The model object itself is the argument,
- * so it is built once here and shared with the schema.
+ * The recursive read is the ordinary `findMany` with `recurse` on its
+ * `children` node and must lower to exactly one provider statement. The model
+ * object is built once here and shared with the schema.
  */
 const nativeNode = (() => {
   const node = s
@@ -429,27 +428,6 @@ const nativeNode = (() => {
 
 function nodeSchema() {
   return { node: nativeNode };
-}
-
-interface NativeTraversal {
-  readonly seeds: readonly { readonly args: Record<string, unknown> }[];
-  readonly relation: string;
-  readonly depth: number;
-  readonly args?: Record<string, unknown>;
-}
-
-interface RecursiveQueries {
-  recursive(model: typeof nativeNode, traversal: NativeTraversal): unknown;
-}
-
-function assertRecursiveQueries(
-  queries: Queries
-): asserts queries is Queries & RecursiveQueries {
-  assert.equal(
-    typeof Reflect.get(queries, "recursive"),
-    "function",
-    "the private Queries.recursive fit capability is missing"
-  );
 }
 
 function nodeTable(names: { quote(identifier: string): string }): string {
@@ -509,31 +487,31 @@ async function runRecursiveFit(factory: CandidateEngineFactory) {
     ],
   };
   const fixture: LiveFixture = {
-    // The fit is entered through OperationContext, not through a public verb,
-    // so no candidate engine method is called at all.
-    expectedExecutions: 0,
+    // One ordinary engine read: the recursion is a projected relation value.
+    expectedExecutions: 1,
     initial,
     tables: { nodes: { name: NODE_TABLE, order: ["tenant_key", "node_code"] } },
-    async invoke(driver) {
-      const context = new OperationContext(
-        new EngineSchema(schema),
-        driver,
-        "node",
-        "findMany"
-      );
-      assertRecursiveQueries(context.queries);
+    async invoke(driver, candidateFactory) {
+      assert(candidateFactory);
+      const candidate = candidateFactory({ schema, driver });
       const select = {
         code: true,
         amount: true,
         moment: true,
       };
-      const query = context.queries.recursive(nativeNode, {
-        seeds: [{ args: { where: { tenant: "tree", code: "root" }, select } }],
-        relation: "children",
-        depth: 2,
-        args: { orderBy: [{ code: "asc" }], select },
-      }) as Parameters<typeof context.read>[0];
-      return context.run(() => context.read(query));
+      // Contract change: the operation owns the root (the retired seed list
+      // was this `where`); `recurse` modifies the ordinary `children` node.
+      return candidate.execute("node", "findMany", {
+        where: { tenant: "tree", code: "root" },
+        select: {
+          ...select,
+          children: {
+            recurse: { depth: 2 },
+            orderBy: [{ code: "asc" }],
+            select,
+          },
+        },
+      });
     },
     assert(observation) {
       assert.equal(observation.outcome.kind, "success");
@@ -574,12 +552,12 @@ async function runRecursiveFit(factory: CandidateEngineFactory) {
   );
   throwTerminalFailure(world);
   fixture.assert(world.observation);
-  // The harness records every statement the driver executed; the fit's claim is
-  // that the whole traversal is exactly one of them.
+  // The harness records every statement the driver executed; the read's claim
+  // is that the whole traversal is exactly one of them.
   assert.equal(
     world.statements.length,
     1,
-    "the native recursive fit must lower to exactly one statement"
+    "the native recursive read must lower to exactly one statement"
   );
   world.assertHealthy();
 }

@@ -1,0 +1,31 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/reference-representability.test.ts (26 tests) 137ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 16ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts (7 tests) 18ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/upsert-array-route.test.ts (6 tests) 15ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 42ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 51ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/singular-slot-transition.test.ts (10 tests) 36ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/read-only-build-contract.test.ts (3 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/suppressed-membership-target.test.ts (7 tests) 27ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 21ms
+ ✓ |raptor3| tests/raptor3/g4/parity/reference-representability.test.ts (26 tests) 121ms
+ ✓ |raptor3| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 23ms
+ ✓ |raptor3| tests/raptor3/g4/parity/transport-witnesses.test.ts (7 tests) 18ms
+ ✓ |raptor3| tests/raptor3/g4/parity/upsert-array-route.test.ts (6 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 36ms
+ ✓ |raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 49ms
+ ✓ |raptor3| tests/raptor3/g4/parity/singular-slot-transition.test.ts (10 tests) 43ms
+ ✓ |raptor3| tests/raptor3/g4/parity/read-only-build-contract.test.ts (3 tests) 4ms
+ ✓ |raptor3| tests/raptor3/g4/parity/suppressed-membership-target.test.ts (7 tests) 26ms
+ ✓ |raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 19ms
+ ✓ |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts (39 tests) 211ms
+
+ Test Files  21 passed (21)
+      Tests  215 passed (215)
+   Start at  04:31:51
+   Duration  7.50s (transform 3.08s, setup 36ms, collect 5.89s, tests 938ms, environment 0ms, prepare 86ms)
+
+Vitest resources: 9.44s wall, 740.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

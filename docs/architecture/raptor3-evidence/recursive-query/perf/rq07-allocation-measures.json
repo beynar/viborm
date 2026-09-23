@@ -1,0 +1,89 @@
+{
+  "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin-arm64",
+    "gcExposed": true,
+    "samplingIntervalBytes": 256,
+    "runsPerCell": 20
+  },
+  "cells": [
+    {
+      "label": "FK chain depth 32",
+      "occurrences": 32,
+      "executeSampledBytes": 197907,
+      "executeSamples": 12779,
+      "executeCpuMicrosMedian": 1277,
+      "retainedBytesPerHeldResult": 1295,
+      "retainedBytesPerOccurrence": 40,
+      "cacheHitSampledBytes": 251058,
+      "cacheHitSamples": 16021,
+      "cacheHitCpuMicrosMedian": 472,
+      "heldOccurrences": 32
+    },
+    {
+      "label": "FK chain depth 1000",
+      "occurrences": 1000,
+      "executeSampledBytes": 2886228,
+      "executeSamples": 152901,
+      "executeCpuMicrosMedian": 9161,
+      "retainedBytesPerHeldResult": 235710,
+      "retainedBytesPerOccurrence": 236,
+      "cacheHitSampledBytes": 4360574,
+      "cacheHitSamples": 245314,
+      "cacheHitCpuMicrosMedian": 3465,
+      "heldOccurrences": 1000
+    },
+    {
+      "label": "FK chain exhaustive (1,100)",
+      "occurrences": 1100,
+      "executeSampledBytes": 3462660,
+      "executeSamples": 163399,
+      "executeCpuMicrosMedian": 7718,
+      "retainedBytesPerHeldResult": 257960,
+      "retainedBytesPerOccurrence": 235,
+      "cacheHitSampledBytes": 4757639,
+      "cacheHitSamples": 268621,
+      "cacheHitCpuMicrosMedian": 2006,
+      "heldOccurrences": 1100
+    },
+    {
+      "label": "width 32 at depth 2",
+      "occurrences": 1056,
+      "executeSampledBytes": 2538844,
+      "executeSamples": 129974,
+      "executeCpuMicrosMedian": 6786,
+      "retainedBytesPerHeldResult": 66781,
+      "retainedBytesPerOccurrence": 63,
+      "cacheHitSampledBytes": 3283620,
+      "cacheHitSamples": 189951,
+      "cacheHitCpuMicrosMedian": 1281,
+      "heldOccurrences": 1056
+    },
+    {
+      "label": "ladder 8 rungs exhaustive (diamonds)",
+      "occurrences": 1020,
+      "executeSampledBytes": 702987,
+      "executeSamples": 43146,
+      "executeCpuMicrosMedian": 732,
+      "retainedBytesPerHeldResult": 209021,
+      "retainedBytesPerOccurrence": 205,
+      "cacheHitSampledBytes": 4247430,
+      "cacheHitSamples": 248808,
+      "cacheHitCpuMicrosMedian": 1578,
+      "heldOccurrences": 1020
+    },
+    {
+      "label": "complete 3-graph unfolding depth 8",
+      "occurrences": 510,
+      "executeSampledBytes": 369900,
+      "executeSamples": 24495,
+      "executeCpuMicrosMedian": 950,
+      "retainedBytesPerHeldResult": 86347,
+      "retainedBytesPerOccurrence": 169,
+      "cacheHitSampledBytes": 2039881,
+      "cacheHitSamples": 123341,
+      "cacheHitCpuMicrosMedian": 711,
+      "heldOccurrences": 510
+    }
+  ]
+}

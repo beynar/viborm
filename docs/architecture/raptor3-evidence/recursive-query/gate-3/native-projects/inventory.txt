@@ -1,0 +1,68 @@
+## Provider projects (registered by `vitest.workspace.ts`)
+
+- `provider-pglite` (vitest.workspace.ts): 6 file(s), 0 declared cell(s), credential-free
+    tests/providers/local/pglite-bulk-writes.test.ts — no declared-cell map
+    tests/providers/local/pglite-nested-writes.test.ts — no declared-cell map
+    tests/providers/local/pglite-reads.test.ts — no declared-cell map
+    tests/providers/local/pglite-scalars.test.ts — no declared-cell map
+    tests/providers/local/pglite-vector.test.ts — no declared-cell map
+    tests/providers/local/pglite.test.ts — no declared-cell map
+- `provider-sqlite3` (vitest.workspace.ts): 9 file(s), 0 declared cell(s), credential-free
+    tests/providers/local/sqlite3-batch-reference-reuse.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3-captured-answer-settlement.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3-found-consumption.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3-index-ddl.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3-nested-write.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3-polymorphic-batch.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3-returning-json.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3-scalar-roundtrip.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/sqlite3.test.ts — no declared-cell map, in 2 projects
+- `provider-libsql` (vitest.workspace.ts): 6 file(s), 0 declared cell(s), credential-free
+    tests/providers/local/libsql-index-ddl.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/libsql-nested-write.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/libsql-parity-json.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/libsql-returning-text.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/libsql-scalars-upserts.test.ts — no declared-cell map, in 2 projects
+    tests/providers/local/libsql.test.ts — no declared-cell map, in 2 projects
+- `provider-pg` (vitest.workspace.ts): 7 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+    tests/providers/docker/pg-batch-reference-reuse.test.ts — no declared-cell map
+    tests/providers/docker/pg-captured-set-concurrency.test.ts — no declared-cell map
+    tests/providers/docker/pg-nested-write-races.test.ts — no declared-cell map
+    tests/providers/docker/pg-polymorphism-ddl.test.ts — no declared-cell map
+    tests/providers/docker/pg-read-surface.test.ts — no declared-cell map
+    tests/providers/docker/pg-reference-representability.test.ts — no declared-cell map
+    tests/providers/docker/pg.test.ts — no declared-cell map
+- `provider-postgres` (vitest.workspace.ts): 4 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+    tests/providers/docker/postgres-pipelining.test.ts — no declared-cell map
+    tests/providers/docker/postgres-relations.test.ts — no declared-cell map
+    tests/providers/docker/postgres-serialization.test.ts — no declared-cell map
+    tests/providers/docker/postgres.test.ts — no declared-cell map
+- `provider-mysql2` (vitest.workspace.ts): 15 file(s), 0 declared cell(s), needs MYSQL_TEST_CONNECTION_STRING
+    tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-cascaded-identity.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-concurrency-policy.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-found-consumption.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-generated-key.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-read-surface.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-reference-representability.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-relations-ddl.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-scalars.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-schema-attestation.test.ts — no declared-cell map
+    tests/providers/docker/mysql2-writes-raw.test.ts — no declared-cell map
+    tests/providers/docker/mysql2.test.ts — no declared-cell map
+    tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts — no declared-cell map
+    tests/unit/migrations/mysql-defaults-docker.test.ts — no declared-cell map
+    tests/unit/migrations/mysql-strict-mode-docker.test.ts — no declared-cell map
+- `provider-transaction-options` (vitest.workspace.ts): 1 file(s), 0 declared cell(s), needs PG_TEST_CONNECTION_STRING
+    tests/providers/docker/transaction-options-live.test.ts — no declared-cell map
+- `provider-neon-http` (vitest.workspace.ts): 2 file(s), 0 declared cell(s), needs NEON_TEST_CONNECTION_STRING
+    tests/providers/hosted/neon-http-transport.test.ts — no declared-cell map
+    tests/providers/hosted/neon-http.test.ts — no declared-cell map
+- `provider-planetscale` (vitest.workspace.ts): 1 file(s), 0 declared cell(s), needs PLANETSCALE_TEST_CONNECTION_STRING
+    tests/providers/hosted/planetscale.test.ts — no declared-cell map
+- `provider-bun` (vitest.workspace.ts): 2 file(s), 0 declared cell(s), credential-free
+    tests/providers/platform/bun-sql-runtime.test.ts — no declared-cell map
+    tests/providers/platform/bun-sqlite-runtime.test.ts — no declared-cell map
+- `provider-d1` (vitest.d1.config.ts): 1 file(s), 0 declared cell(s), credential-free
+    tests/providers/workers/d1.test.ts — no declared-cell map
+

@@ -592,6 +592,7 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Relations: two factories, `s.toOne` and `s.toMany`, over one model or a map of named variants. Every ordinary cardinality cell (one-to-one, one-to-many, many-to-many) and both variant cardinalities are derived from the declared pair, each with direct and inverse read/write surfaces
 - Supported nested writes (`create`, `createMany`, `connect`, `connectOrCreate`, `disconnect`, `delete`, `set`, `update`, `updateMany`, `upsert`, `deleteMany`) across callback-transaction and atomic-batch paths
 - Select/include with typed results
+- Recursive relation projections (`recurse` on a self-relation in `select`/`include`, `WITH RECURSIVE` underneath): implemented through the ordinary projection, executed locally on SQLite, PGlite, PostgreSQL and MySQL; hosted providers not yet qualified (`features-docs/recursive-query.md`)
 - All scalar types (string, int, number, boolean, dateTime, json, enum, etc.)
 - PostgreSQL, MySQL, and SQLite adapters, including authenticated estate migrations and history-free `push` where the provider lock/CAS is proven
 - Query caching with TTL and SWR
@@ -605,9 +606,6 @@ Most tests run against PGlite (in-memory PostgreSQL). Driver tests in `tests/dri
 - Raw queries are Prisma-shaped tagged templates; the pre-1.0 `$queryRaw(string, params?)` form still runs for one release behind a deprecation notice. Raw calls are lazy, promise-compatible operations that can mix with model operations in `$transaction([...])`.
 - Transaction options are honored where the driver can honor them and refused with a typed `UnsupportedOperationError` (naming the option and the reason) where it cannot; see the per-driver table in the Transactions docs.
 - Local nested-write conformance is proven on PGlite/Postgres-style and SQLite-family paths; hosted D1 binding and Neon HTTP need external runs before claiming hosted verification.
-
-**Future features** (documented in `features-docs/`):
-- Recursive queries (WITH RECURSIVE)
 
 See `PENDING_WORK.md` for detailed tracking.
 

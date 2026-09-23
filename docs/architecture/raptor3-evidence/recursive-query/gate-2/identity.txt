@@ -1,0 +1,8 @@
+head 4ead1c5919b3cdb2f6a0f5f8a766c25c9e010b37
+tree: dirty tracked 12, untracked 566
+src-digest 04903b9b1c0ce28a1f55cde62b171f1092cb3a8e9aa8ae8d27f57340ec681bfd (tracked src files at their working-tree bytes)
+untracked-src 
+harness-identity fb30927afeecdb1f2c16106cd98003e74cde11ee838056d582304f969324dfc9
+node v24.21.0 pnpm 10.11.0 lockfile c366c9806e268e19970626c34e0c5ea1bb74cc7c24b388fa072d580d7bf9aceb
+started 2026-09-23T09:10:28Z
+11:10  up 23 days, 10:50, 3 users, load averages: 13.06 17.07 16.21

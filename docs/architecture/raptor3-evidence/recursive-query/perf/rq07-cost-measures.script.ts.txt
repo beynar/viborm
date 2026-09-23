@@ -1,0 +1,103 @@
+// SCRATCH (untracked, deleted after the run): the plan §6 cost cells — depths 1/2/8/32/100/1000 and
+// an exhaustive 1,100 chain, widths 1/2/8/32 at depth 2, graph diamonds and cycles at controlled
+// output — each with statements, SQL/bind sizes, carrier facts, occurrences, output bytes, CPU and
+// wall per execute (median of 7 after one warm-up), a heap delta for one execute, and the process's
+// peak RSS. SQLite in-memory through the ordinary command engine.
+import { writeFileSync } from "node:fs";
+import { SQLite3Driver } from "@drivers/sqlite3";
+import type { QueryResult } from "@drivers/types";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { s } from "@schema";
+import Database from "better-sqlite3";
+import { it } from "vitest";
+import { GRAPH_WORLD, type RecursiveWorld } from "./provider-sql-fixture";
+
+class Observed extends SQLite3Driver {
+  last: { sql: string; binds: number; bindBytes: number; rows: Record<string, unknown>[] } | undefined;
+  count = 0;
+  protected override async execute<T>(client: Database.Database, statement: string, parameters: unknown[]): Promise<QueryResult<T>> {
+    const response = await super.execute<T>(client, statement, parameters);
+    this.count += 1;
+    this.last = { sql: statement, binds: parameters.length, bindBytes: JSON.stringify(parameters).length, rows: response.rows as Record<string, unknown>[] };
+    return response;
+  }
+}
+
+const tree = s
+  .model({
+    id: s.string().id(),
+    parentId: s.string().nullable().map("parent_id"),
+    rank: s.int(),
+    parent: s.toOne(() => tree).fields("parentId").references("id").name("rq07m"),
+    children: s.toMany(() => tree).name("rq07m"),
+  })
+  .map("rq07_measure_nodes");
+const treeSchema = { tree };
+
+function openTree(rows: [string, string | null, number][]) {
+  const database = new Database(":memory:");
+  database.exec(`CREATE TABLE rq07_measure_nodes(id TEXT PRIMARY KEY, parent_id TEXT, rank INTEGER NOT NULL)`);
+  const insert = database.prepare("INSERT INTO rq07_measure_nodes(id, parent_id, rank) VALUES (?, ?, ?)");
+  database.transaction(() => { for (const row of rows) insert.run(...row); })();
+  const driver = new Observed({ client: database });
+  return { database, driver, engine: createCommandEngine({ schema: treeSchema, driver }) };
+}
+
+function openWorld(world: RecursiveWorld) {
+  const database = new Database(":memory:");
+  const types = { text: "TEXT", integer: "INTEGER", boolean: "INTEGER", json: "TEXT" } as const;
+  for (const table of world.tables) {
+    const quoted = table.columns.map((c) => `"${c.name}"`);
+    database.exec(`CREATE TABLE "${table.name}"(${[...table.columns.map((c, i) => `${quoted[i]} ${types[c.type]}${c.nullable ? "" : " NOT NULL"}${c.unique ? " UNIQUE" : ""}`), `PRIMARY KEY (${table.primaryKey.map((n) => `"${n}"`).join(",")})`].join(", ")})`);
+    const insert = database.prepare(`INSERT INTO "${table.name}"(${quoted.join(", ")}) VALUES (${quoted.map(() => "?").join(", ")})`);
+    database.transaction(() => { for (const row of table.rows) insert.run(...table.columns.map((c) => { const v = row[c.name]; return typeof v === "boolean" ? (v ? 1 : 0) : v === undefined ? null : v; })); })();
+  }
+  const driver = new Observed({ client: database });
+  return { database, driver, engine: createCommandEngine({ schema: world.schema, driver }) };
+}
+
+const chainRows = (length: number): [string, string | null, number][] => { const rows: [string, string | null, number][] = [["c0", null, 0]]; for (let i = 1; i <= length; i += 1) rows.push([`c${i}`, `c${i - 1}`, i]); return rows; };
+const widthRows = (width: number): [string, string | null, number][] => { const rows: [string, string | null, number][] = [["w0", null, 0]]; for (let i = 0; i < width; i += 1) { rows.push([`w0.${i}`, "w0", i]); for (let j = 0; j < width; j += 1) rows.push([`w0.${i}.${j}`, `w0.${i}`, j]); } return rows; };
+
+function count(value: unknown, relation: string): number {
+  let occurrences = 0; const pending: unknown[] = [(value as Record<string, unknown>)[relation]];
+  while (pending.length > 0) { const next = pending.pop(); if (next === null || next === undefined) continue; for (const member of Array.isArray(next) ? next : [next]) { occurrences += 1; pending.push((member as Record<string, unknown>)[relation]); } }
+  return occurrences;
+}
+const bytesOf = (value: unknown) => JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? `${v}` : v)).length;
+const median = (xs: number[]) => { const a = [...xs].sort((l, r) => l - r); return a[Math.floor(a.length / 2)]!; };
+
+it("measures the plan §6 cost cells", async () => {
+  const lines: Record<string, unknown>[] = [];
+  const measure = async (label: string, world: { driver: Observed; engine: ReturnType<typeof createCommandEngine> }, model: string, id: unknown, relation: string, recurse: unknown, extra: Record<string, unknown>) => {
+    const args = { where: { id }, select: { id: true, [relation]: { recurse, ...extra, select: { id: true } } } };
+    const value = await world.engine.execute(model, "findUnique", args);
+    const last = world.driver.last!;
+    const raw = last.rows[0]![relation] as string;
+    const carrier = JSON.parse(raw) as { __rq_nodes: unknown[]; __rq_edges: unknown[] };
+    const cpu: number[] = []; const wall: number[] = [];
+    for (let run = 0; run < 7; run += 1) {
+      const before = world.driver.count; const c0 = process.cpuUsage(); const t0 = process.hrtime.bigint();
+      await world.engine.execute(model, "findUnique", args);
+      wall.push(Number(process.hrtime.bigint() - t0) / 1000); const c = process.cpuUsage(c0); cpu.push(c.user + c.system);
+      if (world.driver.count - before !== 1) throw new Error(`${label}: ${world.driver.count - before} statements`);
+    }
+    (globalThis as { gc?: () => void }).gc?.();
+    const h0 = process.memoryUsage().heapUsed; const held = await world.engine.execute(model, "findUnique", args); const h1 = process.memoryUsage().heapUsed;
+    lines.push({ label, statements: 1, sqlChars: last.sql.length, binds: last.binds, bindBytes: last.bindBytes, providerRows: last.rows.length, carrierBytes: raw.length, carrierNodes: carrier.__rq_nodes.length, carrierEdges: carrier.__rq_edges.length, occurrences: count(value, relation), outputBytes: bytesOf((value as Record<string, unknown>)[relation]), cpuMicrosMedian: median(cpu), wallMicrosMedian: median(wall), heapDeltaBytesOneExecute: h1 - h0, heldOccurrences: count(held, relation) });
+  };
+  const chain = openTree(chainRows(1100));
+  for (const depth of [1, 2, 8, 32, 100, 1000]) await measure(`FK chain depth ${depth}`, chain, "tree", "c0", "children", { depth }, { orderBy: { rank: "asc" } });
+  await measure("FK chain exhaustive (1,100)", chain, "tree", "c0", "children", { depth: false }, { orderBy: { rank: "asc" } });
+  await measure("FK chain upward depth 32 (singular)", chain, "tree", "c40", "parent", { depth: 32 }, {});
+  for (const width of [1, 2, 8, 32]) { const world = openTree(widthRows(width)); await measure(`width ${width} at depth 2`, world, "tree", "w0", "children", { depth: 2 }, { orderBy: { rank: "asc" } }); await world.driver.disconnect(); world.database.close(); }
+  const graph = openWorld(GRAPH_WORLD);
+  await measure("ladder 4 rungs exhaustive (diamonds)", graph, "vertex", "m4", "out", { depth: false }, { orderBy: { rank: "asc" } });
+  await measure("ladder 8 rungs exhaustive (diamonds)", graph, "vertex", "m0", "out", { depth: false }, { orderBy: { rank: "asc" } });
+  await measure("3-cycle unfolding depth 30", graph, "vertex", "r0", "out", { depth: 30, preventCycles: false }, { orderBy: { rank: "asc" } });
+  await measure("complete 3-graph unfolding depth 8", graph, "vertex", "k0", "out", { depth: 8, preventCycles: false }, { orderBy: { rank: "asc" } });
+  await measure("complete 3-graph exhaustive simple paths", graph, "vertex", "k0", "out", { depth: false }, { orderBy: { rank: "asc" } });
+  const usage = process.resourceUsage();
+  writeFileSync(process.env.RQ07_MEASURE_OUT!, JSON.stringify({ runtime: { node: process.version, platform: `${process.platform}-${process.arch}`, gcExposed: typeof (globalThis as { gc?: unknown }).gc === "function" }, peakRssBytes: usage.maxRSS, cells: lines }, null, 2));
+  await chain.driver.disconnect(); chain.database.close(); await graph.driver.disconnect(); graph.database.close();
+}, 300_000);

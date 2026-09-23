@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 278ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/recursive-vocabulary.test.ts (1 test) 19ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 84ms
+ ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 77ms
+
+ Test Files  4 passed (4)
+      Tests  13 passed (13)
+   Start at  15:05:19
+   Duration  18.05s (transform 8.24s, setup 87ms, collect 16.74s, tests 458ms, environment 0ms, prepare 240ms)
+
+Vitest resources: 25.45s wall, 500.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

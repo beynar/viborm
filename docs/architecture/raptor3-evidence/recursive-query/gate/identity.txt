@@ -1,0 +1,8 @@
+head 076fad02b1c77435ce7389a51996163c66aad819
+tree: dirty tracked 36, untracked 563
+src-digest 717fd6b407b8d7c894fd234ab2dd5ea8f215773befa2745d9da06befc2b5289e (tracked src files at their working-tree bytes)
+untracked-src src/validation/relations/recurrence.ts 
+harness-identity 4145275a0d4217b5c69460f470681007ae397793c9bfb59529422d49597c47f2
+node v24.21.0 pnpm 10.11.0 lockfile c366c9806e268e19970626c34e0c5ea1bb74cc7c24b388fa072d580d7bf9aceb
+started 2026-09-23T02:30:43Z
+ 4:30  up 23 days,  4:10, 3 users, load averages: 7.62 7.57 7.75

@@ -1,0 +1,13 @@
+// Read-only: maps each connection file's port to a container, prints no URL.
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+const files = ["/private/tmp/viborm-fc-env/pg", "/private/tmp/viborm-m1-env/mysql"];
+const names = execFileSync("docker", ["ps", "-a", "--format", "{{.Names}}"], { encoding: "utf8" }).trim().split("\n");
+const info = JSON.parse(execFileSync("docker", ["inspect", ...names], { encoding: "utf8" }));
+for (const file of files) {
+  const port = new URL(readFileSync(file, "utf8").trim()).port;
+  const hit = info.filter((c) => Object.values(c.NetworkSettings.Ports ?? {}).flat().some((b) => b && b.HostPort === port));
+  for (const c of hit)
+    console.log(JSON.stringify({ file, container: c.Name.replace(/^\//, ""), image: c.Config.Image, restart: c.HostConfig.RestartPolicy?.Name, running: c.State.Running, startedAt: c.State.StartedAt, finishedAt: c.State.FinishedAt, created: c.Created }));
+  if (hit.length === 0) console.log(JSON.stringify({ file, container: null }));
+}

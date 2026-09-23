@@ -1,0 +1,13 @@
+
+[test:all] raptor3-provider: tests/raptor3/recursive-query/provider-sql-pglite.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/recursive-query/provider-sql-pglite.test.ts (14 tests) 1233ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  12:55:55
+   Duration  3.09s (transform 1.07s, setup 13ms, collect 1.64s, tests 1.23s, environment 0ms, prepare 42ms)
+
+[test:all] raptor3-provider: tests/raptor3/recursive-query/provider-sql-pglite.test.ts: 6.34s wall, 1467.0 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

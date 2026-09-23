@@ -1,0 +1,17 @@
+lines this change wrote in query.ts: 61
+of them, lines Biome's formatter would rewrite: 15
+4572:         "the carrier is not an object",
+4581:         "the carrier's root, nodes or edges member is not an array",
+4588:           "an identity is not a tuple of the key's width",
+4600:           "a node entry is not an object",
+4607:           "two nodes carry the same identity",
+4619:           "an edge entry is not an object",
+4627:           "an edge's child is not a carried node",
+4635:             "an exhaustive carrier states an edge depth",
+4646:             "an edge depth is not an integer from 1 to the cutoff",
+4654:           "an edge fact is carried twice",
+4676:           "an edge's parent is neither the root nor a carried node",
+4682:           "a singular parent has several successors",
+4737:           "a hop below the cutoff omits some of its parent's children",
+4743:         "an edge is not reachable at its recorded depth",
+4748:         "a carried node is not reachable from the root",

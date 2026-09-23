@@ -1,0 +1,34 @@
+#!/bin/bash
+set -u
+REPO=/Users/arnaud/code/viborm
+T=/private/tmp/viborm-rq-elegance-repair
+M=$T/biome-head
+rm -rf "$M"; mkdir -p "$M"
+cp "$REPO/biome.jsonc" "$M/"
+cp "$REPO/.gitignore" "$M/"
+(cd "$M" && git init -q)
+ln -s "$REPO/node_modules" "$M/node_modules"
+read -r -a FILES < "$T/touched-files.txt"
+for f in "${FILES[@]}"; do
+  mkdir -p "$M/$(dirname "$f")"
+  (cd "$REPO" && git show "HEAD:$f") > "$M/$f"
+done
+(cd "$M" && "$REPO/node_modules/.bin/biome" lint --max-diagnostics=10000 "${FILES[@]}") > "$T/logs/biome-lint-head.txt" 2>&1
+(cd "$REPO" && "$REPO/node_modules/.bin/biome" lint --max-diagnostics=10000 "${FILES[@]}" "$@") > "$T/logs/biome-lint-after.txt" 2>&1
+python3 - "$T/logs/biome-lint-head.txt" "$T/logs/biome-lint-after.txt" <<'PY'
+import re, sys, collections
+def counts(path):
+    c = collections.Counter()
+    for line in open(path, encoding="utf8", errors="replace"):
+        m = re.match(r'^(\S+?):\d+:\d+ (lint/\S+|assist/\S+)', line)
+        if m: c[(m.group(1), m.group(2))] += 1
+    return c
+h, a = counts(sys.argv[1]), counts(sys.argv[2])
+files = sorted({k[0] for k in h} | {k[0] for k in a})
+for f in files:
+    rules = sorted({k[1] for k in h if k[0]==f} | {k[1] for k in a if k[0]==f})
+    for r in rules:
+        hv, av = h[(f,r)], a[(f,r)]
+        flag = "" if hv == av else ("  <-- MORE" if av > hv else "  (fewer)")
+        print(f"{f} {r}: head={hv} after={av}{flag}")
+PY

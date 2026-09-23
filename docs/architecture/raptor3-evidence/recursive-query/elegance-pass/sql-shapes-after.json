@@ -1,0 +1,2151 @@
+[
+ {
+  "label": "tree bounded (FK chain depth N, width N at depth 2)",
+  "sqlite": {
+   "chars": 1574,
+   "binds": 13,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE \"q3\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"id\"), ?, json_object(?, \"q7\".\"id\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\" ORDER BY \"q3\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\"), ?, json_array(\"q8\".\"__q1_child_0\"), ?, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC LIMIT -1) AS \"q10\")))) AS \"children\" FROM \"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+  },
+  "postgres": {
+   "chars": 1699,
+   "binds": 13,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 1) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE \"q3\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q7\".\"id\"), $8::text, json_build_object($9::text, \"q7\".\"id\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q8\".\"__q1_parent_0\"), $11::text, json_build_array(\"q8\".\"__q1_child_0\"), $12::text, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"children\" FROM \"public\".\"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = $13"
+  },
+  "value": {
+   "id": "c2",
+   "children": []
+  }
+ },
+ {
+  "label": "tree exhaustive (FK chain exhaustive)",
+  "sqlite": {
+   "chars": 1455,
+   "binds": 9,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE 1\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"id\"), ?, json_object(?, \"q7\".\"id\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\" ORDER BY \"q3\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\"), ?, json_array(\"q8\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC LIMIT -1) AS \"q10\")))) AS \"children\" FROM \"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+  },
+  "postgres": {
+   "chars": 1569,
+   "binds": 9,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 1) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"public\".\"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"id\" = \"q2\".\"parent_id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"id\" = \"q5\".\"parent_id\" WHERE TRUE\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($4::text, json_build_array(\"q7\".\"id\"), $5::text, json_build_object($6::text, \"q7\".\"id\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($7::text, json_build_array(\"q8\".\"__q1_parent_0\"), $8::text, json_build_array(\"q8\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"rank\" ASC, \"q9\".\"id\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"children\" FROM \"public\".\"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = $9"
+  },
+  "value": {
+   "id": "c2",
+   "children": []
+  }
+ },
+ {
+  "label": "tree upward singular bounded",
+  "sqlite": {
+   "chars": 1555,
+   "binds": 13,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"parent_id\" = \"q2\".\"id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"parent_id\" = \"q5\".\"id\" WHERE \"q3\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q7\".\"id\"), ?, json_object(?, \"q7\".\"id\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q3\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q3\".\"__q1_child_0\" ORDER BY \"q3\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q3\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q6\" INNER JOIN \"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q10\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q8\".\"__q1_parent_0\"), ?, json_array(\"q8\".\"__q1_child_0\"), ?, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"id\" ASC LIMIT -1) AS \"q10\")))) AS \"parent\" FROM \"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+  },
+  "postgres": {
+   "chars": 1680,
+   "binds": 13,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q12\".\"__q1_nodes\", $3::text, \"q12\".\"__q1_edges\") FROM (SELECT 1) AS \"q11\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq07_measure_nodes\" AS \"q2\" WHERE \"q0\".\"parent_id\" = \"q2\".\"id\"\n        UNION\n        SELECT \"q3\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q5\".\"id\" AS \"__q1_child_0\", (\"q3\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q3\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q4\" ON \"q4\".\"id\" = \"q3\".\"__q1_child_0\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q5\" ON \"q4\".\"parent_id\" = \"q5\".\"id\" WHERE \"q3\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q7\".\"id\"), $8::text, json_build_object($9::text, \"q7\".\"id\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q3\".\"__q1_child_0\") \"q3\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q3\") AS \"q6\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q7\" ON \"q7\".\"id\" = \"q6\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q10\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q8\".\"__q1_parent_0\"), $11::text, json_build_array(\"q8\".\"__q1_child_0\"), $12::text, \"q8\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q8\" INNER JOIN \"public\".\"rq07_measure_nodes\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_child_0\" ORDER BY \"q8\".\"__q1_parent_0\" ASC, \"q9\".\"id\" ASC) AS \"q10\") AS \"__q1_edges\") AS \"q12\" ON TRUE) AS \"parent\" FROM \"public\".\"rq07_measure_nodes\" AS \"q0\" WHERE \"q0\".\"id\" = $13"
+  },
+  "value": {
+   "id": "c2",
+   "parent": {
+    "id": "c1",
+    "parent": {
+     "id": "c0",
+     "parent": null
+    }
+   }
+  }
+ },
+ {
+  "label": "graph bounded, prevention off (3-cycle / complete 3-graph unfolding)",
+  "sqlite": {
+   "chars": 1753,
+   "binds": 13,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST(? AS INTEGER) AS \"__q1_depth\" FROM \"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\", (\"q4\".\"__q1_depth\" + ?) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE \"q4\".\"__q1_depth\" < ?\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q9\".\"id\"), ?, json_object(?, \"q9\".\"id\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q4\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q4\".\"__q1_child_0\" ORDER BY \"q4\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q4\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q8\" INNER JOIN \"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q12\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q10\".\"__q1_parent_0\"), ?, json_array(\"q10\".\"__q1_child_0\"), ?, \"q10\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC LIMIT -1) AS \"q12\")))) AS \"out\" FROM \"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+  },
+  "postgres": {
+   "chars": 1896,
+   "binds": 13,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q14\".\"__q1_nodes\", $3::text, \"q14\".\"__q1_edges\") FROM (SELECT 1) AS \"q13\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\", CAST($4 AS INTEGER) AS \"__q1_depth\" FROM \"public\".\"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\", (\"q4\".\"__q1_depth\" + $5) AS \"__q1_depth\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE \"q4\".\"__q1_depth\" < $6\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($7::text, json_build_array(\"q9\".\"id\"), $8::text, json_build_object($9::text, \"q9\".\"id\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q4\".\"__q1_child_0\") \"q4\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q4\") AS \"q8\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q12\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($10::text, json_build_array(\"q10\".\"__q1_parent_0\"), $11::text, json_build_array(\"q10\".\"__q1_child_0\"), $12::text, \"q10\".\"__q1_depth\") AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC) AS \"q12\") AS \"__q1_edges\") AS \"q14\" ON TRUE) AS \"out\" FROM \"public\".\"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = $13"
+  },
+  "value": {
+   "id": "k0",
+   "out": [
+    {
+     "id": "k1",
+     "out": [
+      {
+       "id": "k0",
+       "out": [
+        {
+         "id": "k1",
+         "out": [
+          {
+           "id": "k0",
+           "out": [
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k2",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "k2",
+         "out": [
+          {
+           "id": "k0",
+           "out": [
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k1",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "k2",
+       "out": [
+        {
+         "id": "k0",
+         "out": [
+          {
+           "id": "k1",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k2",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "k1",
+         "out": [
+          {
+           "id": "k0",
+           "out": [
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k2",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "k2",
+     "out": [
+      {
+       "id": "k0",
+       "out": [
+        {
+         "id": "k1",
+         "out": [
+          {
+           "id": "k0",
+           "out": [
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k2",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "k2",
+         "out": [
+          {
+           "id": "k0",
+           "out": [
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k1",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "k1",
+       "out": [
+        {
+         "id": "k0",
+         "out": [
+          {
+           "id": "k1",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k2",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "id": "k2",
+         "out": [
+          {
+           "id": "k0",
+           "out": [
+            {
+             "id": "k1",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "id": "k1",
+           "out": [
+            {
+             "id": "k0",
+             "out": [
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k2",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "id": "k2",
+             "out": [
+              {
+               "id": "k0",
+               "out": [
+                {
+                 "id": "k1",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "id": "k1",
+               "out": [
+                {
+                 "id": "k0",
+                 "out": [
+                  {
+                   "id": "k1"
+                  },
+                  {
+                   "id": "k2"
+                  }
+                 ]
+                },
+                {
+                 "id": "k2",
+                 "out": [
+                  {
+                   "id": "k0"
+                  },
+                  {
+                   "id": "k1"
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "label": "graph exhaustive (ladders, complete 3-graph simple paths)",
+  "sqlite": {
+   "chars": 1633,
+   "binds": 9,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE 1\n      ) SELECT json_object(?, json_array(\"q0\".\"id\"), ?, json((SELECT COALESCE(json_group_array(json(json_object(?, json_array(\"q9\".\"id\"), ?, json_object(?, \"q9\".\"id\")))), json_array()) FROM (SELECT \"__q1_id_0\" FROM (SELECT \"q4\".\"__q1_child_0\" AS \"__q1_id_0\", ROW_NUMBER() OVER (PARTITION BY \"q4\".\"__q1_child_0\" ORDER BY \"q4\".\"__q1_child_0\") AS \"_rn\" FROM \"__q1_recursive\" AS \"q4\") AS \"_distinct_subquery\" WHERE \"_rn\" = 1) AS \"q8\" INNER JOIN \"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\")), ?, json((SELECT COALESCE(json_group_array(json(json(\"q12\".\"__q1_edge\"))), json_array()) FROM (SELECT json_object(?, json_array(\"q10\".\"__q1_parent_0\"), ?, json_array(\"q10\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC LIMIT -1) AS \"q12\")))) AS \"out\" FROM \"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+  },
+  "postgres": {
+   "chars": 1765,
+   "binds": 9,
+   "sql": "SELECT \"q0\".\"id\" AS \"id\", (SELECT json_build_object($1::text, json_build_array(\"q0\".\"id\"), $2::text, \"q14\".\"__q1_nodes\", $3::text, \"q14\".\"__q1_edges\") FROM (SELECT 1) AS \"q13\" JOIN LATERAL (WITH RECURSIVE \"__q1_recursive\" AS (\n        SELECT \"q0\".\"id\" AS \"__q1_parent_0\", \"q2\".\"id\" AS \"__q1_child_0\" FROM \"public\".\"rq_provider_vertices\" AS \"q2\" WHERE EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q3\" WHERE (\"q3\".\"tail\" = \"q0\".\"id\" AND \"q3\".\"head\" = \"q2\".\"id\"))\n        UNION\n        SELECT \"q4\".\"__q1_child_0\" AS \"__q1_parent_0\", \"q6\".\"id\" AS \"__q1_child_0\" FROM \"__q1_recursive\" AS \"q4\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q5\" ON \"q5\".\"id\" = \"q4\".\"__q1_child_0\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q6\" ON EXISTS (SELECT 1 FROM \"public\".\"rq_provider_arcs\" AS \"q7\" WHERE (\"q7\".\"tail\" = \"q5\".\"id\" AND \"q7\".\"head\" = \"q6\".\"id\")) WHERE TRUE\n      ) SELECT (SELECT COALESCE(json_agg(json_build_object($4::text, json_build_array(\"q9\".\"id\"), $5::text, json_build_object($6::text, \"q9\".\"id\"))), '[]'::json) FROM (SELECT DISTINCT ON (\"q4\".\"__q1_child_0\") \"q4\".\"__q1_child_0\" AS \"__q1_id_0\" FROM \"__q1_recursive\" AS \"q4\") AS \"q8\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q9\" ON \"q9\".\"id\" = \"q8\".\"__q1_id_0\") AS \"__q1_nodes\", (SELECT COALESCE(json_agg(\"q12\".\"__q1_edge\"), '[]'::json) FROM (SELECT json_build_object($7::text, json_build_array(\"q10\".\"__q1_parent_0\"), $8::text, json_build_array(\"q10\".\"__q1_child_0\")) AS \"__q1_edge\" FROM \"__q1_recursive\" AS \"q10\" INNER JOIN \"public\".\"rq_provider_vertices\" AS \"q11\" ON \"q11\".\"id\" = \"q10\".\"__q1_child_0\" ORDER BY \"q10\".\"__q1_parent_0\" ASC, \"q11\".\"rank\" ASC, \"q11\".\"id\" ASC) AS \"q12\") AS \"__q1_edges\") AS \"q14\" ON TRUE) AS \"out\" FROM \"public\".\"rq_provider_vertices\" AS \"q0\" WHERE \"q0\".\"id\" = $9"
+  },
+  "value": {
+   "id": "k0",
+   "out": [
+    {
+     "id": "k1",
+     "out": [
+      {
+       "id": "k2",
+       "out": []
+      }
+     ]
+    },
+    {
+     "id": "k2",
+     "out": [
+      {
+       "id": "k1",
+       "out": []
+      }
+     ]
+    }
+   ]
+  }
+ }
+]

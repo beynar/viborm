@@ -1,0 +1,62 @@
+// Read-only probe: capture the engine's own SQLite statement for a bounded
+// recursive read (built package, SQL unchanged by this round) and print
+// SQLite's EXPLAIN QUERY PLAN for it on an empty in-memory table.
+import { createRequire } from "node:module";
+const BetterSqlite = createRequire("/Users/arnaud/code/viborm/package.json")("better-sqlite3");
+import { Driver } from "/Users/arnaud/code/viborm/dist/driver.mjs";
+import { SQLiteAdapter } from "/Users/arnaud/code/viborm/dist/adapters.mjs";
+import { createClient, s } from "/Users/arnaud/code/viborm/dist/index.mjs";
+
+const tree = s
+  .model({
+    id: s.string().id(),
+    rank: s.int(),
+    parentId: s.string().nullable(),
+    parent: s.toOne(() => tree).fields("parentId").references("id").name("planTree"),
+    children: s.toMany(() => tree).name("planTree"),
+  })
+  .map("plan_tree");
+const captured = [];
+class CapturingDriver extends Driver {
+  constructor() {
+    super("sqlite", "rq07-plan-probe");
+    this.adapter = new SQLiteAdapter();
+  }
+  async initClient() { return null; }
+  async closeClient() {}
+  async execute(...args) { captured.push(args); return { rows: [], rowCount: 0 }; }
+  async executeRaw(...args) { captured.push(args); return { rows: [], rowCount: 0 }; }
+  async transaction(_client, fn) { return fn(null); }
+}
+const client = createClient({ schema: { tree }, driver: new CapturingDriver() });
+await client.tree.findMany({
+  where: { id: "root" },
+  select: { id: true, children: { recurse: { depth: 40 }, select: { id: true } } },
+});
+await client.$disconnect();
+const find = (value) => {
+  if (typeof value === "string" && /WITH RECURSIVE/.test(value)) return value;
+  if (value && typeof value === "object")
+    for (const inner of Object.values(value)) { const hit = find(inner); if (hit) return hit; }
+  return undefined;
+};
+const text = find(captured);
+if (!text) { console.log("no recursive statement captured; arg shapes:", JSON.stringify(captured).slice(0, 400)); process.exit(1); }
+const db = new BetterSqlite(":memory:"); console.log("sqlite", db.prepare("select sqlite_version() v").get().v);
+db.exec('CREATE TABLE "plan_tree" ("id" TEXT PRIMARY KEY, "rank" INTEGER NOT NULL, "parentId" TEXT)');
+const shape = (v, d = 0) => v === null || typeof v !== "object" ? typeof v : Array.isArray(v) ? `array(${v.length})` : `{${Object.keys(v).map((k) => `${k}:${d < 1 ? shape(v[k], d + 1) : typeof v[k]}`).join(",")}}`;
+console.log("args:", captured.map((a) => a.map((x) => shape(x)).join(" | ")).join(" || ").slice(0, 600));
+const findParams = (value) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [key, inner] of Object.entries(value)) if (Array.isArray(inner) && /param|value|bind/i.test(key)) return inner;
+    for (const inner of Object.values(value)) { const hit = findParams(inner); if (hit) return hit; }
+  }
+  if (Array.isArray(value)) for (const inner of value) { const hit = findParams(inner); if (hit) return hit; }
+  return undefined;
+};
+const call = captured.find((a) => typeof a[1] === "string" && /WITH RECURSIVE/.test(a[1]));
+const params = (call?.[2] ?? []).map((v) => typeof v === "boolean" ? Number(v) : v);
+console.log("params:", params.length);
+const plan = db.prepare(`EXPLAIN QUERY PLAN ${text}`).all(...params);
+for (const row of plan) console.log(row.id, row.parent, row.detail);
+db.close();

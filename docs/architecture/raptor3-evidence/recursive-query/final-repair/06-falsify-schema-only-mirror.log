@@ -1,0 +1,34 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts (4 tests | 1 failed) 15ms
+   ✓ the output key `_distance` has one producer > refuses a distance beside a relation named `_distance`, in either order, before any statement 9ms
+   × the output key `_distance` has one producer > renders the same refusal for the schema-only result shape 4ms
+     → Missing expected exception: {"select":{"id":true,"_distance":{"recurse":{"depth":2},"select":{"id":true,"at":{"_distance":{"to":{"longitude":2.3522,"latitude":48.8566}}}}}}}
+   ✓ the output key `_distance` has one producer > refuses the included spelling in the schema-only shape below admission 0ms
+   ✓ the output key `_distance` has one producer > keeps the key for each producer alone 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts > the output key `_distance` has one producer > renders the same refusal for the schema-only result shape
+AssertionError: Missing expected exception: {"select":{"id":true,"_distance":{"recurse":{"depth":2},"select":{"id":true,"at":{"_distance":{"to":{"longitude":2.3522,"latitude":48.8566}}}}}}}
+
+simple
+
+ ❯ tests/raptor3/recursive-query/distance-key-collision.test.ts:189:14
+    187|   it("renders the same refusal for the schema-only result shape", () =…
+    188|     for (const args of [distanceFirst, relationFirst, nested])
+    189|       assert.throws(
+       |              ^
+    190|         () => renderOperationResultType(schema, "place", "findMany", a…
+    191|         (error: unknown) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  11:59:04
+   Duration  1.46s (transform 843ms, setup 9ms, collect 1.30s, tests 15ms, environment 0ms, prepare 30ms)
+
+Vitest resources: 3.20s wall, 462.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

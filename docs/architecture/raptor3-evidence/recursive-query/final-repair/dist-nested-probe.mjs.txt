@@ -1,0 +1,65 @@
+// Read-only probe of the BUILT package (dist/, gate-2's build of src digest
+// 04903b9b…, the tree before this round's production edits): the nested
+// spelling through the shipped client, plain and through $withCache().
+import { Driver } from "/Users/arnaud/code/viborm/dist/driver.mjs";
+import { PostgresAdapter } from "/Users/arnaud/code/viborm/dist/adapters.mjs";
+import { cache } from "/Users/arnaud/code/viborm/dist/cache.mjs";
+import { MemoryCache } from "/Users/arnaud/code/viborm/dist/cache/memory.mjs";
+import { createClient, s } from "/Users/arnaud/code/viborm/dist/index.mjs";
+
+const place = s
+  .model({
+    id: s.string().id(),
+    at: s.point(),
+    parentId: s.string().nullable(),
+    parent: s.toOne(() => place).fields("parentId").references("id").name("rq07Places"),
+    _distance: s.toMany(() => place).name("rq07Places"),
+  })
+  .map("rq07_places");
+const schema = { place };
+const paris = { longitude: 2.3522, latitude: 48.8566 };
+const nested = {
+  select: {
+    id: true,
+    _distance: { recurse: { depth: 2 }, select: { id: true, at: { _distance: { to: paris } } } },
+  },
+};
+
+class LoweringDriver extends Driver {
+  statements = 0;
+  constructor() {
+    super("postgresql", "rq07-final-probe");
+    this.adapter = new PostgresAdapter("public", true);
+  }
+  async initClient() { return null; }
+  async closeClient() {}
+  async execute() { this.statements += 1; return { rows: [], rowCount: 0 }; }
+  async executeRaw() { this.statements += 1; return { rows: [], rowCount: 0 }; }
+  async transaction(_client, fn) { return fn(null); }
+}
+class RecordingCache extends MemoryCache {
+  reads = 0;
+  writes = 0;
+  async get(key) { this.reads += 1; return super.get(key); }
+  async set(...args) { this.writes += 1; return super.set(...args); }
+}
+
+const driver = new LoweringDriver();
+const memory = new RecordingCache();
+const background = [];
+const client = createClient({ schema, driver }).$extends(
+  cache({ driver: memory, waitUntil: (promise) => background.push(promise) })
+);
+const outcome = async (label, run) => {
+  try {
+    const value = await run();
+    console.log(label, "ACCEPTED", JSON.stringify(value));
+  } catch (error) {
+    console.log(label, "REFUSED", error?.constructor?.name, error?.message);
+  }
+  await Promise.all(background);
+  console.log(label, "statements", driver.statements, "reads", memory.reads, "writes", memory.writes);
+};
+await outcome("plain", () => client.place.findMany(nested));
+await outcome("$withCache()", () => client.$withCache().place.findMany(nested));
+await client.$disconnect();

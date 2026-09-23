@@ -1,0 +1,4 @@
+plain ACCEPTED []
+plain statements 1 reads 0 writes 0
+$withCache() ACCEPTED []
+$withCache() statements 2 reads 1 writes 1

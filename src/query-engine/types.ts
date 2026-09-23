@@ -19,6 +19,7 @@ import type {
   ResolvedVariantRowMember,
 } from "@schema/validation/relation-resolution";
 import type { SchemaRegistryLookup } from "@validation";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 
 // Re-export errors from unified error hierarchy
 export {
@@ -199,6 +200,13 @@ export interface ExpectedRelationResultShape {
   readonly shape: ExpectedResultShape;
   readonly cardinality: RelationCardinality;
   readonly optional: boolean;
+  /**
+   * The admitted recurrence of a recursive slot, the same normalized value
+   * execution consumes. `shape` is then the ONE repeated node, and the slot's
+   * own key recurs inside every occurrence: absent at a numeric cutoff,
+   * present on every occurrence of an exhaustive traversal.
+   */
+  readonly recurrence?: NormalizedRecurrence;
 }
 
 /** Exact raw columns and nested projections expected for one returned row. */

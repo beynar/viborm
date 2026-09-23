@@ -1,0 +1,66 @@
+// SCRATCH (outside the repository): R5 — the placement matrix's tables are the
+// same values in the same order; R2 — the shared outcome rule compares the
+// engine's own value again, where the round-1 clone hid prototype and symbol
+// regressions. `fixture-before.ts` is the fixture as round 1 left it.
+import assert from "node:assert/strict";
+import {
+  caseOutcome,
+  owedOutcome,
+  PLACEMENT_MATRIX_TABLES,
+  type ProviderCase,
+} from "@tests/raptor3/recursive-query/provider-sql-fixture";
+import { it } from "vitest";
+import * as before from "./fixture-before";
+
+it("R5: the placement matrix's tables are unchanged, key order included", () => {
+  assert.deepStrictEqual(PLACEMENT_MATRIX_TABLES, before.PLACEMENT_MATRIX_TABLES);
+  assert.equal(
+    JSON.stringify(PLACEMENT_MATRIX_TABLES),
+    JSON.stringify(before.PLACEMENT_MATRIX_TABLES)
+  );
+});
+
+const regressions = {
+  "null prototype": () => [Object.assign(Object.create(null), { label: "Root A" })],
+  "symbol key": () => [{ label: "Root A", [Symbol("leak")]: true }],
+};
+const providerCase: ProviderCase = {
+  name: "strictness probe",
+  model: "node",
+  operation: "findMany",
+  args: {},
+  expected: [{ label: "Root A" }],
+};
+
+for (const [label, answer] of Object.entries(regressions))
+  it(`R2: ${label} — hidden by the round-1 clone, seen by the new rule`, async () => {
+    const engine = { execute: async () => answer() };
+    // Round 1: the clone rebuilt the value, so the strict comparison passed.
+    assert.deepEqual(
+      await before.caseOutcome(engine, providerCase),
+      before.owedOutcome(providerCase)
+    );
+    // Now: no check, no clone — the engine's own value fails the comparison.
+    assert.throws(() =>
+      assert.deepEqual(
+        { value: answer() },
+        owedOutcome(providerCase)
+      )
+    );
+    const outcome = await caseOutcome(engine, providerCase);
+    assert.throws(() => assert.deepEqual(outcome, owedOutcome(providerCase)));
+  });
+
+it("R2: a case with a check still reports a copy taken before the check mutates", async () => {
+  const value = [{ label: "Root A", payload: {} as Record<string, unknown> }];
+  const engine = { execute: async () => value };
+  const checked: ProviderCase = {
+    ...providerCase,
+    expected: [{ label: "Root A", payload: {} }],
+    check: (received) => {
+      (received as typeof value)[0]!.payload.changed = true;
+    },
+  };
+  assert.deepEqual(await caseOutcome(engine, checked), owedOutcome(checked));
+  assert.equal(value[0]!.payload.changed, true);
+});

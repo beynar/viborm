@@ -1,0 +1,34 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts (4 tests | 1 failed | 3 skipped) 4ms
+   ↓ the output key `_distance` has one producer > refuses a distance beside a relation named `_distance`, in either order, before any statement
+   ↓ the output key `_distance` has one producer > renders the same refusal for the schema-only result shape
+   × the output key `_distance` has one producer > refuses the included spelling in the schema-only shape below admission 4ms
+     → Missing expected exception.
+   ↓ the output key `_distance` has one producer > keeps the key for each producer alone
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/recursive-query/distance-key-collision.test.ts > the output key `_distance` has one producer > refuses the included spelling in the schema-only shape below admission
+AssertionError: Missing expected exception.
+
+simple
+
+ ❯ tests/raptor3/recursive-query/distance-key-collision.test.ts:218:12
+    216|     // is asked directly, as the engine entry is in the first cell.
+    217|     const { index } = new EngineSchema(schema);
+    218|     assert.throws(
+       |            ^
+    219|       () => buildExpectedResultShape(place, "findMany", included, inde…
+    220|       (error: unknown) =>
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  11:57:57
+   Duration  1.41s (transform 833ms, setup 9ms, collect 1.26s, tests 4ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.24s wall, 463.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

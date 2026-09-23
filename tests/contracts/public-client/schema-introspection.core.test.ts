@@ -359,3 +359,144 @@ describe("schema operation introspection", () => {
 }>`);
   });
 });
+
+describe("schema-only rendering of recursive relation slots", () => {
+  const tree = s.model({
+    id: s.string().id(),
+    label: s.string(),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => tree)
+      .name("RenderedTree")
+      .fields("parentId")
+      .references("id"),
+    children: s.toMany(() => tree).name("RenderedTree"),
+    groves: s.toMany(() => grove).name("RenderedGrove"),
+  });
+  const grove = s.model({
+    id: s.string().id(),
+    rootId: s.string().nullable(),
+    root: s
+      .toOne(() => tree)
+      .name("RenderedGrove")
+      .fields("rootId")
+      .references("id"),
+  });
+  const hub = s.model({
+    id: s.string().id(),
+    links: s.toMany(() => hub).name("RenderedLinks"),
+    linkedBy: s.toMany(() => hub).name("RenderedLinks"),
+  });
+  const recursiveSchema = { tree, grove, hub };
+
+  test("names the repeated node once and leaves its key optional under a numeric cutoff", () => {
+    expect(
+      renderOperationResultType(recursiveSchema, "tree", "findMany", {
+        select: {
+          label: true,
+          children: { recurse: { depth: 2 }, select: { label: true } },
+        },
+      })
+    ).toBe(`type VibORMOperationResult = Array<{
+  label: string;
+  children: Array<VibORMRecursiveNode1>;
+}>;
+type VibORMRecursiveNode1 = {
+  label: string;
+  children?: Array<VibORMRecursiveNode1>;
+};`);
+  });
+
+  test("keeps the repeated key required and the slot's own emptiness on exhaustive traversal", () => {
+    expect(
+      renderOperationResultType(recursiveSchema, "tree", "findUnique", {
+        where: { id: "tree-1" },
+        select: {
+          parent: { recurse: { depth: false }, select: { label: true } },
+        },
+      })
+    ).toBe(`type VibORMOperationResult = {
+  parent: VibORMRecursiveNode1 | null;
+} | null;
+type VibORMRecursiveNode1 = {
+  label: string;
+  parent: VibORMRecursiveNode1 | null;
+};`);
+    expect(
+      renderOperationResultType(recursiveSchema, "hub", "findFirstOrThrow", {
+        include: { links: { recurse: { depth: false } } },
+      })
+    ).toBe(`type VibORMOperationResult = {
+  id: string;
+  links: Array<VibORMRecursiveNode1>;
+};
+type VibORMRecursiveNode1 = {
+  id: string;
+  links: Array<VibORMRecursiveNode1>;
+};`);
+  });
+
+  test("renders a recursive slot below an ordinary node and a second slot inside the repeated node", () => {
+    expect(
+      renderOperationResultType(recursiveSchema, "grove", "findMany", {
+        include: {
+          root: {
+            include: {
+              children: {
+                recurse: true,
+                include: { parent: { recurse: { depth: false } } },
+              },
+            },
+          },
+        },
+      })
+    ).toBe(`type VibORMOperationResult = Array<{
+  id: string;
+  rootId: string | null;
+  root: {
+    id: string;
+    label: string;
+    parentId: string | null;
+    children: Array<VibORMRecursiveNode1>;
+  } | null;
+}>;
+type VibORMRecursiveNode1 = {
+  id: string;
+  label: string;
+  parentId: string | null;
+  parent: VibORMRecursiveNode2 | null;
+  children?: Array<VibORMRecursiveNode1>;
+};
+type VibORMRecursiveNode2 = {
+  id: string;
+  label: string;
+  parentId: string | null;
+  parent: VibORMRecursiveNode2 | null;
+};`);
+  });
+
+  test("renders the same slot identically on a row-returning mutation and keeps ordinary results expressions", () => {
+    expect(
+      renderOperationResultType(recursiveSchema, "tree", "update", {
+        where: { id: "tree-1" },
+        data: { label: "renamed" },
+        select: { children: { recurse: { depth: 3 }, select: { id: true } } },
+      })
+    ).toBe(`type VibORMOperationResult = {
+  children: Array<VibORMRecursiveNode1>;
+};
+type VibORMRecursiveNode1 = {
+  id: string;
+  children?: Array<VibORMRecursiveNode1>;
+};`);
+    expect(
+      renderOperationResultType(recursiveSchema, "tree", "findMany", {
+        select: { children: { select: { id: true } } },
+      })
+    ).toBe(`Array<{
+  children: Array<{
+    id: string;
+  }>;
+}>`);
+  });
+});

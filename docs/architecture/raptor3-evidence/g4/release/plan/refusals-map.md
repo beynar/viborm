@@ -284,3 +284,41 @@ for every condition, where each is its own premise statement and naming the one
 that disagreed is a fact that route measured. Same class (`TransactionError`,
 V5001), same meta (`model`, `operation`), no `raceable` — a lost MATCH premise
 is not a race another arm may adopt.
+
+## Addendum (recursive queries, 2026-09-23) — the sentences the public feature added and retired
+
+Measured with `scripts/raptor3-refusal-census.mjs` on the recursive-query working tree after its integrated repair round (the frozen gate's own report, `docs/architecture/raptor3-evidence/recursive-query/gate/census.log`) against the closure baseline receipt (`g4/release/closure/fc06/receipts/census-base.md`). The census's private
+recursive-read fit (D-54) is retired: `recurse` is a public relation-node
+option, so its sentences are counted with the public ones — the candidate count moves from 23 to 36 distinct sentences (invariants 23 distinct, 203 sites) for that reason alone, not because any admitted payload lost a capability. Sites are named by their owning symbol, not by line: the census run's line numbers moved with every later edit of `shared/query.ts`.
+
+| # | sentence | site (current) | guard condition | reachable | kind | disposition |
+| --- | --- | --- | --- | --- | --- | --- |
+| RQ-1 | `Recursive relation '${shape.relation}' contains a cycle.` | `shared/query.ts` (`decodeRecursiveCarrier`, `follow()` under `cycles: "reject"`) | a foreign-key relation whose data closes a cycle INSIDE the traversed window (the outer row seeds the path; a cycle outside the window is not seen) | **YES**, public payload on cyclic FK data | contract (§2.4) | KEEP — the contract chooses an error over silent pruning for FK cycles; graph relations prune path-locally instead |
+| RQ-2 | `A singular recursive slot may be empty: CM002 refuses a required self foreign key.` | `shared/query.ts` (`decodeRecursiveCarrier`, `collapse()` — which absorbed the single-use `required()` in the RQ-07 elegance pass — `assertInvariant`) | a singular recursive slot published as not optional, with no occurrence | **NO** — an invariant, not a refusal (it throws through `shared/invariant.ts`): a required self foreign key is refused by CM002 at schema validation (`rq01-sql-placement.md` §fixture 3), so every admitted singular slot is optional and answers `null` | invariant | KEEP; it replaced the refusal `Required relation '${shape.relation}' returned no record.`, which no admitted schema reached (RQ-07 integrated repair, `recursive-query/rq07-integrated-repair.md`) |
+| RQ-3 | `recursive carrier` / `recursive identity` / `recursive node` / `duplicate recursive node` / `recursive edge` / `recursive edge endpoint` / `exhaustive recursive depth` / `recursive depth` / `duplicate recursive edge` / `recursive singular relation` / `unreachable recursive node` / `recursive row` — the census's reading of sixteen `InvalidScalarResult(phrase, reason)` sites in `shared/query.ts` `decodeRecursiveCarrier` (twelve phrases: `recursive carrier` and `recursive edge endpoint` at two sites each, `recursive depth` at three). The decoder's message stays `Invalid provider <phrase>`; the caller receives the `QueryEngineError` V9001 `Driver "…" returned a malformed <phrase> scalar for operation "…": <reason>.`, `meta.scalarType` the phrase, through `OperationContext.failure` (F37, Option B), except for a member of a `$transaction([...])` array on a batch-only transport (D1, neon-http): the array owner parses that member's result and, like an ordinary malformed member, it surfaces as `QueryError` V2001 | the carrier boundary of `decodeRecursiveCarrier`: a provider result whose private carrier columns are malformed (a carrier that is not an object or lacks its node/edge arrays, wrong tuple width, missing identity, dangling or duplicate edge, depth stated on an exhaustive carrier or attributed to the wrong level, several successors on a singular slot, an unreachable node, a node row that is not an object) | **NO** through a conforming provider; witnessed with handwritten carriers in `tests/raptor3/recursive-query/carrier-boundary.test.ts` (13 cells, `RQ06_CARRIER_BOUNDARY_COUNTS`) and, as the caller's failure through the shipped client, in `tests/raptor3/recursive-query/composition.test.ts` cells 12 and 13 (`RQ06_COMPOSITION_COUNTS`) | integrity (provider result) | KEEP — the same class and public identity as the ordinary malformed-result sentences; never a capability |
+| RQ-4 | `a JSON value contains itself` (`InvalidScalarResult("json", …)`) | `shared/query.ts` (`jsonValue`, the existing JSON result boundary) | a JavaScript provider hands the codec a container that contains itself | **NO** through provider text; **YES** for an in-process JavaScript driver | integrity (provider result) | KEEP — replaces a `RangeError` stack overflow (RQ-01 decoder defect 3) |
+
+Retired by the RQ-07 elegance pass (2026-09-23): the former RQ-5 row, the invariant `Recursive relation lowering requires admitted recurrence meaning.` that was listed only because the census counted its site. `lowerRecursiveRelationProjection` now receives the recurrence its one caller has already narrowed, so the site is gone (`recursive-query/rq07-elegance-pass.md`).
+
+Respelled by F37 (Option B, Arnaud's decision, 2026-09-23; `recursive-query/rq07-elegance-pass.md`): the RQ-3 sites construct `InvalidScalarResult(phrase, reason)`, and the census reads a construction's first argument that contains a space as its sentence, so it now records each site's phrase. The counts on the working tree before and after F37 (`recursive-query/elegance-pass/f37-option-b/census-before.md`, `census-after.md`) are equal — candidates 36 distinct at 46 sites, inherited 75 at 76, invariants 22 at 23, no sentence 58, 203 sites: twelve phrases replace the twelve `Invalid provider …` sentences at the same sixteen sites, and no phrase occurs in the old-engine corpus. Against HEAD `bcb364491` (`census-at-head.md`: candidates 36 at 47, invariants 23 at 24, 205 sites) the two fewer sites are the elegance pass's own: F21's merged `recursive identity` site and F24's retired RQ-5 invariant.
+
+Relocated or reworded by the engine-closure commits between the baseline
+receipt and this tree, **not** recursion's: `UPDATE did not produce the
+required record` (`operation-context.ts:3104`, was `:3023` beside its RETURNING
+twin), `Cannot connect relation '…': the located target's referenced field '…'
+is null.` (`execution.ts:191`, R1's one shared requirement), `Cannot ${kind}
+relation '…': parent record changed across a committed segment.`
+(`execution.ts:1367`), the malformed-scalar sentence (`operation-context.ts:638`)
+and `updateMany matched ${count} rows …` (`execution.ts:1403`).
+
+**Retired with the private fit** (superseded by the public feature, §3.6 of the
+recursive-query plan; each exact sentence grepped absent from `src/`): the
+twelve `decodeRecursive` / `recursive()` sentences (`A recursive shape requires
+occurrence rows`, `A recursive traversal requires at least one seed`, `Invalid
+provider recursive collection / occurrence / parent occurrence / path / seed`
+and the old `Invalid provider recursive row`, `… is not self-referential`, `…
+requires one ordinary relation`) and the route's refusal `The Raptor 3 route
+cannot encode a cached result for '…': a recursive read's published depth is
+not a fixed shape.` — the live cache now composes `recursiveRelationCodec`
+(`rq-cache.md`). One sentence changed owner rather than meaning: the old
+`Invalid provider recursive row` is now the carrier boundary's.

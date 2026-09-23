@@ -69,6 +69,8 @@ open, the work continues around it and the item is reported as pending.
 
 ## R-2 — The private recursive-read fit (D-54): wire it, or keep it private?
 
+Answered 2026-09-21: public `recurse`; see the inventory addendum.
+
 **The question.** `Queries.recursive`, `decodeRecursive` and the route's
 recursive cache codec are fully built and unit-tested. No public verb, argument
 or schema option reaches them — privacy re-verified by the census at this HEAD.

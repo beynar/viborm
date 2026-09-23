@@ -1,0 +1,14 @@
+00-dist-probe-before not-captured (probe; output complete)
+01-red-before 1
+02-falsify-head-result-shape 1
+03-falsify-consumed-guard 1
+04-green-after 0
+05-falsify-engine-guard 1
+06-falsify-schema-only-mirror 1
+07-rq-deterministic 0
+08-rq-migrated-pins 0
+09-rq-admission-introspection 0
+10-sqlite-plan-probe not-captured (probe; output complete; the log holds the final better-sqlite3 run - a first reading on node:sqlite 3.53.4 showed the same two MATERIALIZE blocks, and two better-sqlite3 attempts failed on unbound parameters; all three were overwritten)
+11-pglite-plan-probe not-captured (probe; output complete)
+12-typecheck 0
+13-docker-inspect not-captured (read-only probe; output complete)
