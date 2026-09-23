@@ -1328,21 +1328,11 @@ this paragraph is the rule. Pins:
 `tests/raptor3/g4/parity/transport-seam-pglite.test.ts` (live PGlite), and the
 credential-gated `tests/providers/hosted/neon-http-transport.test.ts`.
 
-**D1 addendum (2026-09-24): TEMPORARY OBJECTS is a fourth transport fact.**
-D1's authorizer refuses `CREATE TEMP TABLE` (`SQLITE_AUTH`, and the whole batch
-with it), so the D-50 scratch cannot be a temporary there. The D1 driver states
-the fact where it builds its adapter (`new SQLiteAdapter({ temporaryObjects:
-false })`, `src/drivers/d1/index.ts`), and the ADAPTER spells an ordinary
-`CREATE TABLE IF NOT EXISTS` from it; the engine reads nothing new and keeps its
-D-58 shape (every unit stores, reads back and deletes its own rows inside its
-own batch). On D1 the scratch table therefore persists, empty between batches,
-and session lifetime no longer decides anything about it. The D1 lane is the
-live witness on the Workers runtime's local D1 (not hosted D1):
-`tests/providers/workers/d1.test.ts` pins the persistent, emptied table and the
-generated-parent write that crosses it, and its segment-progress cells pin that
-the reported `committedSegments` matches the durable rows. The
-`supportsOrderedCommittedSegments` declaration is unchanged. Pins:
-`tests/contracts/drivers/sqlite-temporary-objects.core.test.ts`.
+**D1 addendum (2026-09-24).** A fourth transport fact, TEMPORARY OBJECTS (D1
+refuses `CREATE TEMP TABLE`), is recorded with its driver rows and witnesses in
+that note, §2, addendum. Unlike the three above it is not read from the
+driver's own declaration: the driver passes it to the adapter it builds, and
+the adapter spells the scratch DDL; the engine reads nothing new.
 
 **A value crosses a segment as a LITERAL, and every unit owns its own scratch
 (D-58).** The D-50 batch reference table is a session-scoped temporary, so it
