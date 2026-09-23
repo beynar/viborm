@@ -1335,13 +1335,14 @@ driver's own declaration: the driver passes it to the adapter it builds, and
 the adapter spells the scratch DDL; the engine reads nothing new.
 
 **A value crosses a segment as a LITERAL, and every unit owns its own scratch
-(D-58).** The D-50 batch reference table is a session-scoped temporary, so it
-belongs to the DISPATCHED UNIT and not to the operation: `ensureScratch` mints
+(D-58).** The D-50 batch reference table is a session-scoped temporary wherever
+the transport admits one (on D1 it is an ordinary table, d53/note.md §2
+addendum), so its rows belong to the DISPATCHED UNIT and not to the operation: `ensureScratch` mints
 one per unit, and `submit` — the one place that assembles a unit and knows
 where it ends — reads back every value that unit stored (one `SELECT` per
 value, asked of `Queries.scalarQuery`, the composition every scalar this
-engine publishes is read back through) and then drops the table, inside the
-same batch.
+engine publishes is read back through) and then deletes the unit's rows,
+inside the same batch.
 `TransportAttempt.carried` holds the literals beside the scratch id, and
 `CommandAttempt.read` — the estate's ONE reader of a field's runtime value —
 answers the literal in place of the spent expression, so every later statement,

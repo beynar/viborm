@@ -2640,11 +2640,13 @@ export class OperationContext {
    * The scratch of the unit being assembled, made by the first statement that
    * stores into it.
    *
-   * It belongs to the DISPATCHED UNIT and not to the attempt (D-58): the table
-   * is a session-scoped temporary, and a transport that pins no session — Neon
-   * HTTP, D1 — ends its session with the batch, so a unit that named a table an
-   * EARLIER segment created named nothing at all. Every unit that needs one
-   * makes its own, and {@link closeScratch} drops it where the unit ends.
+   * It belongs to the DISPATCHED UNIT and not to the attempt (D-58). Where the
+   * transport admits temporaries the table is session-scoped, and a transport
+   * that pins no session (Neon HTTP) ends its session with the batch, so a unit
+   * that named a table an EARLIER segment created named nothing at all; where it
+   * does not (D1) the adapter spells an ordinary table that outlives the batch.
+   * Either way every unit that needs one mints its own batch id, and
+   * {@link closeScratch} deletes that id's rows where the unit ends.
    */
   private ensureScratch(): string {
     const attempt = this.attempt;
