@@ -2179,8 +2179,12 @@ and never concatenates caller geometry" (`geopoint-sql.core.test.ts`).
 
 **Kept output normalization: `holes: []` is omitted** (`validateGeoPolygon`).
 An empty and an absent hole list emit the same GeoJSON; one spelling keeps them
-one validated argument and so one cache key. Witness: "emits an empty hole list
-as no hole and a hole list in input order".
+one validated argument and so one cache key. Falsifier: "spells an empty and
+an absent hole list as one validated polygon" (`geo-area.core.test.ts`, strict
+equality, so a `holes: []` or `holes: undefined` key left in the value fails
+it). "emits an empty hole list as no hole and a hole list in input order"
+(`geopoint-sql.core.test.ts`) pins the emitted GeoJSON only; `closedRing`
+emits the same text either way, so it cannot falsify this normalization.
 
 **Moved, not added: the coordinate domain constants.** `GEO_POINT_KEYS`, the
 longitude and latitude limits, `GEO_BOUNDS_KEYS` and

@@ -231,6 +231,18 @@ describe("GeoArea validation boundary", () => {
     expect(result.value.outer).not.toBe(clockwise);
   });
 
+  test("spells an empty and an absent hole list as one validated polygon", () => {
+    const outer = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
+    const expected = { value: { outer } };
+    // Strict: no `holes` key at all, so both spellings are one argument and
+    // one cache key.
+    expect(validateGeoPolygon({ outer, holes: [] })).toStrictEqual(expected);
+    expect(validateGeoPolygon({ outer })).toStrictEqual(expected);
+    expect(validateGeoPolygon({ outer, holes: undefined })).toStrictEqual(
+      expected
+    );
+  });
+
   test("refuses explicit null holes after reading the property once", () => {
     let reads = 0;
     const polygon = Object.defineProperties(
