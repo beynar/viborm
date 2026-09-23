@@ -901,18 +901,18 @@ describe("an adapter or driver that stands between the row and the codec", () =>
     ).toEqual([{ id: USER, slug: CUID }]);
   });
 
-  test("a VibORM error from a provider decode is reported as a malformed scalar", () => {
-    // The engine's one provider-chain owner (`Queries.providerValue`) keeps
-    // only its own malformed-scalar error and reports every other throw as
-    // one: an identifier is decoded exactly like every other scalar here.
+  test("a VibORM error from a provider decode reaches the caller intact", () => {
+    // A provider that raises the library's own error has already said what
+    // went wrong; the provider chain's owner (`Queries.providerValue`) passes
+    // it through and reports only a FOREIGN throw as a malformed scalar.
     const named = variant(sqlite, {
       parseField: () => {
         throw new QueryEngineError("the driver said so");
       },
     });
-    expect(
-      reasonOf(() => decode(named, user, { id: true }, [{ id: UUID_HEX }]))
-    ).toBe(PROVIDER_DECODE_FAILED);
+    const run = () => decode(named, user, { id: true }, [{ id: UUID_HEX }]);
+    expect(run).toThrowError(QueryEngineError);
+    expect(run).toThrowError("the driver said so");
   });
 
   test("a provider decode that throws is malformed, not a leaked error", () => {

@@ -5,6 +5,7 @@ import {
   FeatureNotSupportedError,
   QueryEngineError,
   TransactionError,
+  VibORMError,
 } from "@errors";
 import {
   fieldRefPayload,
@@ -691,6 +692,10 @@ export class Queries {
    * the driver first (it owns the transport's own spellings), then the
    * adapter (it owns the dialect's), then the engine's strict codec, which is
    * the caller of this function.
+   *
+   * A provider that raises the library's own error has already said what went
+   * wrong, and that error reaches the caller intact; only a FOREIGN throw is
+   * reported as a malformed scalar.
    */
   private providerValue(type: string, value: unknown): unknown {
     const adapterDecode = (input: unknown): unknown =>
@@ -703,7 +708,8 @@ export class Queries {
         ? driverParse(value, type, (input: unknown) => adapterDecode(input))
         : adapterDecode(value);
     } catch (error) {
-      if (error instanceof InvalidScalarResult) throw error;
+      if (error instanceof InvalidScalarResult || error instanceof VibORMError)
+        throw error;
       throw new InvalidScalarResult(type, "provider scalar decoding failed");
     }
   }
