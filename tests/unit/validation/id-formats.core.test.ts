@@ -6,6 +6,7 @@ import {
   bytesToUuid,
   hasIdPrefix,
   KSUID_EPOCH_SECONDS,
+  KSUID_MAX_TEXT,
   KSUID_PAYLOAD_LENGTH,
   ksuidBytes,
   ksuidToBytes,
@@ -227,6 +228,9 @@ describe("ksuid", () => {
     const maximum = bytesToKsuid(new Uint8Array(20).fill(0xff));
     expect(maximum).toHaveLength(27);
     expect(ksuidToBytes(maximum)).toEqual(new Uint8Array(20).fill(0xff));
+    // The exported bound is that same text: the migration pre-check reads it.
+    expect(KSUID_MAX_TEXT).toBe(maximum);
+    expect(KSUID_MAX_TEXT).toBe("aWgEPTl1tmebfsQzFP4bxwgy80V");
   });
 
   test("base62 is case-sensitive and a text above 2^160 names no ksuid", () => {

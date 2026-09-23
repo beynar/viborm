@@ -11,8 +11,9 @@
  * is the part of that work a machine can state exactly:
  *
  *  1. **Every row is a value of the domain.** Prefix matched whole, payload in
- *     the format's own grammar and width. A row that is not is a row no route
- *     can carry.
+ *     the format's own grammar and width — and, for a KSUID, at most the text
+ *     of the largest value its 20 bytes hold. A row that is not is a row no
+ *     route can carry.
  *  2. **No two rows fold together.** `uuid` admits uppercase and `ulid`
  *     lowercase as ALIASES, so a text column may hold two spellings of one
  *     identifier. Compact storage holds the canonical one, so those two rows
@@ -73,6 +74,7 @@ import {
   type IdDomain,
   isCompactIdFormat,
 } from "../validation/primitives/id-codec";
+import { KSUID_MAX_TEXT } from "../validation/primitives/id-formats";
 import type { Dialect } from "./drivers/types";
 import type { MigrationCheckInput } from "./v1-types";
 
@@ -96,25 +98,37 @@ const HEX = "[0-9a-fA-F]";
 const CROCKFORD = "[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]";
 const BASE62 = "[0-9A-Za-z]";
 
-/** The payload grammar of each compact format, as a regex and as a GLOB. */
+/**
+ * The payload grammar of each compact format, as a regex and as a GLOB, and
+ * the largest payload text when the grammar alone admits more than the bytes
+ * hold.
+ *
+ * A ULID's grammar carries its own bound — the leading `[0-7]` — but 27 base62
+ * characters express more than 2^160 values, and no character class can say
+ * where 2^160 falls. So a KSUID is bounded by comparison against the codec's
+ * own maximum text, read from `id-formats.ts` rather than spelled here.
+ */
 const PATTERNS = {
   uuid: {
     length: 36,
     regex: `^${HEX}{8}-${HEX}{4}-${HEX}{4}-${HEX}{4}-${HEX}{12}$`,
     glob: `${HEX.repeat(8)}-${HEX.repeat(4)}-${HEX.repeat(4)}-${HEX.repeat(4)}-${HEX.repeat(12)}`,
     fold: "lower",
+    max: undefined,
   },
   ulid: {
     length: 26,
     regex: `^[0-7]${CROCKFORD}{25}$`,
     glob: `[0-7]${CROCKFORD.repeat(25)}`,
     fold: "upper",
+    max: undefined,
   },
   ksuid: {
     length: 27,
     regex: `^${BASE62}{27}$`,
     glob: BASE62.repeat(27),
     fold: undefined,
+    max: KSUID_MAX_TEXT,
   },
 } as const;
 
@@ -176,6 +190,24 @@ function bytesSql(expression: Sql, dialect: Dialect): Sql {
   return dialect === "mysql" ? sql`CAST(${expression} AS BINARY)` : expression;
 }
 
+/**
+ * One ORDERING operand, compared byte by byte on every dialect.
+ *
+ * Fixed-width base62 text sorts as its number only under byte order: every
+ * database default here that is not bytes folds case, and there `a` sorts
+ * before `V`. MySQL takes the byte pin `bytesSql` already applies; PostgreSQL
+ * takes `COLLATE "C"`, after a cast to `text` because `citext` — a text-family
+ * type a KSUID column may hold — lowercases before any collation is consulted;
+ * SQLite's default collation is already `BINARY`, as every identity
+ * comparison in this module already relies on.
+ */
+function orderedSql(expression: Sql, dialect: Dialect): Sql {
+  if (dialect === "postgresql") {
+    return sql`CAST(${expression} AS text) COLLATE "C"`;
+  }
+  return bytesSql(expression, dialect);
+}
+
 /** Whether one stored value is a value of the domain. */
 function admitsSql(column: Sql, domain: IdDomain, dialect: Dialect): Sql {
   const pattern = patternOf(domain);
@@ -187,7 +219,11 @@ function admitsSql(column: Sql, domain: IdDomain, dialect: Dialect): Sql {
         ? sql`${payload} REGEXP ${pattern.regex}`
         : sql`${payload} GLOB ${pattern.glob}`;
   const width = sql.raw(dialect === "mysql" ? "CHAR_LENGTH" : "length");
-  const sized = sql`${width}(${payload}) = ${int(pattern.length)} AND ${matches}`;
+  const grammar = sql`${width}(${payload}) = ${int(pattern.length)} AND ${matches}`;
+  const sized =
+    pattern.max === undefined
+      ? grammar
+      : sql`${grammar} AND ${orderedSql(payload, dialect)} <= ${pattern.max}`;
   const prefix = domain.prefix;
   if (!prefix) return sized;
   const spelled = bytesSql(

@@ -469,13 +469,30 @@ export function bytesToKsuid(bytes: Uint8Array): string {
   }
   let value = 0n;
   for (const byte of bytes) value = value * BYTE_RADIX + BigInt(byte);
+  return ksuidText(value);
+}
+
+/** A number below 2^160 as its fixed-width, zero-padded base62 text. */
+function ksuidText(value: bigint): string {
   const digits: string[] = [];
+  let rest = value;
   for (let index = 0; index < KSUID_TEXT_LENGTH; index++) {
-    digits.push(BASE62.charAt(Number(value % BASE62_RADIX)));
-    value /= BASE62_RADIX;
+    digits.push(BASE62.charAt(Number(rest % BASE62_RADIX)));
+    rest /= BASE62_RADIX;
   }
   return digits.reverse().join("");
 }
+
+/**
+ * The canonical text of the largest value 20 bytes hold. Every KSUID text is
+ * at most this, and a 27-character base62 text above it names no KSUID.
+ *
+ * Because {@link BASE62} is in ASCII order and the width is fixed, "at most" is
+ * a plain BYTE-wise string comparison — which is how a caller that cannot run
+ * {@link ksuidToBytes}, such as SQL over a legacy text column, asks it. Under a
+ * collation that folds case it is not: `a` sorts before `V` there.
+ */
+export const KSUID_MAX_TEXT = ksuidText(KSUID_EXCLUSIVE_MAX - 1n);
 
 /**
  * The 20 bytes a canonical KSUID text names, or `undefined`.
