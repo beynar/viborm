@@ -237,8 +237,8 @@ jobs:
     runs-on: ubuntu-latest
     # 125 = the 60 min top of the measured 30-60 min range for the whole
     # credential-free estate, doubled for a hosted runner, + 5 min setup. The
-    # estate is 109 sequential bounded stages rather than one Vitest run: pnpm
-    # test, 81 extended-local shards, one process per PGlite provider file (6),
+    # estate is 111 sequential bounded stages rather than one Vitest run: pnpm
+    # test, 81 extended-local shards, one process per PGlite provider file (8),
     # then SQLite3 (9), LibSQL (9), Bun, D1 and pnpm test:package, each with its
     # own launcher ceiling. This is scheduling headroom only: no heap, RSS, or
     # per-stage wall limit changes with it. The former 180 had no measurement

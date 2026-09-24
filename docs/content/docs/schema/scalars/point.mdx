@@ -302,7 +302,7 @@ SQLite-family migrations refuse this declaration before effects.
 | SQLite3, LibSQL, D1, Bun SQLite | checked `VIBORM_GEO_TEXT` JSON | CRUD, equality, bounds, nullability, cache |
 | PlanetScale | MySQL spelling | Preview: SQL/SDK bind contract proven; hosted DDL, functions, and migration convergence not qualified |
 | Neon HTTP | PostgreSQL spelling | Full only when the target has proven PostGIS; no hosted qualification was run for this release |
-| PGlite | PostgreSQL spelling | Full only with a real PostGIS payload; the tested package build did not provide one |
+| PGlite 0.5.8 with `@electric-sql/pglite-postgis` and `postgis: true` | `geography(Point,4326)` | Full: bounds, polygon, distance, `_distance`, GiST |
 | Bun SQL | PostgreSQL spelling | Full only after a real Bun/PostGIS provider contract; not qualified by the Node test estate |
 | PostgreSQL without PostGIS | none | Point schema refused at client construction; migrations refuse separately |
 

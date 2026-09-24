@@ -161,7 +161,7 @@ transport-code qualification; hosted qualification is deferred.
 | SQLite3, LibSQL, D1, Bun SQLite | CRUD, equality, inclusive bounds, nullability, cache |
 | PlanetScale | Preview until hosted DDL/function/migration qualification |
 | Neon HTTP | Conditional on a proven PostGIS target; not qualified by the local estate |
-| PGlite | Conditional on a real PostGIS payload; the tested package did not provide one |
+| PGlite | Full with `@electric-sql/pglite-postgis` loaded, `CREATE EXTENSION postgis`, and `postgis: true` |
 | Bun SQL | Conditional; no real Bun/PostGIS contract was executed for this release |
 
 Full tier adds polygon membership, meter distance filtering, `_distance`

@@ -5,6 +5,22 @@ Versioning.
 
 ## Unreleased
 
+- **PGlite runs the full GeoPoint tier with PostGIS.** The optional
+  `@electric-sql/pglite` peer now admits 0.4 and 0.5 besides 0.3
+  (`^0.3.2 || ^0.4.0 || ^0.5.0`), and VibORM is tested on 0.5.8 (PostgreSQL
+  18.3). With `@electric-sql/pglite-postgis` 0.2.8 (PostGIS 3.6, which requires
+  PGlite 0.5.8 exactly) loaded through PGlite's own `extensions` option,
+  `CREATE EXTENSION postgis` run by the caller, and `postgis: true`, the PGlite
+  driver passes the same GeoPoint contracts as `pg` and postgres.js — bounds,
+  polygons, distance, `_distance`, the generated migration estate and GiST
+  index planning — in process, with no server. The driver gains no option:
+  the extension is PGlite's to load and the caller's to install, and
+  `postgis: true` stays an assertion that migrations prove. On PGlite 0.5,
+  pgvector is its own package, `@electric-sql/pglite-pgvector`, where 0.3 and
+  0.4 exported `@electric-sql/pglite/vector`; and 0.5.8 starts with
+  `enable_seqscan` on, where 0.3 started with it off. A persistent `dataDir`
+  does not cross a PostgreSQL major: moving one from PGlite 0.3 to 0.5 is a
+  dump and restore.
 - **Behaviour change on batch-only drivers: `createMany` with `skipDuplicates`
   warns and runs instead of refusing.** Where no savepoint can isolate one
   member — D1 Workers bindings, Neon HTTP, a native array batch, and a member of

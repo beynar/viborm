@@ -155,10 +155,11 @@ export function runOrderingPlanBehavior({
       await (client as OrderPlanClient).$executeRawUnsafe("ANALYZE");
       let seqScanSetting: string | undefined;
       if (dialect === "postgresql") {
-        // PGlite ships with enable_seqscan=off, which would let the planner
-        // take an index whatever it costs. Turn it back on so an index in the
-        // plan means the index actually won on cost. The caller asserts the
-        // setting took.
+        // PGlite 0.3 starts with enable_seqscan=off (0.5.8 starts it on), which
+        // would let the planner take an index whatever it costs. Turn it on so
+        // an index in the plan means the index actually won on cost, whichever
+        // build runs.
+        // The caller asserts the setting took.
         await (client as OrderPlanClient).$executeRawUnsafe(
           "SET enable_seqscan = on"
         );
