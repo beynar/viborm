@@ -187,17 +187,33 @@ on PostGIS and one on MySQL, a point 0.02 degrees from a long non-meridian
 edge". Truth is the planar even-odd rule in the gnomonic projection from the
 ring's pole. Observed:
 
-OVER```text
-seed   kind              admitted  refused  gray  skipped  wrong  nearestColatitude  farthestColatitude
------  ----------------  --------  -------  ----  -------  -----  -----------------  ------------------
-total                    3193      2997     1664  246      0
-pole: 0 listed, 0 failing, 46.1 s
+```text
+name                                           points  pg  pgIndex  my  myIndex
+---------------------------------------------  ------  --  -------  --  -------
+(0,10)-(180,20) over the north pole            797     0   0        0   0
+closing edge (180,80)-(0,80)                   797     0   0        0   0
+(0,10)-(180,10) with (90,5)                    797     0   0        0   0
+over the south pole                            798     0   0        0   0
+small, near the pole                           798     0   0        0   0
+(-90,20)-(90,10) across the antimeridian side  799     0   0        0   0
+with a hole by the pole                        797     0   0        0   0
+(45,30)-(-135,40) over the pole                800     0   0        0   0
+
+rings  points  pg  pgIndex  my  myIndex  ringsWrongPg  ringsWrongMy
+-----  ------  --  -------  --  -------  ------------  ------------
+148    118277  0   0        1   1        0             1
+overpole: 1 listed, 0 failing, 12.7 s
 ```
+
+The one listed ring is MySQL's wrong answer (table and index scan) at
+(-85.56135, 55.338794), 0.02 degrees from an edge of the random ring
+(-29.25, 19.08), (-157.67, 43.98), (175.14, 69.47), (150.75, 44.41).
 
 ### MySQL's edge against the great-circle arc (needs MySQL)
 
 ```sh
-node scripts/geo-verification/mysql-departure.mjs          # --groups=a,c,d,f,g, about 17 s
+node scripts/geo-verification/mysql-departure.mjs          # --groups=d,f,g,h,i, about 16 s
+node scripts/geo-verification/mysql-departure.mjs edges --groups=a,c   # the lane's 10-edge runs
 node scripts/geo-verification/mysql-departure.mjs edges --lengths=10,30 --edges=30 --seed=99
 ```
 
@@ -208,7 +224,42 @@ middle is sent to MySQL, and at 1/10, 1/4, 1/2, 3/4 and 9/10 along the edge a
 point is bisected (40 steps from 20 degrees either side) onto the boundary
 MySQL draws; the departure is its distance from the arc. The query is the
 adapter's `withinPolygon` over the adapter's point expression. Each group is
-one of the lane's runs, replayed from its seed. Observed:
+one run, a fresh stream at its seed, its lengths drawn in turn. Observed
+(2026-09-24, MySQL 8 in Docker):
+
+```text
+group  seed  lengthDeg  edges  largestDeg  meanDeg    largestOverLength  notFoundWithinRange
+-----  ----  ---------  -----  ----------  ---------  -----------------  -------------------
+d      11    140        30     0.2912      0.07678    2.08e-3            0
+d      11    150        30     0.4632      0.1282     3.09e-3            0
+d      11    155        30     0.4444      0.1516     2.87e-3            0
+f      13    170        30     1.557       0.4286     9.16e-3            0
+f      13    172        30     1.780       0.4530     1.03e-2            0
+f      13    174        30     2.731       0.6855     1.57e-2            0
+g      14    90         30     0.07524     0.02205    8.36e-4            0
+g      14    120        30     0.1702      0.05522    1.42e-3            0
+g      14    130        30     0.2302      0.06718    1.77e-3            0
+h      5     10         30     0.0007121   0.0002927  7.12e-5            60
+h      5     30         30     0.006700    0.001970   2.23e-4            60
+h      5     60         30     0.02903     0.01316    4.84e-4            60
+i      7     178        30     8.355       2.591      4.69e-2            0
+i      7     179        30     16.24       3.898      9.07e-2            0
+edges: 16.1 s
+```
+
+The table's rows, each over 30 random edges: 10, 30 and 60 degrees from h,
+90 and 120 from g, 150 from d, 170 and 174 from f, 178 and 179 from i.
+`notFoundWithinRange` counts bisections whose start points 20 degrees out fall
+outside the triangle: on edges of 60 degrees or less, the points at 1/10 and
+9/10 (60 of 150), so those three rows rest on the three middle points of each
+edge.
+
+Groups h and i rerun, at 30 edges, the five rows the lane first measured on
+10 edges per length (groups a and c; until 2026-09-24 the documents said "30
+random edges per length" for them too). The rerun moved 10 degrees from
+0.00068 to 0.00071, 60 degrees from 0.019 to 0.029, 179 degrees from 16.61
+to 16.24 (its 30 edges are later draws of the stream than group c's 10);
+30 and 178 degrees are unchanged. Groups a and c, replayed:
 
 ```text
 group  seed  lengthDeg  edges  largestDeg   meanDeg      largestOverLength  notFoundWithinRange
@@ -224,23 +275,7 @@ c      7     178        10     8.355        2.648        4.69e-2            0
 c      7     179        10     16.61        4.910        9.28e-2            0
 c      7     179.5      10     16.97        6.097        9.45e-2            10
 c      7     179.9      10     19.80        6.063        1.10e-1            15
-d      11    140        30     0.2912       0.07678      2.08e-3            0
-d      11    150        30     0.4632       0.1282       3.09e-3            0
-d      11    155        30     0.4444       0.1516       2.87e-3            0
-f      13    170        30     1.557        0.4286       9.16e-3            0
-f      13    172        30     1.780        0.4530       1.03e-2            0
-f      13    174        30     2.731        0.6855       1.57e-2            0
-g      14    90         30     0.07524      0.02205      8.36e-4            0
-g      14    120        30     0.1702       0.05522      1.42e-3            0
-g      14    130        30     0.2302       0.06718      1.77e-3            0
-edges: 15.8 s
 ```
-
-The table's rows: 10, 30 and 60 degrees from group a, 90 and 120 from g, 150
-from d, 170 and 174 from f, 178 and 179 from c. Groups a and c sampled 10 edges
-per length, not 30: the documents' "30 random edges per length" holds for 90,
-120, 150, 170 and 174 degrees only. `notFoundWithinRange` counts bisections
-near a vertex where the start points 20 degrees out fall outside the triangle.
 
 ```sh
 node scripts/geo-verification/mysql-departure.mjs triangles   # --seeds=1,2 --n=30, about 50 s

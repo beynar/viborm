@@ -213,22 +213,22 @@ PostGIS 3.6 (PGlite 0.5.8) and on MySQL 8, table and index scans:
   correctly. MySQL answered all of these as VibORM reads them.
 - **MySQL (SRID 4326)** reads each edge as the shortest path on the ellipsoid,
   which leaves the great-circle arc. The largest departure observed over 30
-  sampled edges per length (not a bound):
+  random edges per length, at up to five points along each (not a bound):
 
   | Edge length | Largest observed departure from the arc |
   | --- | --- |
-  | 10 degrees | 0.0007 degrees (about 75 m) |
+  | 10 degrees | 0.0007 degrees (about 79 m) |
   | 30 degrees | 0.007 degrees |
-  | 60 degrees | 0.019 degrees |
+  | 60 degrees | 0.029 degrees |
   | 90 degrees | 0.075 degrees |
   | 120 degrees | 0.17 degrees |
   | 150 degrees | 0.46 degrees |
   | 170 degrees | 1.6 degrees |
   | 174 degrees | 2.7 degrees |
   | 178 degrees | 8.4 degrees |
-  | 179 degrees | 17 degrees |
+  | 179 degrees | 16 degrees |
 
-  and not at all along the equator or a meridian (30 random edges per length).
+  and none along the equator or a meridian.
   A point in that band beside an edge can match on one database and not the
   other. Past about 171 degrees the departure passes 1% of the edge, and in
   every run of 30 random triangles with an edge up to 2 degrees short of

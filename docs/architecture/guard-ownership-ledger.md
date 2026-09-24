@@ -2489,9 +2489,10 @@ falsifier on the final codec; the list is at the end of this addendum):
   degrees`, review round 3). Why it is not VibORM's to refuse: an edge short
   of antipodal has exactly one great circle, so the polygon has one meaning;
   the divergence is MySQL's ellipsoid path, which left the arc (followed by
-  PostGIS to 4e-12 degrees) by up to 0.075 degrees (largest observed) at 90 degrees long,
-  0.46 at 150, 1.6 at 170, 2.7 at 174, 8.4 at 178 and 17 at 179 (30 random
-  edges per length, five points along each), and random triangles with an
+  PostGIS to 4e-12 degrees) by as much as 0.075 degrees at 90 degrees long,
+  0.46 at 150, 1.6 at 170, 2.7 at 174, 8.4 at 178 and 16 at 179 (the largest
+  observed over 30 random edges per length, up to five points along each),
+  and random triangles with an
   edge 0.000001 to 2 degrees short of antipodal were answered unlike PostGIS
   and the sphere far from the edge in every one of 32 runs of 30. Stated in
   `point.mdx` (table to 179 degrees) and the CHANGELOG. Its witnesses flip:
@@ -2747,10 +2748,12 @@ table scans on PostGIS and MySQL) answered correctly on both databases.
 `tests/providers/docker/mysql2.test.ts` geo cells stay green.
 
 Remaining gap (measured in review round 3): MySQL draws edges on the ellipsoid,
-PostGIS geography on the sphere. MySQL's edge leaves the great-circle arc by at
-most 0.0007 degrees (about 75 m) on a 10-degree edge, 0.007 at 30, 0.019 at 60,
-0.075 at 90, 0.17 at 120 and 0.46 at 150 (30 random edges per length, five
-points each), not at all along the equator or a meridian; at 120 degrees of
+PostGIS geography on the sphere. The largest departure of MySQL's edge from
+the great-circle arc observed over 30 random edges per length (up to five
+points each; rerun on 2026-09-24 for 10, 30, 60, 178 and 179 degrees, which
+the lane had sampled on 10 edges) is 0.0007 degrees (about 79 m) on a
+10-degree edge, 0.007 at 30, 0.029 at 60, 0.075 at 90, 0.17 at 120 and 0.46
+at 150, none along the equator or a meridian; at 120 degrees of
 longitude on latitude 40 (an 83-degree edge) the review measured 0.054 at the
 middle. A point, or a hole, inside that band beside an edge can be answered
 differently by the two databases; VibORM refuses touches but admits a hole 1e-9

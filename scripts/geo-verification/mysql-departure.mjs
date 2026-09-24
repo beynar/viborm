@@ -4,7 +4,7 @@
  * observed departure" table of point.mdx, the CHANGELOG and the ledger.
  *
  *   MYSQL_TEST_CONNECTION_STRING=mysql://root:password@127.0.0.1:3307/viborm \
- *     node scripts/geo-verification/mysql-departure.mjs [edges|triangles] [--groups=a,c,d,f,g]
+ *     node scripts/geo-verification/mysql-departure.mjs [edges|triangles] [--groups=d,f,g,h,i]
  *     node scripts/geo-verification/mysql-departure.mjs edges --lengths=10,30 --edges=30 --seed=99
  *
  * edges: for random edges of each length, the triangle (A, B, C) with C 60
@@ -57,9 +57,11 @@ const MYSQL_WITHIN_POINT =
   "SELECT ST_Intersects(ST_GeomFromGeoJSON(?, 1, 4326), ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'), 4326, 'axis-order=long-lat')) AS inside";
 
 /**
- * The runs behind the documented table, each a fresh stream at its own seed:
- * 10, 30 and 60 degrees come from a, 90 and 120 from g, 150 from d, 170 and
- * 174 from f, 178 and 179 from c (b and e measured the lengths between).
+ * The runs behind the documented table, each a fresh stream at its own seed,
+ * 30 edges per length: 10, 30 and 60 degrees come from h, 90 and 120 from g,
+ * 150 from d, 170 and 174 from f, 178 and 179 from i. a and c are the lane's
+ * 10-edge runs that first gave those five rows (h and i rerun them at 30
+ * edges from the same seeds); b and e measured the lengths between.
  */
 const GROUPS = {
   a: { seed: 5, lengths: [1, 5, 10, 30, 60, 90], edges: 10 },
@@ -69,6 +71,8 @@ const GROUPS = {
   e: { seed: 12, lengths: [160, 165, 168], edges: 30 },
   f: { seed: 13, lengths: [170, 172, 174], edges: 30 },
   g: { seed: 14, lengths: [90, 120, 130], edges: 30 },
+  h: { seed: 5, lengths: [10, 30, 60], edges: 30 },
+  i: { seed: 7, lengths: [178, 179], edges: 30 },
 };
 
 async function departures(my, options) {
@@ -86,7 +90,7 @@ async function departures(my, options) {
   const groups =
     custom ??
     Object.fromEntries(
-      String(options.groups ?? "a,c,d,f,g")
+      String(options.groups ?? "d,f,g,h,i")
         .split(",")
         .map((name) => [name, GROUPS[name]])
     );
