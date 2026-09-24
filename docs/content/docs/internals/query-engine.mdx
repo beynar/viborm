@@ -117,9 +117,11 @@ D1 also executes a nested `RecordSeriesStep` when its relation compiler supplies
 an exact complete-parent or membership guard. The executor repeats that guard
 inside every later write batch. An unguardable placement refuses before its
 containing member writes; earlier members of a progressive root series can
-already be committed and are reported. Relation-bearing `skipDuplicates` and a
-dynamic series inside explicit `$transaction([...])` refuse before member 0
-writes. Static D1 paths continue to use one atomic batch.
+already be committed and are reported. Relation-bearing `skipDuplicates` has
+no member rollback region there, so the skip is dropped with one warning per
+client and model and every member runs plainly
+(`OperationContext.admitsSuppression`). A dynamic series inside explicit
+`$transaction([...])` refuses before member 0 writes. Static D1 paths continue to use one atomic batch.
 
 Simple operations keep a structural fast path. A candidate is direct only when
 planning is empty, final compilation produces exactly one statement, and that

@@ -77,6 +77,15 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | neon-http | atomic batches, one per segment; a write that must observe its own earlier writes takes several, each committed as it completes, and a generated key crosses from one batch to the next as a literal | the whole batch is rejected; earlier batches of the same write stay committed and the error reports `committedSegments` — or `mayHaveCommittedSegment` when the batch's outcome could not be confirmed | 65 535 | on a Neon-shaped fixture (batch-only, no session between requests); the live Neon suite is credential-gated on `NEON_TEST_DATABASE_URL` and was not run for this release |
 | d1 | as neon-http; D1 refuses temporary objects, so the scratch a generated key crosses within a batch is an ordinary, emptied table (`__viborm_batch_refs`) | as neon-http; d1 declares an exact acknowledged prefix (the declaration itself has no witness); on the Workers runtime's local D1 the tests check the reported `committedSegments` against the durable rows | 100 | on the same fixture, and on the Workers runtime's own local D1 (`tests/providers/workers/d1.test.ts`, project `provider-d1`); no hosted Cloudflare D1 run |
 
+`createMany` with `skipDuplicates` skips a relation-bearing member (or a member
+of a `createMany` nested under another write) inside a savepoint. `neon-http`
+and `d1` have none, so there the call runs **without** `skipDuplicates`: VibORM
+warns once per client and model (on the `warning` log channel when logging
+routes warnings, with `console.warn` otherwise), and a duplicate fails with
+`UniqueConstraintError` while the rows an earlier batch committed stay
+committed. A root scalar `createMany` with `skipDuplicates` skips in SQL and is
+unaffected on every driver.
+
 :::info
 A transport with an interactive transaction never leaves a partial nested
 write behind. neon-http and d1 are the only routes where a write that needs

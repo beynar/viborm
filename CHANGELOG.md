@@ -5,6 +5,24 @@ Versioning.
 
 ## Unreleased
 
+- **Behaviour change on batch-only drivers: `createMany` with `skipDuplicates`
+  warns and runs instead of refusing.** Where no savepoint can isolate one
+  member — D1 Workers bindings, Neon HTTP, a native array batch, and a member of
+  an array `$transaction([...])` — a `createMany` with `skipDuplicates` that is
+  relation-bearing, or nested under another `create`/`update` (many-to-many
+  included), used to throw `TransactionError` (`V5001`) before any write. It
+  now runs **without** `skipDuplicates` and warns once per client and model —
+  on the `warning` log channel when logging routes warnings (the sentence in
+  `meta.notice`), with `console.warn` otherwise: `createMany skipDuplicates
+  cannot skip rows involving nested writes on driver "d1" (no savepoint
+  available) in post.createMany; running without skipDuplicates — a duplicate
+  will fail with a unique-constraint error.` A duplicate then fails with the
+  ordinary `UniqueConstraintError`, and rows an earlier batch committed stay
+  committed, exactly as for the same call without `skipDuplicates`. A root
+  scalar `createMany` with `skipDuplicates` is unchanged (it skips in SQL),
+  except on MySQL inside an array `$transaction([...])`, whose per-row skip
+  needs a savepoint: it too now runs without the flag and warns instead of
+  refusing. Interactive drivers keep skipping inside a savepoint.
 - **Recursive relation projections.** A self-relation's node — `parent`,
   `children`, a proven one-to-one inverse or a paired junction graph — takes
   `recurse` in `select` and `include`: `true`/`{}` follow the relation to depth

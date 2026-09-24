@@ -2360,3 +2360,43 @@ helpers, json-schema factory, json-schema converters); importing
 `GEO_POINT_KEYS` in the converters from `geo-point-codec` again fails the
 object case with that `ReferenceError`, while every other geo suite stays
 green.
+
+---
+
+## Addendum — the G3P-04 suppression refusal becomes a warning (2026-09-24)
+
+**Owner decision (Arnaud, 2026-09-24): "Warn, drop skipDuplicates".** The Raptor 3
+sentence `Raptor 3 borrowed createMany skipDuplicates requires an operation-owned
+member rollback region.` (`TransactionError`, `V5001`) is **RETIRED**. It was a
+candidate (unmatched) refusal in `scripts/raptor3-refusal-census.mjs` at two
+throw sites — `OperationContext.executeSkippableMember` and `requireSuppression`,
+the latter reached from the command analysis pass and from the MySQL
+`recoverableUniqueError` scalar `createMany` — and the census now reads 36
+candidate sentences at 45 sites (37 at 47 before).
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `commands.ts` analysis pass · `if (command.suppression) requireSuppression()` | A skippable member needs a member rollback region the operation owns. | The analysis pass, before the enclosing root writes. | **DELETED.** A refusal had to fire before any effect; a dropped skip does not, so the question moved to where the skip is spent and an arm that never runs never warns. |
+| `OperationContext.executeSkippableMember` | same | the member boundary | **CONVERTED** to `admitsSuppression("rows involving nested writes")`: without a region the member runs through the ordinary `executeMember`. |
+| `OperationContext.createMany` MySQL `recoverableUniqueError` path | same | the scalar per-row loop | **CONVERTED** to `admitsSuppression("duplicate rows")`: without a region each row is a plain insert. Reachable only through a borrowed binding without `memberRollback` (an array `$transaction([...])` member on mysql2/planetscale); batch preparation still answers the dynamic-planning sentinel first. |
+
+`OperationContext.admitsSuppression` is the ONE rule (borrowed without
+`memberRollback`, or `usesBatch` — which batch preparation implies) and the one
+sentence (`droppedSkipMessage`). It warns once per client lineage (the engine's
+`EngineSchema`) and model: through the caller's logger when it routes warnings
+(`meta.notice`, a new ORM-authored key in the log-metadata allowlist beside
+`deprecation`), `console.warn` otherwise. No site still needs to refuse: running
+the member plainly is the same operation the caller would get without the flag —
+a duplicate fails with `UniqueConstraintError`, and a segmented transport keeps
+what an earlier segment committed, reported through `recordSeriesProgress`.
+
+Falsifiers (restoring the refusal in `executeSkippableMember` and at the MySQL
+path turns every one red): `tests/providers/workers/d1.test.ts` (three "drops
+skipDuplicates …" cells), `tests/raptor3/prep/{suppression-replay,
+g3p04-review-regressions,native-suppression-replay}.test.ts`,
+`tests/contracts/engine/write/{compound-junction,polymorphic-collection-write-family,
+combined-depth-stress,nested-create-context-grandchild,create-many-skip-depth}.test.ts`,
+`junction-produced-identity-behavior.ts`, and the `atomicBatch` arm of
+`tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts`.
+The logger route and the `notice` key are pinned by "routes the dropped-skip
+warning through the client's logger once …" (`suppression-replay.test.ts`).

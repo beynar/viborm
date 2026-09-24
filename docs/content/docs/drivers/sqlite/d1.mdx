@@ -142,11 +142,22 @@ stops there and the client raises `CacheConfigurationError` (`V10004`) with
 `meta.commitCertainty: "committed"`; the later members are not attempted.
 
 A `createMany` with `skipDuplicates: true` that is relation-bearing, or nested
-under another `create` or `update` (a scalar or many-to-many one included), is
-refused with a `TransactionError` (`V5001`) before any D1 call: skipping a
-member needs a rollback region that D1's batch-only transport does not have. A
-root scalar `createMany` with `skipDuplicates` is unaffected: a colliding row is
-skipped and `count` reports the rows written.
+under another `create` or `update` (a scalar or many-to-many one included),
+cannot skip a member on D1: skipping one needs a rollback region that D1's
+batch-only transport does not have. VibORM runs it **without**
+`skipDuplicates` and warns once per client and model (on the `warning` log
+channel when logging routes warnings, with `console.warn` otherwise):
+
+```text
+[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.
+```
+
+A duplicate then fails with `UniqueConstraintError`. Each root relation-bearing
+row is still its own batch, so the rows before it stay committed and the error
+reports them, exactly as for the same call without `skipDuplicates`; a nested
+`createMany` rides its parent's batch and fails it whole. A root scalar
+`createMany` with `skipDuplicates` is unaffected: a colliding row is skipped and
+`count` reports the rows written.
 
 A database-generated integer key reaches the statements that need it through a
 scratch table inside the same batch (see below), and a later segment binds the

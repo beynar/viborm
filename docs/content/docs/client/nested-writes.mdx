@@ -115,9 +115,10 @@ With `skipDuplicates`, a row that may need root-conflict suppression is one
 subtree, and a transaction suppresses it inside a savepoint. A many-to-many row
 whose flag is vacuous drops it, and one exact selector can use adopt-and-link.
 A batch-only driver has no savepoint, so there a `createMany` with
-`skipDuplicates` that is relation-bearing or nested under another write is
-refused with `TransactionError` (`V5001`) before any write; a root scalar
-`createMany` with `skipDuplicates` is unaffected.
+`skipDuplicates` that is relation-bearing or nested under another write runs
+without `skipDuplicates` and warns once per client and model: a duplicate fails
+with `UniqueConstraintError`. A root scalar `createMany` with `skipDuplicates`
+is unaffected.
 
 Explicit `$transaction([...])` arrays remain one indivisible batch. They do not
 use this ordered progressive fallback.
