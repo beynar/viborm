@@ -1241,7 +1241,8 @@ describe("GeoArea validation boundary", () => {
     });
     const result = validateGeoPolygon({ outer, holes });
     expect(result.issues).toBeUndefined();
-    expect(result.value?.holes).toHaveLength(130_000);
+    if (result.issues) return;
+    expect(result.value.holes).toHaveLength(130_000);
   });
 
   test("admits strips chosen against predictable skip-list heights in near-linear time", () => {
