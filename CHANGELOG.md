@@ -315,10 +315,13 @@ is what the databases were measured to answer wrongly or differently.
   including one that repeats a vertex further on or goes past a whole turn
   over itself), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
   edge cannot span exactly 180 degrees` and `A GeoPolygon ring cannot contain
-  a pole` (both at the offending vertex), `A GeoPolygon cannot contain a pole`
-  (a ring winding around one), `A GeoPolygon hole must be strictly inside
-  its outer ring` and `GeoPolygon holes cannot touch or overlap`. Each is
-  reported at its ring (`outer` or `holes.<i>`).
+  a pole`, `A GeoPolygon cannot contain a pole` (a ring winding around one),
+  `A GeoPolygon hole must be strictly inside its outer ring` and `GeoPolygon
+  holes cannot touch or overlap`. Each is reported at its ring (`outer` or
+  `holes.<i>`), except the edge and pole-vertex refusals (`cannot span
+  exactly 180 degrees`, `must be shorter than 150 degrees`, `ring cannot
+  contain a pole`), reported at the offending vertex (`outer.<j>` or
+  `holes.<i>.<j>`, the vertex ending the edge).
 - The geometry reads each edge as PostgreSQL does, as the great-circle arc
   between its vertices on the sphere, not as a straight line of longitude and
   latitude. MySQL reads the edge on the ellipsoid instead: its edge leaves the
