@@ -228,16 +228,12 @@ function dot(first: Vector, second: Vector): number {
  * (a bowtie that size at latitude 45 was admitted).
  */
 function cross(first: Vector, second: Vector): Vector {
-  const [dx, dy, dz] = [
-    first[0] - second[0],
-    first[1] - second[1],
-    first[2] - second[2],
-  ];
-  const [sx, sy, sz] = [
-    first[0] + second[0],
-    first[1] + second[1],
-    first[2] + second[2],
-  ];
+  const dx = first[0] - second[0];
+  const dy = first[1] - second[1];
+  const dz = first[2] - second[2];
+  const sx = first[0] + second[0];
+  const sy = first[1] + second[1];
+  const sz = first[2] + second[2];
   return [
     (dy * sz - dz * sy) / 2,
     (dz * sx - dx * sz) / 2,
@@ -277,18 +273,18 @@ interface Distinct {
 }
 
 /**
- * The ring's distinct vertices, closed. A vertex within TOLERANCE of a pole is
- * refused: on the pole it has no longitude, and so no meridian for its edges.
- * A repeated consecutive vertex, the caller's closing vertex included, is
- * admitted as the zero-length edge both databases ignore, and dropped here.
+ * The ring's distinct vertices, closed on the first. A vertex within TOLERANCE
+ * of a pole is refused: on the pole it has no longitude, and so no meridian
+ * for its edges. A repeated consecutive vertex, the caller's closing vertex
+ * included, is admitted as the zero-length edge both databases ignore, and
+ * dropped here.
  */
 function distinctVertices(
   ring: readonly GeoPoint[],
   path: readonly PropertyKey[]
 ): ValidationResult<Distinct[]> {
   const distinct: Distinct[] = [];
-  for (const [position, vertex] of [...ring, ...ring.slice(0, 1)].entries()) {
-    const index = position % ring.length;
+  for (const [index, vertex] of ring.entries()) {
     const vector = toVector(vertex.longitude, vertex.latitude);
     if (Math.hypot(vector[0], vector[1]) <= TOLERANCE) {
       return fail("A GeoPolygon ring cannot contain a pole", [...path, index]);
@@ -297,6 +293,11 @@ function distinctVertices(
     if (!last || chord(last.vector, vector) > TOLERANCE) {
       distinct.push({ vertex, index, vector });
     }
+  }
+  const [first] = distinct;
+  const last = distinct.at(-1);
+  if (first && last && chord(last.vector, first.vector) > TOLERANCE) {
+    distinct.push(first);
   }
   return ok(distinct);
 }
@@ -754,7 +755,7 @@ function sweep(
   // northernmost entry there so far.
   const arrivals = new Map<RingNode, { entry: Entry; west: Vector }>();
   const placeArrivals = (): void => {
-    const arrived = [...arrivals].map(([ring, { entry, west }]) => {
+    const arrived = Array.from(arrivals, ([ring, { entry, west }]) => {
       let next = entry.links[0]?.next;
       while (next?.stretch?.placed.ring === ring) next = next.links[0]?.next;
       return { ring, height: latitude(west), north: next?.stretch };
@@ -957,7 +958,9 @@ export function validateGeoPolygon(
       ? Math.min(around.hole, around.firstAround)
       : Number.POSITIVE_INFINITY;
   }
-  for (const { ring } of [...swept.placements].reverse()) {
+  // Reversed in place, the list's last use: every ring now comes before the
+  // ring around it, which collects the first hole within it.
+  for (const { ring } of swept.placements.reverse()) {
     const { around } = ring;
     if (around) {
       around.firstWithin = Math.min(
