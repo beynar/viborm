@@ -615,6 +615,32 @@ describe("GeoArea validation boundary", () => {
       issue: { message: across, path: ["outer"] },
     },
     {
+      // Deliberately refused: both databases answered 600 of 600 points
+      // correctly in 5 rotations, but where PostGIS's fallback reference
+      // point falls follows its edge tree's arithmetic (CHANGELOG "Geo").
+      name: "the Pacific",
+      polygon: {
+        outer: [
+          point(120, -50),
+          point(150, -55),
+          point(-170, -60),
+          point(-130, -60),
+          point(-90, -55),
+          point(-75, -40),
+          point(-80, -5),
+          point(-105, 20),
+          point(-125, 45),
+          point(-150, 58),
+          point(175, 55),
+          point(145, 40),
+          point(125, 20),
+          point(115, 0),
+          point(115, -25),
+        ],
+      },
+      issue: { message: across, path: ["outer"] },
+    },
+    {
       name: "a hole outside",
       polygon: {
         outer: square,

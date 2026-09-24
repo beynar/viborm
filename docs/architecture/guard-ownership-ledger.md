@@ -2428,7 +2428,30 @@ on 2026-09-24:
   Measured on random bands and star-shaped rings: PostGIS misread 23 of 372
   outer rings reaching across all three planes, one of them 27% of half the
   globe (the half-globe guard admitted it), and none of 494 reaching across
-  two or fewer; MySQL none. A pole-free ring on one side of any of the three
+  two or fewer; MySQL none.
+  Review round 4 measured the refusal refusing rings both databases answer
+  correctly (the Pacific from 115 to -75 degrees; a Eurasia-Africa ring) and
+  asked for the fallback to be emulated instead: send the ring from an edge
+  whose `lwpoly_pt_outside_hack` point (0.2 of the unit normal right of the
+  first two points sent) lies outside. That point is one of two: table
+  scans also take the antipode of the centre of the circle tree liblwgeom
+  builds over the edges (`circ_tree_get_point_outside` in
+  lwgeodetic_tree.c; leaf circles merged incrementally in groups of eight,
+  in the order sent), which a JavaScript port of the merge located for each
+  ring below. Over 480 rotations of random across rings (this lane's
+  fallback.mjs, seeds 101 and 202, 300 points each, table and index
+  scans): both points outside, 0 of 436 wrong; the first-edge point
+  inside, 12 of 12 wrong; the tree point inside, 30 of 32 wrong. The
+  tropics band sent from an edge whose first-edge point is outside was
+  still misread on 1,604 of 2,485 points (tree point inside), while
+  single-row queries answered it right. Emulating that tree would tie
+  admission to liblwgeom's merge arithmetic (its branches, its cartesian
+  fallback, its geohash ordering of rings), which no PostGIS version
+  promises, so the refusal stays as it is: a deliberate over-refusal,
+  stated in `point.mdx` and the CHANGELOG with the Pacific as the example
+  and splitting into polygons joined with `OR` as the way through. Witness
+  added: "the Pacific" (refused; both databases answered 0 of 600 points
+  wrong in 5 rotations, table and index scans). A pole-free ring on one side of any of the three
   planes encloses less than half the globe, so the old half-globe guard has
   no coverage left; its trapezoid sum also ignored the arcs' bowing and
   admitted the tropics band (review B1). The signs are the vertices', as

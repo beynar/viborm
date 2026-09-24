@@ -361,9 +361,24 @@ is what the databases were measured to answer wrongly or differently.
   meridian and of the 90/-90 meridian at once is refused with `A GeoPolygon
   cannot reach across the equator and the 0/180 and 90/-90 meridians at
   once`. PostGIS then has no reference point outside the polygon's box and
-  guesses one: it misread 23 of 372 such random rings, one of them 27% of
-  half the globe, and none of 494 reaching across two planes or fewer. Every
-  ring of half the globe or more reaches across all three, so this replaces
+  falls back to one of two points, depending on the query path: one just
+  outside the first edge sent, or the antipode of the centre of its circle
+  tree over the edges, which its incremental merge of the edges' circles
+  decides. Table scans went wrong on 42 of 44 random ring rotations where
+  either point fell inside the ring and on none of 436 where both fell
+  outside (the tropics band sent in 42.5-degree edges: 1,604 of 2,485
+  points wrong with the first-edge point outside, while its single-row
+  queries were all right); 23 of 372 random such rings were misread, one
+  of them 27% of half the globe, and none of 494 reaching across two planes
+  or fewer.
+  The refusal is deliberately wider than those rings, because where the
+  second point falls follows liblwgeom's tree arithmetic, not the polygon:
+  it also refuses large rings both databases answer correctly, such as the
+  Pacific from 115 to -75 degrees of longitude and -60 to 58 of latitude
+  (0 of 600 points wrong on either database, table and index scans, in 5
+  rotations). Such an area can be queried as two polygons joined with `OR`,
+  split along the equator or a meridian. Every ring of half the globe or
+  more reaches across all three, so this replaces
   `A GeoPolygon must cover less than half the globe`, whose longitude
   trapezoid sum ignored the arcs' bowing and admitted the tropics band
   (-170 to 170 at ±30, 11.18 steradians), which PostGIS read as the whole

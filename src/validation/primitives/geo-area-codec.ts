@@ -752,12 +752,22 @@ export function validateGeoPolygon(
   // coordinates the rings take on both sides of zero (liblwgeom
   // gbox_check_poles; an arc takes no sign its ends lack). An outer ring with
   // vertices on both sides of the equator, of the 0/180 meridian and of the
-  // 90/-90 meridian widens it to the whole globe, and PostGIS then guesses the
-  // reference point (gbox_pt_outside fails): it misread 23 of 372 such random
-  // rings, one of them 27% of half the globe, and none of 494 reaching across
-  // at most two; MySQL none. A ring of half the globe or more reaches across
-  // all three, since a ring on one side of a plane through the poles or of
-  // the equator encloses less, and holes inside it add no side.
+  // 90/-90 meridian widens it to the whole globe (gbox_pt_outside fails), and
+  // PostGIS falls back to one of two points depending on the query path: 0.2
+  // of a unit normal right of the first edge sent (lwpoly_pt_outside_hack),
+  // or the antipode of the centre of its circle tree over the edges
+  // (circ_tree_get_point_outside), which its incremental merge of the edges'
+  // circles in groups of eight decides. Table scans went wrong on 42 of 44
+  // random ring rotations where either point fell inside and on none of 436
+  // where both fell outside (MySQL on none); 23 of 372 random such rings
+  // were misread, one of them 27% of half the globe, and none of 494 across
+  // at most two planes. The
+  // refusal is deliberately wider than those rings: which side the second
+  // point falls depends on liblwgeom's tree arithmetic, so it refuses rings
+  // both databases answer correctly, such as the Pacific from 115 to -75
+  // degrees. A ring of half the globe or more reaches across all three,
+  // since a ring on one side of a plane through the poles or of the equator
+  // encloses less, and holes inside it add no side.
   const across = AXES.every((axis) => {
     const signs = polygon.value.outer.map(
       ({ longitude, latitude }) => toVector(longitude, latitude)[axis]

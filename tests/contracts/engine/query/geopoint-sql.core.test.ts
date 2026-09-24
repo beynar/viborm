@@ -793,6 +793,34 @@ describe("GeoPoint query lowering", () => {
       },
     },
     {
+      // Deliberately refused, though both databases answered it correctly.
+      name: "the Pacific",
+      polygon: {
+        outer: [
+          g(120, -50),
+          g(150, -55),
+          g(-170, -60),
+          g(-130, -60),
+          g(-90, -55),
+          g(-75, -40),
+          g(-80, -5),
+          g(-105, 20),
+          g(-125, 45),
+          g(-150, 58),
+          g(175, 55),
+          g(145, 40),
+          g(125, 20),
+          g(115, 0),
+          g(115, -25),
+        ],
+      },
+      issue: {
+        message:
+          "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once",
+        path: ["outer"],
+      },
+    },
+    {
       name: "a nearly antipodal edge",
       polygon: { outer: [g(0, 10), g(179.999_999, -10), g(90, 40)] },
       issue: {
