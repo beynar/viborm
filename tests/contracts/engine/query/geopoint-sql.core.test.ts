@@ -655,15 +655,15 @@ describe("GeoPoint query lowering", () => {
   });
 
   /**
-   * Each refused input below was refused by a VibORM geometry pre-check
-   * before decision D2 or crosses itself on the sphere. PostGIS answers all
-   * but one of them silently (only the 180-degree edge raises), wrongly,
-   * differently from MySQL, or on an unstated reading, so they are refused
-   * again at admission. The admitted ones are valid on the great-circle
-   * reading (PostGIS; MySQL's ellipsoid edges within a small band of it),
-   * and reach the adapter emission unchanged,
-   * rings closed once. Holes are written clockwise and outers
-   * counterclockwise, so the emitted order is the input order.
+   * Each refused input below has no single meaning on the great-circle
+   * reading (it crosses or touches itself on the sphere, has zero area, puts
+   * a hole outside or across another, sits too near a pole, or joins nearly
+   * antipodal vertices), and is refused at admission before any SQL. The
+   * admitted ones have one meaning and reach the adapter emission unchanged,
+   * rings closed once, even where a database reads them differently
+   * (point.mdx, "How each database reads a polygon"). Holes are written
+   * clockwise and outers counterclockwise, so the emitted order is the input
+   * order.
    */
   const g = (longitude: number, latitude: number) => ({ longitude, latitude });
   const square = [g(0, 0), g(4, 0), g(4, 4), g(0, 4)];
@@ -775,71 +775,26 @@ describe("GeoPoint query lowering", () => {
       issue: { message: "A GeoPolygon cannot contain a pole", path: ["outer"] },
     },
     {
-      name: "the tropics band",
-      polygon: {
-        outer: [
-          g(-170, -30),
-          g(0, -30),
-          g(170, -30),
-          g(170, 30),
-          g(0, 30),
-          g(-170, 30),
-        ],
-      },
-      issue: {
-        message:
-          "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once",
-        path: ["outer"],
-      },
-    },
-    {
-      // Deliberately refused, though both databases answered it correctly.
-      name: "the Pacific",
-      polygon: {
-        outer: [
-          g(120, -50),
-          g(150, -55),
-          g(-170, -60),
-          g(-130, -60),
-          g(-90, -55),
-          g(-75, -40),
-          g(-80, -5),
-          g(-105, 20),
-          g(-125, 45),
-          g(-150, 58),
-          g(175, 55),
-          g(145, 40),
-          g(125, 20),
-          g(115, 0),
-          g(115, -25),
-        ],
-      },
-      issue: {
-        message:
-          "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once",
-        path: ["outer"],
-      },
-    },
-    {
       name: "a nearly antipodal edge",
       polygon: { outer: [g(0, 10), g(179.999_999, -10), g(90, 40)] },
       issue: {
-        message: "A GeoPolygon edge must be shorter than 150 degrees",
+        message:
+          "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal",
         path: ["outer", 1],
       },
     },
     {
-      name: "a square 1e-5 degrees across",
+      name: "a square 5e-10 degrees across, below VibORM's resolution",
       polygon: {
         outer: [
           g(10, 60),
-          g(10.000_01, 60),
-          g(10.000_01, 60.000_01),
-          g(10, 60.000_01),
+          g(10.000_000_000_5, 60),
+          g(10.000_000_000_5, 60.000_000_000_5),
+          g(10, 60.000_000_000_5),
         ],
       },
       issue: {
-        message: "A GeoPolygon ring must be at least 2e-5 degrees across",
+        message: "A GeoPolygon ring must have non-zero area",
         path: ["outer"],
       },
     },
@@ -1006,6 +961,58 @@ describe("GeoPoint query lowering", () => {
           ...Array.from({ length: 21 }, (_, step) =>
             g(turn(400 - step * 20), 22 - step / 2)
           ),
+        ],
+      },
+    },
+    {
+      // PostGIS matched the whole globe; the polygon is the band.
+      name: "the tropics band",
+      polygon: {
+        outer: [
+          g(-170, -30),
+          g(0, -30),
+          g(170, -30),
+          g(170, 30),
+          g(0, 30),
+          g(-170, 30),
+        ],
+      },
+    },
+    {
+      name: "the Pacific",
+      polygon: {
+        outer: [
+          g(120, -50),
+          g(150, -55),
+          g(-170, -60),
+          g(-130, -60),
+          g(-90, -55),
+          g(-75, -40),
+          g(-80, -5),
+          g(-105, 20),
+          g(-125, 45),
+          g(-150, 58),
+          g(175, 55),
+          g(145, 40),
+          g(125, 20),
+          g(115, 0),
+          g(115, -25),
+        ],
+      },
+    },
+    {
+      name: "a 151-degree edge",
+      polygon: { outer: [g(0, 0), g(151, 0), g(75, 20)] },
+    },
+    {
+      // MySQL misplaces points within about 1e-6 degrees of its vertices.
+      name: "a square 1e-5 degrees across",
+      polygon: {
+        outer: [
+          g(10, 60),
+          g(10.000_01, 60),
+          g(10.000_01, 60.000_01),
+          g(10, 60.000_01),
         ],
       },
     },

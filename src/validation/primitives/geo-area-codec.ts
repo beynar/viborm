@@ -134,16 +134,18 @@ const polygonRecord = object(
 
 /*
  * Polygon geometry, judged after the record walker admitted the shape.
- * PostGIS geography reads an edge as the great-circle arc between its
- * vertices, so crossings, touches and containment are judged on the unit
- * sphere, never on straight longitude/latitude lines. MySQL reads the edge on
- * the ellipsoid instead, a band beside the arc that grows with the edge (the
- * limits below and CHANGELOG "Geo" give the measured widths). PostGIS and
- * MySQL answer most malformed polygons silently rather than raising, so each
- * refusal below is a polygon whose answer the probe measured as wrong, as
- * different between the two databases, or as resting on a reading the docs do
- * not state (PGlite 0.5.8 + PostGIS 3.6.2 and MySQL 8, the exact
- * withinPolygon predicates). Everything else is admitted.
+ * VibORM reads an edge as the great-circle arc between its vertices, so
+ * crossings, touches and containment are judged on the unit sphere, never on
+ * straight longitude/latitude lines, and the polygon is the side of its outer
+ * ring away from both poles. A polygon is refused only when it has no single
+ * meaning on that reading: a ring crossing, touching or retracing itself, a
+ * ring of zero area, a hole not strictly inside its outer ring, holes touching
+ * or overlapping, a vertex too near a pole to have a longitude, an edge whose
+ * vertices are too nearly antipodal to fix its great circle. A valid polygon a
+ * database reads differently is admitted: MySQL draws edges on the ellipsoid,
+ * PostGIS misreads some rings reaching across all three coordinate planes
+ * (docs/content/docs/schema/scalars/point.mdx, "How each database reads a
+ * polygon", gives the measured differences).
  */
 
 type Vector = readonly [x: number, y: number, z: number];
@@ -171,36 +173,38 @@ interface Arc {
 type Ring = readonly [Arc, ...Arc[]];
 
 const RADIANS = Math.PI / 180;
-/** An angle of 1e-9 degrees, about 0.1 mm: a point this near an arc is on it. */
+/**
+ * An angle of 1e-9 degrees, about 0.1 mm: a point this near an arc is on it,
+ * and an edge this short is a repeated vertex. It is VibORM's resolution,
+ * at every ring size: against 60-digit geometry on 9,000 random rings 1e-9
+ * to 1e-4 degrees across (every latitude, near the poles, on the
+ * antimeridian), every ring whose edges and clearances exceed twice it was
+ * judged exactly (4,048 simple rings admitted with the right winding, 2,135
+ * crossing or touching ones refused). A smaller feature reads as a touch or
+ * a repeated vertex, so a ring needs no size bound of its own.
+ */
 const TOLERANCE = 1e-9 * RADIANS;
 /**
- * The smallest ring MySQL answers. MySQL answers points within about 1e-6
- * degrees of any vertex unlike PostGIS and the sphere (about 13% of them, at
- * every edge length; none from 1.8e-6 out), and in a ring a few 1e-6 degrees
- * across every point is that near a vertex: it put up to 9% of the points
- * 0.1 of the ring away from every edge on the wrong side (PostGIS none), and
- * none of 16,000 in rings 1.4e-5 across. A ring must reach this far, about
- * 2 m, from its first vertex, so that it is at least 1.4e-5 degrees across.
+ * The chord between an edge's end and the antipode of its start below which
+ * the edge is refused: 0.01 degrees. Two antipodal points lie on every great
+ * circle through them, and near the antipode the circle an edge takes turns
+ * by up to about 3e-12 / d degrees when a written coordinate moves by one
+ * float64 step, d degrees from antipodal (measured over 2,000 random edges
+ * per distance: at most 3.1e-9 degrees at d = 0.001, 9.8e-10 at 0.0032,
+ * 3.0e-10 at 0.01). From 0.01 degrees out the edge's path is fixed to a
+ * third of TOLERANCE; nearer, the written coordinates do not decide on which
+ * side of it a point lies.
  */
-const SMALLEST_RING = 2e-5 * RADIANS;
+const NEAREST_ANTIPODE = 2 * Math.sin(0.005 * RADIANS);
 /**
- * MySQL's edge leaves the great-circle arc by at most 0.075 degrees on a
- * 90-degree edge and 0.46 on a 150-degree one, then by 1% of the edge from
- * about 171 degrees and by 16 at 179, where it answers points far from the
- * edge unlike the sphere; the dot product of an edge's end vectors must exceed
- * the cosine of 150 degrees.
- */
-const LONGEST_EDGE_COSINE = Math.cos(150 * RADIANS);
-/**
- * The nearest a vertex may come to a pole, about 11 m. With two consecutive
- * vertices a few 1e-6 degrees from a pole, MySQL (from 3e-6 down) and PostGIS
- * (from 6e-7 down) answered points 70 degrees from the ring wrongly, and none
- * of about 1,500 such rings from 5.6e-6 out; a vertex on the pole has no
- * longitude, and PostGIS drew its edges along meridians while MySQL matched
- * the equator and the opposite pole.
+ * The nearest a vertex may come to a pole, about 11 m. A vertex on a pole has
+ * no longitude (PostGIS drew its edges along meridians, MySQL matched the
+ * equator and the opposite pole). The clearance around it is the measured
+ * one: with two consecutive vertices a few 1e-6 degrees from a pole, MySQL
+ * (from 3e-6 down) and PostGIS (from 6e-7 down) answered points 70 degrees
+ * from the ring wrongly, and none of about 1,500 such rings from 5.6e-6 out.
  */
 const POLE_CLEARANCE = 1e-4;
-const AXES: readonly (0 | 1 | 2)[] = [0, 1, 2];
 
 function toVector(longitude: number, latitude: number): Vector {
   const cosine = Math.cos(latitude * RADIANS);
@@ -252,6 +256,10 @@ function chord(first: Vector, second: Vector): number {
   );
 }
 
+function antipode(vector: Vector): Vector {
+  return [-vector[0], -vector[1], -vector[2]];
+}
+
 /**
  * The ring's arcs, each taking the short way round in longitude. A repeated
  * consecutive vertex, the caller's closing vertex included, is admitted as the
@@ -263,8 +271,6 @@ function ringArcs(
 ): ValidationResult<Ring> {
   const arcs: Arc[] = [];
   let wrap = 0;
-  let reach = 0;
-  let origin: Vector | undefined;
   let previous: GeoPoint | undefined;
   let from: UnwrappedPoint | undefined;
   for (const [index, vertex] of [...ring, ...ring.slice(0, 1)].entries()) {
@@ -278,8 +284,7 @@ function ringArcs(
     if (previous) {
       const delta = vertex.longitude - previous.longitude;
       // No short way round in longitude: the arc runs through a pole, where
-      // the two databases answered (0, 80) differently for (0, 10) to
-      // (180, 10), or joins antipodal endpoints, which PostGIS raises for.
+      // its direction there is undetermined, or joins antipodal endpoints.
       if (Math.abs(delta) === 180) {
         return fail("A GeoPolygon edge cannot span exactly 180 degrees", at);
       }
@@ -289,45 +294,42 @@ function ringArcs(
     previous = vertex;
     const longitude = vertex.longitude + wrap;
     const vector = toVector(longitude, vertex.latitude);
-    origin ??= vector;
-    reach = Math.max(reach, chord(origin, vector));
     const to = {
       longitude,
       latitude: vertex.latitude,
       written: vertex.longitude,
       vector,
     };
-    if (!from || chord(from.vector, vector) > TOLERANCE) {
-      if (from && dot(from.vector, vector) <= LONGEST_EDGE_COSINE) {
-        return fail("A GeoPolygon edge must be shorter than 150 degrees", at);
+    if (!from) {
+      from = to;
+    } else if (chord(from.vector, vector) > TOLERANCE) {
+      if (chord(antipode(from.vector), vector) < NEAREST_ANTIPODE) {
+        return fail(
+          "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal",
+          at
+        );
       }
-      if (from) {
-        arcs.push({
-          from,
-          to,
-          start: from.vector,
-          end: vector,
-          normal: unit(cross(from.vector, vector)),
-        });
-      }
+      arcs.push({
+        from,
+        to,
+        start: from.vector,
+        end: vector,
+        normal: unit(cross(from.vector, vector)),
+      });
       from = to;
     }
   }
-  // Longitudes that went once around the globe enclose a pole on both
-  // databases' unstated "smaller side" reading.
+  // Longitudes that went once around the globe enclose a pole, and the ring
+  // then has no side away from both poles.
   if (wrap !== 0) return fail("A GeoPolygon cannot contain a pole", [...path]);
   const [first, ...rest] = arcs;
-  if (!first || reach < SMALLEST_RING) {
-    return fail("A GeoPolygon ring must be at least 2e-5 degrees across", [
-      ...path,
-    ]);
-  }
   // The self-intersection no pair of non-neighbor arcs shows: a ring of at
-  // most three arcs on one great circle retraces itself, and both databases
-  // matched its outline only.
+  // most three arcs on one great circle retraces itself, and a ring of one
+  // distinct vertex has no arc at all.
   if (
-    rest.length < 3 &&
-    rest.every(({ start }) => Math.abs(side(first, start)) <= TOLERANCE)
+    !first ||
+    (rest.length < 3 &&
+      rest.every(({ start }) => Math.abs(side(first, start)) <= TOLERANCE))
   ) {
     return fail("A GeoPolygon ring must have non-zero area", [...path]);
   }
@@ -366,16 +368,26 @@ function opposite(first: number, second: number): boolean {
 
 /**
  * The two arcs cross at one point interior to both: each straddles the
- * other's great circle. The circles also meet at the antipode, but arcs that
- * straddle each other and meet only there hold two antipodal points, which
- * the rings of no admitted polygon do: each lies on one side of the equator
- * or of a meridian plane (`across` in `validateGeoPolygon`), where two
- * antipodal points share the plane and so the arcs through them the circle.
+ * other's great circle, and they hold the same one of the two antipodal
+ * points where the circles meet. An arc shorter than half a circle holds a
+ * point of it when the point lies on the side of the arc's middle, where
+ * start + end points; arcs that straddle each other but hold opposite points
+ * (a ring reaching across all three coordinate planes has such pairs) are
+ * apart.
  */
 function crosses(first: Arc, second: Arc): boolean {
+  if (
+    !(
+      opposite(side(first, second.start), side(first, second.end)) &&
+      opposite(side(second, first.start), side(second, first.end))
+    )
+  ) {
+    return false;
+  }
+  const meeting = cross(first.normal, second.normal);
   return (
-    opposite(side(first, second.start), side(first, second.end)) &&
-    opposite(side(second, first.start), side(second, first.end))
+    dot(meeting, first.start) + dot(meeting, first.end) > 0 ===
+    dot(meeting, second.start) + dot(meeting, second.end) > 0
   );
 }
 
@@ -713,12 +725,11 @@ function signedArea(ring: Ring): number {
 
 /*
  * A hole must lie strictly inside its outer ring, and holes must neither touch
- * nor overlap: PostGIS reads rings by parity, so a hole reaching outside its
- * outer ring added its own area (MySQL ignored it) and a point in two holes
- * matched (MySQL excluded it). A touch is refused as before D2, because it is
- * where the two databases' edges (sphere, ellipsoid) and tolerances part: a
- * hole written touching a straight parallel edge crosses that edge's arc, and
- * PostGIS matched the points beside the touch.
+ * nor overlap: a hole reaching outside its outer ring, or a point in two
+ * holes, has no single reading (PostGIS reads rings by parity and added the
+ * hole's area, or matched the point; MySQL ignored the hole, or excluded the
+ * point). A touch is refused with them: a hole written touching a straight
+ * parallel edge crosses that edge's arc.
  */
 
 /**
@@ -756,7 +767,7 @@ function ringNode(points: GeoPoint[], arcs: Ring, index: number): RingNode {
 /**
  * The walker admits the polygon's shape (exact keys, finite in-range
  * vertices, at least three per ring); the geometry then refuses the polygons
- * the databases answer wrongly: each ring alone, then the rings together.
+ * with no single meaning: each ring alone, then the rings together.
  */
 export function validateGeoPolygon(
   value: unknown
@@ -765,39 +776,6 @@ export function validateGeoPolygon(
   if (polygon.issues) return polygon;
   const outer = ringArcs(polygon.value.outer, ["outer"]);
   if (outer.issues) return outer;
-  // PostGIS tests a point against a reference point outside the polygon's
-  // box, which it widens to the pole of every axis whose other two
-  // coordinates the rings take on both sides of zero (liblwgeom
-  // gbox_check_poles; an arc takes no sign its ends lack). An outer ring with
-  // vertices on both sides of the equator, of the 0/180 meridian and of the
-  // 90/-90 meridian widens it to the whole globe (gbox_pt_outside fails), and
-  // PostGIS falls back to one of two points depending on the query path: 0.2
-  // of a unit normal right of the first edge sent (lwpoly_pt_outside_hack),
-  // or the antipode of the centre of its circle tree over the edges
-  // (circ_tree_get_point_outside), which its incremental merge of the edges'
-  // circles in groups of eight decides. Table scans went wrong on 42 of 44
-  // random ring rotations where either point fell inside and on none of 436
-  // where both fell outside (MySQL on none); 23 of 372 random such rings
-  // were misread, one of them 27% of half the globe, and none of 494 across
-  // at most two planes. The
-  // refusal is deliberately wider than those rings: which side the second
-  // point falls depends on liblwgeom's tree arithmetic, so it refuses rings
-  // both databases answer correctly, such as the Pacific from 115 to -75
-  // degrees. A ring of half the globe or more reaches across all three,
-  // since a ring on one side of a plane through the poles or of the equator
-  // encloses less, and holes inside it add no side.
-  const across = AXES.every((axis) => {
-    const signs = polygon.value.outer.map(
-      ({ longitude, latitude }) => toVector(longitude, latitude)[axis]
-    );
-    return signs.some((sign) => sign < 0) && signs.some((sign) => sign > 0);
-  });
-  if (across) {
-    return fail(
-      "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once",
-      ["outer"]
-    );
-  }
   const shell = ringNode(polygon.value.outer, outer.value, 0);
   const holes: RingNode[] = [];
   for (const [index, points] of (polygon.value.holes ?? []).entries()) {

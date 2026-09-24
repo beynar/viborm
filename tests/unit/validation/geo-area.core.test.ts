@@ -329,9 +329,10 @@ describe("GeoArea validation boundary", () => {
   });
 
   /**
-   * The polygons PostGIS and MySQL answer silently but wrongly, differently,
-   * or on an unstated reading (the probe in CHANGELOG "Geo"); PostGIS raises
-   * only for the exactly-180-degree edge. Each is refused at admission with
+   * The polygons with no single meaning on the great-circle reading: a ring
+   * crossing, touching or retracing itself, zero area, a hole not strictly
+   * inside, touching or overlapping holes, a vertex too near a pole, an edge
+   * too nearly antipodal to fix its circle. Each is refused at admission with
    * its path.
    */
   const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
@@ -342,10 +343,8 @@ describe("GeoArea validation boundary", () => {
   const poleVertex =
     "A GeoPolygon vertex must be at least 1e-4 degrees from a pole";
   const aroundPole = "A GeoPolygon cannot contain a pole";
-  const across =
-    "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once";
-  const tooSmall = "A GeoPolygon ring must be at least 2e-5 degrees across";
-  const tooLong = "A GeoPolygon edge must be shorter than 150 degrees";
+  const nearAntipode =
+    "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal";
   // A square `side` degrees on each side, from (longitude, latitude).
   const tiny = (longitude: number, latitude: number, side: number) => [
     point(longitude, latitude),
@@ -413,24 +412,14 @@ describe("GeoArea validation boundary", () => {
     {
       name: "a ring of one distinct vertex",
       polygon: { outer: [point(1, 1), point(1, 1), point(1, 1)] },
-      issue: { message: tooSmall, path: ["outer"] },
-    },
-    // MySQL misplaced points inside rings a few 1e-6 degrees across; the
-    // bound is a distance, the same at every latitude.
-    {
-      name: "a square 1e-5 degrees across on the equator",
-      polygon: { outer: tiny(10, 0, 1e-5) },
-      issue: { message: tooSmall, path: ["outer"] },
+      issue: { message: zeroArea, path: ["outer"] },
     },
     {
-      name: "a square 1e-5 degrees across at latitude 60",
-      polygon: { outer: tiny(10, 60, 1e-5) },
-      issue: { message: tooSmall, path: ["outer"] },
-    },
-    {
-      name: "a square 1e-5 degrees across at latitude 89.9",
-      polygon: { outer: tiny(-120, 89.9, 1e-5) },
-      issue: { message: tooSmall, path: ["outer"] },
+      // Every edge is shorter than VibORM's 1e-9-degree resolution, a
+      // repeated vertex: the ring has one distinct vertex.
+      name: "a square 5e-10 degrees across",
+      polygon: { outer: tiny(10, 60, 5e-10) },
+      issue: { message: zeroArea, path: ["outer"] },
     },
     {
       // A plain start × end loses the direction of a 1e-7-degree arc there.
@@ -493,17 +482,18 @@ describe("GeoArea validation boundary", () => {
       issue: { message: edge180, path: ["outer", 1] },
     },
     {
-      // PostGIS and MySQL answered (90, 30) differently.
+      // 1e-6 degrees from antipodal, the edge's circle turns by about 3e-6
+      // degrees with the last digit of a coordinate.
       name: "a nearly antipodal edge",
       polygon: {
         outer: [point(0, 10), point(179.999_999, -10), point(90, 40)],
       },
-      issue: { message: tooLong, path: ["outer", 1] },
+      issue: { message: nearAntipode, path: ["outer", 1] },
     },
     {
-      name: "a 151-degree edge",
-      polygon: { outer: [point(0, 0), point(151, 0), point(75, 20)] },
-      issue: { message: tooLong, path: ["outer", 1] },
+      name: "an edge 0.009 degrees short of antipodal",
+      polygon: { outer: [point(0, 0), point(179.991, 0), point(90, 30)] },
+      issue: { message: nearAntipode, path: ["outer", 1] },
     },
     {
       name: "a 180-degree hole edge",
@@ -552,106 +542,6 @@ describe("GeoArea validation boundary", () => {
       name: "a ring winding around a pole",
       polygon: { outer: [point(-120, 80), point(0, 80), point(120, 80)] },
       issue: { message: aroundPole, path: ["outer"] },
-    },
-    {
-      // True area 11.18 steradians, beyond half the globe: PostGIS matched
-      // the whole globe, MySQL the band.
-      name: "the tropics band",
-      polygon: {
-        outer: [
-          point(-170, -30),
-          point(0, -30),
-          point(170, -30),
-          point(170, 30),
-          point(0, 30),
-          point(-170, 30),
-        ],
-      },
-      issue: { message: across, path: ["outer"] },
-    },
-    {
-      name: "a band with two long edges on each side",
-      polygon: {
-        outer: [
-          point(0, -30),
-          point(175, -30),
-          point(-10, -30),
-          point(-10, 30),
-          point(175, 30),
-          point(0, 30),
-        ],
-      },
-      issue: { message: across, path: ["outer"] },
-    },
-    {
-      // The walker spells -180 as 180, which PostGIS reads, like the sine,
-      // on the other side of the 0/180 meridian from -90.
-      name: "a band from -180 to 0 through -90",
-      polygon: {
-        outer: [
-          point(-180, -40),
-          point(-90, -40),
-          point(0, -40),
-          point(0, 40),
-          point(-90, 40),
-          point(-180, 40),
-        ],
-      },
-      issue: { message: across, path: ["outer"] },
-    },
-    {
-      // 27% of half the globe; PostGIS read it inside out, MySQL did not.
-      name: "a ring across all three planes",
-      polygon: {
-        outer: [
-          point(8.655_273, -4.888_118),
-          point(9.783_711, -16.851_44),
-          point(-9.977_974, -5.122_148),
-          point(-43.180_112, 0.414_428),
-          point(-57.786_262, -12.058_979),
-          point(-44.864_831, -32.086_311),
-          point(-14.135_991, -40.606_621),
-          point(7.226_503, -34.495_989),
-          point(9.873_38, -44.518_988),
-          point(37.572_842, -71.070_42),
-          point(102.183_743, -63.731_592),
-          point(92.037_682, -46.942_718),
-          point(50.468_332, -31.985_418),
-          point(31.937_986, -23.462_884),
-          point(31.748_745, -18.138_909),
-          point(51.595_083, 4.804_735),
-          point(54.301_739, 29.233_064),
-          point(40.878_021, 45.271_161),
-          point(14.791_082, 25.676_286),
-        ],
-      },
-      issue: { message: across, path: ["outer"] },
-    },
-    {
-      // Deliberately refused: both databases answered 600 of 600 points
-      // correctly in 5 rotations, but where PostGIS's fallback reference
-      // point falls follows its edge tree's arithmetic (CHANGELOG "Geo").
-      name: "the Pacific",
-      polygon: {
-        outer: [
-          point(120, -50),
-          point(150, -55),
-          point(-170, -60),
-          point(-130, -60),
-          point(-90, -55),
-          point(-75, -40),
-          point(-80, -5),
-          point(-105, 20),
-          point(-125, 45),
-          point(-150, 58),
-          point(175, 55),
-          point(145, 40),
-          point(125, 20),
-          point(115, 0),
-          point(115, -25),
-        ],
-      },
-      issue: { message: across, path: ["outer"] },
     },
     {
       name: "a hole outside",
@@ -886,10 +776,12 @@ describe("GeoArea validation boundary", () => {
   });
 
   /**
-   * Polygons both databases answered correctly on the great-circle reading:
-   * a repeated consecutive vertex is a zero-length edge, a hole may sit
-   * between an edge's straight line and its arc, and a ring may go past a
-   * whole turn beside itself.
+   * Polygons with one meaning on the great-circle reading, admitted as
+   * written even where a database reads them differently (point.mdx, "How
+   * each database reads a polygon"): a repeated consecutive vertex is a
+   * zero-length edge, a hole may sit between an edge's straight line and its
+   * arc, a ring may go past a whole turn beside itself, edges may be long and
+   * rings continent-sized or tiny.
    */
   test.each([
     {
@@ -964,8 +856,106 @@ describe("GeoArea validation boundary", () => {
       polygon: { outer: nearPole(89.9999) },
     },
     {
-      name: "a 149-degree edge",
-      polygon: { outer: [point(0, 0), point(149, 0), point(74.5, 20)] },
+      // MySQL's ellipsoid edge leaves the arc by about 0.46 degrees here.
+      name: "a 151-degree edge",
+      polygon: { outer: [point(0, 0), point(151, 0), point(75, 20)] },
+    },
+    {
+      name: "an edge 0.011 degrees short of antipodal",
+      polygon: { outer: [point(0, 0), point(179.989, 0), point(90, 30)] },
+    },
+    {
+      // True area 11.18 steradians, beyond half the globe: PostGIS matched
+      // the whole globe, MySQL the band.
+      name: "the tropics band",
+      polygon: {
+        outer: [
+          point(-170, -30),
+          point(0, -30),
+          point(170, -30),
+          point(170, 30),
+          point(0, 30),
+          point(-170, 30),
+        ],
+      },
+    },
+    {
+      // Each 175-degree edge straddles the great circle of the one across
+      // the band, which it meets only at the antipode of their meeting.
+      name: "a band with two long edges on each side",
+      polygon: {
+        outer: [
+          point(0, -30),
+          point(175, -30),
+          point(-10, -30),
+          point(-10, 30),
+          point(175, 30),
+          point(0, 30),
+        ],
+      },
+    },
+    {
+      name: "a band from 180 to 0 through -90",
+      polygon: {
+        outer: [
+          point(180, -40),
+          point(-90, -40),
+          point(0, -40),
+          point(0, 40),
+          point(-90, 40),
+          point(180, 40),
+        ],
+      },
+    },
+    {
+      // 27% of half the globe; PostGIS read it inside out, MySQL did not.
+      name: "a ring across all three planes",
+      polygon: {
+        outer: [
+          point(8.655_273, -4.888_118),
+          point(9.783_711, -16.851_44),
+          point(-9.977_974, -5.122_148),
+          point(-43.180_112, 0.414_428),
+          point(-57.786_262, -12.058_979),
+          point(-44.864_831, -32.086_311),
+          point(-14.135_991, -40.606_621),
+          point(7.226_503, -34.495_989),
+          point(9.873_38, -44.518_988),
+          point(37.572_842, -71.070_42),
+          point(102.183_743, -63.731_592),
+          point(92.037_682, -46.942_718),
+          point(50.468_332, -31.985_418),
+          point(31.937_986, -23.462_884),
+          point(31.748_745, -18.138_909),
+          point(51.595_083, 4.804_735),
+          point(54.301_739, 29.233_064),
+          point(40.878_021, 45.271_161),
+          point(14.791_082, 25.676_286),
+        ],
+      },
+    },
+    {
+      // Both databases answered 600 of 600 points correctly in 5 rotations.
+      name: "the Pacific",
+      polygon: {
+        outer: [
+          point(120, -50),
+          point(150, -55),
+          point(-170, -60),
+          point(-130, -60),
+          point(-90, -55),
+          point(-75, -40),
+          point(-80, -5),
+          point(-105, 20),
+          point(-125, 45),
+          point(-150, 58),
+          point(175, 55),
+          point(145, 40),
+          point(125, 20),
+          point(115, 0),
+          point(115, -25),
+        ],
+      },
     },
     {
       // The meridian from the first hole's first vertex grazes the second
@@ -1003,13 +993,24 @@ describe("GeoArea validation boundary", () => {
         ],
       },
     },
+    // MySQL answers points within about 1e-6 degrees of a vertex unlike the
+    // sphere, so it misplaces points in rings this small; VibORM judges them
+    // down to its 1e-9-degree resolution, at every latitude.
     {
-      name: "a square 3e-5 degrees across",
-      polygon: { outer: tiny(2.35, 48.85, 3e-5) },
+      name: "a square 1e-5 degrees across on the equator",
+      polygon: { outer: tiny(10, 0, 1e-5) },
     },
     {
-      name: "a square 3e-5 degrees across at latitude 89.9",
-      polygon: { outer: tiny(-120, 89.9, 3e-5) },
+      name: "a square 1e-5 degrees across at latitude 60",
+      polygon: { outer: tiny(10, 60, 1e-5) },
+    },
+    {
+      name: "a square 1e-5 degrees across at latitude 89.9",
+      polygon: { outer: tiny(-120, 89.9, 1e-5) },
+    },
+    {
+      name: "a square 1e-8 degrees across",
+      polygon: { outer: tiny(10, 60, 1e-8) },
     },
     {
       name: "an antimeridian hole in an antimeridian polygon",
