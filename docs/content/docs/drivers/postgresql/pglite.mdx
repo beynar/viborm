@@ -9,6 +9,12 @@ description: Embedded PostgreSQL using WebAssembly
 pnpm add @electric-sql/pglite
 ```
 
+VibORM accepts `@electric-sql/pglite` 0.3, 0.4 and 0.5, and its test estate runs
+0.5.8 (PostgreSQL 18.3). A persistent `dataDir` written by one PostgreSQL major
+does not open under another, so moving an existing database from 0.3 (PostgreSQL
+17) to 0.5 is a dump and restore, not a package bump. The PostGIS and pgvector
+extension packages below pin their exact PGlite version.
+
 ## Configuration
 
 ```typescript
@@ -27,8 +33,8 @@ const client = createClient({
 | `dataDir` | `string` | Data directory for persistence |
 | `options` | `PGliteOptions` | PGlite configuration |
 | `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
-| `pgvector` | `boolean` | Enable pgvector support |
-| `postgis` | `boolean` | Enable PostGIS support |
+| `pgvector` | `boolean` | Assert that the database has pgvector (see [Extensions](#extensions)) |
+| `postgis` | `boolean` | Assert that the database has PostGIS (see [Extensions](#extensions)) |
 
 ### In-Memory Database
 
@@ -103,30 +109,101 @@ Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
 - **Browser**: PostgreSQL in the browser via WASM
 - **Edge**: Serverless functions with embedded database
 
+## Extensions
+
+An extension takes three steps, and each has one owner:
+
+1. **PGlite loads the extension's code.** It is PGlite's own `extensions`
+   option — passed through `options` when the driver makes the database, or
+   given to the `PGlite` you construct yourself.
+2. **You install it in the database**, with `CREATE EXTENSION`. VibORM never
+   installs an extension.
+3. **The driver option tells VibORM it is there** — `postgis: true` or
+   `pgvector: true`. The option is an assertion, not an installer. For
+   PostGIS, live migrations prove the extension's types and functions before
+   their first effect, and refuse when they are missing.
+
+### PostGIS
+
+```bash
+pnpm add @electric-sql/pglite@0.5.8 @electric-sql/pglite-postgis@0.2.8
+```
+
+```typescript
+import { postgis } from "@electric-sql/pglite-postgis";
+import { createClient } from "viborm/pglite";
+
+const client = createClient({
+  schema,
+  options: { extensions: { postgis } },
+  postgis: true,
+});
+await client.$executeRawUnsafe("CREATE EXTENSION IF NOT EXISTS postgis");
+```
+
+Or over a database you construct:
+
+```typescript
+import { PGlite } from "@electric-sql/pglite";
+import { postgis } from "@electric-sql/pglite-postgis";
+import { createClient } from "viborm/pglite";
+
+const pg = new PGlite({ extensions: { postgis } });
+await pg.exec("CREATE EXTENSION IF NOT EXISTS postgis");
+
+const client = createClient({ client: pg, postgis: true, schema });
+```
+
+`@electric-sql/pglite-postgis` 0.2.8 is PostGIS 3.6 and requires
+`@electric-sql/pglite` 0.5.8 exactly. The PostGIS build is a large Wasm bundle
+(about 20 MB unpacked): a database with it loaded takes a few seconds to open.
+
+### pgvector
+
+```typescript
+import { vector } from "@electric-sql/pglite-pgvector";
+import { createClient } from "viborm/pglite";
+
+const client = createClient({
+  schema,
+  options: { extensions: { vector } },
+  pgvector: true,
+});
+await client.$executeRawUnsafe("CREATE EXTENSION IF NOT EXISTS vector");
+```
+
+From PGlite 0.5 pgvector is its own package, `@electric-sql/pglite-pgvector`;
+PGlite 0.3 and 0.4 ship it as `@electric-sql/pglite/vector`.
+
 ## GeoPoint
 
-PGlite enters the full GeoPoint tier only when its concrete build provides a
-real PostGIS payload and the driver is constructed with `postgis: true`. The
-package exercised for this release did not provide that payload, so PGlite is
-not used as GeoPoint qualification evidence. The option alone is an assertion,
-not an extension installer or proof. See [GeoPoint provider
+With PostGIS loaded as above and `postgis: true`, PGlite is in the full GeoPoint
+tier: bounds, polygons, meter distance filtering, `_distance` selection and
+ordering, and GiST spatial indexes, on the same `geography(Point,4326)` column
+the server PostgreSQL drivers use. The same behavior contracts that qualify
+`pg` and postgres.js run on PGlite 0.5.8 with `@electric-sql/pglite-postgis`
+0.2.8 in VibORM's credential-free test estate. Without `postgis: true` a schema
+with `s.point()` is refused at client construction, as on any PostgreSQL
+driver; with the option but without `CREATE EXTENSION`, live migrations refuse
+before their first effect. See [GeoPoint provider
 tiers](/docs/schema/scalars/point#provider-tiers).
 
 ## Transactions
 
 PGlite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
-## Do not benchmark query plans on PGlite
+## Check `enable_seqscan` before benchmarking query plans
 
-**PGlite starts with `enable_seqscan = off`.** It is set on the server's command
-line, not by viborm, and it is not the default a real PostgreSQL server runs
-with:
+**PGlite 0.3 starts with `enable_seqscan = off`.** It is set on the server's
+command line, not by viborm, and it is not the default a real PostgreSQL server
+runs with. PGlite 0.5.8 starts with the ordinary default, `on`:
 
 ```ts
 await client.$queryRawUnsafe(
   "SELECT setting, source FROM pg_settings WHERE name = 'enable_seqscan'"
 );
-// [{ setting: "off", source: "command line" }]   ← PGlite 17.4 (WASM), as shipped
+// [{ setting: "off", source: "command line" }]   ← PGlite 0.3 (PostgreSQL 17.4)
+// [{ setting: "on", source: "default" }]         ← PGlite 0.5.8 (PostgreSQL 18.3)
 ```
 
 With it off the planner charges a sequential scan an enormous cost, so it takes
@@ -150,5 +227,5 @@ unaffected — a plan choice changes the cost, never the rows.
 
 - WASM-based: may have performance overhead for heavy workloads
 - Some PostgreSQL extensions not available
-- `enable_seqscan` is `off` at startup — see the section above before reading any
-  `EXPLAIN` taken here as a statement about production
+- `enable_seqscan` is `off` at startup on PGlite 0.3 — see the section above
+  before reading any `EXPLAIN` taken there as a statement about production
