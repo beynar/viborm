@@ -334,8 +334,8 @@ function ringArcs(
   // Neighbors meet at their shared vertex, which `sweep` excuses, unless
   // one doubles back along the other: such arcs overlap, and the sweep
   // cannot order arcs that overlap.
-  let behind = rest.at(-1) ?? first;
-  for (const arc of arcs) {
+  let behind = first;
+  for (const arc of [...rest, first]) {
     if (onArc(arc.end, behind) || onArc(behind.start, arc)) {
       return fail("A GeoPolygon ring cannot self-intersect", [...path]);
     }
@@ -389,12 +389,31 @@ function meet(first: Arc, second: Arc): boolean {
   );
 }
 
-/** An arc of ring `ring` (0 the outer ring, then the holes) at `index`. */
+/**
+ * One ring of the polygon, and where `sweep` places it among the others:
+ * `around` is the innermost ring around it, `inside` whether it lies inside
+ * the outer ring, `firstAround` and `firstWithin` the first hole around it
+ * and inside it.
+ */
+interface RingNode {
+  /** 0 the outer ring, then the holes. */
+  readonly index: number;
+  /** The ring's index in `holes`, none for the outer ring. */
+  readonly hole: number;
+  readonly points: GeoPoint[];
+  readonly arcs: Ring;
+  readonly counterClockwise: boolean;
+  around: RingNode | undefined;
+  inside: boolean;
+  firstAround: number;
+  firstWithin: number;
+}
+
+/** An arc of `ring` at `index` along it. */
 interface Placed {
   readonly arc: Arc;
-  readonly ring: number;
+  readonly ring: RingNode;
   readonly index: number;
-  readonly count: number;
 }
 
 /**
@@ -558,7 +577,7 @@ function arcEvents(placed: Placed): Event[] {
  * another ring first north of it there, if any.
  */
 interface Placement {
-  readonly ring: number;
+  readonly ring: RingNode;
   readonly north: Stretch | undefined;
 }
 
@@ -574,8 +593,12 @@ type Swept =
  * westernmost meeting, so admission is n log n in the arc count however the
  * arcs lie. At each longitude the arcs starting there enter first; then each
  * arc along that meridian is compared with the arcs crossing its span, found
- * by position, and with the other such arcs overlapping it; then the arcs
- * ending there leave.
+ * by position; then the arcs ending there leave. Two arcs along one meridian
+ * need no comparison of their own: where they meet, one ends on the other,
+ * and the arc continuing its ring from that end crosses the meridian there
+ * (a ring's arcs along one meridian that continue each other end where the
+ * last one does, and a ring doubling back along a meridian is refused in
+ * `ringArcs`), so the walk along the other one meets it.
  *
  * Failing a meeting, where each ring was first met: once the arcs starting
  * on that meridian have entered, the arc north of the ring's northernmost
@@ -601,25 +624,10 @@ function sweep(
     if (apart(first, second) || !meet(first.arc, second.arc)) return;
     return [first, second];
   };
-  // The arcs along the meridian the sweep is on, compared among themselves,
-  // south to north, before it moves on.
-  let column: Upright[] = [];
-  const columnMeeting = (): readonly [Placed, Placed] | undefined => {
-    column.sort((left, right) => left.south[2] - right.south[2]);
-    for (const [index, upright] of column.entries()) {
-      for (const other of column.slice(index + 1)) {
-        if (other.south[2] > upright.north[2] + TOLERANCE) break;
-        const found = meeting(upright.placed, other.placed);
-        if (found) return found;
-      }
-    }
-    column = [];
-    return;
-  };
   const placements: Placement[] = [];
   // Each ring met for the first time on the sweep's meridian, with its
   // northernmost entry there so far.
-  const arrivals = new Map<number, { entry: Entry; west: Vector }>();
+  const arrivals = new Map<RingNode, { entry: Entry; west: Vector }>();
   const placeArrivals = (): void => {
     const arrived = [...arrivals].map(([ring, { entry, west }]) => {
       let next = entry.links[0]?.next;
@@ -630,7 +638,7 @@ function sweep(
     placements.push(...arrived.map(({ ring, north }) => ({ ring, north })));
     arrivals.clear();
   };
-  const met = new Set<number>();
+  const met = new Set<RingNode>();
   for (const [index, event] of events.entries()) {
     if (event.rank === 0) {
       // Park and Miller's generator, fixed seed: a skip list's heights are
@@ -665,12 +673,6 @@ function sweep(
         if (found) return { meeting: found };
         if (dot(entry.stretch.north, upright.north) < -TOLERANCE) break;
         entry = entry.links[0]?.next;
-      }
-      column.push(upright);
-      const next = events[index + 1];
-      if (next?.rank !== 1 || next.longitude !== event.longitude) {
-        const found = columnMeeting();
-        if (found) return { meeting: found };
       }
     } else if (event.slot.entry) {
       const [link] = event.slot.entry.links;
@@ -727,7 +729,7 @@ function signedArea(ring: Ring): number {
  */
 function wound(
   ring: GeoPoint[],
-  counterClockwise: boolean | undefined,
+  counterClockwise: boolean,
   wanted: boolean
 ): GeoPoint[] {
   return counterClockwise === wanted ? ring : ring.reverse();
@@ -735,6 +737,20 @@ function wound(
 
 function ringPath(ring: number): PropertyKey[] {
   return ring === 0 ? ["outer"] : ["holes", ring - 1];
+}
+
+function ringNode(points: GeoPoint[], arcs: Ring, index: number): RingNode {
+  return {
+    index,
+    hole: index === 0 ? Number.POSITIVE_INFINITY : index - 1,
+    points,
+    arcs,
+    counterClockwise: signedArea(arcs) > 0,
+    around: undefined,
+    inside: false,
+    firstAround: Number.POSITIVE_INFINITY,
+    firstWithin: Number.POSITIVE_INFINITY,
+  };
 }
 
 /**
@@ -782,90 +798,79 @@ export function validateGeoPolygon(
       ["outer"]
     );
   }
-  const holes: { readonly points: GeoPoint[]; readonly arcs: Ring }[] = [];
+  const shell = ringNode(polygon.value.outer, outer.value, 0);
+  const holes: RingNode[] = [];
   for (const [index, points] of (polygon.value.holes ?? []).entries()) {
     const hole = ringArcs(points, ["holes", index]);
     if (hole.issues) return hole;
-    holes.push({ points, arcs: hole.value });
+    holes.push(ringNode(points, hole.value, index + 1));
   }
-  const rings = [outer.value, ...holes.map(({ arcs }) => arcs)];
-  const placed = rings.flatMap((arcs, ring) =>
-    arcs.map((arc, index) => ({ arc, ring, index, count: arcs.length }))
+  const placed = [shell, ...holes].flatMap((ring) =>
+    ring.arcs.map((arc, index) => ({ arc, ring, index }))
   );
   // Neighbors along a ring meet at their shared vertex.
   const swept = sweep(
     placed,
     (first, second) =>
       first.ring === second.ring &&
-      [1, first.count - 1].includes(Math.abs(first.index - second.index))
+      [1, first.ring.arcs.length - 1].includes(
+        Math.abs(first.index - second.index)
+      )
   );
   if (swept.meeting) {
     const [first, second] = swept.meeting;
-    const later = ringPath(Math.max(first.ring, second.ring));
+    const later = ringPath(Math.max(first.ring.index, second.ring.index));
     // A bowtie matched both lobes and its crossing point on both databases, a
     // parity reading the docs do not state; a ring going past a whole turn
     // over itself (0 to 400 degrees along a band) split them.
     if (first.ring === second.ring) {
       return fail("A GeoPolygon ring cannot self-intersect", later);
     }
-    return Math.min(first.ring, second.ring) === 0
+    return Math.min(first.ring.index, second.ring.index) === 0
       ? fail("A GeoPolygon hole must be strictly inside its outer ring", later)
       : fail("GeoPolygon holes cannot touch or overlap", later);
   }
-  const counterClockwise = rings.map((ring) => signedArea(ring) > 0);
   // No two rings meet, so where the sweep first met a ring places all of it:
   // inside the ring of the arc north of it when that arc has its ring's
   // interior to the south (a counterclockwise ring's interior is on the left
   // of its arcs), else beside that ring, in the ring around it, which the
-  // sweep placed first. `around` is the innermost ring around each ring;
-  // `firstAround` and `firstWithin` the first hole around it and inside it.
-  const none = Number.POSITIVE_INFINITY;
-  const around: (number | undefined)[] = [];
-  const inOuter: boolean[] = [];
-  const firstAround: number[] = [];
-  const firstWithin: number[] = rings.map(() => none);
+  // sweep placed first.
   for (const { ring, north } of swept.placements) {
     const other = north?.placed.ring;
-    const enclosing =
-      other === undefined || counterClockwise[other] !== north?.eastward
+    const around =
+      other === undefined || other.counterClockwise !== north?.eastward
         ? other
-        : around[other];
-    around[ring] = enclosing;
-    inOuter[ring] =
-      enclosing !== undefined &&
-      (enclosing === 0 || inOuter[enclosing] === true);
-    firstAround[ring] = enclosing
-      ? Math.min(enclosing - 1, firstAround[enclosing] ?? none)
-      : none;
+        : other.around;
+    ring.around = around;
+    ring.inside = around !== undefined && (around.index === 0 || around.inside);
+    ring.firstAround = around
+      ? Math.min(around.hole, around.firstAround)
+      : Number.POSITIVE_INFINITY;
   }
   for (const { ring } of [...swept.placements].reverse()) {
-    const enclosing = around[ring];
-    if (enclosing) {
-      firstWithin[enclosing] = Math.min(
-        firstWithin[enclosing] ?? none,
-        ring - 1,
-        firstWithin[ring] ?? none
+    const { around } = ring;
+    if (around) {
+      around.firstWithin = Math.min(
+        around.firstWithin,
+        ring.hole,
+        ring.firstWithin
       );
     }
   }
-  for (const index of holes.keys()) {
-    if (!inOuter[index + 1]) {
+  for (const { hole, inside, firstAround, firstWithin } of holes) {
+    if (!inside) {
       return fail("A GeoPolygon hole must be strictly inside its outer ring", [
         "holes",
-        index,
+        hole,
       ]);
     }
-    const first = Math.min(
-      firstAround[index + 1] ?? none,
-      firstWithin[index + 1] ?? none
-    );
-    if (first < index) {
-      return fail("GeoPolygon holes cannot touch or overlap", ["holes", index]);
+    if (Math.min(firstAround, firstWithin) < hole) {
+      return fail("GeoPolygon holes cannot touch or overlap", ["holes", hole]);
     }
   }
-  const wide = wound(polygon.value.outer, counterClockwise[0], true);
-  const cut = holes.map(({ points }, index) =>
-    wound(points, counterClockwise[index + 1], false)
+  const wide = wound(shell.points, shell.counterClockwise, true);
+  const cut = holes.map(({ points, counterClockwise }) =>
+    wound(points, counterClockwise, false)
   );
   // An empty and an absent holes list emit the same GeoJSON; one spelling
   // keeps them one validated argument, and so one cache key.

@@ -383,6 +383,19 @@ describe("GeoArea validation boundary", () => {
       issue: { message: selfIntersect, path: ["holes", 0] },
     },
     {
+      // The hole lies between the crossing arcs from where the second one
+      // starts, so the sweep first compares them when the hole leaves it,
+      // at longitude 3.
+      name: "a bowtie whose crossing arcs a hole keeps apart in the sweep",
+      polygon: {
+        outer: [point(1, 2), point(10, 8), point(10, 2), point(1.5, 8)],
+        holes: [
+          [point(1.4, 4.5), point(3, 4.5), point(3, 5.5), point(1.4, 5.5)],
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
       name: "a ring touching itself at a repeated vertex",
       polygon: { outer: [point(0, 0), point(1, 0), point(1, 1), point(1, 0)] },
       issue: { message: selfIntersect, path: ["outer"] },
