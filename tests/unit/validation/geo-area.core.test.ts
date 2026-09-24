@@ -329,11 +329,12 @@ describe("GeoArea validation boundary", () => {
   });
 
   /**
-   * The polygons with no single meaning on the great-circle reading: a ring
+   * The polygons with no single meaning on the great-circle reading (a ring
    * crossing, touching or retracing itself, zero area, a hole not strictly
-   * inside, touching or overlapping holes, a vertex on a pole, an edge too
-   * nearly antipodal to fix its circle, a ring with no side away from both
-   * poles. Each is refused at admission with its path.
+   * inside, touching or overlapping holes) and those outside the codec's
+   * domain choices (a vertex on a pole, an edge too nearly antipodal to fix
+   * its circle, a ring with no side away from both poles). Each is refused at
+   * admission with its path.
    */
   const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
   const wide = [point(0, 0), point(10, 0), point(10, 10), point(0, 10)];

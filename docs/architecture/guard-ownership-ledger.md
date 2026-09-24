@@ -2340,14 +2340,14 @@ plane could not see. Both are refused now, a touch included, as before D2.
 
 **Owner rule (Arnaud, 2026-09-24).** Asked whether to keep refusing
 continent-scale polygons PostGIS misreads: "it seems a postgis issue, not a us
-issue". VibORM's polygon validation refuses only input with NO SINGLE MEANING
-on the great-circle reading (the polygon being the side of its outer ring away
+issue". VibORM's polygon validation refuses input with NO SINGLE MEANING on
+the great-circle reading (the polygon being the side of its outer ring away
 from both poles): self-intersecting or retracing rings, zero area, holes not
 strictly inside, touching, overlapping or nested holes, a hole equal to its
-ring, edges between (near-)antipodal endpoints (the great circle is
-undetermined), a vertex on a pole (within `TOLERANCE`; it has no longitude), a
+ring, walker shape errors; and input outside its stated DOMAIN CHOICES (next
+paragraph): edges between near-antipodal endpoints, a vertex on a pole, a
 ring with no side away from both poles (winding around one, or running over
-both), walker shape errors.
+both), all judged at the resolution `TOLERANCE`.
 It does NOT refuse a valid polygon because a database computes it differently;
 that difference is stated in `docs/content/docs/schema/scalars/point.mdx`
 ("How each database reads a polygon") and CHANGELOG "Geo". Of the table
@@ -2356,6 +2356,36 @@ self-overlap rows are refused; the 340-degree band, the tropics band and the
 three-planes row are valid polygons PostGIS misreads, and the over-the-pole
 row a valid polygon the databases part on only along the edge itself (second
 pass below): all are admitted.
+
+**Domain choices (second PR review, 2026-09-24).** "No single meaning" alone
+overstated the contract: three rules are VibORM's choices, each with its
+reason, stated as such in the codec's header, `point.mdx`, the CHANGELOG and
+both AGENTS.md (Rule 10, and `src/validation/AGENTS.md`), so a future refusal
+needs a reason of this kind, never an "invalid geometry" label:
+
+- Resolution, `TOLERANCE` = 1e-9 degrees (about 0.1 mm). Reason: exact
+  predicates on float64 unit vectors need a margin for rounding, and one
+  fixed margin serves every ring size. Within it a point is on what it
+  touches, so rings closer than it touch (refused) and an edge shorter than
+  it is a repeated vertex (dropped). Measured exact above twice it (the ring
+  size entry below).
+- Near-antipodal edges, `NEAREST_ANTIPODE` = 0.01 degrees. Reason: float
+  rounding of the great circle. Antipodal points lie on every great circle
+  through them, and near the antipode one float64 step of a written
+  coordinate turns the edge's circle by about 3e-12 / d degrees at d degrees
+  from antipodal; from 0.01 degrees out that stays under a third of
+  `TOLERANCE` (the near-antipodal entry below has the measurements).
+- Poles. A vertex within `TOLERANCE` of a pole is on it and has no
+  longitude, so no meridian for its edges (refused). A ring winding around a
+  pole, or running over both, has no side away from both poles, the side
+  VibORM reads as the polygon (refused). An edge whose longitudes differ by
+  exactly 180 degrees between vertices that are not antipodal runs over the
+  pole on its vertices' side (admitted). Reason: the reading chosen, not a
+  database's.
+
+The owner rule holds alongside them: none of the three is a database's
+reading, and a valid polygon is not refused because a database computes it
+differently.
 
 The refused rows are refused in `validateGeoPolygon`, after the record walker
 admitted the shape (so a shape error keeps the walker's message), with the
@@ -2368,7 +2398,7 @@ falsifier on the final codec; the list is at the end of this addendum):
 - Vertex on a pole (`distinctVertices`, `A GeoPolygon ring cannot contain a
   pole`, the pre-D2 sentence, at the vertex; owner-rule second pass,
   2026-09-24). A vertex on a pole has no longitude, so its edges have no
-  meridian to leave it by: no single meaning. The guard refuses a vertex
+  meridian to leave it by: a domain choice (above). The guard refuses a vertex
   within `TOLERANCE` (1e-9 degrees) of a pole, VibORM's own resolution, at
   which a point is on what it touches; nothing about a database sets it.
   Unique coverage: nothing else looks at a vertex's latitude, and a pole

@@ -255,9 +255,15 @@ owns bounds, polygon shape (ordinary records; rings of at least three
 vertices, holes included), conservative distance-cap bounds, and polygon
 ADMISSION geometry: edges are great-circle arcs on the sphere, and a polygon
 with no single meaning (a self-intersecting or zero-area ring, a hole not
-strictly inside its outer ring or touching another, a near-antipodal edge, a
-vertex on a pole, a ring over both poles or winding around one) is refused
-there, after the record walker has accepted its shape. It does not refuse a
+strictly inside its outer ring or touching another) is refused there, after
+the record walker has accepted its shape. So is a polygon outside one of the
+codec's stated DOMAIN CHOICES, each with its reason in the codec's header:
+the resolution `TOLERANCE` (1e-9 degrees, a margin for float rounding), the
+near-antipodal edge `NEAREST_ANTIPODE` (0.01 degrees, where float rounding
+of a written coordinate turns the edge's great circle), and the poles (a
+vertex within `TOLERANCE` of one; a ring winding around a pole or running
+over both). Add no refusal without such a reason; "invalid geometry" is not
+one. It does not refuse a
 valid polygon because a database computes it differently: predicate execution
 is the provider's, and the providers' documented differences (PostGIS on the
 sphere, MySQL on the ellipsoid, PostGIS reference points for rings spanning

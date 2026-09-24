@@ -152,23 +152,33 @@ meaning on that reading:
   further on or goes past a whole turn of longitude over itself, and a ring
   with no area;
 - a hole that is not strictly inside its outer ring, and holes that touch,
-  overlap or nest;
-- an edge whose vertices are within 0.01 degrees of opposite points of the
-  globe: every great circle through one passes through the other, and that
-  close to them the last digit of a coordinate turns the edge's circle by more
-  than VibORM's resolution;
-- a vertex on a pole (within 1e-9 degrees of one), which has no longitude, and
-  a ring winding around a pole or running over both poles, which has no side
-  away from both.
+  overlap or nest.
 
-An edge exactly 180 degrees of longitude long between vertices that are not
-opposite, such as (0, 10) to (180, 20), runs over the pole along their two
-meridians and is accepted; the pole is then on the ring. A vertex off a pole
-is accepted however near it. A repeated consecutive vertex is harmless and
-accepted. Points closer than 1e-9
-degrees (about 0.1 mm) to an edge count as on it, and an edge shorter than that
-is a repeated vertex: that is VibORM's resolution, and a ring of any size above
-it is judged exactly. Use ordinary `OR` for disjoint polygons.
+Three more rules are VibORM's own domain choices, each made for the reason
+given; they are not properties every valid polygon lacks:
+
+- **Resolution: 1e-9 degrees, about 0.1 mm.** Exact tests on floating-point
+  coordinates need a margin for rounding. Within this one a point is on what
+  it touches: rings closer than 1e-9 degrees touch and are refused, and an
+  edge shorter than that is a repeated vertex. Above it, a ring of any size is
+  judged exactly.
+- **Near-antipodal edges: 0.01 degrees.** An edge whose vertices are within
+  0.01 degrees of opposite points of the globe is refused. Every great circle
+  through one passes through the other, and that close to them the last digit
+  of a written coordinate turns the edge's circle by more than a third of the
+  resolution, so the coordinates no longer decide on which side of the edge a
+  point lies.
+- **Poles.** A vertex within the resolution of a pole is on it, has no
+  longitude, and is refused. A ring winding around a pole, or running over
+  both poles, has no side away from both, and is refused. An edge exactly 180
+  degrees of longitude long between vertices that are not opposite, such as
+  (0, 10) to (180, 20), runs over the pole along their two meridians and is
+  accepted; the pole is then on the ring. A vertex off a pole is accepted
+  however near it.
+
+No other geometry is refused, and a valid polygon is never refused because a
+database computes it differently (below). A repeated consecutive vertex is
+harmless and accepted. Use ordinary `OR` for disjoint polygons.
 
 Along a meridian or the equator a great-circle arc is the straight line of
 longitude and latitude; elsewhere it bows toward the nearer pole, by about 0.02

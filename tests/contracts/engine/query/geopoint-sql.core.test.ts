@@ -657,8 +657,9 @@ describe("GeoPoint query lowering", () => {
   /**
    * Each refused input below has no single meaning on the great-circle
    * reading (it crosses or touches itself on the sphere, has zero area, puts
-   * a hole outside or across another, has a vertex on a pole, or joins nearly
-   * antipodal vertices), and is refused at admission before any SQL. The
+   * a hole outside or across another) or falls outside the codec's domain
+   * choices (it has a vertex on a pole, or joins nearly antipodal vertices),
+   * and is refused at admission before any SQL. The
    * admitted ones have one meaning and reach the adapter emission unchanged,
    * rings closed once, even where a database reads them differently
    * (point.mdx, "How each database reads a polygon"). Holes are written

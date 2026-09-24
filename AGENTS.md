@@ -347,8 +347,13 @@ import-free leaf also owns the query-only `GeoBounds`, `GeoPolygon`, and
 `GeoArea` shapes. `geo-point-codec.ts` alone interprets point values, while
 `geo-area-codec.ts` alone interprets bounds, the polygon's shape and its
 admission geometry: VibORM owns the spherical rules that refuse a polygon with
-no single meaning, and the provider owns predicate execution and the documented
-ways its reading differs (never a reason to refuse a valid polygon). Do not
+no single meaning (a crossing, touching or zero-area ring, a hole not strictly
+inside or meeting another) and its stated domain choices (the 1e-9-degree
+resolution, the 0.01-degree near-antipodal edge, a vertex on a pole, a ring
+around a pole or over both), each with its reason in the codec's header; a
+new refusal needs a reason of that kind, never "invalid geometry". The
+provider owns predicate execution and the documented ways its reading
+differs (never a reason to refuse a valid polygon). Do not
 add `x`/`y`, `lat`/`lng`, GeoJSON, configurable SRID, native point overrides,
 ORM point arrays, generic geometry operations, or a second validator.
 

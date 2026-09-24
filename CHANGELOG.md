@@ -318,9 +318,10 @@ is what the databases were measured to answer wrongly or differently.
 - A `GeoPolygon` is checked for its shape first: exactly `outer` and optional
   `holes`, finite in-range vertices, at least three vertices per ring
   (`A GeoPolygon ring needs at least 3 vertices`, kept), all reported by the
-  record walker. Its geometry is checked second, on the great-circle reading,
-  and a polygon is refused only when it has no single meaning there; a valid
-  polygon a database computes differently is admitted (below). Measured with
+  record walker. Its geometry is checked second, on the great-circle reading:
+  a polygon is refused when it has no single meaning there, or when it falls
+  outside one of three stated domain choices (next entry); a valid polygon a
+  database computes differently is admitted (below). Measured with
   VibORM's own predicates on PostGIS 3.6.2 and MySQL 8, PostGIS raises only
   for an edge between antipodal endpoints and answers every other malformed
   polygon silently: a hole reaching outside the outer ring adds its own area,
@@ -339,6 +340,18 @@ is what the databases were measured to answer wrongly or differently.
   pole`, `cannot join vertices within 0.01 degrees of antipodal`), reported
   at the offending vertex (`outer.<j>` or `holes.<i>.<j>`, the vertex ending
   the edge).
+- Three of those refusals are VibORM's own domain choices, each for its
+  stated reason, not properties every valid polygon lacks: the resolution,
+  1e-9 degrees (about 0.1 mm), a fixed margin for floating-point rounding
+  within which a point is on what it touches, so closer rings touch and a
+  shorter edge is a repeated vertex; near-antipodal edges, refused within
+  0.01 degrees of opposite points, where one float64 step of a written
+  coordinate turns the edge's great circle by more than a third of that
+  resolution; and the poles, where a vertex within the resolution of a pole
+  has no longitude, and a ring winding around a pole or running over both
+  has no side away from both, while an edge of exactly 180 degrees of
+  longitude runs over the pole and is admitted. The entries below give
+  each one's figures.
 - A vertex on a pole has no longitude and is refused with `A GeoPolygon ring
   cannot contain a pole`, at the vertex, as before D2; a vertex within 1e-9
   degrees of a pole, VibORM's resolution, counts as on it. A vertex any
@@ -381,8 +394,9 @@ is what the databases were measured to answer wrongly or differently.
   longitude beside itself. SQLite-family providers still refuse polygon
   filtering, now after admission.
 - Admitted, the database's reading stated instead of refused (owner decision,
-  2026-09-24: VibORM refuses a polygon with no single meaning, never a valid
-  one because a database computes it differently; `point.mdx`, "How each
+  2026-09-24: VibORM refuses a polygon with no single meaning, or outside
+  its stated domain choices, never a valid one because a database computes
+  it differently; `point.mdx`, "How each
   database reads a polygon", has the figures and the advice):
   - Rings reaching across the equator, the 0/180 meridian and the 90/-90
     meridian at once, every ring of half the globe or more among them.

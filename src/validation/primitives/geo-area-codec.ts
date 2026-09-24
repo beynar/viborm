@@ -136,15 +136,33 @@ const polygonRecord = object(
  * VibORM reads an edge as the great-circle arc between its vertices, so
  * crossings, touches and containment are judged on the unit sphere, never on
  * straight longitude/latitude lines, and the polygon is the side of its outer
- * ring away from both poles. A polygon is refused only when it has no single
- * meaning on that reading: a ring crossing, touching or retracing itself, a
- * ring of zero area, a hole not strictly inside its outer ring, holes touching
- * or overlapping, a vertex on a pole, which has no longitude, an edge whose
- * vertices are too nearly antipodal to fix its great circle. A valid polygon a
- * database reads differently is admitted: MySQL draws edges on the ellipsoid,
- * PostGIS misreads some rings reaching across all three coordinate planes
- * (docs/content/docs/schema/scalars/point.mdx, "How each database reads a
- * polygon", gives the measured differences).
+ * ring away from both poles.
+ *
+ * Refused as having no single meaning on that reading: a ring crossing,
+ * touching or retracing itself, a ring of zero area, a hole not strictly
+ * inside its outer ring, holes touching or overlapping.
+ *
+ * DOMAIN CHOICES, each made for the reason given, not a property every valid
+ * polygon lacks. A new refusal needs a reason of this kind; "invalid
+ * geometry" is not one.
+ * - Resolution, TOLERANCE (1e-9 degrees): exact tests on float64 vectors need
+ *   a margin for rounding, one for every ring size. Within it a point is on
+ *   what it touches: rings closer than it touch and are refused, and an edge
+ *   shorter than it is a repeated vertex.
+ * - Near-antipodal edges, NEAREST_ANTIPODE (0.01 degrees): nearer to
+ *   antipodal, one float64 step of a written coordinate turns the edge's
+ *   great circle by more than a third of TOLERANCE, so the coordinates do not
+ *   fix the edge; it is refused.
+ * - Poles: a vertex within TOLERANCE of a pole has no longitude, and a ring
+ *   winding around a pole or running over both has no side away from both;
+ *   both are refused. An edge whose longitudes differ by exactly 180 degrees
+ *   runs over the pole on its vertices' side, and is admitted.
+ *
+ * A valid polygon is not refused because a database reads it differently:
+ * MySQL draws edges on the ellipsoid, PostGIS misreads some rings reaching
+ * across all three coordinate planes (docs/content/docs/schema/scalars/
+ * point.mdx, "How each database reads a polygon", gives the measured
+ * differences).
  */
 
 type Vector = readonly [x: number, y: number, z: number];
@@ -899,7 +917,8 @@ function ringNode(points: GeoPoint[], arcs: Ring, index: number): RingNode {
 /**
  * The walker admits the polygon's shape (exact keys, finite in-range
  * vertices, at least three per ring); the geometry then refuses the polygons
- * with no single meaning: each ring alone, then the rings together.
+ * with no single meaning or outside the domain choices (above): each ring
+ * alone, then the rings together.
  */
 export function validateGeoPolygon(
   value: unknown
