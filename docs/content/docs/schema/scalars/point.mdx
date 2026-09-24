@@ -185,7 +185,10 @@ edge, 0.019 at 60, 0.075 at 90, 0.17 at 120 and 0.46 at 150, and not at all
 along the equator or a meridian. A point that close to a long edge can match on
 one database and not the other. Splitting a long edge into shorter ones narrows
 the band with the square of their length; edges of 150 degrees or more are
-refused.
+refused. Whatever the edge length, MySQL also answers some points within about
+1e-6 degrees (about 11 cm) of a vertex differently from PostgreSQL, and its
+spatial index and table scans can disagree there; this is also why a ring must
+be at least 2e-5 degrees across.
 
 SQLite-family providers refuse polygon compilation before cache lookup or
 provider execution.

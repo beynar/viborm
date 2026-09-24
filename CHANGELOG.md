@@ -339,8 +339,16 @@ is what the databases were measured to answer wrongly or differently.
   length, measured by bisection), none along the equator or a meridian, so
   points within that band beside an edge can be answered differently by the two
   databases; edges are refused from 150 degrees on (above), and a long edge
-  split into shorter ones narrows the band with the square of the length. Edges
-  shorter than about 1e-5 degrees MySQL places up to 2e-7 degrees off.
+  split into shorter ones narrows the band with the square of the length.
+  Around every vertex, whatever the edge length, MySQL also answers points
+  within about 1e-6 degrees (about 11 cm) unlike PostgreSQL and the sphere:
+  about 13% of such points in random pentagons with edges of 0.001 to 5
+  degrees (1,240 to 1,332 of about 9,600 per size), none from 1.8e-6 out,
+  PostGIS none; there MySQL's SPATIAL index and table scans can also
+  answer differently (152 points in the review's run, all within 7e-7 of a
+  vertex). In the 0.001-degree square from (10, 40), MySQL matched
+  (10.0009994, 39.9999994), outside, and missed (10.0000006, 40.0009994),
+  inside.
   In the box from (0, 40) to (10, 50) both databases put (5, 40.05) outside and
   (5, 50.05) inside, because the south edge bows north to about latitude
   40.105 and the north edge to about 50.10. So a hole drawn touching or just

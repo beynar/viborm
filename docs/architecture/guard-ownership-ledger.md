@@ -2400,8 +2400,10 @@ on 2026-09-24:
   triangles, concave and thin rings at random places, points a tenth of the
   ring from every edge: 0.4% wrong at 5e-6, 9% at 2e-6, 16-32% at 1e-6,
   34-56% below;
-  PostGIS none) and none of 16,000 at 1.4e-5; its edges of 1e-5 degrees or
-  less sit up to 2e-7 degrees off, those of 2e-5 to 1e-4 within 1e-13. The
+  PostGIS none) and none of 16,000 at 1.4e-5. The cause (review round 4):
+  MySQL answers points within about 1e-6 degrees of any vertex unlike
+  PostGIS and the sphere, whatever the edge length, and a ring a few 1e-6
+  across is all such points. The
   bound is a distance, so a square 1e-9 degrees across is refused at the
   equator and at latitude 60 alike (review M1). A ring of one distinct vertex
   has no arc and falls under the same guard. Witness: the three "a square
@@ -2555,9 +2557,20 @@ is a fraction of the edge (0.08% at 90 degrees, 0.3% at 150) that shrinks with
 the square of the length when an edge is split, and refusing edges long enough
 to show it would refuse ordinary continental polygons; from 150 degrees the
 edge is refused (`LONGEST_EDGE_COSINE`), since MySQL's path then swings
-non-locally near the antipode. Separately, MySQL places edges of 1e-5 degrees
-or shorter up to 2e-7 degrees off (those of 2e-5 to 1e-4 within 1e-13), so
-points that close to a very short edge can also differ.
+non-locally near the antipode. Separately (review round 4, which corrected
+"edges of 1e-5 degrees or shorter sit up to 2e-7 off": that was measured at
+edge midpoints), MySQL answers points within about 1e-6 degrees of any
+vertex unlike PostGIS and the sphere, whatever the edge length: about 13%
+of such points in random pentagons with edges of 0.001, 0.1, 1 and 5
+degrees (1,240 to 1,332 of about 9,600 per size, the review's
+vertexband.mjs, rerun on this lane), none from 1.8e-6 out, PostGIS none;
+MySQL's SPATIAL index and table scans also disagreed on 152 such points,
+all within 7e-7 of a vertex (idxcheck.mjs). Witness of the effect: the
+admitted 0.001-degree square from (10, 40), where MySQL matched
+(10.0009994, 39.9999994), 6e-7 outside, and missed (10.0000006,
+40.0009994), inside. Decision: stated, not refused; it is a fixed 11 cm
+neighbourhood of the vertices, and the ring size bound keeps it from
+covering a whole ring.
 
 **Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
 (`validateRing`). Unique coverage: `closedRing` in

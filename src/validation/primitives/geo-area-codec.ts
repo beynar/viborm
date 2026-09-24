@@ -174,11 +174,13 @@ const RADIANS = Math.PI / 180;
 /** An angle of 1e-9 degrees, about 0.1 mm: a point this near an arc is on it. */
 const TOLERANCE = 1e-9 * RADIANS;
 /**
- * The smallest ring MySQL answers: in rings a few 1e-6 degrees across it put
- * up to 9% of the points 0.1 of the ring away from every edge on the wrong
- * side (PostGIS none), and none of 16,000 in rings 1.4e-5 across. A ring must
- * reach this far, about 2 m, from its first vertex, so that it is at least
- * 1.4e-5 degrees across.
+ * The smallest ring MySQL answers. MySQL answers points within about 1e-6
+ * degrees of any vertex unlike PostGIS and the sphere (about 13% of them, at
+ * every edge length; none from 1.8e-6 out), and in a ring a few 1e-6 degrees
+ * across every point is that near a vertex: it put up to 9% of the points
+ * 0.1 of the ring away from every edge on the wrong side (PostGIS none), and
+ * none of 16,000 in rings 1.4e-5 across. A ring must reach this far, about
+ * 2 m, from its first vertex, so that it is at least 1.4e-5 degrees across.
  */
 const SMALLEST_RING = 2e-5 * RADIANS;
 /**
