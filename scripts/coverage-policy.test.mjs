@@ -395,6 +395,8 @@ test("driver coverage isolates provider resources and admits only audited local 
     "tests/contracts/drivers/error-mapping.provider.test.ts",
     "tests/contracts/drivers/transaction-options-behavior.provider.test.ts",
     "tests/contracts/drivers/transaction-scope-scheduler.provider.test.ts",
+    "tests/providers/local/pglite-postgis-owned.test.ts",
+    "tests/providers/local/pglite-postgis.test.ts",
     "tests/providers/local/pglite-vector.test.ts",
     "tests/providers/local/pglite.test.ts",
   ];
