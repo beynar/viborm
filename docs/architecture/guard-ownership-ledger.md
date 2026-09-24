@@ -2345,13 +2345,17 @@ on the great-circle reading (the polygon being the side of its outer ring away
 from both poles): self-intersecting or retracing rings, zero area, holes not
 strictly inside, touching, overlapping or nested holes, a hole equal to its
 ring, edges between (near-)antipodal endpoints (the great circle is
-undetermined), vertices at or within the pole clearance, walker shape errors.
+undetermined), a vertex on a pole (within `TOLERANCE`; it has no longitude), a
+ring with no side away from both poles (winding around one, or running over
+both), walker shape errors.
 It does NOT refuse a valid polygon because a database computes it differently;
 that difference is stated in `docs/content/docs/schema/scalars/point.mdx`
 ("How each database reads a polygon") and CHANGELOG "Geo". Of the table
-above, the pole, bowtie, retracing, antipodal, hole and self-overlap rows are
-refused; the 340-degree band, the tropics band and the three-planes row are
-valid polygons PostGIS misreads, and are admitted.
+above, the pole vertex, pole winding, bowtie, retracing, antipodal, hole and
+self-overlap rows are refused; the 340-degree band, the tropics band and the
+three-planes row are valid polygons PostGIS misreads, and the over-the-pole
+row a valid polygon the databases part on only along the edge itself (second
+pass below): all are admitted.
 
 The refused rows are refused in `validateGeoPolygon`, after the record walker
 admitted the shape (so a shape error keeps the walker's message), with the
@@ -2361,31 +2365,95 @@ the witness that goes red without it (`geo-area.core.test.ts` "refuses
 falsified one at a time on 2026-09-24 (the owner-rule pass re-ran every
 falsifier on the final codec; the list is at the end of this addendum):
 
-- Vertex near a pole (`POLE_CLEARANCE`, `A GeoPolygon vertex must be at
-  least 1e-4 degrees from a pole`, at the vertex; review round 4 widened the
-  exact-pole guard, `A GeoPolygon ring cannot contain a pole`, which it
-  replaces). A vertex on the pole has no longitude (PostGIS drew its edges
-  along meridians, MySQL matched the equator and the opposite pole); an edge
-  between two vertices a few 1e-6 degrees from a pole passes every other
-  check, and MySQL (from 3e-6 degrees down) and PostGIS (from 6e-7 down, its
-  answer changing with the query plan) answered points 70 degrees from such
-  rings wrongly, none of about 1,500 rings from 5.6e-6 out (the review's
-  nearpole2/3 runs over five seeds and this lane's two over 1e-4.5 to
-  1e-2). Neither the exact-pole test nor the wrap test sees such an edge.
-  Witness: "a north pole vertex", "a south pole vertex", "an edge between
-  two vertices 1e-7 degrees from the south pole" (MySQL), "… 1e-6 degrees
-  from the north pole" (PostGIS); admitted "edges between vertices 1e-4
-  degrees from the north pole" (both databases answered 600 of 600 points
-  correctly, on table and index scans). Under the owner rule this stays as
-  listed ("vertices at or within the pole clearance"); note that the 1e-4
-  value itself is the databases' measured clearance, not a VibORM
-  resolution: the only VibORM-side fact is the pole vertex's missing
-  longitude.
-- Exactly 180 degrees of longitude (at the vertex ending the edge): the edge
-  has no short way round; it joins antipodal endpoints, which PostGIS raises
-  for, or runs over a pole, where the databases part (table), however short.
-  Witness: "a 180-degree edge", "a 180-degree closing edge" (20 degrees long,
-  over the north pole), "a 180-degree edge over the pole", "… hole edge".
+- Vertex on a pole (`distinctVertices`, `A GeoPolygon ring cannot contain a
+  pole`, the pre-D2 sentence, at the vertex; owner-rule second pass,
+  2026-09-24). A vertex on a pole has no longitude, so its edges have no
+  meridian to leave it by: no single meaning. The guard refuses a vertex
+  within `TOLERANCE` (1e-9 degrees) of a pole, VibORM's own resolution, at
+  which a point is on what it touches; nothing about a database sets it.
+  Unique coverage: nothing else looks at a vertex's latitude, and a pole
+  vertex passes the wrap and antipode tests. Witness: "a north pole vertex",
+  "a south pole vertex", "a hole vertex on a pole", "a vertex within 1e-9
+  degrees of a pole" (5e-10 degrees; unit and SQL); admitted "a vertex 1.5e-9
+  degrees from a pole". Falsifiers: guard off, 7 red; bound at `TOLERANCE /
+  10`, 2 red (the 5e-10 cells); the retired 1e-4 bound, 7 red (the
+  admissions below).
+- Retired (owner rule, second pass, 2026-09-24): the pole clearance
+  (`POLE_CLEARANCE`, `A GeoPolygon vertex must be at least 1e-4 degrees from
+  a pole`, review round 4). Why it is not VibORM's to refuse: a vertex off
+  the pole has a longitude, and its ring one meaning; the 1e-4 was the
+  databases' measured clearance, MySQL answering points 70 degrees from
+  rings with two consecutive vertices within about 3e-6 degrees of a pole
+  wrongly, PostGIS from about 6e-7 (its answer changing with the query
+  plan), none of about 1,500 rings from 5.6e-6 out. Stated in `point.mdx`
+  and the CHANGELOG. VibORM's own geometry was measured there rather than
+  assumed: against 60-digit gnomonic geometry taken from the pole (great
+  circles as straight lines; this lane's geo-pole/oracle.mjs, probe.mjs),
+  random rings with vertices 3e-9 to 3.5e-4 degrees from either pole (stars,
+  shuffled rings, rings with holes, rings over the pole), every ring whose
+  edges and clearances exceed twice `TOLERANCE` was judged exactly: verdict,
+  message and winding (seeds and counts in the second-pass falsifier
+  paragraph at the end). Removing the clearance exposed one precision loss,
+  fixed with it: `signedArea` added each south-branch arc's lune (tens of
+  degrees) into the same sum as its triangle, and a ring 1e-7 degrees from
+  the south pole, about 1e-18 steradians, lost its sign to their rounding
+  (wound inside out); the lunes' longitudes now telescope along each run of
+  such arcs, so a ring near the south pole adds exactly none. Its witnesses
+  flip to admissions asserting the value: "an edge between two vertices
+  1e-7 degrees from the south pole", "edges between vertices 1e-6 degrees
+  from the north pole" (unit and SQL), "… 1e-8 …", and "a counterclockwise
+  triangle 1e-7 degrees from the south pole" (red with the lunes summed in
+  the triangle sum, as before, and with them summed arc by arc apart from
+  it).
+- Retired (owner rule, second pass, 2026-09-24): the exact-180-degree edge
+  (`A GeoPolygon edge cannot span exactly 180 degrees`). Why it is not
+  VibORM's to refuse: an edge whose longitudes differ by exactly 180 degrees
+  and whose endpoints are not antipodal lies on one great circle, the
+  meridian plane, and runs over the pole on the side of its endpoints' mean
+  latitude: one meaning. Its antipodal case, (0,0) to (180,0), is refused by
+  `NEAREST_ANTIPODE` below, which covers every such edge within 0.01 degrees
+  of antipodal. The databases read it the same off the edge: 8 named rings
+  over a pole and 140 random ones (5 to 80 degrees from the pole, both
+  poles, PGlite + PostGIS and MySQL 8, table and index scans, about 118,000
+  points at least 0.01 degrees from every edge; geo-pole/dbpole.mjs, seeds
+  4242 and 777) gave no wrong answer on PostGIS and one on MySQL, a point
+  0.02 degrees from a long non-meridian edge, inside MySQL's ellipsoid band;
+  on the edge itself they part (PostGIS matched (0,50), (180,60) and the
+  pole on the edge from (0,10) to (180,20), MySQL did not; the table row
+  above, (0,80), is such a point). Stated in `point.mdx` and the CHANGELOG.
+  Its witnesses flip: "a 180-degree edge" becomes "a 180-degree edge between
+  antipodal vertices" (`NEAREST_ANTIPODE`, unit and SQL); "a 180-degree
+  closing edge" and "… edge over the pole" are admitted as "a closing edge
+  over the north pole" (unit and SQL) and "an edge over the pole between two
+  latitude-10 vertices"; "… hole edge" is "a hole with an edge over the
+  pole", refused as outside its square. New admissions asserting the value:
+  "an edge over the north pole" ((0,10) to (180,20)), "an edge over the
+  south pole", "a hole by the pole inside a ring over it" (unit and SQL), "a
+  ring over the pole across the antimeridian", "a hole 1e-4 degrees from the
+  pole inside a ring over it", "a hole on the meridian where an edge over the
+  south pole ends". Falsifier: the refusal restored, 21 red.
+- An edge over a pole, the geometry (not guards; second pass): the arc keeps
+  its great circle (`Arc.pole` names the pole), goes round whichever way
+  leaves the ring no turn (`ringArcs`: `turn` counts the ring's wraps with
+  the edge as written, and the edge takes the other way when that cancels
+  them; red without it: "a ring over the pole across the antimeridian", "a
+  hole over the pole its outer ring runs over"), and enters the sweep as a
+  walk along each of its meridians from its vertex to the pole with a
+  stretch at the pole between them, beyond every other arc crossing those
+  longitudes (`polarEvents`). The stretch leaves before the stretches
+  starting on its last meridian enter: left last, it sorted a south-pole
+  edge below them and placed the hole starting there in the wrong ring
+  ("a hole on the meridian where an edge over the south pole ends", red;
+  also red with no polar events at all). `apart` excuses an arc from itself,
+  which its walk finds as its own stretch (14 red without it).
+- Ring over both poles (the second-pole test in `ringArcs`, `A GeoPolygon
+  cannot contain a pole`, at the ring): neither side is away from both
+  poles, and no way round leaves the ring no turn. Unique coverage: the
+  ring may wind zero times and cross nothing (it is simple), so neither the
+  wrap test nor the sweep refuses it. Witness: "a ring over both poles" (red
+  without it). A ring over one pole twice needs no test of its own: its two
+  edges cross at the pole, which the sweep finds ("a ring over one pole
+  twice", refused as self-intersecting with the test off).
 - Retired (owner rule, 2026-09-24): the edge of 150 degrees or more
   (`LONGEST_EDGE_COSINE`, `A GeoPolygon edge must be shorter than 150
   degrees`, review round 3). Why it is not VibORM's to refuse: an edge short
@@ -2420,7 +2488,10 @@ falsifier on the final codec; the list is at the end of this addendum):
 - Ring winding around a pole (`wrap !== 0` in `ringArcs`): the ring encloses a
   pole, so it has no side away from both poles, the side VibORM reads as the
   polygon (`signedArea` and the sweep's placement read the area on the
-  pole-free side). Witness: "a ring winding around a pole".
+  pole-free side). This is VibORM's own ambiguity, which side is inside, not
+  a database's reading, so it stays under the owner rule. Witness: "a ring
+  winding around a pole", "a ring over a pole winding around the other"
+  (the turn left after the edge over the pole takes either way).
 - Self-intersection (two non-neighbor arcs meet, found by `sweep`): an
   asymmetric bowtie has area and passes the rest. Witness: "a bowtie", "a
   bowtie hole", "a ring touching itself at a repeated vertex", "a ring past a
@@ -2504,8 +2575,10 @@ falsifier on the final codec; the list is at the end of this addendum):
   cover less than half the globe`), subsumed by the three-planes rule in
   review round 3 and not restored with its retirement: a pole-free ring
   larger than half the globe has one meaning.
-- Hole escaping its outer ring, meeting arm (`ringsMeet`): any crossing or
-  touch, including a hole written against a straight parallel edge. Witness:
+- Hole escaping its outer ring, meeting arm (`sweep`'s meeting, reported as
+  a hole outside when the lower ring index of the two arcs is the outer
+  ring's, `validateGeoPolygon`): any crossing or touch, including a hole
+  written against a straight parallel edge. Witness:
   "a hole crossing the outer ring", "… bridging a notch …", "… whose edges
   cross an outer notch", the three "a hole touching …"/"along an outer edge"
   cells, "a hole equal to its outer ring", "a hole touching a parallel edge in
@@ -2676,6 +2749,22 @@ the meridian walk off, 8; the comparison on leaving off, 1; the antipode
 test in `crosses` off, 3; the outside arm off, 3; `firstAround` off, 2;
 `firstWithin` off, 2; the orientation rule inverted, 17; the plain cross
 product, 1; winding off, 2; repeated vertices kept, 6.
+
+Second pass (owner rule applied to the pole clearance and the exact-180
+edge, 2026-09-24; the file copied aside, mutated, the two geo files run,
+restored from the copy; this lane's geo-pole/falsify.py): pole-vertex guard
+off, 7 red; its bound at `TOLERANCE / 10`, 2; the 1e-4 clearance restored,
+7; the exact-180 refusal restored, 21; no turn choice over a pole, 2; the
+both-poles test off, 1; no polar events, 1; the polar stretch leaving last,
+1; lunes in the triangle sum, 1; lunes summed arc by arc, 1; an arc not
+excused from itself, 14. Oracle runs on the final codec
+(geo-pole/probe.mjs against 60-digit gnomonic geometry from the pole, seeds
+301-306, 150 per kind): 6,190 polygons judged, 3,193 admitted and 2,997
+refused, 0 wrong in verdict, message or winding; 1,664 with a clearance
+within twice `TOLERANCE` left out. Kinds: stars, shuffled rings and rings
+with holes 3.5e-9 to 3.6e-4 degrees from either pole; rings over a pole
+(small, shuffled, with holes by the pole) 3.5e-9 to 1.1e-4 degrees from it
+and 0.02 to 81.6 degrees from it.
 
 **Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
 (`validateRing`). Unique coverage: `closedRing` in

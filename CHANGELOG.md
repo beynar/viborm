@@ -331,24 +331,21 @@ is what the databases were measured to answer wrongly or differently.
   GeoPolygon ring cannot self-intersect` (a crossing or touching ring,
   including one that repeats a vertex further on or goes past a whole turn
   over itself), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
-  edge cannot span exactly 180 degrees`, `A GeoPolygon cannot contain a pole`
-  (a ring winding around one), `A GeoPolygon hole must be strictly inside its
-  outer ring` and `GeoPolygon holes cannot touch or overlap`. Each is reported
-  at its ring (`outer` or `holes.<i>`), except the edge and vertex refusals
-  (`cannot span exactly 180 degrees`, `cannot join vertices within 0.01
-  degrees of antipodal`, `must be at least 1e-4 degrees from a pole`),
-  reported at the offending
-  vertex (`outer.<j>` or `holes.<i>.<j>`, the vertex ending the edge).
-- A vertex closer than 1e-4 degrees (about 11 m) to a pole is refused with `A
-  GeoPolygon vertex must be at least 1e-4 degrees from a pole`, at the vertex;
-  it replaces `A GeoPolygon ring cannot contain a pole`, which refused only a
-  vertex on the pole. With two consecutive vertices a few 1e-6 degrees from a
-  pole, MySQL (from 3e-6 degrees down) and PostGIS (from 6e-7 down) answered
-  points 70 degrees from the ring wrongly: in the ring from (-60, -89.9999999)
-  east to (120, -89.9999999) and back along latitude -60, MySQL matched
-  (30, 70) and missed (30, -70), and PostGIS's answer changed with its query
-  plan on another. None of about 1,500 such rings from 5.6e-6 degrees out was
-  answered wrongly.
+  ring cannot contain a pole` (a vertex on a pole), `A GeoPolygon cannot
+  contain a pole` (a ring winding around one, or running over both), `A
+  GeoPolygon hole must be strictly inside its outer ring` and `GeoPolygon
+  holes cannot touch or overlap`. Each is reported at its ring (`outer` or
+  `holes.<i>`), except the vertex and edge refusals (`ring cannot contain a
+  pole`, `cannot join vertices within 0.01 degrees of antipodal`), reported
+  at the offending vertex (`outer.<j>` or `holes.<i>.<j>`, the vertex ending
+  the edge).
+- A vertex on a pole has no longitude and is refused with `A GeoPolygon ring
+  cannot contain a pole`, at the vertex, as before D2; a vertex within 1e-9
+  degrees of a pole, VibORM's resolution, counts as on it. A vertex any
+  further off is admitted, however near (the databases' reading of such
+  rings is below). A ring winding around a pole, or running over both poles,
+  has no side away from both and is refused with `A GeoPolygon cannot
+  contain a pole`.
 - The geometry reads each edge as PostgreSQL does, as the great-circle arc
   between its vertices on the sphere, not as a straight line of longitude and
   latitude. MySQL reads the edge on the ellipsoid instead: its edge leaves the
@@ -417,6 +414,24 @@ is what the databases were measured to answer wrongly or differently.
     (0.4% at 5e-6, 9% at 2e-6, 16 to 32% at 1e-6, 34 to 56% below) and none
     of 16,000 in rings 1.4e-5 across; PostGIS answered all of them. `A
     GeoPolygon ring must be at least 2e-5 degrees across` is gone.
+  - Vertices near a pole. With two consecutive vertices a few 1e-6 degrees
+    from a pole, MySQL (from about 3e-6 degrees down) and PostGIS (from about
+    6e-7 down) answered points 70 degrees from the ring wrongly: in the ring
+    from (-60, -89.9999999) east to (120, -89.9999999) and back along latitude
+    -60, MySQL matched (30, 70) and missed (30, -70), and PostGIS's answer
+    changed with its query plan on another. None of about 1,500 such rings
+    from 5.6e-6 degrees out was answered wrongly. `A GeoPolygon vertex must
+    be at least 1e-4 degrees from a pole` is gone.
+  - An edge 180 degrees of longitude long between vertices that are not
+    antipodal, such as (0, 10) to (180, 20): it lies on one great circle and
+    runs over the pole on its vertices' side, the pole on the ring. Both
+    databases read it so away from the edge (8 named and 140 random such
+    rings, about 118,000 points at least 0.01 degrees from every edge: none
+    wrong on PostGIS, one on MySQL, inside its ellipsoid band beside another
+    edge); on the edge itself they part: PostGIS matched (0, 50), (180, 60)
+    and the pole on the edge from (0, 10) to (180, 20), MySQL did not, and
+    for (0, 10) to (180, 10) they answered (0, 80) differently. `A
+    GeoPolygon edge cannot span exactly 180 degrees` is gone.
 - An edge whose end lies within 0.01 degrees of its start's antipode is
   refused with `A GeoPolygon edge cannot join vertices within 0.01 degrees of
   antipodal`, at the vertex ending it: two antipodal points lie on every great
@@ -424,17 +439,17 @@ is what the databases were measured to answer wrongly or differently.
   written coordinate turns the edge's circle by up to about 3e-12 / d degrees
   at d degrees from antipodal (3.1e-9 at 0.001, 3.0e-10 at 0.01, over 2,000
   random edges per distance), so nearer than 0.01 the written coordinates do
-  not fix the edge to VibORM's 1e-9-degree resolution. `A GeoPolygon edge
-  cannot span exactly 180 degrees` stays for edges 180 degrees of longitude
-  long however short: such an edge runs over a pole, where its direction is
-  undetermined (the two databases answered (0, 80) differently for (0, 10) to
-  (180, 10)), or joins antipodal endpoints, which PostGIS raises for.
+  not fix the edge to VibORM's 1e-9-degree resolution. An edge between
+  exactly antipodal endpoints, such as (0, 0) to (180, 0), which PostGIS
+  raises for, is refused by it.
 - Points within 1e-9 degrees, about 0.1 mm, of an edge count as on it, and an
   edge shorter than that is a repeated vertex. That is VibORM's resolution at
   every ring size: against 60-digit geometry on 9,000 random rings 1e-9 to
   1e-4 degrees across, every ring whose edges and clearances exceed twice it
   was judged exactly (4,048 simple rings admitted with the right winding,
-  2,135 crossing ones refused). A ring whose vertices all lie within it of
+  2,135 crossing ones refused), and so was every one of 6,190 polygons with
+  vertices 3.5e-9 to 3.6e-4 degrees from a pole, over it or with holes by
+  it. A ring whose vertices all lie within it of
   one another, one distinct vertex included, is refused with `A GeoPolygon
   ring must have non-zero area`. Cross products are taken from vertex
   differences, so a 1e-7-degree bowtie inside a larger ring is refused at any
