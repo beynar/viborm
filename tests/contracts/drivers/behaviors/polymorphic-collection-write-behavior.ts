@@ -546,6 +546,34 @@ export function runPolymorphicCollectionWriteBehavior(
         },
       });
 
+      // A batch-only substrate refuses a nested createMany with skipDuplicates
+      // before any write (Raptor 3 has no member rollback region there; the
+      // same refusal D1 pins), so the first membership is left as it was.
+      if ("pgliteMode" in options && options.pgliteMode === "atomicBatch") {
+        const before = await bookMembers();
+        await expect(
+          client.shelf.update({
+            where: shelfWhere("right"),
+            data: {
+              items: {
+                createMany: [
+                  {
+                    type: "book",
+                    data: [
+                      { region: "eu", isbn: "111", title: "Book one" },
+                      { region: "eu", isbn: "111", title: "Book one" },
+                    ],
+                    skipDuplicates: true,
+                  },
+                ],
+              },
+            },
+          })
+        ).rejects.toMatchObject({ code: "V5001" });
+        expect(await bookMembers()).toEqual(before);
+        return;
+      }
+
       await client.shelf.update({
         where: shelfWhere("right"),
         data: {

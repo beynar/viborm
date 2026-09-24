@@ -70,9 +70,16 @@ const [user, post] = await client.$transaction([
 ]);
 ```
 
-Every operation in this array must be statically batchable. A dynamic record
-series is refused before the batch is submitted because `$transaction([...])`
-promises one atomic commit.
+Every operation in this array must be plannable up front. That includes a
+relation-bearing `createMany` whose members read nothing another member wrote,
+and a nested create whose parent key the database generates: the whole array
+commits together, and if any statement fails — a later member of a record
+series included — nothing in the array is written.
+
+A record series whose later member must read what an earlier member wrote (for
+example a `connectOrCreate` on a row the first member creates) cannot be planned
+into one batch. It is refused with a `TransactionError` (`V5001`) before the
+batch is submitted, because `$transaction([...])` promises one atomic commit.
 
 ### Interactive transactions
 
@@ -88,17 +95,18 @@ await client.$transaction(async (tx) => {
 
 ### Relation-bearing bulk writes
 
-Root `createMany` and `updateMany` calls whose records write relations need
-left-to-right decisions. Nested relation-bearing `createMany` and `updateMany`
-can need the same pause at their exact position in a record tree. Outside
-`$transaction([...])`, D1 executes supported series as **ordered committed
-segments**:
+Outside `$transaction([...])`, a relation-bearing `createMany` or `updateMany`
+runs its members left to right and can take several D1 batches, as **ordered
+committed segments** (what goes into one batch is described under
+[nested writes and failures per driver](/docs/drivers#nested-writes-and-failures-per-driver)).
+A nested relation-bearing `createMany` or `updateMany` runs at its exact
+position in the record tree:
 
 - one submitted segment batch is atomic;
 - a later member observes earlier committed members;
 - successful results match transaction-capable drivers;
 - if a later segment fails, earlier segments stay committed;
-- the error reports the exact durable prefix;
+- the error reports the durable prefix;
 - VibORM never retries an already committed prefix.
 
 ```ts
@@ -119,9 +127,7 @@ try {
     //   phase: "member",
     //   committedSegments: 1,
     //   completedMembers: 1,
-    //   committedWriteMembers: 1,
-    //   memberPath: [1],
-    //   totalMembers: 2
+    //   committedWriteMembers: 1
     // }
   }
 }
@@ -129,31 +135,23 @@ try {
 
 `completedMembers` is the completed input prefix.
 `committedWriteMembers` counts members whose user-table writes are durable.
-`committedSegments` counts committed D1 batches. The `phase` says whether the
-failure happened during capture, planning, an enclosing prefix, a member, an
-enclosing suffix, the final result read, or cache invalidation.
+`committedSegments` counts committed D1 batches.
 
-This progressive route applies to root relation-bearing `createMany` and
-`updateMany`. A nested relation-bearing `createMany` or `updateMany` also runs
-at its exact tree position when VibORM can re-assert the complete parent row or
-relation membership inside every later write batch.
+When mutation-cache invalidation fails after a member has committed, the series
+stops there and the client raises `CacheConfigurationError` (`V10004`) with
+`meta.commitCertainty: "committed"`; the later members are not attempted.
 
-For one inserted row with a database-generated integer key, the D1 driver
-normalizes the binding's official `meta.last_row_id` as that statement's
-generated identity. A later segment can therefore use the concrete key. VibORM
-never derives a range of generated keys from it and never assumes adjacent
-values for a multi-row insert.
+A `createMany` with `skipDuplicates: true` that is relation-bearing, or nested
+under another `create` or `update` (a scalar or many-to-many one included), is
+refused with a `TransactionError` (`V5001`) before any D1 call: skipping a
+member needs a rollback region that D1's batch-only transport does not have. A
+root scalar `createMany` with `skipDuplicates` is unaffected: a colliding row is
+skipped and `count` reports the rows written.
 
-The following shapes remain unavailable:
-
-- a relation-bearing `createMany` member with a write or nested series before
-  its skippable root, because a root conflict would leave that earlier effect
-  committed. A root-first member is supported: VibORM isolates the root batch
-  and dispatches no descendants when it skips;
-- a nested series whose compiler cannot provide an exact complete-parent and
-  membership guard. It is refused before the containing member writes. Earlier
-  progressive root members can already be committed and are reported;
-- any dynamic record series inside explicit `$transaction([...])`.
+A database-generated integer key reaches the statements that need it through a
+scratch table inside the same batch (see below), and a later segment binds the
+concrete key. VibORM never derives a range of generated keys from
+`meta.last_row_id` and never assumes adjacent values for a multi-row insert.
 
 Scalar bulk operations and other statically planned nested writes continue to
 use one atomic D1 batch. Inside that batch, a splittable `createMany` statement
@@ -162,13 +160,34 @@ budget. The same applies to a many-to-many `connect`/`set` junction insert over
 an already captured target-key list. The complete operation still succeeds or
 rolls back as one D1 batch.
 
+### The `__viborm_batch_refs` table
+
+A batch that carries a value one statement produced into a later statement —
+a generated parent key, typically — stores it in a scratch table. On other
+SQLite drivers that table is `TEMP` and never enters the database file. D1
+refuses temporary objects, so on D1 it is an ordinary table,
+`__viborm_batch_refs`, created by the first batch that needs it and kept:
+
+- it is empty between batches — each batch deletes the rows it stored, keyed by
+  its own batch id, before it ends, and a failed batch rolls them back;
+- VibORM's SQLite introspection leaves it out of the snapshot, so a `diff`
+  over a database file that holds it does not plan its drop (introspection over
+  the D1 binding itself does not run yet, see Migrations below);
+- dropping it while no request is running is harmless: the next batch that
+  needs it creates it again.
+
 ### Migrations
 
-Migration V1 permits offline generation and read-only inspection on D1, but
+Migration V1 admits offline generation and read-only commands on D1, and
 refuses every effectful `push`, `apply`, `down`, `reset`, and `verify` command
-before SQL. D1's native batch alone does not prove table recreation, foreign-key
-handling, migration locking, and marker compare-and-swap together. Apply live
-schema changes with `wrangler d1 migrations` instead.
+before SQL. D1's native batch alone does not prove table recreation,
+foreign-key handling, migration locking, and marker compare-and-swap together.
+Apply live schema changes with `wrangler d1 migrations` instead.
+
+Live introspection over the D1 binding does not work yet: D1 lists its internal
+`_cf_METADATA` table in `sqlite_master` and refuses `PRAGMA table_info` on it
+(`SQLITE_AUTH`), so a read-only command that introspects the database fails
+with a `QueryError`.
 
 ## Capabilities
 
@@ -180,8 +199,6 @@ the full comparison.
 ## Limitations
 
 - Operations inside `$transaction([...])` cannot read sibling results.
-- Nested dynamic writes require an exact compiler-provided parent/membership
-  guard; shapes that cannot provide one reject.
 - Only available in Cloudflare Workers
 - SQLite dialect - no `LATERAL` joins, limited `FULL OUTER JOIN`
 - JSON columns are parsed automatically

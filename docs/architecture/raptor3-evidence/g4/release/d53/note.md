@@ -96,6 +96,31 @@ drivers on the batch route (Neon HTTP, D1) are genuinely sessionless. It is not
 harmless for the FIXTURES, which are SQLite drivers forced onto the batch
 route; §5 measures exactly how much.
 
+### Addendum, 2026-09-24 — a fourth fact: temporary objects
+
+D1's authorizer refuses `CREATE TEMP TABLE` with `SQLITE_AUTH`, and rejects the
+whole batch that carries it, so the D-50 scratch cannot be a temporary on D1.
+TEMPORARY OBJECTS is therefore a transport fact next to the three above. It is
+not a driver property the engine reads: the driver passes it to the adapter it
+builds, and the adapter spells the scratch DDL from it. The engine reads nothing
+new and keeps D-58 (every unit stores, reads back and deletes its own rows
+inside its own batch).
+
+| driver | temporary objects | where the fact is stated | witness |
+| --- | --- | --- | --- |
+| `d1` | **refused** — scratch is an ordinary `CREATE TABLE IF NOT EXISTS` in `main`, persisting and empty between batches | `new SQLiteAdapter({ temporaryObjects: false })`, `src/drivers/d1/index.ts` | **pinned** on the Workers runtime's local D1 (`tests/providers/workers/d1.test.ts`: the generated-parent write that crosses the scratch, and the persisting, emptied table), not on hosted D1; spelling pinned by `tests/contracts/drivers/sqlite-temporary-objects.core.test.ts` |
+| `sqlite3`, `libsql`, `bun-sqlite` | admitted — the adapter default (`CREATE TEMP TABLE`) | `new SQLiteAdapter()` | spelling pinned by the same contract file; a nested write runs in one interactive transaction and never created the scratch (probed on sqlite3 and libsql, 2026-09-24) |
+| `neon-http` | admitted — the PostgreSQL adapter spells `CREATE TEMP TABLE` | the adapter, unconditionally | **unqualified** — the Neon-shaped fixture is better-sqlite3, so it witnesses SQLite's TEMP, not Neon's; no live run (`NEON_TEST_DATABASE_URL` unset here) |
+| every other driver | n/a — one interactive transaction | — | — |
+
+The d1 commit-certainty cell above does not move. The D1 lane's
+segment-progress cells check that the reported `committedSegments` matches the
+durable rows, but they do not witness `supportsOrderedCommittedSegments`: with
+the flag set to `false`, only "executes a native batch in order and publishes
+its commit to the next batch" fails and the progress cells stay green
+(measured 2026-09-24). §7's "Unverified: `d1`'s
+`supportsOrderedCommittedSegments = true`" stands.
+
 ---
 
 ## 3. The pins

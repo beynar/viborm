@@ -51,6 +51,7 @@ const providerHeavyCoreContracts = new Set([
   "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
   "tests/contracts/drivers/provider-result-contracts.core.test.ts",
   "tests/contracts/drivers/sqlite-binary-values.core.test.ts",
+  "tests/contracts/drivers/sqlite-temporary-objects.core.test.ts",
   "tests/contracts/drivers/supplied-pool-ownership.core.test.ts",
   "tests/contracts/drivers/transaction-lifecycle.core.test.ts",
   "tests/contracts/drivers/transaction-options-behavior.core.test.ts",

@@ -75,7 +75,7 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | mysql2, planetscale | one interactive transaction (planetscale: single-shard) | nothing is committed; the error names the failing statement | 65 535 | shared transport code |
 | sqlite3, libsql, bun-sqlite | one interactive transaction | nothing is committed; the error names the failing statement | 999 | live on `better-sqlite3`; the other two share the same transport code |
 | neon-http | atomic batches, one per segment; a write that must observe its own earlier writes takes several, each committed as it completes, and a generated key crosses from one batch to the next as a literal | the whole batch is rejected; earlier batches of the same write stay committed and the error reports `committedSegments` — or `mayHaveCommittedSegment` when the batch's outcome could not be confirmed | 65 535 | on a Neon-shaped fixture (batch-only, no session between requests); the live Neon suite is credential-gated on `NEON_TEST_DATABASE_URL` and was not run for this release |
-| d1 | as neon-http | as neon-http; d1 declares an exact acknowledged prefix, unwitnessed here | 100 | on the same fixture, and on the Workers runtime's own local D1 (`tests/providers/workers/d1.test.ts`, project `provider-d1`); no hosted Cloudflare D1 run |
+| d1 | as neon-http; D1 refuses temporary objects, so the scratch a generated key crosses within a batch is an ordinary, emptied table (`__viborm_batch_refs`) | as neon-http; d1 declares an exact acknowledged prefix (the declaration itself has no witness); on the Workers runtime's local D1 the tests check the reported `committedSegments` against the durable rows | 100 | on the same fixture, and on the Workers runtime's own local D1 (`tests/providers/workers/d1.test.ts`, project `provider-d1`); no hosted Cloudflare D1 run |
 
 :::info
 A transport with an interactive transaction never leaves a partial nested
@@ -84,17 +84,21 @@ more than one batch can, and there the error carries how many segments
 committed so the caller can decide what to do with them.
 
 **What travels in one batch follows the work's own dependencies, not the verb.**
-A `create` or `update` with everything nested under it, and a `createMany` of
-relation-bearing rows with the parent that owns them, are dispatched as ONE
-batch while no part of the write has to read what another part of it wrote. A
-part that must observe an earlier write — a later row's `connectOrCreate` that
-has to find the row an earlier row created, a nested `delete` addressed by a
-value an earlier nested `update` set — takes the boundary: the queued
-statements are dispatched first (on neon-http and d1 that dispatch is a
-committed segment, which is what `committedSegments` counts) and the observing
-work follows in the next one. A key the database generated in one segment
-crosses into the next as a literal, so none of this depends on the transport
-keeping a session between requests.
+A `create` or `update` with everything nested under it, a nested `createMany`
+included, is dispatched as ONE batch while no part of the write has to read
+what another part of it wrote. A ROOT `createMany` of relation-bearing rows is
+different outside `$transaction([...])`: on d1 (measured) and neon-http (the
+same batch route) each row is its own committed segment, so a later row's
+failure leaves the earlier rows written and counted in `committedSegments`;
+inside `$transaction([...])` the rows share the array's one batch. A part that
+must observe an earlier write — a later row's `connectOrCreate` that has to
+find the row an earlier row created, a nested `delete` addressed by a value an
+earlier nested `update` set — takes the boundary: the queued statements are
+dispatched first (on neon-http and d1 that dispatch is a committed segment,
+which is what `committedSegments` counts) and the observing work follows in the
+next one. A key the database generated in one segment crosses into the next as
+a literal, so none of this depends on the transport keeping a session between
+requests.
 :::
 
 ### Captured-set mutations, per route

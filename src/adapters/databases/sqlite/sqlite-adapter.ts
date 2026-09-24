@@ -10,7 +10,10 @@ import {
 } from "@validation/primitives/decimal-codec";
 import type { IdRepresentation } from "@validation/primitives/id-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
-import type { ArithmeticTarget } from "../../adapter-core-types";
+import type {
+  ArithmeticTarget,
+  BatchReferenceSqlAdapter,
+} from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import type { QueryParts } from "../../adapter-query-parts";
 import {
@@ -23,7 +26,10 @@ import {
   type GeoPointSql,
   installGeoPointSql,
 } from "../../database-adapter";
-import { createOnConflictBatchRefs } from "../../shared/batch-refs";
+import {
+  BATCH_REFS_TABLE,
+  createOnConflictBatchRefs,
+} from "../../shared/batch-refs";
 import {
   type ExactIntegerArithmetic,
   halfEvenQuotient,
@@ -248,8 +254,20 @@ const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
 const sqliteJsonListValue = (values: unknown[]): Sql =>
   sql`${stringifyJson(values)}`;
 
+/** Facts a SQLite driver states about its transport. */
+export interface SQLiteAdapterOptions {
+  /**
+   * Whether the transport admits temporary objects (`CREATE TEMP TABLE`).
+   * better-sqlite3, libSQL and bun:sqlite do; Cloudflare D1's authorizer
+   * rejects them with `SQLITE_AUTH`, and rejects the whole batch with them.
+   * Defaults to `true`.
+   */
+  readonly temporaryObjects?: boolean;
+}
+
 export class SQLiteAdapter implements DatabaseAdapter {
-  constructor() {
+  constructor({ temporaryObjects = true }: SQLiteAdapterOptions = {}) {
+    this.#batchRefs = this.#createBatchRefs(temporaryObjects);
     installGeoPointSql(this, this.geoPoint);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
@@ -826,15 +844,32 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
 
-  readonly #batchRefs = createOnConflictBatchRefs({
-    table: sql.raw`"__viborm_batch_refs"`,
-    batchIdColumn: sql.raw`"batch_id"`,
-    keyColumn: sql.raw`"ref_key"`,
-    valueColumn: sql.raw`"ref_value"`,
-    createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))`,
-    castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
-    lastInsertId: () => this.lastInsertId(),
-  });
+  readonly #batchRefs: BatchReferenceSqlAdapter;
+
+  // The scratch is a TEMP table wherever the transport admits one, so it never
+  // enters the user's database file. Where it does not (D1), it is an ordinary
+  // table in `main`: created once, kept, and EMPTY between batches — every
+  // batch deletes the rows it stored, keyed by its own batch id, inside that
+  // same batch, and a batch that fails rolls its rows back with it. The table
+  // itself persists; SQLite migration introspection leaves it out of the
+  // snapshot (`src/migrations/drivers/sqlite/introspect.ts`).
+  #createBatchRefs(temporaryObjects: boolean): BatchReferenceSqlAdapter {
+    const table = sql.raw(quoteIdent(BATCH_REFS_TABLE));
+    const create = sql.raw(
+      temporaryObjects
+        ? "CREATE TEMP TABLE IF NOT EXISTS"
+        : "CREATE TABLE IF NOT EXISTS"
+    );
+    return createOnConflictBatchRefs({
+      table,
+      batchIdColumn: sql.raw`"batch_id"`,
+      keyColumn: sql.raw`"ref_key"`,
+      valueColumn: sql.raw`"ref_value"`,
+      createTable: sql`${create} ${table} ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))`,
+      castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
+      lastInsertId: () => this.lastInsertId(),
+    });
+  }
 
   // ============================================================
   // VECTOR (not natively supported in SQLite)
