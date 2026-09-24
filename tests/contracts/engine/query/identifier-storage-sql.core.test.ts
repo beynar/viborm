@@ -903,7 +903,7 @@ describe("an adapter or driver that stands between the row and the codec", () =>
 
   test("a VibORM error from a provider decode reaches the caller intact", () => {
     // A provider that raises the library's own error has already said what
-    // went wrong; the provider chain's owner (`Queries.providerValue`) passes
+    // went wrong; the provider chain's owner (`Queries.fieldReader`) passes
     // it through and reports only a FOREIGN throw as a malformed scalar.
     const named = variant(sqlite, {
       parseField: () => {

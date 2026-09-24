@@ -18,12 +18,17 @@
  * effect of a faster decoder.
  */
 
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import type { Dialect, DriverResultParser } from "@drivers";
 import { Driver } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
-import { InvalidScalarResult } from "@query-engine/raptor3/shared/query";
+import {
+  InvalidScalarResult,
+  Queries,
+} from "@query-engine/raptor3/shared/query";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { describe, expect, it } from "vitest";
 
@@ -582,6 +587,278 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
       'Driver "scripted" returned a malformed string scalar for operation "findMany": the value is absent.'
     );
     await nested.$disconnect();
+  });
+});
+
+/**
+ * The decoder of one execution, built directly: the continuation it binds is
+ * this driver parser over this adapter, whatever the operation that asks.
+ */
+function executionDecoder(
+  select: Record<string, unknown>,
+  parser?: DriverResultParser,
+  parseField?: SQLiteAdapter["result"]["parseField"]
+) {
+  const adapter = new SQLiteAdapter();
+  if (parseField) adapter.result.parseField = parseField;
+  const queries = new Queries(
+    new EngineSchema(scriptedSchema),
+    adapter,
+    parser
+  );
+  const { shape } = queries.prepareProjection(item, { select });
+  return (rows: Record<string, unknown>[]) =>
+    queries.decodeProjection(shape, rows);
+}
+
+/** What a decode throws; returning is itself a failure. */
+function thrown(decode: () => unknown): unknown {
+  try {
+    decode();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("the decode was expected to throw");
+}
+
+describe("one continuation per physical value, bound to the execution", () => {
+  it("asks the driver, then the adapter, exactly once per physical non-null cell", () => {
+    const asks: Ask[] = [];
+    const decode = executionDecoder(
+      { id: true, title: true, note: true, tags: { select: { id: true } } },
+      {
+        parseField: (value, type, next) => {
+          asks.push(["driver", type, value]);
+          return next(typeof value === "string" ? `D:${value}` : value, type);
+        },
+      },
+      (value, type, next) => {
+        asks.push(["adapter", type, value]);
+        return value === "D:a" ? next("A") : next();
+      }
+    );
+    expect(
+      decode([
+        { id: 1, title: "a", note: null, tags: [{ id: 5 }] },
+        { id: 2, title: "b", note: "n", tags: '[{"id":6}]' },
+      ])
+    ).toEqual([
+      { id: 1, title: "A", note: null, tags: [{ id: 5 }] },
+      { id: 2, title: "D:b", note: "D:n", tags: [{ id: 6 }] },
+    ]);
+    // The SQL NULL is answered before the chain, and the carried relation
+    // rows are never offered to it.
+    expect(asks).toEqual([
+      ["driver", "int", 1],
+      ["adapter", "int", 1],
+      ["driver", "string", "a"],
+      ["adapter", "string", "D:a"],
+      ["driver", "int", 2],
+      ["adapter", "int", 2],
+      ["driver", "string", "b"],
+      ["adapter", "string", "D:b"],
+      ["driver", "string", "n"],
+      ["adapter", "string", "D:n"],
+    ]);
+  });
+
+  it("keeps a thrown error's identity from either leg and names a foreign throw by the leaf", () => {
+    const library = new QueryEngineError("the parser said so");
+    const scalar = new InvalidScalarResult("custom", "the parser's own reason");
+    const foreign = new TypeError("foreign");
+    // One spelling for both legs: each forwards the value it was handed.
+    const throwing =
+      (error: Error) =>
+      (
+        value: unknown,
+        type: string,
+        next: (value: unknown, type: string) => unknown
+      ) => {
+        if (value === "boom") throw error;
+        return next(value, type);
+      };
+    const forwarding: DriverResultParser = {
+      parseField: (value, type, next) => next(value, type),
+    };
+    const legs = {
+      driver: (error: Error) =>
+        executionDecoder(
+          { id: true, title: true },
+          { parseField: throwing(error) }
+        ),
+      "adapter under a driver": (error: Error) =>
+        executionDecoder(
+          { id: true, title: true },
+          forwarding,
+          throwing(error)
+        ),
+      "adapter alone": (error: Error) =>
+        executionDecoder({ id: true, title: true }, undefined, throwing(error)),
+    };
+    for (const decoder of Object.values(legs)) {
+      const row = [{ id: 1, title: "boom" }];
+      expect(thrown(() => decoder(library)(row))).toBe(library);
+      expect(thrown(() => decoder(scalar)(row))).toBe(scalar);
+      const translated = thrown(() => decoder(foreign)(row));
+      expect(translated).toBeInstanceOf(InvalidScalarResult);
+      expect(translated).toMatchObject({
+        scalarType: "string",
+        reason: "provider scalar decoding failed",
+      });
+    }
+  });
+});
+
+describe("one document rule at every object placement", () => {
+  it("reads a relation _count carrier: text parsed, null and non-documents refused, own keys only", async () => {
+    const read = async (carrier: unknown) => {
+      const client = scripted([{ id: 1, _count: carrier }]);
+      try {
+        return await client.item.findMany({
+          select: { id: true, _count: { select: { tags: true } } },
+        });
+      } finally {
+        await client.$disconnect();
+      }
+    };
+    expect(await read('{"tags":2}')).toEqual([{ id: 1, _count: { tags: 2 } }]);
+    expect((await rejection(read(null))).message).toBe(
+      'Driver "scripted" returned a malformed row scalar for operation "findMany": a document the statement always builds is null.'
+    );
+    expect((await rejection(read([]))).message).toBe(
+      'Driver "scripted" returned a malformed row scalar for operation "findMany": a requested document is not a provider row.'
+    );
+    expect((await rejection(read(Object.create({ tags: 2 })))).message).toBe(
+      'Driver "scripted" returned a malformed int scalar for operation "findMany": the value is absent.'
+    );
+  });
+
+  it("reads an aggregate carrier by the same rule, its NULL aside", async () => {
+    const read = async (carrier: unknown) => {
+      const client = scripted([{ _sum: carrier }]);
+      try {
+        return await client.item.aggregate({ _sum: { rank: true } });
+      } finally {
+        await client.$disconnect();
+      }
+    };
+    expect(await read('{"rank":3}')).toEqual({ _sum: { rank: 3 } });
+    for (const malformed of [5, []])
+      expect((await rejection(read(malformed))).message).toBe(
+        'Driver "scripted" returned a malformed row scalar for operation "aggregate": a requested document is not a provider row.'
+      );
+    expect((await rejection(read(Object.create({ rank: 3 })))).message).toBe(
+      'Driver "scripted" returned a malformed int scalar for operation "aggregate": the value is absent.'
+    );
+
+    const counted = scripted([{ _count: [] }]);
+    expect(
+      (await rejection(counted.item.aggregate({ _count: { id: true } })))
+        .message
+    ).toBe(
+      'Driver "scripted" returned a malformed row scalar for operation "aggregate": a requested document is not a provider row.'
+    );
+    await counted.$disconnect();
+  });
+
+  it("reads a collection row and a root row by the same rule", async () => {
+    const read = async (rows: unknown[]) => {
+      const client = scripted([{ id: 1, tags: rows }]);
+      try {
+        return await client.item.findMany({
+          select: { id: true, tags: { select: { id: true } } },
+        });
+      } finally {
+        await client.$disconnect();
+      }
+    };
+    expect((await rejection(read([[]]))).message).toBe(
+      'Driver "scripted" returned a malformed row scalar for operation "findMany": a requested document is not a provider row.'
+    );
+    expect((await rejection(read([Object.create({ id: 5 })]))).message).toBe(
+      'Driver "scripted" returned a malformed int scalar for operation "findMany": the value is absent.'
+    );
+
+    const arrayRow = scripted([{ id: 1 }], {
+      parseResult: (_raw, operation, next) => next([[]], operation),
+    });
+    expect(
+      (await rejection(arrayRow.item.findMany({ select: { id: true } })))
+        .message
+    ).toBe(
+      'Driver "scripted" returned a malformed row scalar for operation "findMany": a requested document is not a provider row.'
+    );
+    await arrayRow.$disconnect();
+  });
+});
+
+const branch = (() => {
+  const node = s
+    .model({
+      id: s.string().id(),
+      parentId: s.string().nullable(),
+      parent: s
+        .toOne(() => node)
+        .fields("parentId")
+        .references("id")
+        .name("decoderTree"),
+      children: s.toMany(() => node).name("decoderTree"),
+    })
+    .map("decoder_branches");
+  return node;
+})();
+
+describe("one document rule for the recursive carrier and its entries", () => {
+  const queries = new Queries(
+    new EngineSchema({ branch }),
+    new SQLiteAdapter()
+  );
+  const { shape } = queries.prepareProjection(branch, {
+    select: {
+      children: {
+        recurse: { depth: 2, cycles: "reject" },
+        select: { id: true },
+      },
+    },
+  });
+  const decode = (value: unknown) =>
+    queries.decodeProjection(shape, [{ children: value }])[0]?.children;
+  const child = { __rq_key: ["child"], __rq_row: { id: "child" } };
+  const hop = { __rq_parent: ["root"], __rq_child: ["child"], __rq_depth: 1 };
+  const carrier = (nodes: unknown[], edges: unknown[]) => ({
+    __rq_root: ["root"],
+    __rq_nodes: nodes,
+    __rq_edges: edges,
+  });
+
+  it("parses the carrier's text and refuses a carrier that is no document", () => {
+    expect(decode(JSON.stringify(carrier([child], [hop])))).toEqual([
+      { id: "child", children: [] },
+    ]);
+    for (const value of [null, 5, "null", "[]"])
+      expect(() => decode(value)).toThrowError(
+        expect.objectContaining({
+          scalarType: "recursive carrier",
+          reason: "the carrier is not an object",
+        })
+      );
+  });
+
+  it("refuses a node or edge entry that is no document, its own text included", () => {
+    for (const entry of [null, [], 5, JSON.stringify(child)])
+      expect(() => decode(carrier([entry], [hop]))).toThrowError(
+        expect.objectContaining({
+          scalarType: "recursive node",
+          reason: "a node entry is not an object",
+        })
+      );
+    for (const entry of [null, [], JSON.stringify(hop)])
+      expect(() => decode(carrier([child], [entry]))).toThrowError(
+        expect.objectContaining({
+          scalarType: "recursive edge",
+          reason: "an edge entry is not an object",
+        })
+      );
   });
 });
 

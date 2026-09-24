@@ -497,10 +497,13 @@ export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
  * The result decoder's public-client contract (compiled-decoder plan CD-00):
  * the provider `parseField` chain's order and boundary, failure identity, row
  * facts before the chain, the execution's own parser binding, and the
- * baseline's recorded compatibility choices. SQLite and scripted transports.
+ * baseline's recorded compatibility choices; with CD-01, the one bound
+ * continuation's exact asks and either leg's failure identity, and the one
+ * document rule at every object placement and the recursive carrier's
+ * entries. SQLite and scripted transports.
  */
 export const RESULT_DECODER_COUNTS = Object.freeze({
-  "tests/raptor3/result-decoder.test.ts": 16,
+  "tests/raptor3/result-decoder.test.ts": 23,
 });
 export const RESULT_DECODER_TESTS = Object.freeze(
   Object.keys(RESULT_DECODER_COUNTS)
