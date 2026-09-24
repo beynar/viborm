@@ -2293,26 +2293,82 @@ and an area with neither would reach `geoPolygonJson(undefined)` and throw a
 area record carries no `requiresOneOf`. Falsifier: removing the `!polygon` arm
 fails "discriminates GeoArea exactly".
 
-**Retired: every polygon geometry pre-check** (`geo-area-codec.ts` before
-D2). The open-ring check (closing vertex repeated), the repeated-vertex check,
-ring self-intersection (`segmentsIntersect`, `ringSelfIntersects`,
-`orientation`, `between`, `onSegment`), the zero-area check, the 180-degree
-edge and pole checks inside `unwrapRing`, the pole-vertex check, the spherical
-half-globe test (`sphericalArea`), and hole placement (`shiftRingNear`,
-`locatePoint`, `ringsIntersect`: outside, touching, overlapping, nested).
-Invariant: polygon validity is the database's execution fact; VibORM owns the
-shape, not the geometry. Successor: PostgreSQL (`ST_GeomFromGeoJSON` cast to
-`geography`) and MySQL (`ST_GeomFromGeoJSON(…, 1, 4326)`), which either raise
-or answer; SQLite refuses polygon filtering outright. Reachability witnesses:
-`tests/contracts/engine/query/geopoint-sql.core.test.ts` ("admits … and lets
-PostgreSQL and MySQL decide it", fourteen former refusals, each asserting the
-emitted statement and GeoJSON on PostgreSQL and MySQL and the SQLite
-`FeatureNotSupportedError`); against the pre-D2 codec all fourteen fail.
-`snapshotDenseArray` goes with them: rings are read by `validateArray`, the one
-array reader, which contains throwing `length` and member reads. End-to-end
-falsifiers (Docker lanes): `tests/contracts/drivers/behaviors/geopoint-behavior.ts`
-("includes polygon boundaries and excludes holes") on pg, postgres and mysql2,
-and `tests/providers/docker/mysql2.test.ts`.
+**Retired, then restored: the polygon geometry pre-checks.** D2 retired every
+geometry check on the premise that a malformed polygon becomes a database
+error. **That premise is false on PostgreSQL** (corrected 2026-09-24, lane
+`geo-checks`). Measured with VibORM's exact predicates on PGlite 0.5.8 +
+PostGIS 3.6.2 and on MySQL 8 (docker, 3307), PostGIS raises only for an edge
+exactly 180 degrees of longitude long ("Antipodal (180 degrees long) edge
+detected!") and answers every other malformed polygon silently:
+
+| Polygon | PostGIS | MySQL 8 |
+| --- | --- | --- |
+| bowtie | both lobes and the crossing point | the same |
+| retracing or collinear ring | its outline only | the same |
+| exactly 180-degree edge | raises | answers |
+| pole vertex (written at longitude 0) | the polar sector | the equator and the opposite pole |
+| ring winding around a pole | the polar cap | the polar cap |
+| 340-degree band (half globe or more) | the poles and the antimeridian | the band |
+| hole outside the outer ring | adds the hole's area | ignores the hole |
+| overlapping or nested holes | matches a point in two holes | excludes it |
+| hole touching the outer ring or a hole (point, edge, three points) | inside the outer ring and in no hole | the same |
+| repeated consecutive or closing vertex | as without the repeat | the same |
+
+The rows answered wrongly, differently, or on a reading the docs do not state
+are refused again in `validateGeoPolygon`, after the record walker admitted
+the shape (so a shape error keeps the walker's message), with the pre-D2
+messages and a path. The geometry is judged in the plane of longitudes
+unwrapped across the antimeridian (`ringEdges`), the pre-D2 geometry reused.
+Each guard, its unique coverage, and the witness that goes red without it
+(`geo-area.core.test.ts` "refuses …", and the matching
+`geopoint-sql.core.test.ts` "refuses … before any SQL" cell):
+
+- Pole vertex (`A GeoPolygon ring cannot contain a pole`, at the vertex): such
+  a ring unwraps and passes every other check. Witness: "a north pole vertex",
+  "a south pole vertex".
+- Exactly 180-degree edge (at the vertex ending the edge): PostGIS raises, and
+  the plane has no short way round. Witness: "a 180-degree edge", "… closing
+  edge", "… hole edge".
+- Ring winding around a pole (`wrap !== 0`): without it the ring unwraps into
+  a collinear band and is misreported as zero area. Witness: "a ring winding
+  around a pole".
+- Self-intersection (two non-neighbor edges meet, `selfIntersects`): an
+  asymmetric bowtie has area and passes the rest. Witness: "a bowtie", "a
+  bowtie hole", "a ring touching itself at a repeated vertex".
+- Zero area: a collinear ring of three or fewer distinct vertices has only
+  neighbor edges, which the self-intersection test skips. Witness: "a
+  collinear ring", "a ring of two distinct vertices", "a ring of one distinct
+  vertex".
+- Half the globe or more (`sphericalArea`): Witness: "half the globe".
+- Hole escaping its outer ring, crossing arm (`ringsCross`): a hole edge that
+  crosses an outer notch and back keeps every piece midpoint inside. Witness:
+  "a hole whose edges cross an outer notch".
+- Hole escaping its outer ring, outside-piece arm (`sides`): a hole outside,
+  or bridging a notch between two outer vertices without crossing. Witness: "a
+  hole outside", "a hole bridging a notch between two outer vertices".
+- Holes overlapping, crossing arm: "overlapping holes" (its piece midpoints
+  fall on the other hole's boundary). First-within-second arm: "a hole
+  enclosing a hole", "the same hole twice". Second-enters-first arm: "a hole
+  nested in a hole", "holes overlapping through shared corners". A fourth arm,
+  "the first enters the second", was dropped: a partial overlap also has the
+  second entering the first, and a nesting is caught by the other two.
+
+Kept output facts, not refusals: a zero-length edge is dropped from the
+geometry (without it a closing vertex reads as a self-intersection; witness
+"admits 'a closed ring'"), and a hole is moved by whole turns beside its outer
+ring before placement (`shiftNear`; witness "admits 'an antimeridian hole in an
+antimeridian polygon'"). Admitted on evidence: a hole touching at a point or
+along an edge, and repeated consecutive vertices (the last two table rows).
+The emitted GeoJSON is unchanged. `tests/providers/docker/mysql2.test.ts` geo
+cells stay green.
+
+Known gap: both databases draw edges as great-circle arcs (measured: a point
+0.01 degrees inside a latitude-5 edge, below the arc, is outside on both),
+while this geometry reads straight edges. A hole drawn along or within the
+arc's bow of an outer edge that is neither a meridian nor the equator crosses
+it on the globe, and PostGIS then matches the sliver of hole left outside
+(MySQL does not). Pre-D2 had the same gap; closing it needs great-circle
+predicates. The docs state the edge reading and the advice.
 
 **Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
 (`validateRing`). Unique coverage: `closedRing` in
@@ -2323,8 +2379,8 @@ removing it fails "still refuses a ring shorter than three vertices before any
 SQL" (`geopoint-sql.core.test.ts`).
 
 **Kept output normalization: winding (outer counterclockwise, holes
-clockwise)** (`wound` in `validateGeoPolygon`, computed by `signedArea` over
-longitudes unwrapped across the antimeridian). It is not a refusal and judges
+clockwise)** (`wound` in `validateGeoPolygon`, reading the sign of
+`planarArea` over the ring's unwrapped edges). It is not a refusal and judges
 nothing, so decision D2 does not retire it. Consumer: the GeoJSON bound by
 `withinPolygon` in `src/adapters/databases/postgres/postgres-adapter.ts` and
 `src/adapters/databases/mysql/mysql-adapter.ts`; that PostGIS `geography` and

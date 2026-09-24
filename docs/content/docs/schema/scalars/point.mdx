@@ -141,13 +141,29 @@ ring once, so a repeated closing vertex is sent as written and closed again.
 Input winding does not matter. Membership includes the outer boundary and every
 hole boundary; a point strictly inside a hole does not match.
 
-VibORM checks the polygon's shape: exactly `outer` and optional `holes`, finite
-in-range vertices, and at least three vertices per ring. Geometric validity is
-the database's to decide — self-intersections, repeated vertices, zero-area
-rings, holes that touch, overlap, or leave the outer ring, poles, and polygons
-covering half the globe or more reach PostgreSQL or MySQL as written, and the
-outcome is that database's error or answer, not a VibORM validation error. Use
-ordinary `OR` for disjoint polygons.
+VibORM checks the polygon's shape first: exactly `outer` and optional `holes`,
+finite in-range vertices, and at least three vertices per ring. It then refuses,
+with a validation error naming the ring, the polygons PostgreSQL and MySQL
+answer wrongly, or differently from each other, instead of raising:
+
+- a ring that crosses or touches itself, including one that repeats a vertex
+  further on, and a ring with no area;
+- an edge exactly 180 degrees of longitude long, a vertex at a pole, and a ring
+  winding around a pole;
+- a ring covering half the globe or more;
+- a hole that leaves its outer ring, and holes that overlap or nest.
+
+A repeated consecutive vertex is harmless and accepted. A hole may touch its
+outer ring or another hole, at a point or along an edge. Use ordinary `OR` for
+disjoint polygons.
+
+Both databases draw each edge as the shortest path on the globe (a great-circle
+arc, bowing toward the nearer pole), while VibORM's checks read edges as
+straight lines of longitude and latitude. Along a meridian or the equator the
+two agree; elsewhere they differ, by about 0.02 degrees at the middle of a
+ten-degree edge at latitude 5 and by more at higher latitudes. A hole drawn along, or within that margin of, such an outer edge can
+cross it on the globe, and PostgreSQL then matches points in the sliver of the
+hole left outside, so keep holes clear of those edges.
 
 SQLite-family providers refuse polygon compilation before cache lookup or
 provider execution.

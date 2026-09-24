@@ -261,7 +261,8 @@ A `GeoPoint`, `GeoBounds` or `GeoArea` argument is now read by the same record
 walker as every other object operand, not by a bespoke reader. For points and
 bounds the accepted values are unchanged for ordinary input; what changes is
 the posture toward unusual objects and the wording of refusals. Polygons are
-checked for their shape only, and the database judges their geometry.
+checked for their shape first and their geometry second; the geometry refused
+is what the databases were measured to answer wrongly or differently.
 
 - Refusals name the key: `{ longitude, latitude, latitdue }` fails with
   `Unknown key: latitdue` at path `latitdue` (was `Expected GeoPoint with
@@ -298,17 +299,32 @@ checked for their shape only, and the database judges their geometry.
   propagate, as every other `v.object` schema already did, and so does `s.point().default(…)`, whose value is the
   developer's own declaration: a throwing getter there is that raw error at
   declaration time instead of a `ValidationError`.
-- A `GeoPolygon` is checked for its shape only: exactly `outer` and optional
+- A `GeoPolygon` is checked for its shape first: exactly `outer` and optional
   `holes`, finite in-range vertices, at least three vertices per ring
-  (`A GeoPolygon ring needs at least 3 vertices`, kept). Geometric validity is
-  the database's execution fact, so twelve former refusals are gone: a closing
-  vertex repeated at the end, a repeated vertex, a self-intersecting ring, a
-  zero-area ring, an exactly 180-degree edge, a pole vertex, a ring winding
-  around a pole, a polygon covering half the globe or more, and a hole outside
-  its outer ring, touching it, overlapping another hole, or nested in one.
-  Those polygons now reach PostgreSQL or MySQL as written (a repeated closing
-  vertex is closed once more); the outcome is that database's error or answer.
-  SQLite-family providers still refuse polygon filtering, now after admission.
+  (`A GeoPolygon ring needs at least 3 vertices`, kept), all reported by the
+  record walker. Its geometry is checked second, against what PostgreSQL and
+  MySQL actually answer. Measured with VibORM's own predicates on PostGIS 3.6.2
+  and MySQL 8, PostGIS raises only for an edge exactly 180 degrees of
+  longitude long and answers every other malformed polygon silently: a hole
+  outside the outer ring adds its own area, a point inside two holes matches, a
+  bowtie matches both lobes, a ring covering half the globe means opposite
+  regions on the two databases, and MySQL answers a pole vertex with the
+  equator and the opposite pole. Those polygons are refused at admission, the
+  same on every dialect, with the former messages: `A GeoPolygon ring cannot
+  self-intersect` (a crossing or touching ring, including one that repeats a
+  vertex further on), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
+  edge cannot span exactly 180 degrees` and `A GeoPolygon ring cannot contain a
+  pole` (both at the offending vertex), `A GeoPolygon cannot contain a pole` (a
+  ring winding around one), and `A GeoPolygon must cover less than half the
+  globe`; two are reworded, `A GeoPolygon hole must be inside its outer ring`
+  (was `… strictly inside …`) and `GeoPolygon holes cannot overlap` (was
+  `… cannot touch or overlap`). Each is reported at its ring (`outer` or
+  `holes.<i>`).
+- Newly accepted, because both databases answer them correctly: a closing
+  vertex repeated at the end, or any vertex repeated consecutively (it is sent
+  as written and closed once more), and a hole touching its outer ring or
+  another hole, at a point or along an edge. SQLite-family providers still
+  refuse polygon filtering, now after admission.
 - A polygon without `outer` fails with `Missing required field: outer` (was
   `Expected GeoPolygon with outer and optional holes`), and a ring that is not
   an array with `Expected array` (was `Expected outer ring array`). A ring is

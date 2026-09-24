@@ -74,6 +74,17 @@ Not observed: what PostgreSQL with PostGIS and MySQL answer for each newly
 admitted invalid polygon (bowtie, half globe, …). The docs say "that database's
 error or answer". Record it when a PostGIS container exists.
 
+Note (2026-09-24, lane `geo-checks`): observed since, on PGlite 0.5.8 +
+PostGIS 3.6.2 and MySQL 8. PostGIS raised only for the exactly-180-degree edge
+and answered the rest silently, several wrongly (a hole outside adds its area,
+a point in two holes matches) or unlike MySQL (half globe, pole vertex). D2's
+premise that a malformed polygon becomes a database error was false on
+PostgreSQL, so those polygons are refused again at admission; the touching
+holes and repeated consecutive vertices both databases answer correctly stay
+admitted. Evidence and the guard list: the ledger addendum "geographic values
+as ordinary records"; the D2 entry of `validation-elegance-plan.md` (branch
+`footprint-safe-scope`) needs the same amendment.
+
 ## Lines (production, excluding tests; `wc -l` on `git show`)
 
 | Perimeter | Before | After | Net |
