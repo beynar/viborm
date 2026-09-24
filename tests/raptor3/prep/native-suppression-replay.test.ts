@@ -1,25 +1,19 @@
 import assert from "node:assert/strict";
 import type { Schema } from "@client/types";
 import type { AnyDriver } from "@drivers";
-import {
-  ForeignKeyError,
-  QueryError,
-  TransactionError,
-  UniqueConstraintError,
-  VibORMErrorCode,
-} from "@errors";
+import { ForeignKeyError, QueryError, UniqueConstraintError } from "@errors";
 import { MySQLMigrationDriver } from "@migrations/drivers/mysql";
 import { PostgresMigrationDriver } from "@migrations/drivers/postgres";
 import { serializeModels } from "@migrations/serializer";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import type { CandidateEngineFactory } from "../harness/protocol";
 import {
-  liveProvider,
-  runLiveWorld,
   type LiveFixture,
   type LiveNames,
+  liveProvider,
+  runLiveWorld,
 } from "../transitions/live-world";
 
 interface PhysicalConstraint {
@@ -528,89 +522,103 @@ async function runJunctionSuppression(factory: CandidateEngineFactory) {
   fixture.assert(world.observation);
   world.assertHealthy();
 
-  let borrowedFailure: unknown;
+  // Owner decision 2026-09-24 ("Warn, drop skipDuplicates"): a borrowed
+  // operation holds no member rollback region, so the nested skip is dropped
+  // with one warning and the member runs plainly — its row and membership are
+  // written, and a real duplicate fails with the ordinary unique error.
+  let duplicateFailure: unknown;
   let borrowedDriver: AnyDriver | undefined;
   let factoryDriver: AnyDriver | undefined;
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const shelfUpdate = (label: string, code: string, slug: string) => ({
+    where: { id: "s1" },
+    data: {
+      label,
+      books: {
+        createMany: {
+          data: [{ code, slug, publisherId: 100 }],
+          skipDuplicates: true,
+        },
+      },
+    },
+  });
   const borrowedFixture: LiveFixture = {
     initial,
     tables: fixture.tables,
+    expectedExecutions: 2,
     async invoke(driver, candidateFactory) {
       assert(candidateFactory);
       factoryDriver = driver;
       const candidate = candidateFactory({ schema, driver });
       await driver.withTransaction(async (transactionDriver) => {
         borrowedDriver = transactionDriver;
-        try {
-          await candidate.execute(
+        await candidate.execute(
+          "shelf",
+          "update",
+          shelfUpdate("after", "borrowed-code", "borrowed-slug"),
+          { kind: "borrowed-transaction", driver: transactionDriver }
+        );
+      });
+      await driver
+        .withTransaction((transactionDriver) =>
+          candidate.execute(
             "shelf",
             "update",
-            {
-              where: { id: "s1" },
-              data: {
-                label: "leaked-after-refusal",
-                books: {
-                  createMany: {
-                    data: [
-                      {
-                        code: "must-not-create-code",
-                        slug: "must-not-create-slug",
-                        publisherId: 100,
-                      },
-                    ],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            },
+            shelfUpdate("rolled-back", "occupied-code", "duplicate-slug"),
             { kind: "borrowed-transaction", driver: transactionDriver }
-          );
-        } catch (failure) {
-          borrowedFailure = failure;
-        }
-      });
-      return "borrowed-refused";
+          )
+        )
+        .catch((failure: unknown) => {
+          duplicateFailure = failure;
+        });
+      return "borrowed-dropped";
     },
     assert(observation) {
       assert.deepEqual(observation.outcome, {
         kind: "success",
-        value: "borrowed-refused",
+        value: "borrowed-dropped",
       });
-      assert.deepEqual(observation.final, initial);
+      assert.deepEqual(
+        observedRows(observation.final.shelves).map((row) => row.label),
+        ["after"]
+      );
+      const books = observedRows(observation.final.books);
+      assert.deepEqual(books.map((row) => row.slug).sort(), [
+        "borrowed-slug",
+        "existing-slug",
+      ]);
+      const borrowedBook = books.find((row) => row.code === "borrowed-code");
+      assert(borrowedBook);
+      assert.deepEqual(
+        observedRows(observation.final.memberships).map((row) => ({
+          ...row,
+        })),
+        [{ shelfId: "s1", bookId: borrowedBook.id }]
+      );
     },
   };
-  const borrowedWorld = await runLiveWorld(
-    borrowedFixture,
-    definitions,
-    factory,
-    "interactive"
-  );
-  throwTerminalFailure(borrowedWorld);
-  assert(factoryDriver);
-  assert(borrowedDriver);
-  assert.notEqual(borrowedDriver, factoryDriver);
-  assert(borrowedFailure instanceof TransactionError);
-  assert.equal(borrowedFailure.code, VibORMErrorCode.TRANSACTION_FAILED);
-  assert.equal(borrowedFailure.message, BORROWED_SUPPRESSION_REFUSAL);
-  assert.deepEqual(
-    { ...borrowedFailure.meta },
-    {
-      driver: factoryDriver.driverName,
-      model: "shelf",
-      operation: "update",
-    }
-  );
-  assert.equal(
-    borrowedWorld.statements.length,
-    0,
-    "Nested borrowed refusal must precede the parent scalar UPDATE"
-  );
-  assert.equal(
-    borrowedWorld.rollbacks.length,
-    0,
-    "The caught refusal must leave lifecycle with the caller-owned transaction"
-  );
-  borrowedFixture.assert(borrowedWorld.observation);
-  borrowedWorld.assertHealthy();
+  try {
+    const borrowedWorld = await runLiveWorld(
+      borrowedFixture,
+      definitions,
+      factory,
+      "interactive"
+    );
+    throwTerminalFailure(borrowedWorld);
+    assert(factoryDriver);
+    assert(borrowedDriver);
+    assert.notEqual(borrowedDriver, factoryDriver);
+    assert(duplicateFailure instanceof UniqueConstraintError);
+    assert.deepEqual(warn.mock.calls, [
+      [
+        `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${factoryDriver.driverName}" (no savepoint available) in shelf.update; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+      ],
+    ]);
+    borrowedFixture.assert(borrowedWorld.observation);
+    borrowedWorld.assertHealthy();
+  } finally {
+    warn.mockRestore();
+  }
 }
 
 function fatalSchema() {
@@ -786,9 +794,6 @@ async function runDescendantAndRootFatal(factory: CandidateEngineFactory) {
   foreignWorld.assertHealthy();
 }
 
-const BORROWED_SUPPRESSION_REFUSAL =
-  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
-
 async function runStandaloneAndBorrowedScopes(factory: CandidateEngineFactory) {
   const { authorTable, postTable, schema } = fatalSchema();
   const foreignName = "g3p04_native_fatal_posts_author_fk";
@@ -859,10 +864,111 @@ async function runStandaloneAndBorrowedScopes(factory: CandidateEngineFactory) {
   standaloneFixture.assert(standaloneWorld.observation);
   standaloneWorld.assertHealthy();
 
-  let borrowedFailure: unknown;
+  // The borrowed arm drops the skip with one warning (owner decision
+  // 2026-09-24): the member runs plainly, and a real duplicate fails with the
+  // ordinary unique error that rolls the caller's transaction back.
+  let duplicateFailure: unknown;
   let borrowedDriver: AnyDriver | undefined;
   let factoryDriver: AnyDriver | undefined;
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const borrowedMember = (slug: string, author: string) => ({
+    data: [{ slug, author: { create: { name: author } } }],
+    skipDuplicates: true,
+  });
   const borrowedFixture: LiveFixture = {
+    initial,
+    tables: {
+      authors: { name: authorTable, order: ["id"] },
+      posts: { name: postTable, order: ["id"] },
+    },
+    expectedExecutions: 2,
+    async invoke(driver, candidateFactory) {
+      assert(candidateFactory);
+      factoryDriver = driver;
+      const candidate = candidateFactory({ schema, driver });
+      await driver.withTransaction(async (transactionDriver) => {
+        borrowedDriver = transactionDriver;
+        await candidate.execute(
+          "post",
+          "createMany",
+          borrowedMember("borrowed-post", "borrowed-author"),
+          { kind: "borrowed-transaction", driver: transactionDriver }
+        );
+      });
+      await driver
+        .withTransaction((transactionDriver) =>
+          candidate.execute(
+            "post",
+            "createMany",
+            borrowedMember("occupied", "rolled-back-author"),
+            { kind: "borrowed-transaction", driver: transactionDriver }
+          )
+        )
+        .catch((failure: unknown) => {
+          duplicateFailure = failure;
+        });
+      return "borrowed-dropped";
+    },
+    assert(observation) {
+      assert.deepEqual(observation.outcome, {
+        kind: "success",
+        value: "borrowed-dropped",
+      });
+      assert.deepEqual(
+        observedRows(observation.final.authors)
+          .map((row) => row.name)
+          .sort(),
+        ["borrowed-author", "existing-author"]
+      );
+      assert.deepEqual(
+        observedRows(observation.final.posts)
+          .map((row) => row.slug)
+          .sort(),
+        ["borrowed-post", "occupied"]
+      );
+    },
+  };
+  try {
+    const borrowedWorld = await runLiveWorld(
+      borrowedFixture,
+      ddl.definitions,
+      factory,
+      "interactive"
+    );
+    throwTerminalFailure(borrowedWorld);
+    assert(factoryDriver);
+    assert(borrowedDriver);
+    assert.notEqual(borrowedDriver, factoryDriver);
+    assert(duplicateFailure instanceof UniqueConstraintError);
+    assert.deepEqual(warn.mock.calls, [
+      [
+        `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${factoryDriver.driverName}" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+      ],
+    ]);
+    borrowedFixture.assert(borrowedWorld.observation);
+    borrowedWorld.assertHealthy();
+  } finally {
+    warn.mockRestore();
+  }
+
+  // A RELATION-FREE createMany in the same borrowed scope. Postgres skips in
+  // SQL (`ON CONFLICT DO NOTHING`), so no member rollback region is needed and
+  // the skip holds with no warning. MySQL skips per row under a member
+  // rollback region (`recoverableUniqueError`), which a borrowed operation does
+  // not own, so there the skip is dropped with one warning and the rows run
+  // plainly: a real duplicate fails with the ordinary unique error.
+  let scalarFailure: unknown;
+  const scalarWarn = vi
+    .spyOn(console, "warn")
+    .mockImplementation(() => undefined);
+  const scalarRows = (slug: string) => ({
+    data: [
+      { slug: "occupied", authorId: 100 },
+      { slug, authorId: 100 },
+    ],
+    skipDuplicates: true,
+  });
+  const scalarFixture: LiveFixture = {
     initial,
     tables: {
       authors: { name: authorTable, order: ["id"] },
@@ -872,68 +978,62 @@ async function runStandaloneAndBorrowedScopes(factory: CandidateEngineFactory) {
       assert(candidateFactory);
       factoryDriver = driver;
       const candidate = candidateFactory({ schema, driver });
-      await driver.withTransaction(async (transactionDriver) => {
-        borrowedDriver = transactionDriver;
-        await assert.rejects(
-          () =>
-            candidate.execute(
-              "post",
-              "createMany",
-              {
-                data: [
-                  {
-                    slug: "must-not-insert",
-                    author: { create: { name: "must-not-create" } },
-                  },
-                ],
-                skipDuplicates: true,
-              },
-              { kind: "borrowed-transaction", driver: transactionDriver }
-            ),
-          (failure) => {
-            borrowedFailure = failure;
-            return true;
-          }
-        );
-      });
-      return "borrowed-refused";
+      return driver
+        .withTransaction((transactionDriver) =>
+          candidate.execute("post", "createMany", scalarRows("scalar-post"), {
+            kind: "borrowed-transaction",
+            driver: transactionDriver,
+          })
+        )
+        .catch((failure: unknown) => {
+          scalarFailure = failure;
+          return "scalar-failed";
+        });
     },
     assert(observation) {
-      assert.deepEqual(observation.outcome, {
-        kind: "success",
-        value: "borrowed-refused",
-      });
-      assert.deepEqual(observation.final, initial);
+      const slugs = observedRows(observation.final.posts)
+        .map((row) => row.slug)
+        .sort();
+      if (liveProvider === "pg") {
+        assert.deepEqual(observation.outcome, {
+          kind: "success",
+          value: { count: 1 },
+        });
+        assert.deepEqual(slugs, ["occupied", "scalar-post"]);
+      } else {
+        assert.deepEqual(observation.outcome, {
+          kind: "success",
+          value: "scalar-failed",
+        });
+        assert.deepEqual(slugs, ["occupied"]);
+      }
     },
   };
-  const borrowedWorld = await runLiveWorld(
-    borrowedFixture,
-    ddl.definitions,
-    factory,
-    "interactive"
-  );
-  throwTerminalFailure(borrowedWorld);
-  assert(factoryDriver);
-  assert(borrowedDriver);
-  assert.notEqual(borrowedDriver, factoryDriver);
-  assert(borrowedFailure instanceof TransactionError);
-  assert.equal(borrowedFailure.code, VibORMErrorCode.TRANSACTION_FAILED);
-  assert.equal(borrowedFailure.message, BORROWED_SUPPRESSION_REFUSAL);
-  assert.deepEqual(
-    { ...borrowedFailure.meta },
-    {
-      driver: factoryDriver.driverName,
-      model: "post",
-      operation: "createMany",
+  try {
+    const scalarWorld = await runLiveWorld(
+      scalarFixture,
+      ddl.definitions,
+      factory,
+      "interactive"
+    );
+    throwTerminalFailure(scalarWorld);
+    assert(factoryDriver);
+    if (liveProvider === "pg") {
+      assert.equal(scalarFailure, undefined);
+      assert.deepEqual(scalarWarn.mock.calls, []);
+    } else {
+      assert(scalarFailure instanceof UniqueConstraintError);
+      assert.deepEqual(scalarWarn.mock.calls, [
+        [
+          `[viborm] createMany skipDuplicates cannot skip duplicate rows on driver "${factoryDriver.driverName}" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+        ],
+      ]);
     }
-  );
-  assert.equal(
-    borrowedWorld.statements.length,
-    0,
-    "Borrowed refusal must precede every candidate statement"
-  );
-  borrowedFixture.assert(borrowedWorld.observation);
-  borrowedWorld.assertHealthy();
+    scalarFixture.assert(scalarWorld.observation);
+    scalarWorld.assertHealthy();
+  } finally {
+    scalarWarn.mockRestore();
+  }
 
   if (liveProvider === "pg") {
     const cleanupFailure = new Error("g3p04 outer rollback observation failed");
@@ -1018,7 +1118,7 @@ describe(`G3P-04 native ${liveProvider} suppression replay`, () => {
     30_000
   );
   it(
-    "g3p04-standalone-savepoint-and-borrowed-refusal",
+    "g3p04-standalone-savepoint-and-borrowed-dropped-skip",
     () => runStandaloneAndBorrowedScopes(createCommandEngine),
     30_000
   );

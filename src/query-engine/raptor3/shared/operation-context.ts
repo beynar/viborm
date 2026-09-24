@@ -8,6 +8,7 @@ import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   bindExecutionTransactionPhases,
   deriveStatementExecutionContext,
+  getExecutionInstrumentation,
 } from "@drivers/execution-context";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import type {
@@ -209,6 +210,50 @@ export interface ObservationPremise {
   readonly present: boolean;
   readonly failure: () => Error;
 }
+/**
+ * The one sentence a dropped `skipDuplicates` states
+ * ({@link OperationContext.admitsSuppression}).
+ */
+function droppedSkipMessage(
+  driver: string,
+  model: string,
+  operation: string,
+  rows: string
+): string {
+  return `createMany skipDuplicates cannot skip ${rows} on driver "${driver}" (no savepoint available) in ${model}.${operation}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
+}
+
+/** Client lineages (by their engine schema) and the models already warned. */
+const droppedSkipWarnings = new WeakMap<EngineSchema, Set<string>>();
+
+/**
+ * Warn ONCE per client lineage and model — not per row, not per call. The
+ * client's logger carries it when it routes warnings; otherwise `console.warn`
+ * does, so the dropped skip is loud even with logging off.
+ */
+function warnDroppedSkip(
+  schema: EngineSchema,
+  model: string,
+  operation: Operation,
+  message: string,
+  attribution: QueryExecutionContext | undefined
+): void {
+  let warned = droppedSkipWarnings.get(schema);
+  if (!warned) droppedSkipWarnings.set(schema, (warned = new Set()));
+  if (warned.has(model)) return;
+  warned.add(model);
+  const logger = getExecutionInstrumentation(attribution)?.logger;
+  if (logger?.isLevelEnabled("warning"))
+    logger.warn({
+      timestamp: new Date(),
+      model,
+      operation,
+      correlationId: attribution?.correlationId,
+      meta: { notice: message },
+    });
+  else console.warn(`[viborm] ${message}`);
+}
+
 export class OperationContext {
   readonly queries: Queries;
   readonly driver: AnyDriver;
@@ -567,8 +612,10 @@ export class OperationContext {
     rootProducer: object,
     member: Member
   ): Promise<boolean> {
-    const refusal = this.suppressionRefusal();
-    if (refusal) throw refusal;
+    if (!this.admitsSuppression("rows involving nested writes")) {
+      await this.executeMember(execute, member);
+      return true;
+    }
     return this.executeMember(async () => {
       try {
         await this.withMemberRollback(async () => execute());
@@ -604,26 +651,38 @@ export class OperationContext {
       ? this.memberRollback(withinRollback, this.attribution)
       : outer.withTransaction(withinRollback, undefined, this.attribution);
   }
-  suppressionRefusal(): TransactionError | undefined {
-    return (this.ownership === "borrowed-transaction" &&
-      !this.memberRollback) ||
-      this.ownership === "batch-preparation" ||
-      this.usesBatch
-      ? new TransactionError(
-          "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.",
-          {
-            meta: {
-              driver: this.driver.driverName,
-              model: this.modelName,
-              operation: this.operation,
-            },
-          }
-        )
-      : undefined;
-  }
-  requireSuppression(): void {
-    const refusal = this.suppressionRefusal();
-    if (refusal) throw refusal;
+  /**
+   * Whether this operation can skip a duplicate `createMany` member: only
+   * inside a member rollback region it owns. A transport with no such region
+   * (a batch-only driver standalone, an array-transaction batch, or an
+   * array-transaction fallback that grants none) cannot undo a member's
+   * partial effects, so the skip is DROPPED rather than refused (Arnaud,
+   * 2026-09-24, "Warn, drop skipDuplicates"): the operation warns once and
+   * runs every member as a plain member, so a duplicate fails with the
+   * ordinary `UniqueConstraintError` and, on a segmented transport, earlier
+   * members stay committed exactly as for a `createMany` without the flag.
+   */
+  admitsSuppression(rows: string): boolean {
+    if (
+      !(
+        (this.ownership === "borrowed-transaction" && !this.memberRollback) ||
+        this.usesBatch
+      )
+    )
+      return true;
+    warnDroppedSkip(
+      this.schema,
+      this.modelName,
+      this.operation,
+      droppedSkipMessage(
+        this.driver.driverName,
+        this.modelName,
+        this.operation,
+        rows
+      ),
+      this.callerAttribution
+    );
+    return false;
   }
   failure(
     error: unknown,
@@ -2130,7 +2189,8 @@ export class OperationContext {
     ) {
       if (this.ownership === "batch-preparation")
         throw this.incompletePreparation;
-      if (recoverableSkip) this.requireSuppression();
+      const suppress =
+        recoverableSkip && this.admitsSuppression("duplicate rows");
       const identityPlans = projection
         ? rows.map((row) => {
             const missing = this.schema
@@ -2153,7 +2213,7 @@ export class OperationContext {
         const statement = this.insertStatement(model, columns, [row]);
         const context = this.statementContext(model, this.operation);
         let response: QueryResult<unknown> | undefined;
-        if (recoverableSkip) {
+        if (suppress) {
           response = await this.executeMember(async () => {
             try {
               return await this.dispatch(1, false, () =>

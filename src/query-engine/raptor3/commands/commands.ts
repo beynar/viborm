@@ -576,7 +576,7 @@ export class Commands {
     });
   }
   analyze<C extends RecordCommand | SeriesOccurrence | Choose>(
-    command: C,
+    command: C
   ): CommandOccurrence<C> {
     const occurrence = this.occurrence(command);
     this.materializePlacement(occurrence);
@@ -1240,7 +1240,7 @@ export class Commands {
   private childBranch(
     parent: CommandOccurrence,
     child: CommandOccurrence,
-    branch: BranchPath | undefined,
+    branch: BranchPath | undefined
   ): BranchPath | undefined {
     return parent.command.kind === "choose"
       ? {
@@ -1260,7 +1260,7 @@ export class Commands {
       this.visitWrites(
         child,
         visit,
-        this.childBranch(occurrence, child, branch),
+        this.childBranch(occurrence, child, branch)
       );
   }
   private visitReads(
@@ -1278,7 +1278,7 @@ export class Commands {
         this.visitReads(
           child,
           visit,
-          this.childBranch(occurrence, child, branch),
+          this.childBranch(occurrence, child, branch)
         )
       )
         return true;
@@ -1352,7 +1352,6 @@ export class Commands {
     this.analyzeRead(occurrence);
     const command = occurrence.command;
     if (command.kind === "record") {
-      if (command.suppression) this.context.requireSuppression();
       // A snapshot: `depend` moves a dependent child within this array while
       // the walk is on it, and a sibling that shifts into the vacated slot
       // must still be analysed (N1).
@@ -1391,8 +1390,7 @@ export class Commands {
   }
   /** Recurse over a stable sibling snapshot while dependency moves may occur. */
   private analyzeChildren(occurrence: CommandOccurrence): void {
-    for (const child of [...occurrence.children])
-      this.analyzeOccurrence(child);
+    for (const child of [...occurrence.children]) this.analyzeOccurrence(child);
   }
   private branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
     const parent = occurrence.parent;
@@ -1425,7 +1423,7 @@ export class Commands {
             const stopped = this.visitReads(
               sibling,
               visit,
-              this.childBranch(parent, sibling, parentBranch),
+              this.childBranch(parent, sibling, parentBranch)
             );
             if (stopped) return true;
           } else if (sibling === current) follows = true;

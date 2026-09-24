@@ -21,6 +21,7 @@ import {
   geoPointContract,
   setupGeoPointBehaviorSQLite,
 } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
+import { vi } from "vitest";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {
@@ -1100,114 +1101,162 @@ describe("D1 binding provider", () => {
     ]);
   });
 
-  it("refuses a relation-bearing createMany with skipDuplicates before any D1 call", async () => {
+  it("drops skipDuplicates on a relation-bearing createMany with one warning: rows are written and a real duplicate fails", async () => {
     // Skipping a member needs a rollback region the batch-only D1 transport
-    // does not have, so the refusal comes before the first D1 call.
-    const calls: string[] = [];
-    const client = createClient({
-      schema: progressiveSchema,
-      database: observeD1Calls(env.DB, calls),
-    });
-    await client.post.deleteMany({});
-    await client.author.deleteMany({});
-    await client.category.deleteMany({});
-    calls.length = 0;
-
-    const refusal = await client.post
-      .createMany({
-        data: [
-          {
-            id: "p1",
-            title: "one",
-            author: { create: { id: "a1", name: "one" } },
-          },
-        ],
-        skipDuplicates: true,
-      })
-      .catch((error) => error);
-
-    expect(refusal).toBeInstanceOf(TransactionError);
-    if (!(refusal instanceof TransactionError)) throw refusal;
-    expect(refusal.code).toBe("V5001");
-    expect(refusal.message).toBe(
-      "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region."
-    );
-    expect(refusal.meta).toEqual({
-      driver: "d1",
-      model: "post",
-      operation: "createMany",
-    });
-    expect(calls).toEqual([]);
-    await expect(client.post.findMany()).resolves.toEqual([]);
-    await expect(client.author.findMany()).resolves.toEqual([]);
-  });
-
-  it("refuses a nested createMany with skipDuplicates under create or update before any D1 call", async () => {
-    // A nested member is skippable only inside a rollback region, which D1's
-    // batch-only transport does not have, even when the member is scalar.
-    const calls: string[] = [];
-    const client = createClient({
-      schema: progressiveSchema,
-      database: observeD1Calls(env.DB, calls),
-    });
-    await client.post.deleteMany({});
-    await client.author.deleteMany({});
-    await client.category.deleteMany({});
-    await client.author.create({ data: { id: "a0", name: "zero" } });
-    calls.length = 0;
-
-    const underCreate = await client.author
-      .create({
-        data: {
-          id: "a1",
-          name: "one",
-          posts: {
-            createMany: {
-              data: [{ id: "p1", title: "one" }],
-              skipDuplicates: true,
-            },
-          },
-        },
-      })
-      .catch((error) => error);
-    const underUpdate = await client.author
-      .update({
-        where: { id: "a0" },
-        data: {
-          posts: {
-            createMany: {
-              data: [{ id: "p2", title: "two" }],
-              skipDuplicates: true,
-            },
-          },
-        },
-      })
-      .catch((error) => error);
-
-    for (const [refusal, operation] of [
-      [underCreate, "create"],
-      [underUpdate, "update"],
-    ] as const) {
-      expect(refusal).toBeInstanceOf(TransactionError);
-      if (!(refusal instanceof TransactionError)) throw refusal;
-      expect(refusal.code).toBe("V5001");
-      expect(refusal.message).toBe(
-        "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region."
-      );
-      expect(refusal.meta).toEqual({
-        driver: "d1",
-        model: "author",
-        operation,
+    // does not have, so the skip is dropped with a warning (owner decision
+    // 2026-09-24): each root row is still its own atomic batch, a duplicate
+    // fails with the ordinary unique-constraint error, and the members before
+    // it stay committed exactly as for a createMany without skipDuplicates.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const client = createClient({
+        schema: progressiveSchema,
+        database: env.DB,
       });
+      await client.post.deleteMany({});
+      await client.author.deleteMany({});
+      await client.category.deleteMany({});
+
+      await expect(
+        client.post.createMany({
+          data: [
+            {
+              id: "p1",
+              title: "one",
+              author: { create: { id: "a1", name: "one" } },
+            },
+          ],
+          skipDuplicates: true,
+        })
+      ).resolves.toEqual({ count: 1 });
+      const failure = await client.post
+        .createMany({
+          data: [
+            {
+              id: "p2",
+              title: "two",
+              author: { create: { id: "a2", name: "two" } },
+            },
+            {
+              id: "p1",
+              title: "again",
+              author: { create: { id: "a3", name: "three" } },
+            },
+          ],
+          skipDuplicates: true,
+        })
+        .catch((error) => error);
+
+      expect(failure).toBeInstanceOf(UniqueConstraintError);
+      expect(warn.mock.calls).toEqual([
+        [
+          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
+        ],
+      ]);
+      await expect(
+        client.post.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "p1", title: "one", authorId: "a1", categoryId: null },
+        { id: "p2", title: "two", authorId: "a2", categoryId: null },
+      ]);
+      await expect(
+        client.author.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "a1", name: "one" },
+        { id: "a2", name: "two" },
+      ]);
+    } finally {
+      warn.mockRestore();
     }
-    expect(calls).toEqual([]);
-    await expect(client.post.findMany()).resolves.toEqual([]);
-    await expect(client.author.findMany()).resolves.toEqual([
-      { id: "a0", name: "zero" },
-    ]);
   });
 
-  it("refuses a many-to-many nested createMany with skipDuplicates before any D1 call", async () => {
+  it("drops skipDuplicates on a nested createMany under create or update with one warning", async () => {
+    // A nested member is skippable only inside a rollback region, which D1's
+    // batch-only transport does not have, even when the member is scalar: the
+    // skip is dropped, the rows are written, and a real duplicate fails the
+    // whole operation's one batch.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const client = createClient({
+        schema: progressiveSchema,
+        database: env.DB,
+      });
+      await client.post.deleteMany({});
+      await client.author.deleteMany({});
+      await client.category.deleteMany({});
+      await client.author.create({ data: { id: "a0", name: "zero" } });
+
+      await expect(
+        client.author.create({
+          data: {
+            id: "a1",
+            name: "one",
+            posts: {
+              createMany: {
+                data: [{ id: "p1", title: "one" }],
+                skipDuplicates: true,
+              },
+            },
+          },
+        })
+      ).resolves.toEqual({ id: "a1", name: "one" });
+      await expect(
+        client.author.update({
+          where: { id: "a0" },
+          data: {
+            posts: {
+              createMany: {
+                data: [{ id: "p2", title: "two" }],
+                skipDuplicates: true,
+              },
+            },
+          },
+        })
+      ).resolves.toEqual({ id: "a0", name: "zero" });
+      const failure = await client.author
+        .update({
+          where: { id: "a0" },
+          data: {
+            name: "renamed",
+            posts: {
+              createMany: {
+                data: [
+                  { id: "p3", title: "three" },
+                  { id: "p1", title: "again" },
+                ],
+                skipDuplicates: true,
+              },
+            },
+          },
+        })
+        .catch((error) => error);
+
+      expect(failure).toBeInstanceOf(UniqueConstraintError);
+      // Once per client and model: the create reported it, the updates on
+      // the same model do not repeat it.
+      expect(warn.mock.calls).toEqual([
+        [
+          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint available) in author.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
+        ],
+      ]);
+      await expect(
+        client.post.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "p1", title: "one", authorId: "a1", categoryId: null },
+        { id: "p2", title: "two", authorId: "a0", categoryId: null },
+      ]);
+      await expect(
+        client.author.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "a0", name: "zero" },
+        { id: "a1", name: "one" },
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("drops skipDuplicates on a many-to-many nested createMany with one warning", async () => {
     const taggedPost = s
       .model({
         id: s.string().id(),
@@ -1224,47 +1273,64 @@ describe("D1 binding provider", () => {
     await env.DB.exec(
       `CREATE TABLE IF NOT EXISTS viborm_d1_skip_posts (id TEXT PRIMARY KEY);
        CREATE TABLE IF NOT EXISTS viborm_d1_skip_tags (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
-       CREATE TABLE IF NOT EXISTS post_tag (postId TEXT NOT NULL REFERENCES viborm_d1_skip_posts(id), tagId TEXT NOT NULL REFERENCES viborm_d1_skip_tags(id), PRIMARY KEY (postId, tagId))`
+       CREATE TABLE IF NOT EXISTS post_tag (postId TEXT NOT NULL REFERENCES viborm_d1_skip_posts(id), tagId TEXT NOT NULL REFERENCES viborm_d1_skip_tags(id), PRIMARY KEY (postId, tagId));
+       DELETE FROM post_tag;
+       DELETE FROM viborm_d1_skip_tags;
+       DELETE FROM viborm_d1_skip_posts`
     );
-    const calls: string[] = [];
-    const client = createClient({
-      schema: { post: taggedPost, tag: postTag },
-      database: observeD1Calls(env.DB, calls),
-    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const client = createClient({
+        schema: { post: taggedPost, tag: postTag },
+        database: env.DB,
+      });
 
-    const refusal = await client.post
-      .create({
-        data: {
-          id: "p1",
-          tags: {
-            createMany: {
-              data: [{ id: "t1", name: "one" }],
-              skipDuplicates: true,
+      await expect(
+        client.post.create({
+          data: {
+            id: "p1",
+            tags: {
+              createMany: {
+                data: [{ id: "t1", name: "one" }],
+                skipDuplicates: true,
+              },
             },
           },
-        },
-      })
-      .catch((error) => error);
+        })
+      ).resolves.toEqual({ id: "p1" });
+      const failure = await client.post
+        .create({
+          data: {
+            id: "p2",
+            tags: {
+              createMany: {
+                data: [{ id: "t1", name: "one" }],
+                skipDuplicates: true,
+              },
+            },
+          },
+        })
+        .catch((error) => error);
 
-    expect(refusal).toBeInstanceOf(TransactionError);
-    if (!(refusal instanceof TransactionError)) throw refusal;
-    expect(refusal.code).toBe("V5001");
-    expect(refusal.meta).toEqual({
-      driver: "d1",
-      model: "post",
-      operation: "create",
-    });
-    expect(calls).toEqual([]);
-    const rows = await env.DB.batch([
-      env.DB.prepare("SELECT count(*) AS n FROM viborm_d1_skip_posts"),
-      env.DB.prepare("SELECT count(*) AS n FROM viborm_d1_skip_tags"),
-      env.DB.prepare("SELECT count(*) AS n FROM post_tag"),
-    ]);
-    expect(rows.map((result) => result.results)).toEqual([
-      [{ n: 0 }],
-      [{ n: 0 }],
-      [{ n: 0 }],
-    ]);
+      expect(failure).toBeInstanceOf(UniqueConstraintError);
+      expect(warn.mock.calls).toEqual([
+        [
+          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint available) in post.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
+        ],
+      ]);
+      const rows = await env.DB.batch([
+        env.DB.prepare("SELECT id FROM viborm_d1_skip_posts"),
+        env.DB.prepare("SELECT id, name FROM viborm_d1_skip_tags"),
+        env.DB.prepare("SELECT postId, tagId FROM post_tag"),
+      ]);
+      expect(rows.map((result) => result.results)).toEqual([
+        [{ id: "p1" }],
+        [{ id: "t1", name: "one" }],
+        [{ postId: "p1", tagId: "t1" }],
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("keeps a root scalar createMany with skipDuplicates on D1: a colliding row is skipped", async () => {

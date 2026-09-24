@@ -1,23 +1,35 @@
 import assert from "node:assert/strict";
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import {
-  TransactionError,
-  UniqueConstraintError,
-  VibORMErrorCode,
-} from "@errors";
-import { getAdapterInternals } from "@adapters/adapter-internals";
+import { UniqueConstraintError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
-import { describe, it } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 
-const BORROWED_SUPPRESSION_REFUSAL =
-  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
+/**
+ * The one warning a borrowed operation without a member rollback region emits
+ * when it drops `skipDuplicates` (owner decision 2026-09-24, "Warn, drop
+ * skipDuplicates"): once per client and model, members run plain.
+ */
+function droppedSkipWarning(driver: string, target: string): string[] {
+  return [
+    `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint available) in ${target}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+  ];
+}
 
 class ReviewSQLiteDriver extends SQLite3Driver {
   readonly statements: string[] = [];
@@ -135,16 +147,16 @@ async function createChooseWorld() {
   return { database, world };
 }
 
-function statementVerbs(statements: readonly string[]): string[] {
-  return statements.map((statement) => {
-    const verb = statement.trim().split(/\s+/, 1)[0];
-    assert(verb);
-    return verb.toUpperCase();
-  });
-}
-
 describe("G3P-04 review regressions", () => {
-  it("refuses nested borrowed suppression before the parent scalar write", async () => {
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it("drops nested borrowed suppression with one warning: the parent and the member write plainly", async () => {
     const vault = s
       .model({
         id: s.string().id(),
@@ -162,123 +174,102 @@ describe("G3P-04 review regressions", () => {
     const schema = { vault, gem };
     const database = new Database(":memory:");
     const world = await migratedWorld(schema, database);
+    const update = (label: string) => ({
+      where: { id: "v1" },
+      data: {
+        label,
+        gems: {
+          createMany: { data: [{ tag: "inserted" }], skipDuplicates: true },
+        },
+      },
+    });
     try {
       await world.client.vault.create({ data: { id: "v1", label: "before" } });
       world.driver.resetObservations();
-      let caught: unknown;
 
       await world.driver.withTransaction(async (transactionDriver) => {
-        try {
-          await world.candidate.execute(
-            "vault",
-            "update",
-            {
-              where: { id: "v1" },
-              data: {
-                label: "leaked-after-refusal",
-                gems: {
-                  createMany: {
-                    data: [{ tag: "never-inserted" }],
-                    skipDuplicates: true,
-                  },
-                },
-              },
-            },
-            { kind: "borrowed-transaction", driver: transactionDriver }
-          );
-        } catch (error) {
-          caught = error;
-        }
+        await world.candidate.execute("vault", "update", update("after"), {
+          kind: "borrowed-transaction",
+          driver: transactionDriver,
+        });
       });
+      await expect(
+        world.driver.withTransaction((transactionDriver) =>
+          world.candidate.execute("vault", "update", update("rolled-back"), {
+            kind: "borrowed-transaction",
+            driver: transactionDriver,
+          })
+        )
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
 
-      assert(caught instanceof TransactionError);
-      assert.equal(caught.code, VibORMErrorCode.TRANSACTION_FAILED);
-      assert.equal(caught.message, BORROWED_SUPPRESSION_REFUSAL);
-      assert.equal(
-        world.driver.statements.length,
-        0,
-        "The capability refusal must precede the root UPDATE and every nested statement"
-      );
+      expect(warn.mock.calls).toEqual([
+        droppedSkipWarning(world.driver.driverName, "vault.update"),
+      ]);
       assert.equal(
         world.driver.transactionCalls,
-        1,
-        "Only the caller-owned transaction may own lifecycle"
+        2,
+        "Only the caller-owned transactions may own lifecycle"
       );
       assert.deepEqual(world.driver.controlStatements, []);
       assert.deepEqual(
         await world.client.vault.findMany({
           select: { id: true, label: true },
         }),
-        [{ id: "v1", label: "before" }]
+        [{ id: "v1", label: "after" }]
       );
-      assert.deepEqual(await world.client.gem.findMany({}), []);
+      assert.deepEqual(
+        await world.client.gem.findMany({
+          select: { tag: true, vaults: { select: { id: true } } },
+        }),
+        [{ tag: "inserted", vaults: [{ id: "v1" }] }]
+      );
     } finally {
       await closeWorld(world);
       database.close();
     }
   });
 
-  it("refuses found Choose-arm suppression before the parent scalar write", async () => {
+  it("drops found Choose-arm suppression with one warning and writes the arm plainly", async () => {
     const { database, world } = await createChooseWorld();
     try {
-      let caught: unknown;
-
       await world.driver.withTransaction(async (transactionDriver) => {
-        try {
-          await world.candidate.execute(
-            "vault",
-            "update",
-            {
-              where: { id: "v1" },
-              data: {
-                label: "leaked-through-choose",
-                gems: {
-                  upsert: {
-                    where: { tag: "existing" },
-                    create: { id: 2, tag: "missing-arm" },
-                    update: {
-                      facets: {
-                        createMany: {
-                          data: [{ id: "f1", slug: "never" }],
-                          skipDuplicates: true,
-                        },
+        await world.candidate.execute(
+          "vault",
+          "update",
+          {
+            where: { id: "v1" },
+            data: {
+              label: "after",
+              gems: {
+                upsert: {
+                  where: { tag: "existing" },
+                  create: { id: 2, tag: "missing-arm" },
+                  update: {
+                    facets: {
+                      createMany: {
+                        data: [{ id: "f1", slug: "found" }],
+                        skipDuplicates: true,
                       },
                     },
                   },
                 },
               },
             },
-            { kind: "borrowed-transaction", driver: transactionDriver }
-          );
-        } catch (error) {
-          caught = error;
-        }
+          },
+          { kind: "borrowed-transaction", driver: transactionDriver }
+        );
       });
 
-      const tape = statementVerbs(world.driver.statements);
-      assert(caught instanceof TransactionError);
-      assert.equal(caught.code, VibORMErrorCode.TRANSACTION_FAILED);
-      assert.equal(caught.message, BORROWED_SUPPRESSION_REFUSAL);
-      assert.deepEqual(
-        { ...caught.meta },
-        {
-          driver: world.driver.driverName,
-          model: "vault",
-          operation: "update",
-        }
-      );
-      assert.deepEqual(
-        tape,
-        [],
-        "Found-arm capability refusal must precede every candidate statement"
-      );
+      expect(warn.mock.calls).toEqual([
+        droppedSkipWarning(world.driver.driverName, "vault.update"),
+      ]);
       assert.equal(world.driver.transactionCalls, 1);
       assert.deepEqual(world.driver.controlStatements, []);
       assert.deepEqual(
         await world.client.vault.findMany({
           select: { id: true, label: true },
         }),
-        [{ id: "v1", label: "before" }]
+        [{ id: "v1", label: "after" }]
       );
       assert.deepEqual(
         await world.client.gem.findMany({
@@ -286,84 +277,72 @@ describe("G3P-04 review regressions", () => {
         }),
         [{ id: 1, tag: "existing" }]
       );
-      assert.deepEqual(await world.client.facet.findMany({}), []);
+      assert.deepEqual(await world.client.facet.findMany({}), [
+        { id: "f1", slug: "found", gemId: 1 },
+      ]);
     } finally {
       await closeWorld(world);
       database.close();
     }
   });
 
-  it("refuses missing Choose-arm suppression before the parent scalar write", async () => {
+  it("drops missing Choose-arm suppression with one warning and writes the arm plainly", async () => {
     const { database, world } = await createChooseWorld();
     try {
-      let caught: unknown;
-
       await world.driver.withTransaction(async (transactionDriver) => {
-        try {
-          await world.candidate.execute(
-            "vault",
-            "update",
-            {
-              where: { id: "v1" },
-              data: {
-                label: "leaked-through-choose",
-                gems: {
-                  upsert: {
-                    where: { tag: "absent" },
-                    create: {
-                      id: 2,
-                      tag: "missing-arm",
-                      facets: {
-                        createMany: {
-                          data: [{ id: "f1", slug: "never" }],
-                          skipDuplicates: true,
-                        },
+        await world.candidate.execute(
+          "vault",
+          "update",
+          {
+            where: { id: "v1" },
+            data: {
+              label: "after",
+              gems: {
+                upsert: {
+                  where: { tag: "absent" },
+                  create: {
+                    id: 2,
+                    tag: "missing-arm",
+                    facets: {
+                      createMany: {
+                        data: [{ id: "f1", slug: "missing" }],
+                        skipDuplicates: true,
                       },
                     },
-                    update: { tag: "found-arm" },
                   },
+                  update: { tag: "found-arm" },
                 },
               },
             },
-            { kind: "borrowed-transaction", driver: transactionDriver }
-          );
-        } catch (error) {
-          caught = error;
-        }
+          },
+          { kind: "borrowed-transaction", driver: transactionDriver }
+        );
       });
 
-      const tape = statementVerbs(world.driver.statements);
-      assert(caught instanceof TransactionError);
-      assert.equal(caught.code, VibORMErrorCode.TRANSACTION_FAILED);
-      assert.equal(caught.message, BORROWED_SUPPRESSION_REFUSAL);
-      assert.deepEqual(
-        { ...caught.meta },
-        {
-          driver: world.driver.driverName,
-          model: "vault",
-          operation: "update",
-        }
-      );
-      assert.deepEqual(
-        tape,
-        [],
-        "Missing-arm capability refusal must precede every candidate statement"
-      );
+      expect(warn.mock.calls).toEqual([
+        droppedSkipWarning(world.driver.driverName, "vault.update"),
+      ]);
       assert.equal(world.driver.transactionCalls, 1);
       assert.deepEqual(world.driver.controlStatements, []);
       assert.deepEqual(
         await world.client.vault.findMany({
           select: { id: true, label: true },
         }),
-        [{ id: "v1", label: "before" }]
+        [{ id: "v1", label: "after" }]
       );
       assert.deepEqual(
         await world.client.gem.findMany({
           select: { id: true, tag: true },
+          orderBy: { id: "asc" },
         }),
-        [{ id: 1, tag: "existing" }]
+        [
+          { id: 1, tag: "existing" },
+          { id: 2, tag: "missing-arm" },
+        ]
       );
-      assert.deepEqual(await world.client.facet.findMany({}), []);
+      assert.deepEqual(await world.client.facet.findMany({}), [
+        { id: "f1", slug: "missing", gemId: 2 },
+      ]);
     } finally {
       await closeWorld(world);
       database.close();

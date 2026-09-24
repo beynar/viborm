@@ -1,5 +1,5 @@
 import { PGliteDriver } from "@drivers/pglite";
-import { TransactionError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -7,7 +7,8 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
+import { describe, expect, test, vi } from "vitest";
 
 /**
  * X1b COMBINED DEPTH STRESS — all four lifted mechanisms in ONE tree at >= 6 levels.
@@ -97,8 +98,8 @@ async function runObserved(
     driver,
   });
   // The operation's rejection is an OUTCOME of this substrate, not a runner
-  // failure: G3P-04 refuses the borrowed `skipDuplicates` member on the batch
-  // route, and the state after that refusal is the thing to pin.
+  // failure: G3P-04 drops the `skipDuplicates` skip on the batch route, the
+  // duplicate then fails, and the state after that failure is the thing to pin.
   let rejection: unknown;
   try {
     await op(observed.client);
@@ -128,48 +129,52 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
     await client.node.create({ data: { id: "w0", name: "w0" } });
   };
 
-  const op = async (c: Record<string, any>) => {
-    await c.node.update({
-      where: { id: "r0" },
-      data: {
-        children: {
-          update: {
-            where: { id: "c1" },
-            data: {
-              children: {
-                create: {
-                  id: "n2",
-                  name: "n2",
-                  tag: { create: { name: "tag2" } }, // mech 1 + 2
-                  labels: {
-                    connect: { id: "lblA" },
-                    create: { id: "lblNew", name: "lblNew" },
-                  }, // mech 4 (M2M)
-                  children: {
-                    create: {
-                      id: "n3",
-                      name: "n3",
-                      children: {
-                        create: {
-                          id: "n4",
-                          name: "n4",
-                          children: {
-                            connect: { id: "adopt" }, // mech 4 (adopt)
-                            create: {
-                              id: "n5",
-                              name: "n5",
-                              tag: { create: { name: "tag5" } }, // mech 1 + 2
-                              children: {
-                                create: {
-                                  id: "n6",
-                                  name: "n6",
-                                  children: {
-                                    createMany: {
-                                      data: [
-                                        { id: "n7a", name: "n7a" },
-                                        { id: "dup", name: "dup-skip" },
-                                      ],
-                                      skipDuplicates: true, // mech 3
+  const update =
+    (skipDuplicates: boolean) => async (c: Record<string, any>) => {
+      await c.node.update({
+        where: { id: "r0" },
+        data: {
+          children: {
+            update: {
+              where: { id: "c1" },
+              data: {
+                children: {
+                  create: {
+                    id: "n2",
+                    name: "n2",
+                    tag: { create: { name: "tag2" } }, // mech 1 + 2
+                    labels: {
+                      connect: { id: "lblA" },
+                      create: { id: "lblNew", name: "lblNew" },
+                    }, // mech 4 (M2M)
+                    children: {
+                      create: {
+                        id: "n3",
+                        name: "n3",
+                        children: {
+                          create: {
+                            id: "n4",
+                            name: "n4",
+                            children: {
+                              connect: { id: "adopt" }, // mech 4 (adopt)
+                              create: {
+                                id: "n5",
+                                name: "n5",
+                                tag: { create: { name: "tag5" } }, // mech 1 + 2
+                                children: {
+                                  create: {
+                                    id: "n6",
+                                    name: "n6",
+                                    children: {
+                                      createMany: {
+                                        data: [
+                                          { id: "n7a", name: "n7a" },
+                                          { id: "dup", name: "dup-skip" },
+                                        ],
+                                        ...(skipDuplicates
+                                          ? { skipDuplicates } // mech 3
+                                          : {}),
+                                      },
                                     },
                                   },
                                 },
@@ -185,9 +190,10 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
             },
           },
         },
-      },
-    });
-  };
+      });
+    };
+
+  const op = update(true);
 
   const snap = async (c: AnyClient) => {
     const client = c as any;
@@ -222,9 +228,10 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
     ["w0", null, null, []],
   ];
 
-  // The seed, untouched: what a refusal raised before any member effect leaves
-  // behind (mechanism 3's `skipDuplicates` leaf is the only thing the batch
-  // route answers differently, and it answers before the root writes).
+  // The seed, untouched: the fresh n2..n6 chain and its createMany leaf are one
+  // atomic batch, so the duplicate the dropped skip no longer suppresses rolls
+  // the whole tree back - exactly what the same update without skipDuplicates
+  // leaves behind.
   const seeded = [
     ["adopt", null, null, []],
     ["c1", "r0", null, []],
@@ -247,22 +254,32 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
 
   // G3P-04: root-conflict suppression is admitted only where the operation owns
   // the member rollback region, and a batch route owns none - so mechanism 3's
-  // borrowed `createMany skipDuplicates` is refused in the command analysis
-  // pass, before the enclosing root can write (AGENTS.md "G3P-04 admits
-  // root-conflict suppression only when the operation owns the member rollback
-  // region"). The other three mechanisms are not reached on this substrate.
-  test("batch refuses mechanism 3's borrowed skipDuplicates before any write", async () => {
-    const { state, engines, rejection } = await runObserved(
-      "batch",
-      seed,
-      op,
-      snap
-    );
-    expect(engines).toEqual(new Set(["production"]));
-    expect(rejection).toBeInstanceOf(TransactionError);
-    expect((rejection as Error).message).toBe(
-      "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region."
-    );
-    expect(state).toEqual(seeded);
+  // `createMany skipDuplicates` drops the skip with one warning (owner decision
+  // 2026-09-24, "Warn, drop skipDuplicates") and answers exactly as the same
+  // update without skipDuplicates: the duplicate fails with the ordinary
+  // unique-constraint error.
+  test("batch drops mechanism 3's skip with one warning; the duplicate fails the tree", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { state, engines, rejection } = await runObserved(
+        "batch",
+        seed,
+        op,
+        snap
+      );
+      expect(engines).toEqual(new Set(["production"]));
+      expect(rejection).toBeInstanceOf(UniqueConstraintError);
+      expect(warn.mock.calls).toEqual([
+        [droppedSkipWarning("pglite", "node.update")],
+      ]);
+      expect(state).toEqual(seeded);
+      await getFamily().reset();
+      const plain = await runObserved("batch", seed, update(false), snap);
+      expect(plain.rejection).toBeInstanceOf(UniqueConstraintError);
+      expect(plain.state).toEqual(state);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

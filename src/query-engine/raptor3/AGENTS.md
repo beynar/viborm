@@ -769,16 +769,23 @@ transaction driver's nested `withTransaction` boundary; a borrowed operation
 must receive the executable `memberRollback` capability from the existing
 callback/array transaction owner. Both suppress only the exact annotated root
 unique failure after successful rollback. A plain `borrowed-transaction`
-binding remains refused before member effects even when its driver supports
-savepoints: neither the payload nor transport capability grants that authority.
+binding owns no such region even when its driver supports savepoints: neither
+the payload nor transport capability grants that authority.
 
-Construction-time suppression refusal belongs to the existing command analysis
-pass. A statically constructed suppressed descendant directly requires the
-context-owned suppression capability during that traversal. The requirement is
-operation-wide across both `Choose` arms even though ordinary branch-local
-refusals remain conditional. It fires before the enclosing root can write. The
-runtime member boundary reuses the same rule for dynamic series; do not add a
-payload walker, public permission, or operation-local policy flag.
+Where the operation owns no member rollback region (a batch-only driver
+standalone, batch preparation, or a `borrowed-transaction` binding without
+`memberRollback`), the skip is DROPPED, never refused (Arnaud, 2026-09-24,
+"Warn, drop skipDuplicates"). `OperationContext.admitsSuppression` is the one
+rule and the one sentence: it answers whether the member may be skipped and, when
+it may not, warns once per client lineage and model (the client's logger when it
+routes warnings, `console.warn` otherwise) and the member runs as a plain member.
+A duplicate then fails with the ordinary `UniqueConstraintError`, and members an
+earlier segment committed stay committed, exactly as for the same `createMany`
+without `skipDuplicates`. The rule is asked where the skip would be spent — at
+`executeSkippableMember` for a record series and at the MySQL
+`recoverableUniqueError` scalar path — so an arm that never runs never warns;
+there is no construction-time refusal, payload walker, public permission, or
+operation-local policy flag.
 
 Failed-INSERT producer attribution is evidence, not replay authority. The scope
 is stated once, by `OperationContext.recoveryRejection`, and that statement is

@@ -1,16 +1,20 @@
-import { TransactionError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import {
+  captureDroppedSkipWarnings,
+  droppedSkipWarning,
+} from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test } from "vitest";
 
 // G3P-04 admits root-conflict suppression only where the operation owns the
-// member rollback region, and an atomic batch owns none, so a BORROWED
-// `createMany skipDuplicates` is refused there before any member effect
-// (`shared/operation-context.ts` `suppressionRefusal()`; AGENTS.md "G3P-04
-// admits root-conflict suppression only when the operation owns the member
-// rollback region").
-const BORROWED_SUPPRESSION_REFUSAL =
-  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
+// member rollback region, and an atomic batch owns none, so on the batch a
+// `createMany skipDuplicates` DROPS the skip with one warning per client and
+// model and runs every member plainly (`shared/operation-context.ts`
+// `admitsSuppression()`; owner decision 2026-09-24, "Warn, drop
+// skipDuplicates"): a duplicate fails the whole atomic batch with the
+// ordinary unique-constraint error.
+const droppedSkipWarnings = captureDroppedSkipWarnings();
 
 const compoundJunctionSchema = (() => {
   const author = s
@@ -493,12 +497,13 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
           },
         });
 
-      // G3P-04: on the atomic batch the borrowed member is refused ahead of every
-      // effect, so no book is created and no membership is written at all.
+      // G3P-04: on the atomic batch the skip is dropped, so the first conflicting
+      // row fails the whole batch: no book is created and no membership written.
       if (mode === "atomicBatch") {
-        const failure = await link().catch((error: unknown) => error);
-        expect(failure).toBeInstanceOf(TransactionError);
-        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+        await expect(link()).rejects.toBeInstanceOf(UniqueConstraintError);
+        expect(droppedSkipWarnings("author")).toEqual([
+          droppedSkipWarning("pglite", "author.update"),
+        ]);
         expect(await booksOf("t1", "owner")).toEqual([]);
         await expect(
           client.book.findUnique({ where: bookKey("fresh", "created") })
@@ -654,13 +659,14 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
           },
         });
 
-      // G3P-04: the atomic batch owns no member rollback region, so the borrowed
-      // member is refused before any effect; the end state below is the same one
-      // the transaction reaches by suppressing the row.
+      // G3P-04: the atomic batch owns no member rollback region, so the skip is
+      // dropped and the conflicting member fails the whole batch; the end state
+      // below is the same one the transaction reaches by suppressing the row.
       if (mode === "atomicBatch") {
-        const failure = await link().catch((error: unknown) => error);
-        expect(failure).toBeInstanceOf(TransactionError);
-        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+        await expect(link()).rejects.toBeInstanceOf(UniqueConstraintError);
+        expect(droppedSkipWarnings("catalog")).toEqual([
+          droppedSkipWarning("pglite", "catalog.update"),
+        ]);
       } else {
         await link();
       }
