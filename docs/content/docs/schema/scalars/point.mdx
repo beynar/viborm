@@ -244,6 +244,9 @@ PostGIS 3.6 (PGlite 0.5.8) and on MySQL 8, table and index scans:
   itself they part: PostGIS matches points on its two meridians and the pole,
   MySQL does not.
 
+The scripts and seeds behind these figures are in the repository's
+`scripts/geo-verification/README.md`.
+
 If exactness matters, write polygons each database reads as VibORM does: split
 a continent-scale area into polygons joined with `OR`, each on one side of the
 equator, of the 0/180 meridian or of the 90/-90 meridian; split long edges

@@ -2766,6 +2766,11 @@ with holes 3.5e-9 to 3.6e-4 degrees from either pole; rings over a pole
 (small, shuffled, with holes by the pole) 3.5e-9 to 1.1e-4 degrees from it
 and 0.02 to 81.6 degrees from it.
 
+Reproduction: `scripts/geo-verification/README.md` keeps the oracles, seeded
+fuzz, performance cases, MySQL departure runs and a verdict corpus behind these
+figures, with seeds, commands and observed output, and lists the lane's scratch
+scripts named above that it does not keep.
+
 **Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
 (`validateRing`). Unique coverage: `closedRing` in
 `src/adapters/shared/geo-point.ts` reads the first vertex of every ring, so an
