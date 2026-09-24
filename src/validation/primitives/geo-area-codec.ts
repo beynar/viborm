@@ -746,7 +746,9 @@ function sweep(
       return { ring, height: west[2], north: next?.stretch };
     });
     arrived.sort((left, right) => right.height - left.height);
-    placements.push(...arrived.map(({ ring, north }) => ({ ring, north })));
+    // One push per ring: a spread would pass every ring arriving on this
+    // meridian as a call argument, past the engine's argument limit.
+    for (const { ring, north } of arrived) placements.push({ ring, north });
     arrivals.clear();
   };
   const met = new Set<RingNode>();

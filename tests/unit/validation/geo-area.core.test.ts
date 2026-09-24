@@ -1226,6 +1226,24 @@ describe("GeoArea validation boundary", () => {
     expect(elapsed).toBeLessThan(2000);
   });
 
+  test("admits 130,000 holes that reach the sweep on one meridian", () => {
+    // Every hole starts at the same longitude, so the sweep places them all
+    // at once. Spreading them into one push call threw RangeError: a call
+    // cannot take that many arguments.
+    const outer = [point(0, 0), point(4, 0), point(4, 40), point(0, 40)];
+    const holes = Array.from({ length: 130_000 }, (_, index) => {
+      const latitude = 1 + index * 0.0001;
+      return [
+        point(1, latitude),
+        point(1.000_01, latitude + 0.000_01),
+        point(1.000_01, latitude - 0.000_01),
+      ];
+    });
+    const result = validateGeoPolygon({ outer, holes });
+    expect(result.issues).toBeUndefined();
+    expect(result.value?.holes).toHaveLength(130_000);
+  });
+
   test("admits strips chosen against predictable skip-list heights in near-linear time", () => {
     // The sweep's order is a skip list. Its heights once came from Park and
     // Miller's generator at a fixed seed, which anyone can replay: a strip
