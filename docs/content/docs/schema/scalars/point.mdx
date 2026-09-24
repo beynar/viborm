@@ -147,8 +147,9 @@ with a validation error naming the ring, the polygons PostgreSQL and MySQL
 answer wrongly, or differently from each other, instead of raising:
 
 - a ring that crosses or touches itself, including one that repeats a vertex
-  further on or goes past a whole turn of longitude over itself, and a ring
-  with no area;
+  further on or goes past a whole turn of longitude over itself, a ring with
+  no area, and a ring less than 2e-5 degrees (about 2 m) across, inside which
+  MySQL misplaces points;
 - an edge exactly 180 degrees of longitude long, a vertex at a pole, and a ring
   winding around a pole;
 - a ring covering half the globe or more;
@@ -166,7 +167,8 @@ ten-degree edge at latitude 5 and about 0.1 degrees at latitude 40. So in the
 box from (0, 40) to (10, 50), (5, 40.05) is outside and (5, 50.05) inside, a
 hole touching or just above the straight south edge crosses its arc and is
 refused, and a hole may reach just above the straight north edge. Points
-closer than 1e-9 degrees (about 0.1 mm) to an edge count as on it.
+closer than 1e-9 degrees (about 0.1 mm) to an edge count as on it; the ring
+size limit is measured from the first vertex, the same at every latitude.
 
 SQLite-family providers refuse polygon compilation before cache lookup or
 provider execution.

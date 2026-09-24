@@ -2359,10 +2359,26 @@ on 2026-09-24:
   non-neighbor meeting such a spike always makes (13 to 23 per 20,000 random
   degenerate rings against a comparison of every pair). Witness: "a ring
   doubling back along an edge".
+- Ring size (`SMALLEST_RING`, `A GeoPolygon ring must be at least 2e-5
+  degrees across`, review round 3): no vertex 2e-5 degrees from the first.
+  MySQL misread points in rings a few 1e-6 degrees across (tiny squares,
+  triangles, concave and thin rings at random places, points a tenth of the
+  ring from every edge: 0.4% wrong at 5e-6, 9% at 2e-6, 16-32% at 1e-6,
+  34-56% below;
+  PostGIS none) and none of 16,000 at 1.4e-5; its edges of 1e-5 degrees or
+  less sit up to 2e-7 degrees off, those of 2e-5 to 1e-4 within 1e-13. The
+  bound is a distance, so a square 1e-9 degrees across is refused at the
+  equator and at latitude 60 alike (review M1). A ring of one distinct vertex
+  has no arc and falls under the same guard. Witness: the three "a square
+  1e-5 degrees across …" cells, "a ring of one distinct vertex"; admitted
+  "a square 3e-5 degrees across" (also at latitude 89.9).
+- Cross products from vertex differences (`cross`, (a − b) × (a + b) / 2):
+  not a guard but the precision the geometry rests on; the plain a × b loses
+  a 1e-7-degree arc's direction. Witness: "a 1e-7-degree bowtie in a larger
+  ring" (admitted with the plain product).
 - Zero area: a ring of at most three arcs on one great circle has only
   neighbor arcs, which the self-intersection test skips. Witness: "a collinear
-  ring" (on the equator), "a ring of two distinct vertices"; a ring of one
-  distinct vertex has no arc at all ("a ring of one distinct vertex"). Three
+  ring" (on the equator), "a ring of two distinct vertices". Three
   vertices in a straight line of longitude and latitude off the equator are a
   thin spherical triangle, admitted, and both databases answered points inside
   and outside it correctly.

@@ -342,6 +342,14 @@ describe("GeoArea validation boundary", () => {
   const poleVertex = "A GeoPolygon ring cannot contain a pole";
   const aroundPole = "A GeoPolygon cannot contain a pole";
   const halfGlobe = "A GeoPolygon must cover less than half the globe";
+  const tooSmall = "A GeoPolygon ring must be at least 2e-5 degrees across";
+  // A square `side` degrees on each side, from (longitude, latitude).
+  const tiny = (longitude: number, latitude: number, side: number) => [
+    point(longitude, latitude),
+    point(longitude + side, latitude),
+    point(longitude + side, latitude + side),
+    point(longitude, latitude + side),
+  ];
   const holeOutside =
     "A GeoPolygon hole must be strictly inside its outer ring";
   const holesOverlap = "GeoPolygon holes cannot touch or overlap";
@@ -383,7 +391,41 @@ describe("GeoArea validation boundary", () => {
     {
       name: "a ring of one distinct vertex",
       polygon: { outer: [point(1, 1), point(1, 1), point(1, 1)] },
-      issue: { message: zeroArea, path: ["outer"] },
+      issue: { message: tooSmall, path: ["outer"] },
+    },
+    // MySQL misplaced points inside rings a few 1e-6 degrees across; the
+    // bound is a distance, the same at every latitude.
+    {
+      name: "a square 1e-5 degrees across on the equator",
+      polygon: { outer: tiny(10, 0, 1e-5) },
+      issue: { message: tooSmall, path: ["outer"] },
+    },
+    {
+      name: "a square 1e-5 degrees across at latitude 60",
+      polygon: { outer: tiny(10, 60, 1e-5) },
+      issue: { message: tooSmall, path: ["outer"] },
+    },
+    {
+      name: "a square 1e-5 degrees across at latitude 89.9",
+      polygon: { outer: tiny(-120, 89.9, 1e-5) },
+      issue: { message: tooSmall, path: ["outer"] },
+    },
+    {
+      // A plain start × end loses the direction of a 1e-7-degree arc there.
+      name: "a 1e-7-degree bowtie in a larger ring",
+      polygon: {
+        outer: [
+          point(9.999, 44.999),
+          point(10.001, 44.999),
+          point(10, 45),
+          point(10.000_000_1, 45.000_000_1),
+          point(10.000_000_1, 45),
+          point(10, 45.000_000_1),
+          point(10.001, 45.001),
+          point(9.999, 45.001),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
     },
     {
       name: "a vertex on a meridian edge",
@@ -767,15 +809,12 @@ describe("GeoArea validation boundary", () => {
       },
     },
     {
-      name: "a square of 1e-6 degrees",
-      polygon: {
-        outer: [
-          point(2.35, 48.85),
-          point(2.350_001, 48.85),
-          point(2.350_001, 48.850_001),
-          point(2.35, 48.850_001),
-        ],
-      },
+      name: "a square 3e-5 degrees across",
+      polygon: { outer: tiny(2.35, 48.85, 3e-5) },
+    },
+    {
+      name: "a square 3e-5 degrees across at latitude 89.9",
+      polygon: { outer: tiny(-120, 89.9, 3e-5) },
     },
     {
       name: "an antimeridian hole in an antimeridian polygon",

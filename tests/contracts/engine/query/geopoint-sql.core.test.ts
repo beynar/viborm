@@ -755,6 +755,21 @@ describe("GeoPoint query lowering", () => {
       },
     },
     {
+      name: "a square 1e-5 degrees across",
+      polygon: {
+        outer: [
+          g(10, 60),
+          g(10.000_01, 60),
+          g(10.000_01, 60.000_01),
+          g(10, 60.000_01),
+        ],
+      },
+      issue: {
+        message: "A GeoPolygon ring must be at least 2e-5 degrees across",
+        path: ["outer"],
+      },
+    },
+    {
       name: "a hole outside",
       polygon: { outer: square, holes: [[g(5, 5), g(6, 6), g(6, 5)]] },
       issue: {

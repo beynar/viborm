@@ -173,6 +173,14 @@ type Ring = readonly [Arc, ...Arc[]];
 const RADIANS = Math.PI / 180;
 /** An angle of 1e-9 degrees, about 0.1 mm: a point this near an arc is on it. */
 const TOLERANCE = 1e-9 * RADIANS;
+/**
+ * The smallest ring MySQL answers: in rings a few 1e-6 degrees across it put
+ * up to 9% of the points 0.1 of the ring away from every edge on the wrong
+ * side (PostGIS none), and none of 16,000 in rings 1.4e-5 across. A ring must
+ * reach this far, about 2 m, from its first vertex, so that it is at least
+ * 1.4e-5 degrees across.
+ */
+const SMALLEST_RING = 2e-5 * RADIANS;
 const HALF_GLOBE_STERADIANS = 2 * Math.PI;
 
 function toVector(longitude: number, latitude: number): Vector {
@@ -188,11 +196,27 @@ function dot(first: Vector, second: Vector): number {
   return first[0] * second[0] + first[1] * second[1] + first[2] * second[2];
 }
 
+/**
+ * first × second, taken as (first − second) × (first + second) / 2: the same
+ * vector, but the difference of two nearby points is exact, so the normal of
+ * a short arc keeps its direction; taken plainly it loses it at 1e-7 degrees
+ * (a bowtie that size at latitude 45 was admitted).
+ */
 function cross(first: Vector, second: Vector): Vector {
+  const [dx, dy, dz] = [
+    first[0] - second[0],
+    first[1] - second[1],
+    first[2] - second[2],
+  ];
+  const [sx, sy, sz] = [
+    first[0] + second[0],
+    first[1] + second[1],
+    first[2] + second[2],
+  ];
   return [
-    first[1] * second[2] - first[2] * second[1],
-    first[2] * second[0] - first[0] * second[2],
-    first[0] * second[1] - first[1] * second[0],
+    (dy * sz - dz * sy) / 2,
+    (dz * sx - dx * sz) / 2,
+    (dx * sy - dy * sx) / 2,
   ];
 }
 
@@ -220,6 +244,8 @@ function ringArcs(
 ): ValidationResult<Ring> {
   const arcs: Arc[] = [];
   let wrap = 0;
+  let reach = 0;
+  let origin: Vector | undefined;
   let previous: GeoPoint | undefined;
   let from: UnwrappedPoint | undefined;
   for (const [index, vertex] of [...ring, ...ring.slice(0, 1)].entries()) {
@@ -242,6 +268,8 @@ function ringArcs(
     previous = vertex;
     const longitude = vertex.longitude + wrap;
     const vector = toVector(longitude, vertex.latitude);
+    origin ??= vector;
+    reach = Math.max(reach, chord(origin, vector));
     const to = {
       longitude,
       latitude: vertex.latitude,
@@ -264,14 +292,18 @@ function ringArcs(
   // Longitudes that went once around the globe enclose a pole on both
   // databases' unstated "smaller side" reading.
   if (wrap !== 0) return fail("A GeoPolygon cannot contain a pole", [...path]);
+  const [first, ...rest] = arcs;
+  if (!first || reach < SMALLEST_RING) {
+    return fail("A GeoPolygon ring must be at least 2e-5 degrees across", [
+      ...path,
+    ]);
+  }
   // The self-intersection no pair of non-neighbor arcs shows: a ring of at
   // most three arcs on one great circle retraces itself, and both databases
-  // matched its outline only; a ring of one distinct vertex has no arc.
-  const [first, ...rest] = arcs;
+  // matched its outline only.
   if (
-    !first ||
-    (rest.length < 3 &&
-      rest.every(({ start }) => Math.abs(side(first, start)) <= TOLERANCE))
+    rest.length < 3 &&
+    rest.every(({ start }) => Math.abs(side(first, start)) <= TOLERANCE)
   ) {
     return fail("A GeoPolygon ring must have non-zero area", [...path]);
   }

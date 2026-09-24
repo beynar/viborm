@@ -336,10 +336,18 @@ is what the databases were measured to answer wrongly or differently.
 - Newly accepted, because both databases answer them correctly: a closing
   vertex repeated at the end, or any vertex repeated consecutively (it is sent
   as written and closed once more), a ring that goes past a whole turn of
-  longitude beside itself, and very small polygons (a square of 1e-6 degrees,
-  about 11 cm; VibORM treats points within 1e-9 degrees, about 0.1 mm, of an
-  edge as on it). SQLite-family providers still refuse polygon filtering, now
-  after admission.
+  longitude beside itself. SQLite-family providers still refuse polygon
+  filtering, now after admission.
+- A ring less than 2e-5 degrees across (about 2 m, measured from its first
+  vertex, the same at every latitude) is refused with `A GeoPolygon ring must
+  be at least 2e-5 degrees across`, a ring of one distinct vertex included
+  (it reported `must have non-zero area`): MySQL put up to 9% of the points
+  inside rings a few 1e-6 degrees across, a tenth of the ring away from every
+  edge, on the wrong side, and none of 16,000 in rings 1.4e-5 across; PostGIS
+  answered all of them. The geometry itself resolves far finer: its cross
+  products are taken from vertex differences, so a 1e-7-degree bowtie inside
+  a larger ring is refused at any latitude (it was admitted at latitude 45),
+  and points within 1e-9 degrees, about 0.1 mm, of an edge count as on it.
 - A polygon without `outer` fails with `Missing required field: outer` (was
   `Expected GeoPolygon with outer and optional holes`), and a ring that is not
   an array with `Expected array` (was `Expected outer ring array`). A ring is
