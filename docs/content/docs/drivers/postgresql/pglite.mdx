@@ -188,6 +188,13 @@ driver; with the option but without `CREATE EXTENSION`, live migrations refuse
 before their first effect. See [GeoPoint provider
 tiers](/docs/schema/scalars/point#provider-tiers).
 
+PGlite runs the same PostGIS, so it answers polygons as PostGIS does, including
+where PostGIS departs from VibORM's reading: a ring reaching across the equator,
+the 0/180 meridian and the 90/-90 meridian at once (every ring of half the globe
+or more) can be read inside out. VibORM admits such a polygon; see [How each
+database reads a
+polygon](/docs/schema/scalars/point#how-each-database-reads-a-polygon).
+
 ## Transactions
 
 PGlite supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).

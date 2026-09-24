@@ -318,15 +318,16 @@ is what the databases were measured to answer wrongly or differently.
 - A `GeoPolygon` is checked for its shape first: exactly `outer` and optional
   `holes`, finite in-range vertices, at least three vertices per ring
   (`A GeoPolygon ring needs at least 3 vertices`, kept), all reported by the
-  record walker. Its geometry is checked second, against what PostgreSQL and
-  MySQL actually answer. Measured with VibORM's own predicates on PostGIS 3.6.2
-  and MySQL 8, PostGIS raises only for an edge between antipodal endpoints
-  and answers every other malformed polygon silently: a hole
-  reaching outside the outer ring adds its own area, a point inside two holes
-  matches, a bowtie matches both lobes, a ring covering half the globe means
-  opposite regions on the two databases, and MySQL answers a pole vertex with
-  the equator and the opposite pole. Those polygons are refused at admission,
-  the same on every dialect, with the pre-D2 messages word for word: `A
+  record walker. Its geometry is checked second, on the great-circle reading,
+  and a polygon is refused only when it has no single meaning there; a valid
+  polygon a database computes differently is admitted (below). Measured with
+  VibORM's own predicates on PostGIS 3.6.2 and MySQL 8, PostGIS raises only
+  for an edge between antipodal endpoints and answers every other malformed
+  polygon silently: a hole reaching outside the outer ring adds its own area,
+  a point inside two holes matches, a bowtie matches both lobes, and MySQL
+  answers a pole vertex with the equator and the opposite pole. Those polygons
+  are refused at admission, the same on every dialect, with the pre-D2
+  messages word for word: `A
   GeoPolygon ring cannot self-intersect` (a crossing or touching ring,
   including one that repeats a vertex further on or goes past a whole turn
   over itself), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
@@ -334,8 +335,9 @@ is what the databases were measured to answer wrongly or differently.
   (a ring winding around one), `A GeoPolygon hole must be strictly inside its
   outer ring` and `GeoPolygon holes cannot touch or overlap`. Each is reported
   at its ring (`outer` or `holes.<i>`), except the edge and vertex refusals
-  (`cannot span exactly 180 degrees`, `must be shorter than 150 degrees`,
-  `must be at least 1e-4 degrees from a pole`), reported at the offending
+  (`cannot span exactly 180 degrees`, `cannot join vertices within 0.01
+  degrees of antipodal`, `must be at least 1e-4 degrees from a pole`),
+  reported at the offending
   vertex (`outer.<j>` or `holes.<i>.<j>`, the vertex ending the edge).
 - A vertex closer than 1e-4 degrees (about 11 m) to a pole is refused with `A
   GeoPolygon vertex must be at least 1e-4 degrees from a pole`, at the vertex;
@@ -354,8 +356,8 @@ is what the databases were measured to answer wrongly or differently.
   0.019 at 60, 0.075 at 90, 0.17 at 120 and 0.46 at 150 (30 random edges per
   length, measured by bisection), none along the equator or a meridian, so
   points within that band beside an edge can be answered differently by the two
-  databases; edges are refused from 150 degrees on (above), and a long edge
-  split into shorter ones narrows the band with the square of the length.
+  databases (stated, not refused: below); a long edge split into shorter ones
+  narrows the band with the square of the length.
   Around every vertex, whatever the edge length, MySQL also answers points
   within about 1e-6 degrees (about 11 cm) unlike PostgreSQL and the sphere:
   about 13% of such points in random pentagons with edges of 0.001 to 5
@@ -381,53 +383,62 @@ is what the databases were measured to answer wrongly or differently.
   as written and closed once more), a ring that goes past a whole turn of
   longitude beside itself. SQLite-family providers still refuse polygon
   filtering, now after admission.
-- An outer ring with vertices on both sides of the equator, of the 0/180
-  meridian and of the 90/-90 meridian at once is refused with `A GeoPolygon
-  cannot reach across the equator and the 0/180 and 90/-90 meridians at
-  once`. PostGIS then has no reference point outside the polygon's box and
-  falls back to one of two points, depending on the query path: one just
-  outside the first edge sent, or the antipode of the centre of its circle
-  tree over the edges, which its incremental merge of the edges' circles
-  decides. Table scans went wrong on 42 of 44 random ring rotations where
-  either point fell inside the ring and on none of 436 where both fell
-  outside (the tropics band sent in 42.5-degree edges: 1,604 of 2,485
-  points wrong with the first-edge point outside, while its single-row
-  queries were all right); 23 of 372 random such rings were misread, one
-  of them 27% of half the globe, and none of 494 reaching across two planes
-  or fewer.
-  The refusal is deliberately wider than those rings, because where the
-  second point falls follows liblwgeom's tree arithmetic, not the polygon:
-  it also refuses large rings both databases answer correctly, such as the
-  Pacific from 115 to -75 degrees of longitude and -60 to 58 of latitude
-  (0 of 600 points wrong on either database, table and index scans, in 5
-  rotations). Such an area can be queried as two polygons joined with `OR`,
-  split along the equator or a meridian. Every ring of half the globe or
-  more reaches across all three, so this replaces
-  `A GeoPolygon must cover less than half the globe`, whose longitude
-  trapezoid sum ignored the arcs' bowing and admitted the tropics band
-  (-170 to 170 at ±30, 11.18 steradians), which PostGIS read as the whole
-  globe and MySQL as the band.
-- An edge 150 degrees long or longer is refused with `A GeoPolygon edge must
-  be shorter than 150 degrees`, at the vertex ending it. MySQL reads an edge
-  on the ellipsoid, PostGIS on the sphere, and near antipodal endpoints the
-  ellipsoid's path swings away: MySQL's edge left the great-circle arc by at
-  most 0.46 degrees on 150-degree edges, 1.6 at 170, 8.4 at 178 and 17 at
-  179, and on edges 0.000001 to 2 degrees short of antipodal it answered
-  points far from the edge unlike PostGIS and the sphere in every run.
-  `A GeoPolygon edge cannot span exactly 180 degrees` stays for edges 180
-  degrees of longitude long however short: such an edge runs over a pole,
-  where the two databases answered (0, 80) differently for (0, 10) to
-  (180, 10), or joins antipodal endpoints, which PostGIS raises for.
-- A ring less than 2e-5 degrees across (about 2 m, measured from its first
-  vertex, the same at every latitude) is refused with `A GeoPolygon ring must
-  be at least 2e-5 degrees across`, a ring of one distinct vertex included
-  (it reported `must have non-zero area`): MySQL put up to 9% of the points
-  inside rings a few 1e-6 degrees across, a tenth of the ring away from every
-  edge, on the wrong side, and none of 16,000 in rings 1.4e-5 across; PostGIS
-  answered all of them. The geometry itself resolves far finer: its cross
-  products are taken from vertex differences, so a 1e-7-degree bowtie inside
-  a larger ring is refused at any latitude (it was admitted at latitude 45),
-  and points within 1e-9 degrees, about 0.1 mm, of an edge count as on it.
+- Admitted, the database's reading stated instead of refused (owner decision,
+  2026-09-24: VibORM refuses a polygon with no single meaning, never a valid
+  one because a database computes it differently; `point.mdx`, "How each
+  database reads a polygon", has the figures and the advice):
+  - Rings reaching across the equator, the 0/180 meridian and the 90/-90
+    meridian at once, every ring of half the globe or more among them.
+    PostGIS then has no reference point outside the polygon's box and falls
+    back to one it derives from the first edge sent or from its internal
+    circle tree over the edges, so its answer depends on vertex order and
+    query path: table scans went wrong on 42 of 44 random ring rotations
+    where either fallback point fell inside the ring and on none of 436 where
+    both fell outside; 23 of 372 random such rings were misread, one of them
+    27% of half the globe, and none of 494 reaching across two planes or
+    fewer. Rerun on the admitted witnesses (400 random points each, table and
+    index scans): the tropics band from -170 to 170 at ±30 (11.18 steradians
+    on the great-circle reading) 38 points wrong on PostGIS, a band with two
+    175-degree edges on each side 398 of 398, a random ring across all three
+    planes 347 of 397, the Pacific from 115 to -75 degrees none; MySQL none
+    on any. Splitting such an area into polygons joined with `OR`, each on
+    one side of one of those planes, avoids it. `A GeoPolygon cannot reach
+    across the equator and the 0/180 and 90/-90 meridians at once` and
+    `A GeoPolygon must cover less than half the globe` are gone.
+  - Edges of any length short of the antipodal bound below. MySQL's
+    ellipsoid edge leaves the great-circle arc by at most 0.46 degrees on
+    150-degree edges, 1.6 at 170, 2.7 at 174, 8.4 at 178 and 17 at 179, and
+    in every run of 30 random triangles with an edge up to 2 degrees short
+    of antipodal it answered some points far from the edge unlike PostGIS and
+    the sphere. `A GeoPolygon edge must be shorter than 150 degrees` is gone.
+  - Rings of any size above VibORM's resolution. MySQL answers points within
+    about 1e-6 degrees of a vertex unlike the sphere, so it misplaced points
+    a tenth of the ring from every edge in rings a few 1e-6 degrees across
+    (0.4% at 5e-6, 9% at 2e-6, 16 to 32% at 1e-6, 34 to 56% below) and none
+    of 16,000 in rings 1.4e-5 across; PostGIS answered all of them. `A
+    GeoPolygon ring must be at least 2e-5 degrees across` is gone.
+- An edge whose end lies within 0.01 degrees of its start's antipode is
+  refused with `A GeoPolygon edge cannot join vertices within 0.01 degrees of
+  antipodal`, at the vertex ending it: two antipodal points lie on every great
+  circle through them, and near the antipode a one-step float64 move of a
+  written coordinate turns the edge's circle by up to about 3e-12 / d degrees
+  at d degrees from antipodal (3.1e-9 at 0.001, 3.0e-10 at 0.01, over 2,000
+  random edges per distance), so nearer than 0.01 the written coordinates do
+  not fix the edge to VibORM's 1e-9-degree resolution. `A GeoPolygon edge
+  cannot span exactly 180 degrees` stays for edges 180 degrees of longitude
+  long however short: such an edge runs over a pole, where its direction is
+  undetermined (the two databases answered (0, 80) differently for (0, 10) to
+  (180, 10)), or joins antipodal endpoints, which PostGIS raises for.
+- Points within 1e-9 degrees, about 0.1 mm, of an edge count as on it, and an
+  edge shorter than that is a repeated vertex. That is VibORM's resolution at
+  every ring size: against 60-digit geometry on 9,000 random rings 1e-9 to
+  1e-4 degrees across, every ring whose edges and clearances exceed twice it
+  was judged exactly (4,048 simple rings admitted with the right winding,
+  2,135 crossing ones refused). A ring whose vertices all lie within it of
+  one another, one distinct vertex included, is refused with `A GeoPolygon
+  ring must have non-zero area`. Cross products are taken from vertex
+  differences, so a 1e-7-degree bowtie inside a larger ring is refused at any
+  latitude (the plain product admitted it at latitude 45).
 - A polygon without `outer` fails with `Missing required field: outer` (was
   `Expected GeoPolygon with outer and optional holes`), and a ring that is not
   an array with `Expected array` (was `Expected outer ring array`). A ring is

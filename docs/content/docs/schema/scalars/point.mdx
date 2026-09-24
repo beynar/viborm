@@ -141,54 +141,102 @@ ring once, so a repeated closing vertex is sent as written and closed again.
 Input winding does not matter. Membership includes the outer boundary and every
 hole boundary; a point strictly inside a hole does not match.
 
-VibORM checks the polygon's shape first: exactly `outer` and optional `holes`,
-finite in-range vertices, and at least three vertices per ring. It then refuses,
-with a validation error naming the ring, the polygons PostgreSQL and MySQL
-answer wrongly, or differently from each other, instead of raising:
+VibORM reads each edge as the shortest path on a sphere, the great-circle arc
+between its vertices, and the polygon as the side of its outer ring away from
+both poles. It checks the polygon's shape first: exactly `outer` and optional
+`holes`, finite in-range vertices, and at least three vertices per ring. It then
+refuses, with a validation error naming the ring, a polygon that has no single
+meaning on that reading:
 
 - a ring that crosses or touches itself, including one that repeats a vertex
-  further on or goes past a whole turn of longitude over itself, a ring with
-  no area, and a ring less than 2e-5 degrees (about 2 m) across, inside which
-  MySQL misplaces points;
-- an edge exactly 180 degrees of longitude long (it runs over a pole or joins
-  opposite points of the globe), an edge 150 degrees long or longer, a vertex
-  closer than 1e-4 degrees (about 11 m) to a pole, where both databases
-  answered points far from the ring wrongly, and a ring winding around a pole;
-- an outer ring with vertices on both sides of the equator, of the 0/180
-  meridian and of the 90/-90 meridian at once (every ring of half the globe or
-  more is one). PostGIS then falls back to a reference point that depends on
-  its internal edge tree, and answered most points of some such rings
-  wrongly. VibORM refuses
-  all of them, deliberately including large rings both databases answer
-  correctly, such as the Pacific from longitude 115 to -75: split such an
-  area along the equator or a meridian into polygons joined with `OR`;
+  further on or goes past a whole turn of longitude over itself, and a ring
+  with no area;
 - a hole that is not strictly inside its outer ring, and holes that touch,
-  overlap or nest.
+  overlap or nest;
+- an edge exactly 180 degrees of longitude long (it runs over a pole or joins
+  opposite points of the globe), and an edge whose vertices are within 0.01
+  degrees of opposite points: every great circle through one passes through the
+  other, and that close to them the last digit of a coordinate turns the edge's
+  circle by more than VibORM's resolution;
+- a vertex on a pole, which has no longitude, or closer than 1e-4 degrees
+  (about 11 m) to one, the clearance measured on both databases (below it,
+  consecutive vertices near a pole had points 70 degrees from the ring answered
+  wrongly), and a ring winding around a pole, which has no side away from both
+  poles.
 
-A repeated consecutive vertex is harmless and accepted. Use ordinary `OR` for
-disjoint polygons.
+A repeated consecutive vertex is harmless and accepted. Points closer than 1e-9
+degrees (about 0.1 mm) to an edge count as on it, and an edge shorter than that
+is a repeated vertex: that is VibORM's resolution, and a ring of any size above
+it is judged exactly. Use ordinary `OR` for disjoint polygons.
 
-PostgreSQL draws each edge as the shortest path on a sphere, a great-circle arc,
-and VibORM checks the polygon on the same arcs. Along a meridian or the equator
-an arc is the straight line of longitude and latitude; elsewhere it bows toward
-the nearer pole, by about 0.02 degrees at the middle of a ten-degree edge at
-latitude 5 and about 0.1 degrees at latitude 40. So in the box from (0, 40) to
-(10, 50), (5, 40.05) is outside and (5, 50.05) inside, a hole touching or just
-above the straight south edge crosses its arc and is refused, and a hole may
-reach just above the straight north edge. Points closer than 1e-9 degrees (about
-0.1 mm) to an edge count as on it; the ring size limit is measured from the
-first vertex, the same at every latitude.
+Along a meridian or the equator a great-circle arc is the straight line of
+longitude and latitude; elsewhere it bows toward the nearer pole, by about 0.02
+degrees at the middle of a ten-degree edge at latitude 5 and about 0.1 degrees
+at latitude 40. So in the box from (0, 40) to (10, 50), (5, 40.05) is outside
+and (5, 50.05) inside, a hole touching or just above the straight south edge
+crosses its arc and is refused, and a hole may reach just above the straight
+north edge. A long edge bows far: the edge from (-170, -30) to (0, -30) reaches
+latitude -81 at its middle, so write intermediate vertices where you mean a
+parallel.
 
-MySQL draws the shortest path on the ellipsoid instead, which leaves the arc by
-at most 0.0007 degrees (about 75 m) on a 10-degree edge, 0.007 on a 30-degree
-edge, 0.019 at 60, 0.075 at 90, 0.17 at 120 and 0.46 at 150, and not at all
-along the equator or a meridian. A point that close to a long edge can match on
-one database and not the other. Splitting a long edge into shorter ones narrows
-the band with the square of their length; edges of 150 degrees or more are
-refused. Whatever the edge length, MySQL also answers some points within about
-1e-6 degrees (about 11 cm) of a vertex differently from PostgreSQL, and its
-spatial index and table scans can disagree there; this is also why a ring must
-be at least 2e-5 degrees across.
+### How each database reads a polygon
+
+VibORM admits every polygon with one meaning on the great-circle reading, even
+where a database computes it differently; it does not refuse a valid polygon
+for a database's sake. Measured with VibORM's own predicates on PostgreSQL with
+PostGIS 3.6 (PGlite 0.5.8) and on MySQL 8, table and index scans:
+
+- **PostgreSQL (PostGIS `geography`)** reads edges on the sphere, as VibORM
+  does, to within 4e-12 degrees. It decides inside and outside against a
+  reference point outside the polygon's bounding box, and when the outer ring
+  has vertices on both sides of the equator, of the 0/180 meridian and of the
+  90/-90 meridian at once (every ring of half the globe or more does) that box
+  is the whole globe: PostGIS then guesses a reference point from its internal
+  edge tree, and its answer can change with the vertex order and the query
+  plan. It misread 23 of 372 random such rings, one of them 27% of half the
+  globe, and none of 494 reaching across two of those planes or fewer. The
+  band from -170 to 170 at latitude ±30 matched points outside it (38 of 394
+  sample points wrong), a band with two 175-degree edges on each side and a
+  random ring across all three planes were read inside out (398 of 398 and
+  347 of 397 wrong), while the Pacific from longitude 115 to -75 was answered
+  correctly. MySQL answered all of these as VibORM reads them.
+- **MySQL (SRID 4326)** reads each edge as the shortest path on the ellipsoid,
+  which leaves the great-circle arc by at most:
+
+  | Edge length | Largest departure from the arc |
+  | --- | --- |
+  | 10 degrees | 0.0007 degrees (about 75 m) |
+  | 30 degrees | 0.007 degrees |
+  | 60 degrees | 0.019 degrees |
+  | 90 degrees | 0.075 degrees |
+  | 120 degrees | 0.17 degrees |
+  | 150 degrees | 0.46 degrees |
+  | 170 degrees | 1.6 degrees |
+  | 174 degrees | 2.7 degrees |
+  | 178 degrees | 8.4 degrees |
+  | 179 degrees | 17 degrees |
+
+  and not at all along the equator or a meridian (30 random edges per length).
+  A point in that band beside an edge can match on one database and not the
+  other. Past about 171 degrees the departure passes 1% of the edge, and in
+  every run of 30 random triangles with an edge up to 2 degrees short of
+  opposite points, MySQL answered some points far from the edge unlike the
+  sphere.
+- **MySQL near a vertex**: whatever the edge length, MySQL answers about 13% of
+  the points within about 1e-6 degrees (about 11 cm) of a vertex differently
+  from the sphere and PostGIS, none from 1.8e-6 degrees out, and its spatial
+  index and table scans can disagree there. In a ring only a few 1e-6 degrees
+  across every point is that near a vertex: points a tenth of the ring from
+  every edge were misplaced for 0.4% of them at 5e-6 degrees across, 9% at
+  2e-6, 16 to 32% at 1e-6 and 34 to 56% below, none of 16,000 at 1.4e-5
+  degrees across (about 1.5 m). PostGIS answered all of them.
+
+If exactness matters, write polygons each database reads as VibORM does: split
+a continent-scale area into polygons joined with `OR`, each on one side of the
+equator, of the 0/180 meridian or of the 90/-90 meridian; split long edges
+into shorter ones, which narrows MySQL's band with the square of their length;
+and on MySQL do not rely on points within a few 1e-6 degrees of a vertex, or on
+rings smaller than about 2e-5 degrees (about 2 m).
 
 SQLite-family providers refuse polygon compilation before cache lookup or
 provider execution.
