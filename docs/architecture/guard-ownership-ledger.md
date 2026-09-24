@@ -2348,10 +2348,17 @@ on 2026-09-24:
   pole on an unstated "smaller side" reading, and `inside` casts its meridian
   to the north pole on the premise that no admitted ring encloses one.
   Witness: "a ring winding around a pole".
-- Self-intersection (two non-neighbor arcs meet, `selfIntersects`): an
+- Self-intersection (two non-neighbor arcs meet, found by `firstMeeting`): an
   asymmetric bowtie has area and passes the rest. Witness: "a bowtie", "a
   bowtie hole", "a ring touching itself at a repeated vertex", "a ring past a
-  whole turn over itself".
+  whole turn over itself", "a vertex on a meridian edge" (an arc along a
+  meridian is compared by position at its longitude, not by the order).
+- Self-intersection of neighbors (one arc doubles back along the one before
+  it, in `ringArcs`): `firstMeeting` excuses neighbors, which meet at their
+  shared vertex, and cannot order two arcs that overlap, so it missed the
+  non-neighbor meeting such a spike always makes (13 to 23 per 20,000 random
+  degenerate rings against a comparison of every pair). Witness: "a ring
+  doubling back along an edge".
 - Zero area: a ring of at most three arcs on one great circle has only
   neighbor arcs, which the self-intersection test skips. Witness: "a collinear
   ring" (on the equator), "a ring of two distinct vertices"; a ring of one
@@ -2387,10 +2394,17 @@ on 2026-09-24:
 Kept output facts, not refusals: an edge shorter than the tolerance, a
 repeated consecutive or closing vertex, is dropped from the geometry (witness
 "admits 'a closed ring'", "admits 'a repeated consecutive vertex'"); the
-emitted GeoJSON is unchanged. Not guards: the arc boxes in `meet` and the
-sweep in `anyMeet` only skip pairs that cannot meet, and every witness stays
-green without them; they keep a 20,000-vertex ring at about 0.3 s where the
-straight-line restoration took 20 s on the same loaded machine.
+emitted GeoJSON is unchanged. Not a guard: `firstMeeting` finds whether any
+two arcs meet by a sweep in longitude that keeps the arcs it crosses in
+south-to-north order in a skip list and compares only neighbors in it
+(Shamos and Hoey), all rings in one pass; it agreed with a comparison of every
+pair on 120,000 random rings built to touch, overlap, run along meridians and
+cross the antimeridian. It replaced a sweep over arc boxes that compared every
+pair whose boxes overlapped: on the review's star (spokes from radius 0.5 to
+20 degrees) that took 7.2 s at 20,000 vertices, 33 s at 40,000 and 98 s at
+20,000 with 50 small holes, now 27 ms, 65 ms and 53 ms; every input of the
+review's perf script is under 0.1 s. Witness: "admits a 40,000-vertex star
+with 50 holes in near-linear time" (under 2 s; red with every pair compared).
 
 Evidence beyond the witnesses: a differential run of 4,800 random cases
 (holes jittered around a slanted outer edge, judged by PostGIS `ST_Intersects`

@@ -386,6 +386,33 @@ describe("GeoArea validation boundary", () => {
       issue: { message: zeroArea, path: ["outer"] },
     },
     {
+      name: "a vertex on a meridian edge",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(0, 4),
+          point(3, 4),
+          point(0, 2),
+          point(3, 0),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a ring doubling back along an edge",
+      polygon: {
+        outer: [
+          point(1, 2),
+          point(0, 1),
+          point(1, 0),
+          point(2, 0),
+          point(1, 0),
+          point(2, 1),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
       name: "a 180-degree edge",
       polygon: { outer: [point(0, 0), point(180, 0), point(1, 1)] },
       issue: { message: edge180, path: ["outer", 1] },
@@ -767,6 +794,34 @@ describe("GeoArea validation boundary", () => {
     },
   ])("admits $name as written", ({ polygon }) => {
     expect(validateGeoPolygon(polygon)).toEqual({ value: polygon });
+  });
+
+  test("admits a 40,000-vertex star with 50 holes in near-linear time", () => {
+    // Most spokes' boxes overlap each other and reach toward every hole:
+    // comparing boxes took 7 s on a 20,000-vertex star, 98 s on that star
+    // with these holes and 33 s on this star alone; the sweep takes under
+    // 0.1 s. The bound leaves a slow machine a wide margin, a quadratic
+    // pass none.
+    const spokes = 40_000;
+    const outer = Array.from({ length: spokes }, (_, index) => {
+      const angle = (2 * Math.PI * index) / spokes;
+      const radius = index % 2 === 1 ? 0.5 : 20;
+      return point(radius * Math.cos(angle), radius * Math.sin(angle));
+    });
+    const holes = Array.from({ length: 50 }, (_, index) =>
+      Array.from({ length: 8 }, (__, step) => {
+        const angle = (-2 * Math.PI * step) / 8;
+        return point(
+          Math.cos(index) * 0.2 + 0.001 * Math.cos(angle),
+          Math.sin(index) * 0.2 + 0.001 * Math.sin(angle)
+        );
+      })
+    );
+    const started = performance.now();
+    const result = validateGeoPolygon({ outer, holes });
+    const elapsed = performance.now() - started;
+    expect(result.issues).toBeUndefined();
+    expect(elapsed).toBeLessThan(2000);
   });
 
   test("contains hostile ring and property access", () => {

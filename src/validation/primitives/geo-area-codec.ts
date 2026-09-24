@@ -133,27 +133,29 @@ const polygonRecord = object(
 );
 
 /*
- * Polygon geometry, judged after the record walker admitted the shape. Both
- * databases read an edge as the great-circle arc between its vertices (in the
- * box (0,40)-(10,50), PostGIS and MySQL both put (5,40.05) outside and
- * (5,50.05) inside), so crossings, touches and containment are judged on the
- * unit sphere, never on straight longitude/latitude lines. PostGIS and MySQL
- * answer most malformed polygons silently rather than raising, so each refusal
- * below is a polygon whose answer the probe measured as wrong, as different
- * between the two databases, or as resting on a reading the docs do not state
- * (PGlite 0.5.8 + PostGIS 3.6.2 and MySQL 8, the exact withinPolygon
- * predicates; CHANGELOG "Geo"). Everything else is admitted.
+ * Polygon geometry, judged after the record walker admitted the shape.
+ * PostGIS geography reads an edge as the great-circle arc between its
+ * vertices, so crossings, touches and containment are judged on the unit
+ * sphere, never on straight longitude/latitude lines. MySQL reads the edge on
+ * the ellipsoid instead, a band beside the arc that grows with the edge (the
+ * limits below and CHANGELOG "Geo" give the measured widths). PostGIS and
+ * MySQL answer most malformed polygons silently rather than raising, so each
+ * refusal below is a polygon whose answer the probe measured as wrong, as
+ * different between the two databases, or as resting on a reading the docs do
+ * not state (PGlite 0.5.8 + PostGIS 3.6.2 and MySQL 8, the exact
+ * withinPolygon predicates). Everything else is admitted.
  */
+
+type Vector = readonly [x: number, y: number, z: number];
 
 /** One ring vertex, its longitude unwrapped past ±180 along the ring. */
 interface UnwrappedPoint {
   readonly longitude: number;
   readonly latitude: number;
+  /** The longitude as written, where the sweep in `firstMeeting` places it. */
+  readonly written: number;
+  readonly vector: Vector;
 }
-
-type Vector = readonly [x: number, y: number, z: number];
-type Axis = 0 | 1 | 2;
-const AXES: readonly Axis[] = [0, 1, 2];
 
 /** One ring edge: the great-circle arc from `from` to `to`. */
 interface Arc {
@@ -163,12 +165,9 @@ interface Arc {
   readonly end: Vector;
   /** The unit normal of the arc's great circle, start × end. */
   readonly normal: Vector;
-  /** A box holding the arc: its chord's box widened by the arc's bulge. */
-  readonly low: Vector;
-  readonly high: Vector;
 }
 
-/** A ring's arcs; a ring with no arc is refused as having no area. */
+/** A ring's arcs; a ring is refused before it could have fewer than two. */
 type Ring = readonly [Arc, ...Arc[]];
 
 const RADIANS = Math.PI / 180;
@@ -176,7 +175,7 @@ const RADIANS = Math.PI / 180;
 const TOLERANCE = 1e-9 * RADIANS;
 const HALF_GLOBE_STERADIANS = 2 * Math.PI;
 
-function toVector({ longitude, latitude }: UnwrappedPoint): Vector {
+function toVector(longitude: number, latitude: number): Vector {
   const cosine = Math.cos(latitude * RADIANS);
   return [
     cosine * Math.cos(longitude * RADIANS),
@@ -202,34 +201,12 @@ function unit(vector: Vector): Vector {
   return [vector[0] / length, vector[1] / length, vector[2] / length];
 }
 
-/** The arc between two vertices, or none when they are the same point. */
-function arcBetween(from: UnwrappedPoint, to: UnwrappedPoint): Arc | undefined {
-  const start = toVector(from);
-  const end = toVector(to);
-  if (
-    Math.hypot(end[0] - start[0], end[1] - start[1], end[2] - start[2]) <=
-    TOLERANCE
-  ) {
-    return;
-  }
-  const bulge = 1 - Math.sqrt((1 + dot(start, end)) / 2) + TOLERANCE;
-  return {
-    from,
-    to,
-    start,
-    end,
-    normal: unit(cross(start, end)),
-    low: [
-      Math.min(start[0], end[0]) - bulge,
-      Math.min(start[1], end[1]) - bulge,
-      Math.min(start[2], end[2]) - bulge,
-    ],
-    high: [
-      Math.max(start[0], end[0]) + bulge,
-      Math.max(start[1], end[1]) + bulge,
-      Math.max(start[2], end[2]) + bulge,
-    ],
-  };
+function chord(first: Vector, second: Vector): number {
+  return Math.hypot(
+    first[0] - second[0],
+    first[1] - second[1],
+    first[2] - second[2]
+  );
 }
 
 /**
@@ -240,7 +217,7 @@ function arcBetween(from: UnwrappedPoint, to: UnwrappedPoint): Arc | undefined {
 function ringArcs(
   ring: readonly GeoPoint[],
   path: readonly PropertyKey[]
-): ValidationResult<Arc[]> {
+): ValidationResult<Ring> {
   const arcs: Arc[] = [];
   let wrap = 0;
   let previous: GeoPoint | undefined;
@@ -263,18 +240,52 @@ function ringArcs(
       if (delta < -180) wrap += 360;
     }
     previous = vertex;
+    const longitude = vertex.longitude + wrap;
+    const vector = toVector(longitude, vertex.latitude);
     const to = {
-      longitude: vertex.longitude + wrap,
+      longitude,
       latitude: vertex.latitude,
+      written: vertex.longitude,
+      vector,
     };
-    const arc = from && arcBetween(from, to);
-    if (arc) arcs.push(arc);
-    if (!from || arc) from = to;
+    if (!from || chord(from.vector, vector) > TOLERANCE) {
+      if (from) {
+        arcs.push({
+          from,
+          to,
+          start: from.vector,
+          end: vector,
+          normal: unit(cross(from.vector, vector)),
+        });
+      }
+      from = to;
+    }
   }
   // Longitudes that went once around the globe enclose a pole on both
   // databases' unstated "smaller side" reading.
   if (wrap !== 0) return fail("A GeoPolygon cannot contain a pole", [...path]);
-  return ok(arcs);
+  // The self-intersection no pair of non-neighbor arcs shows: a ring of at
+  // most three arcs on one great circle retraces itself, and both databases
+  // matched its outline only; a ring of one distinct vertex has no arc.
+  const [first, ...rest] = arcs;
+  if (
+    !first ||
+    (rest.length < 3 &&
+      rest.every(({ start }) => Math.abs(side(first, start)) <= TOLERANCE))
+  ) {
+    return fail("A GeoPolygon ring must have non-zero area", [...path]);
+  }
+  // Neighbors meet at their shared vertex, which the sweep in
+  // `firstMeeting` excuses, unless one doubles back along the other: such
+  // arcs overlap, and the sweep cannot order arcs that overlap.
+  let behind = rest.at(-1) ?? first;
+  for (const arc of arcs) {
+    if (onArc(arc.end, behind) || onArc(behind.start, arc)) {
+      return fail("A GeoPolygon ring cannot self-intersect", [...path]);
+    }
+    behind = arc;
+  }
+  return ok([first, ...rest]);
 }
 
 /** The sine of the point's signed angular distance from the arc's circle. */
@@ -313,78 +324,262 @@ function crosses(first: Arc, second: Arc): boolean {
 
 function meet(first: Arc, second: Arc): boolean {
   return (
-    AXES.every(
-      (axis) =>
-        first.low[axis] <= second.high[axis] &&
-        second.low[axis] <= first.high[axis]
-    ) &&
-    (crosses(first, second) ||
-      onArc(first.start, second) ||
-      onArc(first.end, second) ||
-      onArc(second.start, first) ||
-      onArc(second.end, first))
+    crosses(first, second) ||
+    onArc(first.start, second) ||
+    onArc(first.end, second) ||
+    onArc(second.start, first) ||
+    onArc(second.end, first)
   );
 }
 
+/** An arc of ring `ring` (0 the outer ring, then the holes) at `index`. */
 interface Placed {
   readonly arc: Arc;
   readonly ring: number;
   readonly index: number;
+  readonly count: number;
 }
 
 /**
- * Whether two arcs that `compared` pairs meet. The arcs are swept along the
- * axis their boxes spread widest on, so only arcs whose boxes overlap there
- * are compared: admission stays near-linear in the vertex count.
+ * One stretch of an arc between two meridians, as the sweep orders it, from
+ * its west end.
  */
-function anyMeet(
-  arcs: readonly Placed[],
-  compared: (first: Placed, second: Placed) => boolean
-): boolean {
-  const spread = (axis: Axis) =>
-    arcs.reduce((most, { arc }) => Math.max(most, arc.low[axis]), -2) -
-    arcs.reduce((least, { arc }) => Math.min(least, arc.low[axis]), 2);
-  const axis = AXES.reduce((best, next) =>
-    spread(next) > spread(best) ? next : best
-  );
-  const sorted = [...arcs].sort(
-    (left, right) => left.arc.low[axis] - right.arc.low[axis]
-  );
-  let open: Placed[] = [];
-  for (const current of sorted) {
-    const reach = current.arc.low[axis];
-    open = open.filter(({ arc }) => arc.high[axis] >= reach);
-    if (
-      open.some(
-        (other) => compared(other, current) && meet(other.arc, current.arc)
-      )
-    ) {
-      return true;
+interface Stretch {
+  readonly placed: Placed;
+  readonly west: Vector;
+  readonly east: Vector;
+  /** The arc's unit normal, turned north. */
+  readonly north: Vector;
+}
+
+/** An arc along a meridian, which the sweep meets at one longitude. */
+interface Upright {
+  readonly placed: Placed;
+  readonly south: Vector;
+  readonly north: Vector;
+}
+
+interface Link {
+  previous: Entry | undefined;
+  next: Entry | undefined;
+}
+
+/** A stretch in the sweep's south-to-north order, a skip list. */
+interface Entry {
+  readonly stretch: Stretch | undefined;
+  readonly links: readonly Link[];
+}
+
+const LEVELS = 24;
+
+function createLinks(height: number): Link[] {
+  return Array.from({ length: height }, () => ({
+    previous: undefined,
+    next: undefined,
+  }));
+}
+
+/**
+ * Whether `entering` starts south of `resident` on the meridian where it
+ * enters the sweep; one starting on the resident is ordered by where it
+ * heads. Only neighbors in this order are compared, so the order must only
+ * be right between arcs that do not meet.
+ */
+function below(entering: Stretch, resident: Stretch): boolean {
+  const height = dot(resident.north, entering.west);
+  if (Math.abs(height) > TOLERANCE) return height < 0;
+  return dot(resident.north, entering.east) < 0;
+}
+
+/** The last entry south of `point` on the sweep's meridian, or the head. */
+function southOf(head: Entry, point: Vector, level: number): Entry {
+  let cursor = head;
+  for (let at = level; at >= 0; at -= 1) {
+    let next = cursor.links[at]?.next;
+    while (next?.stretch && dot(next.stretch.north, point) > TOLERANCE) {
+      cursor = next;
+      next = cursor.links[at]?.next;
     }
-    open.push(current);
   }
-  return false;
+  return cursor;
 }
 
-/** Two arcs that are not neighbors along the ring meet. */
-function selfIntersects(arcs: readonly Arc[]): boolean {
-  return anyMeet(
-    arcs.map((arc, index) => ({ arc, ring: 0, index })),
-    (first, second) => {
-      const gap = Math.abs(first.index - second.index);
-      return gap !== 1 && gap !== arcs.length - 1;
+function enter(head: Entry, stretch: Stretch, height: number): Entry {
+  const entry: Entry = { stretch, links: createLinks(height) };
+  let cursor = head;
+  for (let level = LEVELS - 1; level >= 0; level -= 1) {
+    let next = cursor.links[level]?.next;
+    while (next?.stretch && !below(stretch, next.stretch)) {
+      cursor = next;
+      next = cursor.links[level]?.next;
     }
-  );
+    const link = entry.links[level];
+    const before = cursor.links[level];
+    if (link && before) {
+      link.previous = cursor;
+      link.next = before.next;
+      const after = before.next?.links[level];
+      if (after) after.previous = entry;
+      before.next = entry;
+    }
+  }
+  return entry;
 }
 
-function ringsMeet(first: Ring, second: Ring): boolean {
-  return anyMeet(
-    [
-      ...first.map((arc, index) => ({ arc, ring: 0, index })),
-      ...second.map((arc, index) => ({ arc, ring: 1, index })),
-    ],
-    (left, right) => left.ring !== right.ring
+function leave(entry: Entry): void {
+  for (const [level, { previous, next }] of entry.links.entries()) {
+    const before = previous?.links[level];
+    if (before) before.next = next;
+    const after = next?.links[level];
+    if (after) after.previous = previous;
+  }
+}
+
+/** The point where the arc crosses the meridian at `longitude`. */
+function atMeridian(arc: Arc, longitude: number): Vector {
+  const facing = toVector(longitude, 0);
+  const meeting = unit(cross(arc.normal, [-facing[1], facing[0], 0]));
+  return dot(meeting, facing) < 0
+    ? [-meeting[0], -meeting[1], -meeting[2]]
+    : meeting;
+}
+
+type Event =
+  | { readonly longitude: number; readonly rank: 0; readonly slot: Slot }
+  | { readonly longitude: number; readonly rank: 1; readonly upright: Upright }
+  | { readonly longitude: number; readonly rank: 2; readonly slot: Slot };
+
+interface Slot {
+  readonly stretch: Stretch;
+  entry: Entry | undefined;
+}
+
+/**
+ * The arc's sweep events at its written longitudes, west to east, ±180 read
+ * as -180 so that arcs meeting on the antimeridian are in the sweep
+ * together: one for an arc along a meridian, else an entry and an exit per
+ * stretch, two stretches when the arc crosses the antimeridian, split there.
+ */
+function arcEvents(placed: Placed): Event[] {
+  const { from, to, normal } = placed.arc;
+  const first = from.written === 180 ? -180 : from.written;
+  const second = to.written === 180 ? -180 : to.written;
+  if (first === second) {
+    const [south, north] =
+      from.latitude < to.latitude ? [from, to] : [to, from];
+    const upright = { placed, south: south.vector, north: north.vector };
+    return [{ longitude: first, rank: 1, upright }];
+  }
+  const eastward = from.longitude < to.longitude;
+  const [west, east] = eastward ? [from, to] : [to, from];
+  const north: Vector = eastward
+    ? normal
+    : [-normal[0], -normal[1], -normal[2]];
+  const [low, high] = eastward ? [first, second] : [second, first];
+  const span = (start: number, end: number, point: Vector): Event[] => {
+    const slot = {
+      stretch: { placed, west: point, east: east.vector, north },
+      entry: undefined,
+    };
+    return [
+      { longitude: start, rank: 0, slot },
+      { longitude: end, rank: 2, slot },
+    ];
+  };
+  return low < high
+    ? span(low, high, west.vector)
+    : [
+        ...span(low, 180, west.vector),
+        ...span(-180, high, atMeridian(placed.arc, 180)),
+      ];
+}
+
+/**
+ * The first two arcs found meeting that `apart` does not excuse, by a sweep
+ * from the antimeridian eastward that keeps the arcs it crosses in
+ * south-to-north order and compares each only with its neighbors in it
+ * (Shamos and Hoey): two arcs that meet are neighbors just before the
+ * westernmost meeting, so admission is n log n in the arc count however the
+ * arcs lie. At each longitude the arcs starting there enter first; then each
+ * arc along that meridian is compared with the arcs crossing its span, found
+ * by position, and with the other such arcs overlapping it; then the arcs
+ * ending there leave.
+ */
+function firstMeeting(
+  arcs: readonly Placed[],
+  apart: (first: Placed, second: Placed) => boolean
+): readonly [Placed, Placed] | undefined {
+  const events = arcs.flatMap(arcEvents);
+  events.sort(
+    (left, right) => left.longitude - right.longitude || left.rank - right.rank
   );
+  const head: Entry = { stretch: undefined, links: createLinks(LEVELS) };
+  let seed = 1;
+  const meeting = (
+    first: Placed | undefined,
+    second: Placed | undefined
+  ): readonly [Placed, Placed] | undefined => {
+    if (!(first && second)) return;
+    if (apart(first, second) || !meet(first.arc, second.arc)) return;
+    return [first, second];
+  };
+  // The arcs along the meridian the sweep is on, compared among themselves,
+  // south to north, before it moves on.
+  let column: Upright[] = [];
+  const columnMeeting = (): readonly [Placed, Placed] | undefined => {
+    column.sort((left, right) => left.south[2] - right.south[2]);
+    for (const [index, upright] of column.entries()) {
+      for (const other of column.slice(index + 1)) {
+        if (other.south[2] > upright.north[2] + TOLERANCE) break;
+        const found = meeting(upright.placed, other.placed);
+        if (found) return found;
+      }
+    }
+    column = [];
+    return;
+  };
+  for (const [index, event] of events.entries()) {
+    if (event.rank === 0) {
+      // Park and Miller's generator, fixed seed: a skip list's heights are
+      // coin flips, and the same polygon always builds the same list.
+      seed = (seed * 16_807) % 2_147_483_647;
+      const height = 1 + Math.floor(-Math.log2(seed / 2_147_483_647));
+      const entry = enter(head, event.slot.stretch, Math.min(LEVELS, height));
+      event.slot.entry = entry;
+      const [link] = entry.links;
+      const found =
+        meeting(link?.previous?.stretch?.placed, entry.stretch?.placed) ??
+        meeting(entry.stretch?.placed, link?.next?.stretch?.placed);
+      if (found) return found;
+    } else if (event.rank === 1) {
+      const { upright } = event;
+      // Every arc crossing the meridian within the span meets this one, so
+      // the walk stops at the first not excused, or past the north end.
+      let entry: Entry | undefined = southOf(head, upright.south, LEVELS - 1);
+      entry = entry.stretch ? entry : entry.links[0]?.next;
+      while (entry?.stretch) {
+        const found = meeting(upright.placed, entry.stretch.placed);
+        if (found) return found;
+        if (dot(entry.stretch.north, upright.north) < -TOLERANCE) break;
+        entry = entry.links[0]?.next;
+      }
+      column.push(upright);
+      const next = events[index + 1];
+      if (next?.rank !== 1 || next.longitude !== event.longitude) {
+        const found = columnMeeting();
+        if (found) return found;
+      }
+    } else if (event.slot.entry) {
+      const [link] = event.slot.entry.links;
+      leave(event.slot.entry);
+      const found = meeting(
+        link?.previous?.stretch?.placed,
+        link?.next?.stretch?.placed
+      );
+      if (found) return found;
+    }
+  }
+  return;
 }
 
 /**
@@ -393,11 +588,7 @@ function ringsMeet(first: Ring, second: Ring): boolean {
  * an odd number of times.
  */
 function inside(point: UnwrappedPoint, ring: Ring): boolean {
-  const facing: Vector = [
-    Math.cos(point.longitude * RADIANS),
-    Math.sin(point.longitude * RADIANS),
-    0,
-  ];
+  const facing = toVector(point.longitude, 0);
   const meridian: Vector = [-facing[1], facing[0], 0];
   const height = Math.sin(point.latitude * RADIANS);
   const offset = (longitude: number) =>
@@ -440,60 +631,15 @@ function sphericalArea(ring: Ring): number {
   return Math.abs(sum / 2);
 }
 
-function ringGeometry(
-  ring: readonly GeoPoint[],
-  path: readonly PropertyKey[]
-): ValidationResult<Ring> {
-  const arcs = ringArcs(ring, path);
-  if (arcs.issues) return arcs;
-  // A bowtie matched both lobes and its crossing point on both databases, a
-  // parity reading the docs do not state; a ring going past a whole turn over
-  // itself (0 to 400 degrees along a band) split them.
-  if (selfIntersects(arcs.value)) {
-    return fail("A GeoPolygon ring cannot self-intersect", [...path]);
-  }
-  // The self-intersection no pair of non-neighbor arcs shows: a ring of at
-  // most three arcs on one great circle retraces itself, and both databases
-  // matched its outline only.
-  const [first, ...rest] = arcs.value;
-  if (
-    !first ||
-    (rest.length < 3 &&
-      rest.every(({ start }) => Math.abs(side(first, start)) <= TOLERANCE))
-  ) {
-    return fail("A GeoPolygon ring must have non-zero area", [...path]);
-  }
-  const geometry: Ring = [first, ...rest];
-  // PostGIS and MySQL read such a ring as opposite regions: for a 340-degree
-  // band PostGIS matched the poles and the antimeridian, MySQL the band. The
-  // area is the trapezoid sum over longitude, a threshold, not a measure.
-  if (sphericalArea(geometry) >= HALF_GLOBE_STERADIANS - TOLERANCE) {
-    return fail("A GeoPolygon must cover less than half the globe", [...path]);
-  }
-  return ok(geometry);
-}
-
 /*
  * A hole must lie strictly inside its outer ring, and holes must neither touch
  * nor overlap: PostGIS reads rings by parity, so a hole reaching outside its
  * outer ring added its own area (MySQL ignored it) and a point in two holes
  * matched (MySQL excluded it). A touch is refused as before D2, because it is
- * where the two databases' arcs (sphere, ellipsoid) and tolerances part: a
+ * where the two databases' edges (sphere, ellipsoid) and tolerances part: a
  * hole written touching a straight parallel edge crosses that edge's arc, and
  * PostGIS matched the points beside the touch.
  */
-
-function holeEscapes(hole: Ring, outer: Ring): boolean {
-  return ringsMeet(hole, outer) || !inside(hole[0].from, outer);
-}
-
-function holesTouch(first: Ring, second: Ring): boolean {
-  return (
-    ringsMeet(first, second) ||
-    inside(first[0].from, second) ||
-    inside(second[0].from, first)
-  );
-}
 
 /**
  * Kept output normalization, not a refusal: the GeoJSON that withinPolygon
@@ -509,40 +655,87 @@ function wound(
   return planarArea(geometry) < 0 === counterClockwise ? ring.reverse() : ring;
 }
 
+function ringPath(ring: number): PropertyKey[] {
+  return ring === 0 ? ["outer"] : ["holes", ring - 1];
+}
+
 /**
  * The walker admits the polygon's shape (exact keys, finite in-range
- * vertices, at least three per ring); the geometry above then refuses the
- * polygons the databases answer wrongly, and the rings are wound canonically.
+ * vertices, at least three per ring); the geometry then refuses the polygons
+ * the databases answer wrongly: each ring alone, then the rings together.
  */
 export function validateGeoPolygon(
   value: unknown
 ): ValidationResult<GeoPolygon> {
   const polygon = validateSchema(polygonRecord, value);
   if (polygon.issues) return polygon;
-  const outer = ringGeometry(polygon.value.outer, ["outer"]);
+  const outer = ringArcs(polygon.value.outer, ["outer"]);
   if (outer.issues) return outer;
-  const holes: GeoPoint[][] = [];
-  const placed: Ring[] = [];
-  for (const [index, ring] of (polygon.value.holes ?? []).entries()) {
-    const path = ["holes", index];
-    const hole = ringGeometry(ring, path);
+  const holes: { readonly points: GeoPoint[]; readonly arcs: Ring }[] = [];
+  for (const [index, points] of (polygon.value.holes ?? []).entries()) {
+    const hole = ringArcs(points, ["holes", index]);
     if (hole.issues) return hole;
-    if (holeEscapes(hole.value, outer.value)) {
+    holes.push({ points, arcs: hole.value });
+  }
+  const rings = [outer.value, ...holes.map(({ arcs }) => arcs)];
+  const placed = rings.flatMap((arcs, ring) =>
+    arcs.map((arc, index) => ({ arc, ring, index, count: arcs.length }))
+  );
+  // Neighbors along a ring meet at their shared vertex.
+  const found = firstMeeting(
+    placed,
+    (first, second) =>
+      first.ring === second.ring &&
+      [1, first.count - 1].includes(Math.abs(first.index - second.index))
+  );
+  if (found) {
+    const [first, second] = found;
+    const later = ringPath(Math.max(first.ring, second.ring));
+    // A bowtie matched both lobes and its crossing point on both databases, a
+    // parity reading the docs do not state; a ring going past a whole turn
+    // over itself (0 to 400 degrees along a band) split them.
+    if (first.ring === second.ring) {
+      return fail("A GeoPolygon ring cannot self-intersect", later);
+    }
+    return Math.min(first.ring, second.ring) === 0
+      ? fail("A GeoPolygon hole must be strictly inside its outer ring", later)
+      : fail("GeoPolygon holes cannot touch or overlap", later);
+  }
+  // PostGIS and MySQL read such a ring as opposite regions: for a 340-degree
+  // band PostGIS matched the poles and the antimeridian, MySQL the band. The
+  // area is the trapezoid sum over longitude, a threshold, not a measure.
+  for (const [ring, arcs] of rings.entries()) {
+    if (sphericalArea(arcs) >= HALF_GLOBE_STERADIANS - TOLERANCE) {
       return fail(
-        "A GeoPolygon hole must be strictly inside its outer ring",
-        path
+        "A GeoPolygon must cover less than half the globe",
+        ringPath(ring)
       );
     }
-    if (placed.some((previous) => holesTouch(previous, hole.value))) {
-      return fail("GeoPolygon holes cannot touch or overlap", path);
+  }
+  // No two rings meet, so one vertex places a whole ring.
+  for (const [index, { arcs: hole }] of holes.entries()) {
+    const [{ from }] = hole;
+    if (!inside(from, outer.value)) {
+      return fail("A GeoPolygon hole must be strictly inside its outer ring", [
+        "holes",
+        index,
+      ]);
     }
-    placed.push(hole.value);
-    holes.push(wound(ring, hole.value, false));
+    const nested = holes
+      .slice(0, index)
+      .some(
+        ({ arcs: previous }) =>
+          inside(from, previous) || inside(previous[0].from, hole)
+      );
+    if (nested) {
+      return fail("GeoPolygon holes cannot touch or overlap", ["holes", index]);
+    }
   }
   const wide = wound(polygon.value.outer, outer.value, true);
+  const cut = holes.map(({ points, arcs }) => wound(points, arcs, false));
   // An empty and an absent holes list emit the same GeoJSON; one spelling
   // keeps them one validated argument, and so one cache key.
-  return ok(holes.length > 0 ? { outer: wide, holes } : { outer: wide });
+  return ok(cut.length > 0 ? { outer: wide, holes: cut } : { outer: wide });
 }
 
 const areaRecord = object({
