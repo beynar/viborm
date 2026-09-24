@@ -602,15 +602,16 @@ type Swept =
  * from the antimeridian eastward that keeps the arcs it crosses in
  * south-to-north order and compares each only with its neighbors in it
  * (Shamos and Hoey): two arcs that meet are neighbors just before the
- * westernmost meeting, so admission is n log n in the arc count however the
- * arcs lie. At each longitude the arcs starting there enter first; then each
- * arc along that meridian is compared with the arcs crossing its span, found
- * by position; then the arcs ending there leave. Two arcs along one meridian
- * need no comparison of their own: where they meet, one ends on the other,
- * and the arc continuing its ring from that end crosses the meridian there
- * (a ring's arcs along one meridian that continue each other end where the
- * last one does, and a ring doubling back along a meridian is refused in
- * `ringArcs`), so the walk along the other one meets it.
+ * westernmost meeting, so admission takes expected n log n time in the arc
+ * count however the arcs lie. At each longitude the arcs starting there enter
+ * first; then each arc along that meridian is compared with the arcs crossing
+ * its span, found by position; then the arcs ending there leave. Two arcs
+ * along one meridian need no comparison of their own: where they meet, one
+ * ends on the other, and the arc continuing its ring from that end crosses
+ * the meridian there (a ring's arcs along one meridian that continue each
+ * other end where the last one does, and a ring doubling back along a
+ * meridian is refused in `ringArcs`), so the walk along the other one meets
+ * it.
  *
  * Failing a meeting, where each ring was first met: once the arcs starting
  * on that meridian have entered, the arc north of the ring's northernmost
@@ -627,7 +628,6 @@ function sweep(
     (left, right) => left.longitude - right.longitude || left.rank - right.rank
   );
   const head: Entry = { stretch: undefined, links: createLinks(LEVELS) };
-  let seed = 1;
   const meeting = (
     first: Placed | undefined,
     second: Placed | undefined
@@ -653,10 +653,11 @@ function sweep(
   const met = new Set<RingNode>();
   for (const [index, event] of events.entries()) {
     if (event.rank === 0) {
-      // Park and Miller's generator, fixed seed: a skip list's heights are
-      // coin flips, and the same polygon always builds the same list.
-      seed = (seed * 16_807) % 2_147_483_647;
-      const height = 1 + Math.floor(-Math.log2(seed / 2_147_483_647));
+      // A skip list's heights are coin flips the input cannot know: heights
+      // a polygon could predict let it keep its long-lived arcs low and make
+      // every search walk them one by one. The verdict does not depend on
+      // them: arcs that meet are neighbors before they meet at any height.
+      const height = 1 + Math.floor(-Math.log2(1 - Math.random()));
       const entry = enter(head, event.slot.stretch, Math.min(LEVELS, height));
       event.slot.entry = entry;
       const [link] = entry.links;

@@ -2578,6 +2578,28 @@ pair whose boxes overlapped: on the review's star (spokes from radius 0.5 to
 review's perf script is under 0.1 s. Witness: "admits a 40,000-vertex star
 with 50 holes in near-linear time" (under 2 s; red with every pair compared).
 
+The skip list's heights are coin flips drawn from `Math.random()` for each
+arc (review round 7). They were Park and Miller's generator at a fixed seed,
+chosen so the same polygon built the same list, but an input can replay a
+fixed sequence: strips that stay in the sweep exactly when both their arcs
+drew height 1 leave the long-lived arcs at the lowest level, and every search
+walks them one by one. Measured on this lane's bundle (review-geo7
+skipadv.mjs, repeated in geo-repair7): 20,004 / 40,004 / 80,004 / 160,004
+arcs took 442 / 1,985 / 7,942 / 56,767 ms against 48 / 50 / 98 / 193 ms for
+the same strips chosen by an independent stream; with drawn heights both take
+40 / 68 / 125 / 250 ms. Heights decide running time, not the verdict: two
+arcs that meet are neighbors in the south-to-north order before their
+westernmost meeting whatever the heights. Messages and paths did not vary
+either: 24,000 random polygons (bands with holes, stars with holes, spirals
+with crossings, stars with reversed spokes), 23,460 of them refused, each
+validated 8 times, never gave two results (geo-repair7 determinism.mjs, seeds
+5 and 6). The review's oracle fuzz (fuzz.mjs, 5,000 each of star, holes,
+spiral, band, long: 0 false refusals, 0 false admissions), msgcheck.mjs
+(19,853, 0 false) and gridneg.mjs (400 grids, all as expected) were rerun on
+the drawn heights. Admission is now expected n log n for any input.
+Witness: "admits strips chosen against predictable skip-list heights in
+near-linear time" (under 2 s; 11.3 s, red, with the fixed seed restored).
+
 Not a guard either: hole placement (review round 4). Testing each hole's
 first vertex against the outer ring and every earlier hole was O(H x N) and
 O(H^2 x hole size): 7.1 s for 10,000 four-vertex holes in a 64-vertex ring,

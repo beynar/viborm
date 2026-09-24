@@ -1083,6 +1083,47 @@ describe("GeoArea validation boundary", () => {
     expect(elapsed).toBeLessThan(2000);
   });
 
+  test("admits strips chosen against predictable skip-list heights in near-linear time", () => {
+    // The sweep's order is a skip list. Its heights once came from Park and
+    // Miller's generator at a fixed seed, which anyone can replay: a strip
+    // runs to longitude 0.1, and so stays in the sweep, exactly when both of
+    // its arcs drew height 1, so the long-lived arcs were the ones every
+    // search walks one by one. That took 8 s here and 44 s at twice the
+    // strips, against 0.1 s for the same strips chosen at random; heights
+    // the input cannot know take 0.1 s for both.
+    const strips = 20_000;
+    let seed = 1;
+    const heights = Array.from({ length: 2 * strips + 2 }, () => {
+      seed = (seed * 16_807) % 2_147_483_647;
+      return 1 + Math.floor(-Math.log2(seed / 2_147_483_647));
+    });
+    const outer = [
+      point(-0.01, -0.6),
+      point(0.11, -0.6),
+      point(0.11, 0.6),
+      point(-0.01, 0.6),
+    ];
+    const holes = Array.from({ length: strips }, (_, index) => {
+      const west = index * (0.1 / strips);
+      const south = -0.5 + index / strips;
+      const north = south + 0.3 / strips;
+      const lasting =
+        heights[2 + 2 * index] === 1 && heights[3 + 2 * index] === 1;
+      const east = lasting ? 0.1 : west + 0.05 / strips;
+      return [
+        point(west, south),
+        point(east, south),
+        point(east, north),
+        point(west, north),
+      ];
+    });
+    const started = performance.now();
+    const result = validateGeoPolygon({ outer, holes });
+    const elapsed = performance.now() - started;
+    expect(result.issues).toBeUndefined();
+    expect(elapsed).toBeLessThan(2000);
+  });
+
   test("contains hostile ring and property access", () => {
     const throwingPoint = Object.defineProperties(
       {},
