@@ -2323,17 +2323,20 @@ silently:
 | repeated consecutive or closing vertex | as without the repeat | the same |
 | box (0,40)-(10,50), no hole | (5,40.05) out, (5,50.05) in | the same |
 
-The last row is the edge reading: both databases draw an edge as the
-great-circle arc between its vertices, which bows toward the nearer pole off
-the equator and the meridians. So the geometry is judged on the unit sphere
-(`src/validation/primitives/geo-area-codec.ts`: vertices as unit vectors,
-`crosses`/`onArc`/`meet` on arcs, `inside` casting the meridian from a point
-to the north pole). A first restoration judged straight longitude/latitude
-lines in the unwrapped plane (the pre-D2 geometry) and admitted touching
-holes; review round 1 measured PostGIS answering touching holes wrongly (the
-second and third "touching" rows: in the plane they touch, on the globe they
-cross) and a self-overlapping ring past a whole turn that the plane could not
-see. Both are refused now, a touch included, as before D2.
+The last row is the edge reading: PostGIS geography draws an edge as the
+great-circle arc between its vertices (within 4e-12 degrees, measured by
+bisection), which bows toward the nearer pole off the equator and the
+meridians; MySQL draws the ellipsoid's path, close enough on this 10-degree box
+to give the same answers (review round 3 corrected "both databases draw arcs";
+the band is under "Remaining gap"). So the geometry is judged on the unit
+sphere (`src/validation/primitives/geo-area-codec.ts`: vertices as unit
+vectors, `crosses`/`onArc`/`meet` on arcs, `inside` casting the meridian from a
+point to the north pole). A first restoration judged straight
+longitude/latitude lines in the unwrapped plane (the pre-D2 geometry) and
+admitted touching holes; review round 1 measured PostGIS answering touching
+holes wrongly (the second and third "touching" rows: in the plane they touch,
+on the globe they cross) and a self-overlapping ring past a whole turn that the
+plane could not see. Both are refused now, a touch included, as before D2.
 
 The rows answered wrongly, differently, or on a reading the docs do not state
 are refused in `validateGeoPolygon`, after the record walker admitted the
@@ -2475,9 +2478,22 @@ disagreed on 100 to 200 of every 800. Every admitted probe polygon (69 points,
 table scans on PostGIS and MySQL) answered correctly on both databases.
 `tests/providers/docker/mysql2.test.ts` geo cells stay green.
 
-Remaining gap: MySQL draws arcs on the ellipsoid, PostGIS geography on the
-sphere, so a hole within that small difference of an edge may be read
-differently; VibORM refuses touches but admits a hole 1e-9 degrees clear.
+Remaining gap (measured in review round 3): MySQL draws edges on the ellipsoid,
+PostGIS geography on the sphere. MySQL's edge leaves the great-circle arc by at
+most 0.0007 degrees (about 75 m) on a 10-degree edge, 0.007 at 30, 0.019 at 60,
+0.075 at 90, 0.17 at 120 and 0.46 at 150 (30 random edges per length, five
+points each), not at all along the equator or a meridian; at 120 degrees of
+longitude on latitude 40 (an 83-degree edge) the review measured 0.054 at the
+middle. A point, or a hole, inside that band beside an edge can be answered
+differently by the two databases; VibORM refuses touches but admits a hole 1e-9
+degrees clear. Decision: the band is stated, not refused, below 150 degrees. It
+is a fraction of the edge (0.08% at 90 degrees, 0.3% at 150) that shrinks with
+the square of the length when an edge is split, and refusing edges long enough
+to show it would refuse ordinary continental polygons; from 150 degrees the
+edge is refused (`LONGEST_EDGE_COSINE`), since MySQL's path then swings
+non-locally near the antipode. Separately, MySQL places edges of 1e-5 degrees
+or shorter up to 2e-7 degrees off (those of 2e-5 to 1e-4 within 1e-13), so
+points that close to a very short edge can also differ.
 
 **Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
 (`validateRing`). Unique coverage: `closedRing` in

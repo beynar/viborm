@@ -355,7 +355,8 @@ describe("GeoArea validation boundary", () => {
   const holeOutside =
     "A GeoPolygon hole must be strictly inside its outer ring";
   const holesOverlap = "GeoPolygon holes cannot touch or overlap";
-  // Both databases read an edge as a great-circle arc: the south edge of this
+  // PostGIS reads an edge as a great-circle arc, MySQL within 0.0005 degrees
+  // of it on this box (the ellipsoid's path): the south edge of this
   // box bows north to about latitude 40.105 at longitude 5, its north edge to
   // about 50.10.
   const box = [point(0, 40), point(10, 40), point(10, 50), point(0, 50)];

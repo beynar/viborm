@@ -319,9 +319,17 @@ is what the databases were measured to answer wrongly or differently.
   (a ring winding around one), `A GeoPolygon hole must be strictly inside
   its outer ring` and `GeoPolygon holes cannot touch or overlap`. Each is
   reported at its ring (`outer` or `holes.<i>`).
-- The geometry reads each edge as both databases do, as the great-circle arc
-  between its vertices, not as a straight line of longitude and latitude. In
-  the box from (0, 40) to (10, 50) both databases put (5, 40.05) outside and
+- The geometry reads each edge as PostgreSQL does, as the great-circle arc
+  between its vertices on the sphere, not as a straight line of longitude and
+  latitude. MySQL reads the edge on the ellipsoid instead: its edge leaves the
+  arc by at most 0.0007 degrees (about 75 m) on a 10-degree edge, 0.007 at 30,
+  0.019 at 60, 0.075 at 90, 0.17 at 120 and 0.46 at 150 (30 random edges per
+  length, measured by bisection), none along the equator or a meridian, so
+  points within that band beside an edge can be answered differently by the two
+  databases; edges are refused from 150 degrees on (above), and a long edge
+  split into shorter ones narrows the band with the square of the length. Edges
+  shorter than about 1e-5 degrees MySQL places up to 2e-7 degrees off.
+  In the box from (0, 40) to (10, 50) both databases put (5, 40.05) outside and
   (5, 50.05) inside, because the south edge bows north to about latitude
   40.105 and the north edge to about 50.10. So a hole drawn touching or just
   inside a straight parallel edge crosses the edge's arc and is refused
@@ -329,7 +337,7 @@ is what the databases were measured to answer wrongly or differently.
   line and the arc on the inner side is accepted, and three vertices in a
   straight line of longitude and latitude off the equator form a thin
   triangle, not a zero-area ring. A touch is refused even where it is exact,
-  as before D2: it is where the two databases' arcs (sphere, ellipsoid) and
+  as before D2: it is where the two databases' edges (sphere, ellipsoid) and
   tolerances part. A differential run of 4,800 random holes and
   quadrilaterals against PostGIS geography agreed on every verdict.
 - Newly accepted, because both databases answer them correctly: a closing

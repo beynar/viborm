@@ -659,8 +659,9 @@ describe("GeoPoint query lowering", () => {
    * before decision D2 or crosses itself on the sphere. PostGIS answers all
    * but one of them silently (only the 180-degree edge raises), wrongly,
    * differently from MySQL, or on an unstated reading, so they are refused
-   * again at admission. The admitted ones are valid only on the great-circle
-   * reading both databases share, and reach the adapter emission unchanged,
+   * again at admission. The admitted ones are valid on the great-circle
+   * reading (PostGIS; MySQL's ellipsoid edges within a small band of it),
+   * and reach the adapter emission unchanged,
    * rings closed once. Holes are written clockwise and outers
    * counterclockwise, so the emitted order is the input order.
    */

@@ -162,16 +162,24 @@ answer wrongly, or differently from each other, instead of raising:
 A repeated consecutive vertex is harmless and accepted. Use ordinary `OR` for
 disjoint polygons.
 
-Both databases draw each edge as the shortest path on the globe, a great-circle
-arc, and VibORM checks the polygon on the same arcs. Along a meridian or the
-equator an arc is the straight line of longitude and latitude; elsewhere it
-bows toward the nearer pole, by about 0.02 degrees at the middle of a
-ten-degree edge at latitude 5 and about 0.1 degrees at latitude 40. So in the
-box from (0, 40) to (10, 50), (5, 40.05) is outside and (5, 50.05) inside, a
-hole touching or just above the straight south edge crosses its arc and is
-refused, and a hole may reach just above the straight north edge. Points
-closer than 1e-9 degrees (about 0.1 mm) to an edge count as on it; the ring
-size limit is measured from the first vertex, the same at every latitude.
+PostgreSQL draws each edge as the shortest path on a sphere, a great-circle arc,
+and VibORM checks the polygon on the same arcs. Along a meridian or the equator
+an arc is the straight line of longitude and latitude; elsewhere it bows toward
+the nearer pole, by about 0.02 degrees at the middle of a ten-degree edge at
+latitude 5 and about 0.1 degrees at latitude 40. So in the box from (0, 40) to
+(10, 50), (5, 40.05) is outside and (5, 50.05) inside, a hole touching or just
+above the straight south edge crosses its arc and is refused, and a hole may
+reach just above the straight north edge. Points closer than 1e-9 degrees (about
+0.1 mm) to an edge count as on it; the ring size limit is measured from the
+first vertex, the same at every latitude.
+
+MySQL draws the shortest path on the ellipsoid instead, which leaves the arc by
+at most 0.0007 degrees (about 75 m) on a 10-degree edge, 0.007 on a 30-degree
+edge, 0.019 at 60, 0.075 at 90, 0.17 at 120 and 0.46 at 150, and not at all
+along the equator or a meridian. A point that close to a long edge can match on
+one database and not the other. Splitting a long edge into shorter ones narrows
+the band with the square of their length; edges of 150 degrees or more are
+refused.
 
 SQLite-family providers refuse polygon compilation before cache lookup or
 provider execution.
