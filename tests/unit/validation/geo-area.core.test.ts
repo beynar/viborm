@@ -941,6 +941,30 @@ describe("GeoArea validation boundary", () => {
       },
     },
     {
+      // Both holes reach west to longitude 2, where the sweep first meets
+      // them; the northern one must be placed first.
+      name: "holes side by side on one meridian",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(2, 3), point(3, 3), point(3, 2)],
+          [point(2, 4), point(2, 5), point(3, 5), point(3, 4)],
+        ],
+      },
+    },
+    {
+      // On longitude 2 the second hole lies between the first hole's two
+      // points there: the first is placed from its northern point.
+      name: "a hole in another hole's notch, both reaching west to one meridian",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(4, 4), point(2, 6), point(5, 6), point(5, 2)],
+          [point(2, 4), point(3, 4.3), point(3, 3.7)],
+        ],
+      },
+    },
+    {
       name: "a square 3e-5 degrees across",
       polygon: { outer: tiny(2.35, 48.85, 3e-5) },
     },
@@ -988,6 +1012,30 @@ describe("GeoArea validation boundary", () => {
         );
       })
     );
+    const started = performance.now();
+    const result = validateGeoPolygon({ outer, holes });
+    const elapsed = performance.now() - started;
+    expect(result.issues).toBeUndefined();
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  test("admits 10,000 holes in near-linear time", () => {
+    // Testing each hole against the outer ring and every earlier hole took
+    // 7 s here; the sweep places every hole in one pass, in under 0.1 s.
+    const outer = Array.from({ length: 64 }, (_, index) => {
+      const angle = (2 * Math.PI * index) / 64;
+      return point(12.8 * Math.cos(angle), 12.8 * Math.sin(angle));
+    });
+    const holes = Array.from({ length: 10_000 }, (_, index) => {
+      const longitude = -9 + 0.18 * Math.floor(index / 100);
+      const latitude = -9 + 0.18 * (index % 100);
+      return [
+        point(longitude, latitude),
+        point(longitude, latitude + 0.1),
+        point(longitude + 0.1, latitude + 0.1),
+        point(longitude + 0.1, latitude),
+      ];
+    });
     const started = performance.now();
     const result = validateGeoPolygon({ outer, holes });
     const elapsed = performance.now() - started;

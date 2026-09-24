@@ -2330,8 +2330,8 @@ meridians; MySQL draws the ellipsoid's path, close enough on this 10-degree box
 to give the same answers (review round 3 corrected "both databases draw arcs";
 the band is under "Remaining gap"). So the geometry is judged on the unit
 sphere (`src/validation/primitives/geo-area-codec.ts`: vertices as unit
-vectors, `crosses`/`onArc`/`meet` on arcs, `inside` casting the meridian from a
-point to the north pole). A first restoration judged straight
+vectors, `crosses`/`onArc`/`meet` on arcs, `sweep` placing each ring by the arc
+first north of it on a meridian). A first restoration judged straight
 longitude/latitude lines in the unwrapped plane (the pre-D2 geometry) and
 admitted touching holes; review round 1 measured PostGIS answering touching
 holes wrongly (the second and third "touching" rows: in the plane they touch,
@@ -2383,13 +2383,13 @@ on 2026-09-24:
   pole on an unstated "smaller side" reading, and `inside` casts its meridian
   to the north pole on the premise that no admitted ring encloses one.
   Witness: "a ring winding around a pole".
-- Self-intersection (two non-neighbor arcs meet, found by `firstMeeting`): an
+- Self-intersection (two non-neighbor arcs meet, found by `sweep`): an
   asymmetric bowtie has area and passes the rest. Witness: "a bowtie", "a
   bowtie hole", "a ring touching itself at a repeated vertex", "a ring past a
   whole turn over itself", "a vertex on a meridian edge" (an arc along a
   meridian is compared by position at its longitude, not by the order).
 - Self-intersection of neighbors (one arc doubles back along the one before
-  it, in `ringArcs`): `firstMeeting` excuses neighbors, which meet at their
+  it, in `ringArcs`): `sweep` excuses neighbors, which meet at their
   shared vertex, and cannot order two arcs that overlap, so it missed the
   non-neighbor meeting such a spike always makes (13 to 23 per 20,000 random
   degenerate rings against a comparison of every pair). Witness: "a ring
@@ -2446,26 +2446,28 @@ on 2026-09-24:
   cells, "a hole equal to its outer ring", "a hole touching a parallel edge in
   the plane", "a hole inside the plane's edge but outside the great-circle
   arc".
-- Hole escaping its outer ring, outside arm (`!inside`): a hole wholly
-  outside meets nothing. Witness: "a hole outside".
-- Holes touching or overlapping (`holesTouch`), meeting arm: "holes touching
+- Hole escaping its outer ring, outside arm (`!inOuter`, placed by `sweep`):
+  a hole wholly outside meets nothing. Witness: "a hole outside", "a hole
+  north of a band that crosses its antimeridian".
+- Holes touching or overlapping, meeting arm (`sweep`): "holes touching
   at one point", "holes sharing an edge", "holes overlapping through shared
   corners", "a hole touching another's parallel edge in the plane";
-  first-in-second arm: "a hole enclosing a hole"; second-in-first arm: "a hole
-  nested in a hole".
+  a later hole inside an earlier one (`firstAround`): "a hole nested in a
+  hole"; an earlier hole inside a later one (`firstWithin`): "a hole
+  enclosing a hole". A hole is reported at the first index where it lies in
+  or around an earlier hole, as when each hole was tested against every
+  earlier one.
 - Retired (review round 3): the antipode sign in `crosses`. Arcs that
   straddle each other's circles but meet only at the far point hold two
   antipodal points; every admitted ring lies on one side of one of the three
   planes, where antipodal points lie on the plane and the arcs through them
   share its circle. Its witness band now reaches across all three planes;
   200,000 random large polygons got the same verdicts with and without it.
-- The behind-the-pole skip in `inside`: an arc crossing the point's
-  antimeridian meets the meridian circle behind the pole; it matters for a
-  hole outside its outer ring's hemisphere. Witness: "a hole north of a band
-  that crosses its antimeridian" (admitted without the skip).
-- One offset per shared vertex in `inside` (not `start + delta`): a meridian
-  grazing a vertex otherwise counts once by rounding. Witness: "admits 'holes
-  where one grazes the other's meridian at a vertex'".
+- Retired with `inside` (review round 4): its behind-the-pole skip and its
+  one offset per shared vertex. The sweep places rings on half meridians
+  from pole to pole and never counts crossings, so neither case arises; their
+  witnesses ("a hole north of a band that crosses its antimeridian", "holes
+  where one grazes the other's meridian at a vertex") keep their verdicts.
 
 Kept output facts, not refusals: an edge shorter than the tolerance, a
 repeated consecutive or closing vertex, is dropped from the geometry (witness
@@ -2481,6 +2483,32 @@ pair whose boxes overlapped: on the review's star (spokes from radius 0.5 to
 20,000 with 50 small holes, now 27 ms, 65 ms and 53 ms; every input of the
 review's perf script is under 0.1 s. Witness: "admits a 40,000-vertex star
 with 50 holes in near-linear time" (under 2 s; red with every pair compared).
+
+Not a guard either: hole placement (review round 4). Testing each hole's
+first vertex against the outer ring and every earlier hole was O(H x N) and
+O(H^2 x hole size): 7.1 s for 10,000 four-vertex holes in a 64-vertex ring,
+1.9 s for a 40,000-vertex star with 2,500 holes. No two rings meet once
+`sweep` has found no meeting, so `sweep` also lists, for each ring, the arc
+first north of the ring's northernmost point on the meridian where it first
+met the ring (its own arcs through that point skipped). The ring lies inside
+that arc's ring when the arc has its ring's interior to the south (the
+exact `signedArea` sign gives each ring's orientation), else in the same
+ring as that ring; rings first met on one meridian are listed north to
+south, so the ring an answer depends on is always placed first. Admission
+is O((N + H) log N): the review's perf script now takes 59 ms for the
+10,000 holes, 61 ms for the star with 2,500. Verdicts, messages, paths and
+values were identical to the pairwise placement on 95,000 random polygons
+(80,000 small outer rings with up to 40 nested, overlapping, touching,
+grid-snapped and antimeridian holes; 15,000 bands up to 340 degrees wide
+with up to 30 holes). Witnesses, each red under its mutation: "admits
+10,000 holes in near-linear time" (under 2 s; the pairwise placement took
+7 s), "holes side by side on one meridian" (red when the rings met on one
+meridian are not placed north first), "a hole in another hole's notch, both
+reaching west to one meridian" (red when a ring is placed from its first
+point on the meridian rather than its northernmost), "holes where one grazes
+the other's meridian at a vertex" and "a hole beyond the plane's north edge,
+inside its great-circle arc" (red without skipping the ring's own arcs), and
+every hole cell (red with the orientation rule inverted).
 
 Evidence beyond the witnesses: a differential run of 4,800 random cases
 (holes jittered around a slanted outer edge, judged by PostGIS `ST_Intersects`
