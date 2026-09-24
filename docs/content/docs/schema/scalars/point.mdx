@@ -150,8 +150,9 @@ answer wrongly, or differently from each other, instead of raising:
   further on or goes past a whole turn of longitude over itself, a ring with
   no area, and a ring less than 2e-5 degrees (about 2 m) across, inside which
   MySQL misplaces points;
-- an edge exactly 180 degrees of longitude long, a vertex at a pole, and a ring
-  winding around a pole;
+- an edge exactly 180 degrees of longitude long (it runs over a pole or joins
+  opposite points of the globe), an edge 150 degrees long or longer, a vertex
+  at a pole, and a ring winding around a pole;
 - a ring covering half the globe or more;
 - a hole that is not strictly inside its outer ring, and holes that touch,
   overlap or nest.

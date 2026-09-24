@@ -741,17 +741,25 @@ describe("GeoPoint query lowering", () => {
       name: "half the globe",
       polygon: {
         outer: [
-          g(-170, -80),
-          g(0, -80),
-          g(170, -80),
-          g(170, 80),
-          g(0, 80),
-          g(-170, 80),
+          g(-170, -70),
+          g(0, -70),
+          g(170, -70),
+          g(170, 70),
+          g(0, 70),
+          g(-170, 70),
         ],
       },
       issue: {
         message: "A GeoPolygon must cover less than half the globe",
         path: ["outer"],
+      },
+    },
+    {
+      name: "a nearly antipodal edge",
+      polygon: { outer: [g(0, 10), g(179.999_999, -10), g(90, 40)] },
+      issue: {
+        message: "A GeoPolygon edge must be shorter than 150 degrees",
+        path: ["outer", 1],
       },
     },
     {

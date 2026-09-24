@@ -181,6 +181,14 @@ const TOLERANCE = 1e-9 * RADIANS;
  * 1.4e-5 degrees across.
  */
 const SMALLEST_RING = 2e-5 * RADIANS;
+/**
+ * MySQL's edge leaves the great-circle arc by at most 0.075 degrees on a
+ * 90-degree edge and 0.46 on a 150-degree one, then by 1% of the edge from
+ * about 171 degrees and by 16 at 179, where it answers points far from the
+ * edge unlike the sphere; the dot product of an edge's end vectors must exceed
+ * the cosine of 150 degrees.
+ */
+const LONGEST_EDGE_COSINE = Math.cos(150 * RADIANS);
 const HALF_GLOBE_STERADIANS = 2 * Math.PI;
 
 function toVector(longitude: number, latitude: number): Vector {
@@ -257,8 +265,9 @@ function ringArcs(
     }
     if (previous) {
       const delta = vertex.longitude - previous.longitude;
-      // No short way round: PostGIS raises "Antipodal (180 degrees long)
-      // edge detected!" and MySQL answers.
+      // No short way round in longitude: the arc runs through a pole, where
+      // the two databases answered (0, 80) differently for (0, 10) to
+      // (180, 10), or joins antipodal endpoints, which PostGIS raises for.
       if (Math.abs(delta) === 180) {
         return fail("A GeoPolygon edge cannot span exactly 180 degrees", at);
       }
@@ -277,6 +286,9 @@ function ringArcs(
       vector,
     };
     if (!from || chord(from.vector, vector) > TOLERANCE) {
+      if (from && dot(from.vector, vector) <= LONGEST_EDGE_COSINE) {
+        return fail("A GeoPolygon edge must be shorter than 150 degrees", at);
+      }
       if (from) {
         arcs.push({
           from,

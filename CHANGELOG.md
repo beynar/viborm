@@ -304,8 +304,8 @@ is what the databases were measured to answer wrongly or differently.
   (`A GeoPolygon ring needs at least 3 vertices`, kept), all reported by the
   record walker. Its geometry is checked second, against what PostgreSQL and
   MySQL actually answer. Measured with VibORM's own predicates on PostGIS 3.6.2
-  and MySQL 8, PostGIS raises only for an edge exactly 180 degrees of
-  longitude long and answers every other malformed polygon silently: a hole
+  and MySQL 8, PostGIS raises only for an edge between antipodal endpoints
+  and answers every other malformed polygon silently: a hole
   reaching outside the outer ring adds its own area, a point inside two holes
   matches, a bowtie matches both lobes, a ring covering half the globe means
   opposite regions on the two databases, and MySQL answers a pole vertex with
@@ -338,6 +338,17 @@ is what the databases were measured to answer wrongly or differently.
   as written and closed once more), a ring that goes past a whole turn of
   longitude beside itself. SQLite-family providers still refuse polygon
   filtering, now after admission.
+- An edge 150 degrees long or longer is refused with `A GeoPolygon edge must
+  be shorter than 150 degrees`, at the vertex ending it. MySQL reads an edge
+  on the ellipsoid, PostGIS on the sphere, and near antipodal endpoints the
+  ellipsoid's path swings away: MySQL's edge left the great-circle arc by at
+  most 0.46 degrees on 150-degree edges, 1.6 at 170, 8.4 at 178 and 17 at
+  179, and on edges 0.000001 to 2 degrees short of antipodal it answered
+  points far from the edge unlike PostGIS and the sphere in every run.
+  `A GeoPolygon edge cannot span exactly 180 degrees` stays for edges 180
+  degrees of longitude long however short: such an edge runs over a pole,
+  where the two databases answered (0, 80) differently for (0, 10) to
+  (180, 10), or joins antipodal endpoints, which PostGIS raises for.
 - A ring less than 2e-5 degrees across (about 2 m, measured from its first
   vertex, the same at every latitude) is refused with `A GeoPolygon ring must
   be at least 2e-5 degrees across`, a ring of one distinct vertex included

@@ -2298,14 +2298,17 @@ geometry check on the premise that a malformed polygon becomes a database
 error. **That premise is false on PostgreSQL** (corrected 2026-09-24, lane
 `geo-checks`). Measured with VibORM's exact predicates on PGlite 0.5.8 +
 PostGIS 3.6.2 and on MySQL 8 (docker, 3307), PostGIS raises only for an edge
-exactly 180 degrees of longitude long ("Antipodal (180 degrees long) edge
-detected!") and answers every other malformed polygon silently:
+between antipodal endpoints ("Antipodal (180 degrees long) edge detected!",
+liblwgeom `edge_calculate_gbox`) and answers every other malformed polygon
+silently:
 
 | Polygon | PostGIS | MySQL 8 |
 | --- | --- | --- |
 | bowtie | both lobes and the crossing point | the same |
 | retracing or collinear ring | its outline only | the same |
-| exactly 180-degree edge | raises | answers |
+| antipodal endpoints, (0,0) to (180,0) | raises | answers |
+| (0,10) to (180,10), over the pole | (0,80) in | (0,80) out |
+| (0,10) to (179.999999,-10), 1e-6 short of antipodal (review round 3) | (90,30) in, as the sphere | (90,30) out |
 | pole vertex (written at longitude 0) | the polar sector | the equator and the opposite pole |
 | ring winding around a pole | the polar cap | the polar cap |
 | 340-degree band (half globe or more) | the poles and the antimeridian | the band |
@@ -2341,9 +2344,23 @@ on 2026-09-24:
 - Pole vertex (`A GeoPolygon ring cannot contain a pole`, at the vertex): such
   a ring passes every other check. Witness: "a north pole vertex", "a south
   pole vertex".
-- Exactly 180-degree edge (at the vertex ending the edge): PostGIS raises, and
-  the arc has no short way round. Witness: "a 180-degree edge", "… closing
-  edge", "… hole edge".
+- Exactly 180 degrees of longitude (at the vertex ending the edge): the edge
+  has no short way round; it joins antipodal endpoints, which PostGIS raises
+  for, or runs over a pole, where the databases part (table), however short.
+  Witness: "a 180-degree edge", "a 180-degree closing edge" (20 degrees long,
+  over the north pole), "a 180-degree edge over the pole", "… hole edge".
+- Edge of 150 degrees or more (`LONGEST_EDGE_COSINE`, review round 3): MySQL
+  reads an edge on the ellipsoid; its edge left the great-circle arc (which
+  PostGIS follows to 4e-12 degrees) by at most 0.075 degrees at 90 degrees
+  long, 0.46 at 150, 1.6 at 170, 2.7 at 174, 8.4 at 178 and 17 at 179 (30
+  random edges per length, five points along each), and random triangles
+  with an edge 0.000001 to 2 degrees short of antipodal were answered unlike
+  PostGIS and the sphere far from the edge in every one of 32 runs of 30.
+  The bound keeps MySQL's departure under a third of a percent of the edge,
+  below the knee where it passes 1% (about 171 degrees). It covers the
+  near-antipodal edges of review B2, which the 180-degree test missed.
+  Witness: "a nearly antipodal edge", "a 151-degree edge"; admitted "a
+  149-degree edge".
 - Ring winding around a pole (`wrap !== 0` in `ringArcs`): the ring encloses a
   pole on an unstated "smaller side" reading, and `inside` casts its meridian
   to the north pole on the premise that no admitted ring encloses one.

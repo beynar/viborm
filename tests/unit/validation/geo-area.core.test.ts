@@ -343,6 +343,7 @@ describe("GeoArea validation boundary", () => {
   const aroundPole = "A GeoPolygon cannot contain a pole";
   const halfGlobe = "A GeoPolygon must cover less than half the globe";
   const tooSmall = "A GeoPolygon ring must be at least 2e-5 degrees across";
+  const tooLong = "A GeoPolygon edge must be shorter than 150 degrees";
   // A square `side` degrees on each side, from (longitude, latitude).
   const tiny = (longitude: number, latitude: number, side: number) => [
     point(longitude, latitude),
@@ -460,9 +461,28 @@ describe("GeoArea validation boundary", () => {
       issue: { message: edge180, path: ["outer", 1] },
     },
     {
+      // Over the pole: the two databases answered (0, 80) differently.
       name: "a 180-degree closing edge",
-      polygon: { outer: [point(0, 0), point(1, 1), point(180, 0)] },
+      polygon: { outer: [point(0, 80), point(90, 70), point(180, 80)] },
       issue: { message: edge180, path: ["outer", 0] },
+    },
+    {
+      name: "a 180-degree edge over the pole",
+      polygon: { outer: [point(0, 10), point(180, 10), point(90, -10)] },
+      issue: { message: edge180, path: ["outer", 1] },
+    },
+    {
+      // PostGIS and MySQL answered (90, 30) differently.
+      name: "a nearly antipodal edge",
+      polygon: {
+        outer: [point(0, 10), point(179.999_999, -10), point(90, 40)],
+      },
+      issue: { message: tooLong, path: ["outer", 1] },
+    },
+    {
+      name: "a 151-degree edge",
+      polygon: { outer: [point(0, 0), point(151, 0), point(75, 20)] },
+      issue: { message: tooLong, path: ["outer", 1] },
     },
     {
       name: "a 180-degree hole edge",
@@ -491,12 +511,12 @@ describe("GeoArea validation boundary", () => {
       name: "half the globe",
       polygon: {
         outer: [
-          point(-170, -80),
-          point(0, -80),
-          point(170, -80),
-          point(170, 80),
-          point(0, 80),
-          point(-170, 80),
+          point(-170, -70),
+          point(0, -70),
+          point(170, -70),
+          point(170, 70),
+          point(0, 70),
+          point(-170, 70),
         ],
       },
       issue: { message: halfGlobe, path: ["outer"] },
@@ -795,6 +815,10 @@ describe("GeoArea validation boundary", () => {
           point(0, 5),
         ],
       },
+    },
+    {
+      name: "a 149-degree edge",
+      polygon: { outer: [point(0, 0), point(149, 0), point(74.5, 20)] },
     },
     {
       // The meridian from the first hole's first vertex grazes the second
