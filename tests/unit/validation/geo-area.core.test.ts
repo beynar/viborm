@@ -341,7 +341,8 @@ describe("GeoArea validation boundary", () => {
   const edge180 = "A GeoPolygon edge cannot span exactly 180 degrees";
   const poleVertex = "A GeoPolygon ring cannot contain a pole";
   const aroundPole = "A GeoPolygon cannot contain a pole";
-  const halfGlobe = "A GeoPolygon must cover less than half the globe";
+  const across =
+    "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once";
   const tooSmall = "A GeoPolygon ring must be at least 2e-5 degrees across";
   const tooLong = "A GeoPolygon edge must be shorter than 150 degrees";
   // A square `side` degrees on each side, from (longitude, latitude).
@@ -508,24 +509,107 @@ describe("GeoArea validation boundary", () => {
       issue: { message: aroundPole, path: ["outer"] },
     },
     {
-      name: "half the globe",
+      // True area 11.18 steradians, beyond half the globe: PostGIS matched
+      // the whole globe, MySQL the band.
+      name: "the tropics band",
       polygon: {
         outer: [
-          point(-170, -70),
-          point(0, -70),
-          point(170, -70),
-          point(170, 70),
-          point(0, 70),
-          point(-170, 70),
+          point(-170, -30),
+          point(0, -30),
+          point(170, -30),
+          point(170, 30),
+          point(0, 30),
+          point(-170, 30),
         ],
       },
-      issue: { message: halfGlobe, path: ["outer"] },
+      issue: { message: across, path: ["outer"] },
+    },
+    {
+      name: "a band with two long edges on each side",
+      polygon: {
+        outer: [
+          point(0, -30),
+          point(175, -30),
+          point(-10, -30),
+          point(-10, 30),
+          point(175, 30),
+          point(0, 30),
+        ],
+      },
+      issue: { message: across, path: ["outer"] },
+    },
+    {
+      // The walker spells -180 as 180, which PostGIS reads, like the sine,
+      // on the other side of the 0/180 meridian from -90.
+      name: "a band from -180 to 0 through -90",
+      polygon: {
+        outer: [
+          point(-180, -40),
+          point(-90, -40),
+          point(0, -40),
+          point(0, 40),
+          point(-90, 40),
+          point(-180, 40),
+        ],
+      },
+      issue: { message: across, path: ["outer"] },
+    },
+    {
+      // 27% of half the globe; PostGIS read it inside out, MySQL did not.
+      name: "a ring across all three planes",
+      polygon: {
+        outer: [
+          point(8.655_273, -4.888_118),
+          point(9.783_711, -16.851_44),
+          point(-9.977_974, -5.122_148),
+          point(-43.180_112, 0.414_428),
+          point(-57.786_262, -12.058_979),
+          point(-44.864_831, -32.086_311),
+          point(-14.135_991, -40.606_621),
+          point(7.226_503, -34.495_989),
+          point(9.873_38, -44.518_988),
+          point(37.572_842, -71.070_42),
+          point(102.183_743, -63.731_592),
+          point(92.037_682, -46.942_718),
+          point(50.468_332, -31.985_418),
+          point(31.937_986, -23.462_884),
+          point(31.748_745, -18.138_909),
+          point(51.595_083, 4.804_735),
+          point(54.301_739, 29.233_064),
+          point(40.878_021, 45.271_161),
+          point(14.791_082, 25.676_286),
+        ],
+      },
+      issue: { message: across, path: ["outer"] },
     },
     {
       name: "a hole outside",
       polygon: {
         outer: square,
         holes: [[point(5, 5), point(6, 6), point(6, 5)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // The meridian from (-110, 30) to the north pole meets no edge; the
+      // band's edges across longitude 70 lie on its great circle's far half.
+      name: "a hole north of a band that crosses its antimeridian",
+      polygon: {
+        outer: [
+          point(-130, -40),
+          point(-80, -40),
+          point(-30, -40),
+          point(20, -40),
+          point(80, -40),
+          point(80, -20),
+          point(20, -20),
+          point(-30, -20),
+          point(-80, -20),
+          point(-130, -20),
+        ],
+        holes: [
+          [point(-110, 30), point(-110, 31), point(-109, 31), point(-109, 30)],
+        ],
       },
       issue: { message: holeOutside, path: ["holes", 0] },
     },
@@ -767,10 +851,10 @@ describe("GeoArea validation boundary", () => {
       polygon: {
         outer: [
           ...Array.from({ length: 21 }, (_, step) =>
-            point(turn(step * 20), -10 + step / 2)
+            point(turn(step * 20), 10 + step / 2)
           ),
           ...Array.from({ length: 21 }, (_, step) =>
-            point(turn(400 - step * 20), 2 - step / 2)
+            point(turn(400 - step * 20), 22 - step / 2)
           ),
         ],
       },
@@ -780,41 +864,29 @@ describe("GeoArea validation boundary", () => {
       name: "a hole across a 300-degree band",
       polygon: {
         outer: [
-          ...Array.from({ length: 21 }, (_, step) => point(step / 2, -10)),
-          point(60, -10),
-          point(120, -10),
-          point(179.5, -10),
-          point(-120, -10),
-          point(-60, -10),
-          point(-60, 10),
-          point(-120, 10),
-          point(179.5, 10),
-          point(120, 10),
-          point(60, 10),
-          ...Array.from({ length: 21 }, (_, step) => point(10 - step / 2, 10)),
+          ...Array.from({ length: 21 }, (_, step) => point(step / 2, 20)),
+          point(60, 20),
+          point(120, 20),
+          point(179.5, 20),
+          point(-120, 20),
+          point(-60, 20),
+          point(-60, 40),
+          point(-120, 40),
+          point(179.5, 40),
+          point(120, 40),
+          point(60, 40),
+          ...Array.from({ length: 21 }, (_, step) => point(10 - step / 2, 40)),
         ],
         holes: [
-          [point(-110, -2), point(-110, 2), point(-100, 2), point(-100, -2)],
+          [point(-110, 28), point(-110, 32), point(-100, 32), point(-100, 28)],
         ],
       },
     },
     {
-      // Its closing meridian at 0 and its equator edge from 185 to 175 each
-      // straddle the other's great circle, which they meet at (180, 0) and
-      // (0, 0), each on the other arc.
-      name: "a band whose edges straddle each other's circles far apart",
-      polygon: {
-        outer: [
-          point(0, -5),
-          point(90, -5),
-          point(-175, -5),
-          point(-175, 0),
-          point(175, 0),
-          point(175, 5),
-          point(90, 5),
-          point(0, 5),
-        ],
-      },
+      // On the equator and the 0 meridian, not across them: PostGIS widens its
+      // box to a pole only past zero, and answered every point correctly.
+      name: "a triangle touching the equator and the 0 meridian",
+      polygon: { outer: [point(0, 0), point(100, 0), point(50, 50)] },
     },
     {
       name: "a 149-degree edge",

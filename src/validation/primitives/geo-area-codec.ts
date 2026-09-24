@@ -189,7 +189,7 @@ const SMALLEST_RING = 2e-5 * RADIANS;
  * the cosine of 150 degrees.
  */
 const LONGEST_EDGE_COSINE = Math.cos(150 * RADIANS);
-const HALF_GLOBE_STERADIANS = 2 * Math.PI;
+const AXES: readonly (0 | 1 | 2)[] = [0, 1, 2];
 
 function toVector(longitude: number, latitude: number): Vector {
   const cosine = Math.cos(latitude * RADIANS);
@@ -353,16 +353,17 @@ function opposite(first: number, second: number): boolean {
 }
 
 /**
- * The two arcs cross at one point interior to both. Each straddling the
- * other's circle still allows the circles' other meeting point, the antipode;
- * the third sign picks the near one.
+ * The two arcs cross at one point interior to both: each straddles the
+ * other's great circle. The circles also meet at the antipode, but arcs that
+ * straddle each other and meet only there hold two antipodal points, which
+ * the rings of no admitted polygon do: each lies on one side of the equator
+ * or of a meridian plane (`across` in `validateGeoPolygon`), where two
+ * antipodal points share the plane and so the arcs through them the circle.
  */
 function crosses(first: Arc, second: Arc): boolean {
-  const third = side(first, second.start);
   return (
-    opposite(third, side(first, second.end)) &&
-    opposite(side(second, first.start), side(second, first.end)) &&
-    opposite(third, side(second, first.start))
+    opposite(side(first, second.start), side(first, second.end)) &&
+    opposite(side(second, first.start), side(second, first.end))
   );
 }
 
@@ -641,7 +642,8 @@ function inside(point: UnwrappedPoint, ring: Ring): boolean {
   for (const { from, to, normal } of ring) {
     // A vertex shared by two arcs gets one offset, so a meridian through it
     // counts once or twice, never by rounding; an arc whose offsets are
-    // 180 degrees apart or more meets the meridian behind the pole instead.
+    // 180 degrees apart or more meets the meridian behind the pole instead,
+    // which matters for a hole outside its outer ring's hemisphere.
     const start = offset(from.longitude);
     const end = offset(to.longitude);
     if (start > 0 === end > 0 || Math.abs(end - start) >= 180) continue;
@@ -652,27 +654,27 @@ function inside(point: UnwrappedPoint, ring: Ring): boolean {
   return odd;
 }
 
-/** Signed shoelace area: positive for a counterclockwise ring. */
-function planarArea(ring: Ring): number {
-  const [{ from: origin }] = ring;
-  let twiceArea = 0;
-  for (const { from, to } of ring) {
-    twiceArea +=
-      (from.longitude - origin.longitude) * (to.latitude - origin.latitude) -
-      (to.longitude - origin.longitude) * (from.latitude - origin.latitude);
-  }
-  return twiceArea / 2;
-}
-
-function sphericalArea(ring: Ring): number {
+/**
+ * The ring's signed area in steradians, positive when counterclockwise: the
+ * sum of the triangles each arc makes with the north pole (Van Oosterom and
+ * Strackee), taken through the south pole's triangle and the lune between the
+ * arc's meridians when the arc lies nearer the south pole, where the north
+ * pole's triangle loses its precision. Both poles lie outside every admitted
+ * ring (`wrap` in `ringArcs`), so this is exactly the area `inside` reads.
+ */
+function signedArea(ring: Ring): number {
   let sum = 0;
-  for (const { from, to } of ring) {
+  for (const { from, to, start, end } of ring) {
+    const turn = cross(start, end)[2];
+    const along = 1 + dot(start, end);
+    const lift = start[2] + end[2];
     sum +=
-      (to.longitude - from.longitude) *
-      RADIANS *
-      (2 + Math.sin(from.latitude * RADIANS) + Math.sin(to.latitude * RADIANS));
+      lift >= 0
+        ? 2 * Math.atan2(turn, along + lift)
+        : 2 * Math.atan2(-turn, along - lift) +
+          2 * (to.longitude - from.longitude) * RADIANS;
   }
-  return Math.abs(sum / 2);
+  return sum;
 }
 
 /*
@@ -696,7 +698,7 @@ function wound(
   geometry: Ring,
   counterClockwise: boolean
 ): GeoPoint[] {
-  return planarArea(geometry) < 0 === counterClockwise ? ring.reverse() : ring;
+  return signedArea(geometry) < 0 === counterClockwise ? ring.reverse() : ring;
 }
 
 function ringPath(ring: number): PropertyKey[] {
@@ -715,6 +717,29 @@ export function validateGeoPolygon(
   if (polygon.issues) return polygon;
   const outer = ringArcs(polygon.value.outer, ["outer"]);
   if (outer.issues) return outer;
+  // PostGIS tests a point against a reference point outside the polygon's
+  // box, which it widens to the pole of every axis whose other two
+  // coordinates the rings take on both sides of zero (liblwgeom
+  // gbox_check_poles; an arc takes no sign its ends lack). An outer ring with
+  // vertices on both sides of the equator, of the 0/180 meridian and of the
+  // 90/-90 meridian widens it to the whole globe, and PostGIS then guesses the
+  // reference point (gbox_pt_outside fails): it misread 23 of 372 such random
+  // rings, one of them 27% of half the globe, and none of 494 reaching across
+  // at most two; MySQL none. A ring of half the globe or more reaches across
+  // all three, since a ring on one side of a plane through the poles or of
+  // the equator encloses less, and holes inside it add no side.
+  const across = AXES.every((axis) => {
+    const signs = polygon.value.outer.map(
+      ({ longitude, latitude }) => toVector(longitude, latitude)[axis]
+    );
+    return signs.some((sign) => sign < 0) && signs.some((sign) => sign > 0);
+  });
+  if (across) {
+    return fail(
+      "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once",
+      ["outer"]
+    );
+  }
   const holes: { readonly points: GeoPoint[]; readonly arcs: Ring }[] = [];
   for (const [index, points] of (polygon.value.holes ?? []).entries()) {
     const hole = ringArcs(points, ["holes", index]);
@@ -744,17 +769,6 @@ export function validateGeoPolygon(
     return Math.min(first.ring, second.ring) === 0
       ? fail("A GeoPolygon hole must be strictly inside its outer ring", later)
       : fail("GeoPolygon holes cannot touch or overlap", later);
-  }
-  // PostGIS and MySQL read such a ring as opposite regions: for a 340-degree
-  // band PostGIS matched the poles and the antimeridian, MySQL the band. The
-  // area is the trapezoid sum over longitude, a threshold, not a measure.
-  for (const [ring, arcs] of rings.entries()) {
-    if (sphericalArea(arcs) >= HALF_GLOBE_STERADIANS - TOLERANCE) {
-      return fail(
-        "A GeoPolygon must cover less than half the globe",
-        ringPath(ring)
-      );
-    }
   }
   // No two rings meet, so one vertex places a whole ring.
   for (const [index, { arcs: hole }] of holes.entries()) {

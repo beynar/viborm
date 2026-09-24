@@ -2312,6 +2312,8 @@ silently:
 | pole vertex (written at longitude 0) | the polar sector | the equator and the opposite pole |
 | ring winding around a pole | the polar cap | the polar cap |
 | 340-degree band (half globe or more) | the poles and the antimeridian | the band |
+| tropics band, -170 to 170 at ±30 (11.18 sr on the sphere; the old trapezoid sum said under half) (review round 3) | the whole globe | the band |
+| ring with vertices both sides of the equator, the 0/180 and the 90/-90 meridian planes, 27% of half the globe (review round 3) | inside out | as the sphere |
 | hole outside the outer ring | adds the hole's area | ignores the hole |
 | overlapping or nested holes | matches a point in two holes | excludes it |
 | hole touching the outer ring or a hole at a shared vertex or along a meridian | inside the outer ring and in no hole | the same |
@@ -2399,7 +2401,28 @@ on 2026-09-24:
   vertices in a straight line of longitude and latitude off the equator are a
   thin spherical triangle, admitted, and both databases answered points inside
   and outside it correctly.
-- Half the globe or more (`sphericalArea`): Witness: "half the globe".
+- Across all three planes (`across` in `validateGeoPolygon`, `A GeoPolygon
+  cannot reach across the equator and the 0/180 and 90/-90 meridians at
+  once`, review round 3; it replaces the half-globe guard). PostGIS tests a
+  point against a reference point outside the polygon's geocentric box, and
+  widens that box to the pole of every axis whose two other coordinates the
+  rings take on both sides of zero (liblwgeom `gbox_check_poles`); with all
+  three it is the whole globe, `gbox_pt_outside` fails, and PostGIS falls
+  back to a guess (`lwpoly_pt_outside_hack`, `circ_tree_get_point_outside`).
+  Measured on random bands and star-shaped rings: PostGIS misread 23 of 372
+  outer rings reaching across all three planes, one of them 27% of half the
+  globe (the half-globe guard admitted it), and none of 494 reaching across
+  two or fewer; MySQL none. A pole-free ring on one side of any of the three
+  planes encloses less than half the globe, so the old half-globe guard has
+  no coverage left; its trapezoid sum also ignored the arcs' bowing and
+  admitted the tropics band (review B1). The signs are the vertices', as
+  PostGIS takes them (an arc takes no sign its ends lack; the walker spells
+  -180 as 180). Witness: "the tropics band" (unit and SQL), "a band with two
+  long edges on each side", "a ring across all three planes", "a band from
+  -180 to 0 through -90"; admitted "a triangle touching the equator and the 0
+  meridian" (red if touching counts as reaching across).
+- Retired: the half-globe area guard (`sphericalArea`, `A GeoPolygon must
+  cover less than half the globe`), subsumed as above.
 - Hole escaping its outer ring, meeting arm (`ringsMeet`): any crossing or
   touch, including a hole written against a straight parallel edge. Witness:
   "a hole crossing the outer ring", "… bridging a notch …", "… whose edges
@@ -2414,12 +2437,16 @@ on 2026-09-24:
   corners", "a hole touching another's parallel edge in the plane";
   first-in-second arm: "a hole enclosing a hole"; second-in-first arm: "a hole
   nested in a hole".
-- The antipode sign in `crosses`: two arcs that straddle each other's great
-  circles meet only if the near meeting point is on both. Witness: "admits 'a
-  band whose edges straddle each other's circles far apart'".
+- Retired (review round 3): the antipode sign in `crosses`. Arcs that
+  straddle each other's circles but meet only at the far point hold two
+  antipodal points; every admitted ring lies on one side of one of the three
+  planes, where antipodal points lie on the plane and the arcs through them
+  share its circle. Its witness band now reaches across all three planes;
+  200,000 random large polygons got the same verdicts with and without it.
 - The behind-the-pole skip in `inside`: an arc crossing the point's
-  antimeridian meets the meridian circle behind the pole. Witness: "admits 'a
-  hole across a 300-degree band'".
+  antimeridian meets the meridian circle behind the pole; it matters for a
+  hole outside its outer ring's hemisphere. Witness: "a hole north of a band
+  that crosses its antimeridian" (admitted without the skip).
 - One offset per shared vertex in `inside` (not `start + delta`): a meridian
   grazing a vertex otherwise counts once by rounding. Witness: "admits 'holes
   where one grazes the other's meridian at a vertex'".
@@ -2462,7 +2489,9 @@ SQL" (`geopoint-sql.core.test.ts`).
 
 **Kept output normalization: winding (outer counterclockwise, holes
 clockwise)** (`wound` in `validateGeoPolygon`, reading the sign of
-`planarArea` over the ring's unwrapped vertices). It is not a refusal and judges
+`signedArea`, the ring's exact spherical area from the pole side, since
+review round 3; the planar shoelace sum it replaces could disagree with the
+sphere for a ring simple on the globe but not in the plane). It is not a refusal and judges
 nothing, so decision D2 does not retire it. Consumer: the GeoJSON bound by
 `withinPolygon` in `src/adapters/databases/postgres/postgres-adapter.ts` and
 `src/adapters/databases/mysql/mysql-adapter.ts`; that PostGIS `geography` and

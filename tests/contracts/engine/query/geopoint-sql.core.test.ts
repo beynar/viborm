@@ -738,19 +738,20 @@ describe("GeoPoint query lowering", () => {
       issue: { message: "A GeoPolygon cannot contain a pole", path: ["outer"] },
     },
     {
-      name: "half the globe",
+      name: "the tropics band",
       polygon: {
         outer: [
-          g(-170, -70),
-          g(0, -70),
-          g(170, -70),
-          g(170, 70),
-          g(0, 70),
-          g(-170, 70),
+          g(-170, -30),
+          g(0, -30),
+          g(170, -30),
+          g(170, 30),
+          g(0, 30),
+          g(-170, 30),
         ],
       },
       issue: {
-        message: "A GeoPolygon must cover less than half the globe",
+        message:
+          "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once",
         path: ["outer"],
       },
     },
@@ -931,10 +932,10 @@ describe("GeoPoint query lowering", () => {
       polygon: {
         outer: [
           ...Array.from({ length: 21 }, (_, step) =>
-            g(turn(step * 20), -10 + step / 2)
+            g(turn(step * 20), 10 + step / 2)
           ),
           ...Array.from({ length: 21 }, (_, step) =>
-            g(turn(400 - step * 20), 2 - step / 2)
+            g(turn(400 - step * 20), 22 - step / 2)
           ),
         ],
       },

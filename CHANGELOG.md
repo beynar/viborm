@@ -316,10 +316,9 @@ is what the databases were measured to answer wrongly or differently.
   over itself), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
   edge cannot span exactly 180 degrees` and `A GeoPolygon ring cannot contain
   a pole` (both at the offending vertex), `A GeoPolygon cannot contain a pole`
-  (a ring winding around one), `A GeoPolygon must cover less than half the
-  globe`, `A GeoPolygon hole must be strictly inside its outer ring` and
-  `GeoPolygon holes cannot touch or overlap`. Each is reported at its ring
-  (`outer` or `holes.<i>`).
+  (a ring winding around one), `A GeoPolygon hole must be strictly inside
+  its outer ring` and `GeoPolygon holes cannot touch or overlap`. Each is
+  reported at its ring (`outer` or `holes.<i>`).
 - The geometry reads each edge as both databases do, as the great-circle arc
   between its vertices, not as a straight line of longitude and latitude. In
   the box from (0, 40) to (10, 50) both databases put (5, 40.05) outside and
@@ -338,6 +337,17 @@ is what the databases were measured to answer wrongly or differently.
   as written and closed once more), a ring that goes past a whole turn of
   longitude beside itself. SQLite-family providers still refuse polygon
   filtering, now after admission.
+- An outer ring with vertices on both sides of the equator, of the 0/180
+  meridian and of the 90/-90 meridian at once is refused with `A GeoPolygon
+  cannot reach across the equator and the 0/180 and 90/-90 meridians at
+  once`. PostGIS then has no reference point outside the polygon's box and
+  guesses one: it misread 23 of 372 such random rings, one of them 27% of
+  half the globe, and none of 494 reaching across two planes or fewer. Every
+  ring of half the globe or more reaches across all three, so this replaces
+  `A GeoPolygon must cover less than half the globe`, whose longitude
+  trapezoid sum ignored the arcs' bowing and admitted the tropics band
+  (-170 to 170 at ±30, 11.18 steradians), which PostGIS read as the whole
+  globe and MySQL as the band.
 - An edge 150 degrees long or longer is refused with `A GeoPolygon edge must
   be shorter than 150 degrees`, at the vertex ending it. MySQL reads an edge
   on the ellipsoid, PostGIS on the sphere, and near antipodal endpoints the
