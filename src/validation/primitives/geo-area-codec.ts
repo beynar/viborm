@@ -202,27 +202,22 @@ type Ring = readonly [Arc, ...Arc[]];
 const RADIANS = Math.PI / 180;
 /**
  * An angle of 1e-9 degrees, about 0.1 mm: a point this near an arc is on it,
- * and an edge this short is a repeated vertex. It is VibORM's resolution,
- * at every ring size: against 60-digit geometry on 9,000 random rings 1e-9
- * to 1e-4 degrees across (every latitude, near the poles, on the
- * antimeridian), every ring whose edges and clearances exceed twice it was
- * judged exactly (4,048 simple rings admitted with the right winding, 2,135
- * crossing or touching ones refused), and so was every one of 6,190 polygons
- * with vertices 3.5e-9 to 3.6e-4 degrees from a pole, over it or around
- * holes. A smaller feature reads as a touch or a repeated vertex, so a ring
- * needs no size bound of its own, and a vertex needs no pole clearance.
+ * and an edge this short is a repeated vertex. It is VibORM's resolution, a
+ * domain choice (above), at every ring size: a smaller feature reads as a
+ * touch or a repeated vertex, so a ring needs no size bound of its own, and a
+ * vertex needs no pole clearance. How exactly rings are judged above it is
+ * measured in the guard-ownership ledger's D2 addendum.
  */
 const TOLERANCE = 1e-9 * RADIANS;
 /**
  * The chord between an edge's end and the antipode of its start below which
- * the edge is refused: 0.01 degrees. Two antipodal points lie on every great
- * circle through them, and near the antipode the circle an edge takes turns
- * by up to about 3e-12 / d degrees when a written coordinate moves by one
- * float64 step, d degrees from antipodal (measured over 2,000 random edges
- * per distance: at most 3.1e-9 degrees at d = 0.001, 9.8e-10 at 0.0032,
- * 3.0e-10 at 0.01). From 0.01 degrees out the edge's path is fixed to a
- * third of TOLERANCE; nearer, the written coordinates do not decide on which
- * side of it a point lies.
+ * the edge is refused: 0.01 degrees, a domain choice (above). Two antipodal
+ * points lie on every great circle through them, and near the antipode the
+ * circle an edge takes turns by up to about 3e-12 / d degrees when a written
+ * coordinate moves by one float64 step, d degrees from antipodal (measured in
+ * the ledger's D2 addendum, "Near-antipodal edge"). From 0.01 degrees out the
+ * edge's path is fixed to a third of TOLERANCE; nearer, the written
+ * coordinates do not decide on which side of it a point lies.
  */
 const NEAREST_ANTIPODE = 2 * Math.sin(0.005 * RADIANS);
 
@@ -243,7 +238,7 @@ function dot(first: Vector, second: Vector): number {
  * first × second, taken as (first − second) × (first + second) / 2: the same
  * vector, but the difference of two nearby points is exact, so the normal of
  * a short arc keeps its direction; taken plainly it loses it at 1e-7 degrees
- * (a bowtie that size at latitude 45 was admitted).
+ * (the ledger's D2 addendum, "Cross products from vertex differences").
  */
 function cross(first: Vector, second: Vector): Vector {
   const dx = first[0] - second[0];
@@ -876,10 +871,9 @@ function signedArea(ring: Ring): number {
 /*
  * A hole must lie strictly inside its outer ring, and holes must neither touch
  * nor overlap: a hole reaching outside its outer ring, or a point in two
- * holes, has no single reading (PostGIS reads rings by parity and added the
- * hole's area, or matched the point; MySQL ignored the hole, or excluded the
- * point). A touch is refused with them: a hole written touching a straight
- * parallel edge crosses that edge's arc.
+ * holes, has no single reading (the ledger's D2 addendum tabulates what each
+ * database answered). A touch is refused with them: a hole written touching a
+ * straight parallel edge crosses that edge's arc.
  */
 
 /**
@@ -950,9 +944,8 @@ export function validateGeoPolygon(
   if (swept.meeting) {
     const [first, second] = swept.meeting;
     const later = ringPath(Math.max(first.ring.index, second.ring.index));
-    // A bowtie matched both lobes and its crossing point on both databases, a
-    // parity reading the docs do not state; a ring going past a whole turn
-    // over itself (0 to 400 degrees along a band) split them.
+    // A ring meeting itself has no single reading (the ledger's D2 table:
+    // the bowtie and the ring past a whole turn over itself).
     if (first.ring === second.ring) {
       return fail("A GeoPolygon ring cannot self-intersect", later);
     }

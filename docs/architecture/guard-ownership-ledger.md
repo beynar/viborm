@@ -2565,7 +2565,7 @@ falsifier on the final codec; the list is at the end of this addendum):
 - Cross products from vertex differences (`cross`, (a − b) × (a + b) / 2):
   not a guard but the precision the geometry rests on; the plain a × b loses
   a 1e-7-degree arc's direction. Witness: "a 1e-7-degree bowtie in a larger
-  ring" (admitted with the plain product).
+  ring" (at latitude 45; admitted with the plain product).
 - Zero area (`!first || …` in `ringArcs`, `A GeoPolygon ring must have
   non-zero area`): a ring of at most three arcs on one great circle has only
   neighbor arcs, which the self-intersection test skips, and a ring of one
@@ -2803,6 +2803,18 @@ within twice `TOLERANCE` left out. Kinds: stars, shuffled rings and rings
 with holes 3.5e-9 to 3.6e-4 degrees from either pole; rings over a pole
 (small, shuffled, with holes by the pole) 3.5e-9 to 1.1e-4 degrees from it
 and 0.02 to 81.6 degrees from it.
+
+Moved from the codec's comments (second PR review, 2026-09-24): the
+measurement history the comments on `TOLERANCE`, `NEAREST_ANTIPODE`,
+`cross`, the hole rules and the self-meeting refusal carried now lives only
+here, and the comments point here: the ring size entry and the second-pass
+paragraph above (9,000 tiny rings, 6,190 polygons by the poles), the
+near-antipodal entry (2,000 edges per distance), the cross-product entry
+(the bowtie at latitude 45), and the table at the top of this addendum
+(holes outside or overlapping; the bowtie, both lobes and its crossing point
+matched on both databases, a parity reading the docs do not state; the ring
+past a whole turn over itself, which split them). The code keeps each
+algorithm and each reason.
 
 Reproduction: `scripts/geo-verification/README.md` keeps the oracles, seeded
 fuzz, performance cases, MySQL departure runs and a verdict corpus behind these
