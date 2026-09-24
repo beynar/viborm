@@ -151,10 +151,15 @@ type Vector = readonly [x: number, y: number, z: number];
 
 /** One ring vertex, its longitude unwrapped past ±180 along the ring. */
 interface UnwrappedPoint {
+  /**
+   * The longitude unwrapped: it records how the ring travels (the edges'
+   * directions, the area's lunes), never where the vertex lies.
+   */
   readonly longitude: number;
   readonly latitude: number;
   /** The longitude as written, where `sweep` places it. */
   readonly written: number;
+  /** The vertex on the unit sphere, from its written coordinates. */
   readonly vector: Vector;
 }
 
@@ -320,7 +325,7 @@ function ringArcs(
   let wrap = 0;
   let from: UnwrappedPoint | undefined;
   let overPole: Vector | undefined;
-  for (const { vertex, index } of distinct.value) {
+  for (const { vertex, index, vector } of distinct.value) {
     let pole: Vector | undefined;
     if (from) {
       const delta = vertex.longitude - from.written;
@@ -330,10 +335,8 @@ function ringArcs(
       }
       wrap += shortWay(delta);
     }
-    const longitude = vertex.longitude + wrap;
-    const vector = toVector(longitude, vertex.latitude);
     const to = {
-      longitude,
+      longitude: vertex.longitude + wrap,
       latitude: vertex.latitude,
       written: vertex.longitude,
       vector,
@@ -569,13 +572,15 @@ function leave(entry: Entry): void {
   }
 }
 
-/** The point where the arc crosses the meridian at `longitude`. */
-function atMeridian(arc: Arc, longitude: number): Vector {
-  const facing = toVector(longitude, 0);
-  const meeting = unit(cross(arc.normal, [-facing[1], facing[0], 0]));
-  return dot(meeting, facing) < 0
-    ? [-meeting[0], -meeting[1], -meeting[2]]
-    : meeting;
+/** The antimeridian on the equator. */
+const ANTIMERIDIAN = toVector(180, 0);
+
+/** The point where the arc crosses the antimeridian. */
+function atAntimeridian(arc: Arc): Vector {
+  const meeting = unit(
+    cross(arc.normal, [-ANTIMERIDIAN[1], ANTIMERIDIAN[0], 0])
+  );
+  return dot(meeting, ANTIMERIDIAN) < 0 ? antipode(meeting) : meeting;
 }
 
 /**
@@ -630,7 +635,7 @@ function arcEvents(placed: Placed): Event[] {
     ? span(low, high, west.vector)
     : [
         ...span(low, 180, west.vector),
-        ...span(-180, high, atMeridian(placed.arc, 180)),
+        ...span(-180, high, atAntimeridian(placed.arc)),
       ];
 }
 
