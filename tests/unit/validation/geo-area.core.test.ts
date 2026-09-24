@@ -331,17 +331,15 @@ describe("GeoArea validation boundary", () => {
   /**
    * The polygons with no single meaning on the great-circle reading: a ring
    * crossing, touching or retracing itself, zero area, a hole not strictly
-   * inside, touching or overlapping holes, a vertex too near a pole, an edge
-   * too nearly antipodal to fix its circle. Each is refused at admission with
-   * its path.
+   * inside, touching or overlapping holes, a vertex on a pole, an edge too
+   * nearly antipodal to fix its circle, a ring with no side away from both
+   * poles. Each is refused at admission with its path.
    */
   const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
   const wide = [point(0, 0), point(10, 0), point(10, 10), point(0, 10)];
   const selfIntersect = "A GeoPolygon ring cannot self-intersect";
   const zeroArea = "A GeoPolygon ring must have non-zero area";
-  const edge180 = "A GeoPolygon edge cannot span exactly 180 degrees";
-  const poleVertex =
-    "A GeoPolygon vertex must be at least 1e-4 degrees from a pole";
+  const poleVertex = "A GeoPolygon ring cannot contain a pole";
   const aroundPole = "A GeoPolygon cannot contain a pole";
   const nearAntipode =
     "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal";
@@ -466,20 +464,10 @@ describe("GeoArea validation boundary", () => {
       issue: { message: selfIntersect, path: ["outer"] },
     },
     {
-      name: "a 180-degree edge",
+      // 180 degrees of longitude apart on the equator: antipodal.
+      name: "a 180-degree edge between antipodal vertices",
       polygon: { outer: [point(0, 0), point(180, 0), point(1, 1)] },
-      issue: { message: edge180, path: ["outer", 1] },
-    },
-    {
-      // Over the pole: the two databases answered (0, 80) differently.
-      name: "a 180-degree closing edge",
-      polygon: { outer: [point(0, 80), point(90, 70), point(180, 80)] },
-      issue: { message: edge180, path: ["outer", 0] },
-    },
-    {
-      name: "a 180-degree edge over the pole",
-      polygon: { outer: [point(0, 10), point(180, 10), point(90, -10)] },
-      issue: { message: edge180, path: ["outer", 1] },
+      issue: { message: nearAntipode, path: ["outer", 1] },
     },
     {
       // 1e-6 degrees from antipodal, the edge's circle turns by about 3e-6
@@ -496,12 +484,13 @@ describe("GeoArea validation boundary", () => {
       issue: { message: nearAntipode, path: ["outer", 1] },
     },
     {
-      name: "a 180-degree hole edge",
+      // The hole runs over the north pole, far outside the square.
+      name: "a hole with an edge over the pole",
       polygon: {
         outer: square,
         holes: [[point(1, 1), point(2, 1), point(-178, 2)]],
       },
-      issue: { message: edge180, path: ["holes", 0, 2] },
+      issue: { message: holeOutside, path: ["holes", 0] },
     },
     {
       name: "a north pole vertex",
@@ -514,29 +503,86 @@ describe("GeoArea validation boundary", () => {
       issue: { message: poleVertex, path: ["outer", 1] },
     },
     {
-      // MySQL matched (30, 70) and (30, 0) and missed (30, -70), inside;
-      // PostGIS answered all three correctly.
-      name: "an edge between two vertices 1e-7 degrees from the south pole",
+      name: "a hole vertex on a pole",
       polygon: {
-        outer: [
-          point(-60, -89.999_999_9),
-          point(0, -89.999_999_9),
-          point(60, -89.999_999_9),
-          point(120, -89.999_999_9),
-          point(120, -60),
-          point(60, -60),
-          point(0, -60),
-          point(-60, -60),
-        ],
+        outer: square,
+        holes: [[point(1, 1), point(2, 1), point(1, 90)]],
       },
-      issue: { message: poleVertex, path: ["outer", 0] },
+      issue: { message: poleVertex, path: ["holes", 0, 2] },
     },
     {
-      // PostGIS matched (30.37, 0.11) and (30.37, -19.89), 70 degrees from
-      // the ring; MySQL did not.
-      name: "an edge between two vertices 1e-6 degrees from the north pole",
-      polygon: { outer: nearPole(89.999_999) },
-      issue: { message: poleVertex, path: ["outer", 6] },
+      // 5e-10 degrees from the pole, within VibORM's resolution: on it.
+      name: "a vertex within 1e-9 degrees of a pole",
+      polygon: {
+        outer: [point(10, 80), point(0, 89.999_999_999_5), point(-10, 80)],
+      },
+      issue: { message: poleVertex, path: ["outer", 1] },
+    },
+    {
+      // After the edge over the north pole the ring goes once more round the
+      // globe westward: it winds around the south pole.
+      name: "a ring over a pole winding around the other",
+      polygon: {
+        outer: [
+          point(0, 10),
+          point(180, 20),
+          point(60, 10),
+          point(-60, 10),
+          point(180, 10),
+          point(60, 5),
+          point(-60, 5),
+        ],
+      },
+      issue: { message: aroundPole, path: ["outer"] },
+    },
+    {
+      // Both poles on the ring: neither side is away from both.
+      name: "a ring over both poles",
+      polygon: {
+        outer: [
+          point(0, 10),
+          point(180, 20),
+          point(90, 0),
+          point(180, -20),
+          point(0, -10),
+        ],
+      },
+      issue: { message: aroundPole, path: ["outer"] },
+    },
+    {
+      // The sweep finds its two edges over the north pole crossing there.
+      name: "a ring over one pole twice",
+      polygon: {
+        outer: [point(0, 10), point(180, 20), point(90, 30), point(-90, 40)],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      // The hole's edge over the pole crosses the outer ring's there.
+      name: "a hole over the pole its outer ring runs over",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(45, 80), point(-135, 80), point(90, 70)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // The ring runs over the pole along longitudes 0 and 180; the hole
+      // lies by the pole on the ring's other side.
+      name: "a hole by the pole outside a ring over it",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(-80, 85), point(-100, 85), point(-90, 86)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole touching a ring's edge over the pole",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(0, 50), point(10, 50), point(10, 60)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
     },
     {
       name: "a ring winding around a pole",
@@ -854,6 +900,103 @@ describe("GeoArea validation boundary", () => {
     {
       name: "edges between vertices 1e-4 degrees from the north pole",
       polygon: { outer: nearPole(89.9999) },
+    },
+    // A vertex off a pole has a longitude, and VibORM judges its ring down to
+    // its 1e-9-degree resolution; MySQL (from about 3e-6 degrees) and PostGIS
+    // (from about 6e-7) answer some points far from such rings wrongly.
+    {
+      name: "edges between vertices 1e-6 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999) },
+    },
+    {
+      name: "edges between vertices 1e-8 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999_99) },
+    },
+    {
+      name: "an edge between two vertices 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          point(-60, -89.999_999_9),
+          point(0, -89.999_999_9),
+          point(60, -89.999_999_9),
+          point(120, -89.999_999_9),
+          point(120, -60),
+          point(60, -60),
+          point(0, -60),
+          point(-60, -60),
+        ],
+      },
+    },
+    {
+      // Its area, about 1e-18 steradians, is far below the rounding of the
+      // lunes between its arcs' meridians, summed arc by arc; they cancel.
+      name: "a counterclockwise triangle 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          point(-35.486, -89.999_999_9),
+          point(-15.743, -89.999_999_9),
+          point(-31.495, -89.999_999_8),
+        ],
+      },
+    },
+    {
+      name: "a vertex 1.5e-9 degrees from a pole",
+      polygon: {
+        outer: [point(10, 80), point(0, 89.999_999_998_5), point(-10, 80)],
+      },
+    },
+    // An edge whose longitudes differ by exactly 180 degrees runs over a
+    // pole along one great circle; the pole is on the ring.
+    {
+      name: "an edge over the north pole",
+      polygon: { outer: [point(0, 10), point(90, 15), point(180, 20)] },
+    },
+    {
+      name: "a closing edge over the north pole",
+      polygon: { outer: [point(0, 80), point(90, 70), point(180, 80)] },
+    },
+    {
+      name: "an edge over the pole between two latitude-10 vertices",
+      polygon: { outer: [point(90, -10), point(180, 10), point(0, 10)] },
+    },
+    {
+      name: "an edge over the south pole",
+      polygon: { outer: [point(0, -10), point(180, -20), point(90, -15)] },
+    },
+    {
+      // Its edge over the pole goes round through longitude 180.
+      name: "a ring over the pole across the antimeridian",
+      polygon: { outer: [point(90, 10), point(180, 15), point(-90, 20)] },
+    },
+    {
+      name: "a hole by the pole inside a ring over it",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(80, 85), point(90, 86), point(100, 85)]],
+      },
+    },
+    {
+      // The hole starts on longitude 90, where the edge over the south pole
+      // ends: that edge leaves the sweep before the hole enters, so the hole
+      // is placed under the edge from (120, 10) across longitude 90.
+      name: "a hole on the meridian where an edge over the south pole ends",
+      polygon: {
+        outer: [
+          point(-90, -10),
+          point(90, -20),
+          point(120, -20),
+          point(120, 10),
+          point(0, 10),
+        ],
+        holes: [[point(90, 0), point(100, 5), point(100, -5)]],
+      },
+    },
+    {
+      name: "a hole 1e-4 degrees from the pole inside a ring over it",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(80, 89.9999), point(100, 89.9999), point(90, 89.9998)]],
+      },
     },
     {
       // MySQL's ellipsoid edge leaves the arc by about 0.46 degrees here.

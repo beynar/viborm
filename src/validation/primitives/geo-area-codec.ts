@@ -2,7 +2,6 @@ import type { ValidationResult, VibSchema } from "../types";
 import { geoLatitude, geoLongitude, validateGeoPoint } from "./geo-point-codec";
 import {
   GEO_BOUNDS_KEYS,
-  GEO_LATITUDE_MAX,
   GEO_POLYGON_MIN_RING_POINTS,
   type GeoArea,
   type GeoBounds,
@@ -140,7 +139,7 @@ const polygonRecord = object(
  * ring away from both poles. A polygon is refused only when it has no single
  * meaning on that reading: a ring crossing, touching or retracing itself, a
  * ring of zero area, a hole not strictly inside its outer ring, holes touching
- * or overlapping, a vertex too near a pole to have a longitude, an edge whose
+ * or overlapping, a vertex on a pole, which has no longitude, an edge whose
  * vertices are too nearly antipodal to fix its great circle. A valid polygon a
  * database reads differently is admitted: MySQL draws edges on the ellipsoid,
  * PostGIS misreads some rings reaching across all three coordinate planes
@@ -167,6 +166,11 @@ interface Arc {
   readonly end: Vector;
   /** The unit normal of the arc's great circle, start × end. */
   readonly normal: Vector;
+  /**
+   * The pole the arc runs over, when its longitudes differ by exactly 180
+   * degrees: it rises along one meridian and falls along the other.
+   */
+  readonly pole: Vector | undefined;
 }
 
 /** A ring's arcs; a ring is refused before it could have fewer than two. */
@@ -180,8 +184,10 @@ const RADIANS = Math.PI / 180;
  * to 1e-4 degrees across (every latitude, near the poles, on the
  * antimeridian), every ring whose edges and clearances exceed twice it was
  * judged exactly (4,048 simple rings admitted with the right winding, 2,135
- * crossing or touching ones refused). A smaller feature reads as a touch or
- * a repeated vertex, so a ring needs no size bound of its own.
+ * crossing or touching ones refused), and so was every one of 6,190 polygons
+ * with vertices 3.5e-9 to 3.6e-4 degrees from a pole, over it or around
+ * holes. A smaller feature reads as a touch or a repeated vertex, so a ring
+ * needs no size bound of its own, and a vertex needs no pole clearance.
  */
 const TOLERANCE = 1e-9 * RADIANS;
 /**
@@ -196,15 +202,6 @@ const TOLERANCE = 1e-9 * RADIANS;
  * side of it a point lies.
  */
 const NEAREST_ANTIPODE = 2 * Math.sin(0.005 * RADIANS);
-/**
- * The nearest a vertex may come to a pole, about 11 m. A vertex on a pole has
- * no longitude (PostGIS drew its edges along meridians, MySQL matched the
- * equator and the opposite pole). The clearance around it is the measured
- * one: with two consecutive vertices a few 1e-6 degrees from a pole, MySQL
- * (from 3e-6 down) and PostGIS (from 6e-7 down) answered points 70 degrees
- * from the ring wrongly, and none of about 1,500 such rings from 5.6e-6 out.
- */
-const POLE_CLEARANCE = 1e-4;
 
 function toVector(longitude: number, latitude: number): Vector {
   const cosine = Math.cos(latitude * RADIANS);
@@ -260,38 +257,79 @@ function antipode(vector: Vector): Vector {
   return [-vector[0], -vector[1], -vector[2]];
 }
 
+/** What an edge adds to its end's longitude to take the short way round. */
+function shortWay(delta: number): number {
+  if (delta > 180) return -360;
+  if (delta < -180) return 360;
+  return 0;
+}
+
+/** One distinct ring vertex, at its index in the ring. */
+interface Distinct {
+  readonly vertex: GeoPoint;
+  readonly index: number;
+  readonly vector: Vector;
+}
+
 /**
- * The ring's arcs, each taking the short way round in longitude. A repeated
- * consecutive vertex, the caller's closing vertex included, is admitted as the
- * zero-length edge both databases ignore, and dropped here.
+ * The ring's distinct vertices, closed. A vertex within TOLERANCE of a pole is
+ * refused: on the pole it has no longitude, and so no meridian for its edges.
+ * A repeated consecutive vertex, the caller's closing vertex included, is
+ * admitted as the zero-length edge both databases ignore, and dropped here.
+ */
+function distinctVertices(
+  ring: readonly GeoPoint[],
+  path: readonly PropertyKey[]
+): ValidationResult<Distinct[]> {
+  const distinct: Distinct[] = [];
+  for (const [position, vertex] of [...ring, ...ring.slice(0, 1)].entries()) {
+    const index = position % ring.length;
+    const vector = toVector(vertex.longitude, vertex.latitude);
+    if (Math.hypot(vector[0], vector[1]) <= TOLERANCE) {
+      return fail("A GeoPolygon ring cannot contain a pole", [...path, index]);
+    }
+    const last = distinct.at(-1);
+    if (!last || chord(last.vector, vector) > TOLERANCE) {
+      distinct.push({ vertex, index, vector });
+    }
+  }
+  return ok(distinct);
+}
+
+/**
+ * The ring's arcs, each taking the short way round in longitude. An edge
+ * whose longitudes differ by exactly 180 degrees has no short way: it runs
+ * over the pole on the side of its endpoints' mean latitude, along one great
+ * circle, and goes round whichever way leaves the ring no turn.
  */
 function ringArcs(
   ring: readonly GeoPoint[],
   path: readonly PropertyKey[]
 ): ValidationResult<Ring> {
+  const distinct = distinctVertices(ring, path);
+  if (distinct.issues) return distinct;
+  // The ring's turn in longitude, an edge over a pole taken as written.
+  let turn = 0;
+  for (const [position, { vertex }] of distinct.value.entries()) {
+    const previous = distinct.value[position - 1];
+    if (previous) {
+      turn += shortWay(vertex.longitude - previous.vertex.longitude);
+    }
+  }
   const arcs: Arc[] = [];
   let wrap = 0;
-  let previous: GeoPoint | undefined;
   let from: UnwrappedPoint | undefined;
-  for (const [index, vertex] of [...ring, ...ring.slice(0, 1)].entries()) {
-    const at = [...path, index % ring.length];
-    if (GEO_LATITUDE_MAX - Math.abs(vertex.latitude) < POLE_CLEARANCE) {
-      return fail(
-        "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
-        at
-      );
-    }
-    if (previous) {
-      const delta = vertex.longitude - previous.longitude;
-      // No short way round in longitude: the arc runs through a pole, where
-      // its direction there is undetermined, or joins antipodal endpoints.
+  let overPole: Vector | undefined;
+  for (const { vertex, index } of distinct.value) {
+    let pole: Vector | undefined;
+    if (from) {
+      const delta = vertex.longitude - from.written;
       if (Math.abs(delta) === 180) {
-        return fail("A GeoPolygon edge cannot span exactly 180 degrees", at);
+        pole = [0, 0, Math.sign(vertex.latitude + from.latitude)];
+        if (Math.abs(delta - turn) === 180) wrap -= turn;
       }
-      if (delta > 180) wrap -= 360;
-      if (delta < -180) wrap += 360;
+      wrap += shortWay(delta);
     }
-    previous = vertex;
     const longitude = vertex.longitude + wrap;
     const vector = toVector(longitude, vertex.latitude);
     const to = {
@@ -300,24 +338,30 @@ function ringArcs(
       written: vertex.longitude,
       vector,
     };
-    if (!from) {
-      from = to;
-    } else if (chord(from.vector, vector) > TOLERANCE) {
+    if (from) {
       if (chord(antipode(from.vector), vector) < NEAREST_ANTIPODE) {
         return fail(
           "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal",
-          at
+          [...path, index]
         );
       }
+      // Over both poles the ring has no side away from both, and no way
+      // round that leaves it no turn. Over one pole twice it crosses itself
+      // there, which the sweep finds.
+      if (pole && overPole && pole[2] !== overPole[2]) {
+        return fail("A GeoPolygon cannot contain a pole", [...path]);
+      }
+      overPole ??= pole;
       arcs.push({
         from,
         to,
         start: from.vector,
         end: vector,
         normal: unit(cross(from.vector, vector)),
+        pole,
       });
-      from = to;
     }
+    from = to;
   }
   // Longitudes that went once around the globe enclose a pole, and the ring
   // then has no side away from both poles.
@@ -534,10 +578,15 @@ function atMeridian(arc: Arc, longitude: number): Vector {
     : meeting;
 }
 
+/**
+ * At one longitude the arcs over a pole leave first, then the stretches
+ * starting there enter, then the arcs along the meridian are walked, then the
+ * stretches ending there leave.
+ */
 type Event =
-  | { readonly longitude: number; readonly rank: 0; readonly slot: Slot }
-  | { readonly longitude: number; readonly rank: 1; readonly upright: Upright }
-  | { readonly longitude: number; readonly rank: 2; readonly slot: Slot };
+  | { readonly longitude: number; readonly rank: 0 | 3; readonly slot: Slot }
+  | { readonly longitude: number; readonly rank: 1; readonly slot: Slot }
+  | { readonly longitude: number; readonly rank: 2; readonly upright: Upright };
 
 interface Slot {
   readonly stretch: Stretch;
@@ -551,14 +600,14 @@ interface Slot {
  * stretch, two stretches when the arc crosses the antimeridian, split there.
  */
 function arcEvents(placed: Placed): Event[] {
-  const { from, to, normal } = placed.arc;
+  const { from, to, normal, pole } = placed.arc;
   const first = from.written === 180 ? -180 : from.written;
   const second = to.written === 180 ? -180 : to.written;
   if (first === second) {
     const [south, north] =
       from.latitude < to.latitude ? [from, to] : [to, from];
     const upright = { placed, south: south.vector, north: north.vector };
-    return [{ longitude: first, rank: 1, upright }];
+    return [{ longitude: first, rank: 2, upright }];
   }
   const eastward = from.longitude < to.longitude;
   const [west, east] = eastward ? [from, to] : [to, from];
@@ -566,14 +615,15 @@ function arcEvents(placed: Placed): Event[] {
     ? normal
     : [-normal[0], -normal[1], -normal[2]];
   const [low, high] = eastward ? [first, second] : [second, first];
+  if (pole) return polarEvents(placed, pole, north, eastward, low, high);
   const span = (start: number, end: number, point: Vector): Event[] => {
     const slot = {
       stretch: { placed, west: point, east: east.vector, north, eastward },
       entry: undefined,
     };
     return [
-      { longitude: start, rank: 0, slot },
-      { longitude: end, rank: 2, slot },
+      { longitude: start, rank: 1, slot },
+      { longitude: end, rank: 3, slot },
     ];
   };
   return low < high
@@ -582,6 +632,52 @@ function arcEvents(placed: Placed): Event[] {
         ...span(low, 180, west.vector),
         ...span(-180, high, atMeridian(placed.arc, 180)),
       ];
+}
+
+/**
+ * The sweep events of an arc over a pole: an arc along each of its meridians,
+ * from its vertex to the pole, and between them a stretch at the pole, beyond
+ * every other arc crossing those longitudes. The stretch keeps the arc's
+ * circle, which has every point of the meridians between on its far side
+ * from the pole. It leaves before the stretches starting on the arc's last
+ * meridian enter, since the arc runs along that meridian there, which its
+ * walk there covers.
+ */
+function polarEvents(
+  placed: Placed,
+  pole: Vector,
+  north: Vector,
+  eastward: boolean,
+  low: number,
+  high: number
+): Event[] {
+  const walks = [placed.arc.from, placed.arc.to].map(
+    ({ written, vector }): Event => ({
+      longitude: written === 180 ? -180 : written,
+      rank: 2,
+      upright: {
+        placed,
+        south: pole[2] > 0 ? vector : pole,
+        north: pole[2] > 0 ? pole : vector,
+      },
+    })
+  );
+  const across = (start: number, end: number): Event[] => {
+    const slot = {
+      stretch: { placed, west: pole, east: pole, north, eastward },
+      entry: undefined,
+    };
+    return [
+      { longitude: start, rank: 1, slot },
+      { longitude: end, rank: 0, slot },
+    ];
+  };
+  if (low < high) return [...walks, ...across(low, high)];
+  return [
+    ...walks,
+    ...across(low, 180),
+    ...(high > -180 ? across(-180, high) : []),
+  ];
 }
 
 /**
@@ -611,7 +707,10 @@ type Swept =
  * the meridian there (a ring's arcs along one meridian that continue each
  * other end where the last one does, and a ring doubling back along a
  * meridian is refused in `ringArcs`), so the walk along the other one meets
- * it.
+ * it. An arc over a pole is walked along both its meridians, with a stretch
+ * at the pole between them (`polarEvents`): two arcs over one pole meet
+ * there, where either their stretches are neighbors at the pole or, when
+ * their longitudes only touch, one's walk finds the other's stretch.
  *
  * Failing a meeting, where each ring was first met: once the arcs starting
  * on that meridian have entered, the arc north of the ring's northernmost
@@ -652,7 +751,7 @@ function sweep(
   };
   const met = new Set<RingNode>();
   for (const [index, event] of events.entries()) {
-    if (event.rank === 0) {
+    if (event.rank === 1) {
       // A skip list's heights are coin flips the input cannot know: heights
       // a polygon could predict let it keep its long-lived arcs low and make
       // every search walk them one by one. The verdict does not depend on
@@ -672,10 +771,10 @@ function sweep(
         arrivals.set(placed.ring, { entry, west });
       }
       const next = events[index + 1];
-      if (next?.rank !== 0 || next.longitude !== event.longitude) {
+      if (next?.rank !== 1 || next.longitude !== event.longitude) {
         placeArrivals();
       }
-    } else if (event.rank === 1) {
+    } else if (event.rank === 2) {
       const { upright } = event;
       // Every arc crossing the meridian within the span meets this one, so
       // the walk stops at the first not excused, or past the north end.
@@ -705,23 +804,35 @@ function sweep(
  * sum of the triangles each arc makes with the north pole (Van Oosterom and
  * Strackee), taken through the south pole's triangle and the lune between the
  * arc's meridians when the arc lies nearer the south pole, where the north
- * pole's triangle loses its precision. Both poles lie outside every admitted
- * ring (`wrap` in `ringArcs`), so this is the area on the ring's pole-free
- * side, and its sign says on which side of its arcs that area lies.
+ * pole's triangle loses its precision. The lunes' longitudes telescope, so
+ * each run of such arcs adds the longitude from its start to its end: a ring
+ * near the south pole is one run, and its lunes add exactly nothing, where
+ * summed arc by arc their rounding would outweigh its area. No admitted ring
+ * has a pole inside it (`wrap` in `ringArcs`), so this is the area on the
+ * ring's pole-free side, and its sign says on which side of its arcs that
+ * area lies.
  */
 function signedArea(ring: Ring): number {
   let sum = 0;
-  for (const { from, to, start, end } of ring) {
-    const turn = cross(start, end)[2];
-    const along = 1 + dot(start, end);
-    const lift = start[2] + end[2];
-    sum +=
-      lift >= 0
-        ? 2 * Math.atan2(turn, along + lift)
-        : 2 * Math.atan2(-turn, along - lift) +
-          2 * (to.longitude - from.longitude) * RADIANS;
+  let lune = 0;
+  let run: number | undefined;
+  let end = 0;
+  for (const arc of ring) {
+    const turn = cross(arc.start, arc.end)[2];
+    const along = 1 + dot(arc.start, arc.end);
+    const lift = arc.start[2] + arc.end[2];
+    if (lift >= 0) {
+      sum += 2 * Math.atan2(turn, along + lift);
+      if (run !== undefined) lune += arc.from.longitude - run;
+      run = undefined;
+    } else {
+      sum += 2 * Math.atan2(-turn, along - lift);
+      run ??= arc.from.longitude;
+    }
+    end = arc.to.longitude;
   }
-  return sum;
+  if (run !== undefined) lune += end - run;
+  return sum + 2 * lune * RADIANS;
 }
 
 /*
@@ -787,12 +898,13 @@ export function validateGeoPolygon(
   const placed = [shell, ...holes].flatMap((ring) =>
     ring.arcs.map((arc, index) => ({ arc, ring, index }))
   );
-  // Neighbors along a ring meet at their shared vertex.
+  // Neighbors along a ring meet at their shared vertex; an arc over a pole
+  // meets itself where its walks find its stretch.
   const swept = sweep(
     placed,
     (first, second) =>
       first.ring === second.ring &&
-      [1, first.ring.arcs.length - 1].includes(
+      [0, 1, first.ring.arcs.length - 1].includes(
         Math.abs(first.index - second.index)
       )
   );

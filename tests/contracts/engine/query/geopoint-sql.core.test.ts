@@ -657,7 +657,7 @@ describe("GeoPoint query lowering", () => {
   /**
    * Each refused input below has no single meaning on the great-circle
    * reading (it crosses or touches itself on the sphere, has zero area, puts
-   * a hole outside or across another, sits too near a pole, or joins nearly
+   * a hole outside or across another, has a vertex on a pole, or joins nearly
    * antipodal vertices), and is refused at admission before any SQL. The
    * admitted ones have one meaning and reach the adapter emission unchanged,
    * rings closed once, even where a database reads them differently
@@ -715,10 +715,11 @@ describe("GeoPoint query lowering", () => {
       },
     },
     {
-      name: "a 180-degree edge",
+      name: "a 180-degree edge between antipodal vertices",
       polygon: { outer: [g(0, 0), g(180, 0), g(1, 1)] },
       issue: {
-        message: "A GeoPolygon edge cannot span exactly 180 degrees",
+        message:
+          "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal",
         path: ["outer", 1],
       },
     },
@@ -726,8 +727,7 @@ describe("GeoPoint query lowering", () => {
       name: "a north pole vertex",
       polygon: { outer: [g(10, 80), g(0, 90), g(-10, 80)] },
       issue: {
-        message:
-          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
+        message: "A GeoPolygon ring cannot contain a pole",
         path: ["outer", 1],
       },
     },
@@ -735,38 +735,16 @@ describe("GeoPoint query lowering", () => {
       name: "a south pole vertex",
       polygon: { outer: [g(-10, -80), g(0, -90), g(10, -80)] },
       issue: {
-        message:
-          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
+        message: "A GeoPolygon ring cannot contain a pole",
         path: ["outer", 1],
       },
     },
     {
-      name: "an edge between two vertices 1e-7 degrees from the south pole",
-      polygon: {
-        outer: [
-          g(-60, -89.999_999_9),
-          g(0, -89.999_999_9),
-          g(60, -89.999_999_9),
-          g(120, -89.999_999_9),
-          g(120, -60),
-          g(60, -60),
-          g(0, -60),
-          g(-60, -60),
-        ],
-      },
+      name: "a vertex within 1e-9 degrees of a pole",
+      polygon: { outer: [g(10, 80), g(0, 89.999_999_999_5), g(-10, 80)] },
       issue: {
-        message:
-          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
-        path: ["outer", 0],
-      },
-    },
-    {
-      name: "an edge between two vertices 1e-6 degrees from the north pole",
-      polygon: { outer: nearPole(89.999_999) },
-      issue: {
-        message:
-          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
-        path: ["outer", 6],
+        message: "A GeoPolygon ring cannot contain a pole",
+        path: ["outer", 1],
       },
     },
     {
@@ -950,6 +928,45 @@ describe("GeoPoint query lowering", () => {
     {
       name: "edges between vertices 1e-4 degrees from the north pole",
       polygon: { outer: nearPole(89.9999) },
+    },
+    {
+      // MySQL misreads such rings from about 3e-6 degrees, PostGIS from 6e-7.
+      name: "edges between vertices 1e-6 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999) },
+    },
+    {
+      name: "an edge between two vertices 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          g(-60, -89.999_999_9),
+          g(0, -89.999_999_9),
+          g(60, -89.999_999_9),
+          g(120, -89.999_999_9),
+          g(120, -60),
+          g(60, -60),
+          g(0, -60),
+          g(-60, -60),
+        ],
+      },
+    },
+    {
+      name: "an edge over the north pole",
+      polygon: { outer: [g(0, 10), g(90, 15), g(180, 20)] },
+    },
+    {
+      name: "a closing edge over the north pole",
+      polygon: { outer: [g(0, 80), g(90, 70), g(180, 80)] },
+    },
+    {
+      name: "an edge over the south pole",
+      polygon: { outer: [g(0, -10), g(180, -20), g(90, -15)] },
+    },
+    {
+      name: "a hole by the pole inside a ring over it",
+      polygon: {
+        outer: [g(0, 10), g(90, 15), g(180, 20)],
+        holes: [[g(80, 85), g(90, 86), g(100, 85)]],
+      },
     },
     {
       name: "a band past a whole turn beside itself",
