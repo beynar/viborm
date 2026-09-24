@@ -1,8 +1,8 @@
 import { createClient } from "@src/client/client";
 import { PlanetScaleDriver } from "@src/drivers/planetscale";
+import { Decimal } from "@src/index";
 import { introspect } from "@src/migrations/push/planner";
 import { s } from "@src/schema";
-import Decimal from "decimal.js";
 
 const databaseUrl = process.env.PLANETSCALE_TEST_DATABASE_URL;
 const namespace = process.env.PLANETSCALE_TEST_NAMESPACE;

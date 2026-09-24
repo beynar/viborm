@@ -1837,3 +1837,566 @@ The witness that used to order these two — `operation-construction-witnesses.t
 "RelationUpsertPart :814 — a mismatched-arity child FK is refused UPSTREAM" —
 is deleted with its schema, and the file carries a ledger comment naming the
 construction refusal that replaced it.
+
+## Addendum — the identifier domain (Stage D, native identifiers)
+
+Four refusals were added and one was narrowed. Each one's unique coverage is
+stated below, because a guard whose coverage cannot be named is one this
+codebase does not keep.
+
+**`FK012` — two answers to "what does this column hold"
+(`schema/validation/id-domains.ts`, in the GATE).** Unique coverage: a column
+whose identifier domain is reached through more than one path and disagrees — a
+foreign key whose own declaration contradicts its target, one column shared by
+two references whose keys are different formats or prefixes, a compound member
+whose target disagrees. Nothing downstream can repair it: the migration would
+create one column while the engine bound values of another domain into it. It
+lives in the gate rather than in the advisory rule list because
+`skipValidation` may drop advice and must not be able to drop this. It is NOT a
+second `FK003`: that one compares scalar TYPE, array shape, decimal domain and
+SQLite datetime form; two `string` columns that pass it can still hold different
+identifier domains.
+
+A reference CYCLE is one path set, not one path per arm: the derivation settles
+each strongly connected component of the reference graph as a unit, so every
+declaration on a cycle and every key the cycle reaches outside itself must agree,
+and the verdict is the same whatever order the schema lists its models in (the
+earlier walk answered a field still being resolved with its own declaration,
+which accepted `{ a, b }` and refused `{ b, a }`). No guard was added or removed:
+this is the same clause, asked of the right unit. Pins:
+`tests/unit/schema-validation/id-domain-derivation.core.test.ts`, "a reference
+cycle derives one domain, whatever order registers it".
+
+**`FK012` widened — two answers to how a foreign key column stores its key's
+values (same file, same gate; added by the Raptor 3 port review).** Unique
+coverage: a foreign key and the key it references that hold ONE domain but that
+`idStorageOf`, asked of each column's OWN native type, stores in different
+representations on a dialect one of the two overrides names — a key kept text by
+`varchar(40)` beside a foreign key with no override, which is `uuid`/`bytea`/
+`BINARY(n)`. Without it PostgreSQL (42804) and MySQL (3780) refuse the push and
+SQLite creates a BLOB foreign key beside a TEXT key, where the engine then binds
+the payload the key never holds. It compares REPRESENTATION only, the one fact
+the engine binds by; `varchar(40)` beside `text` holds the same strings and is
+accepted. It is not `F013` (an override the domain cannot live in: that one
+answers `undefined` here and is skipped) and not `FK003` (declared scalar type,
+never a derived domain). Pins: `tests/unit/schema-validation/id-domain-derivation.core.test.ts`,
+"a foreign key stores its key's values the way the key does".
+
+**`F013` — a native type the domain cannot live in (same file, same gate).**
+Unique coverage: a declared or derived identifier field whose native type
+override is, for its own dialect, neither a text-family column nor a binary one
+of that format's exact width (nor `uuid` for the two uuid formats). It is
+dialect-blind — the override names its own dialect — and it is not the
+native-catalog spelling check (`J011`), which asks whether the type exists at
+all rather than whether this domain fits in it.
+
+PostgreSQL's `char(n)` is NOT in that text family, though it is an ordinary
+string override: `character(n)` blank-pads to its full width, so a 36-character
+uuid in a `char(40)` column reads back with four trailing spaces and no value of
+the domain is ever returned — measured live, where both the write and every
+later read answered "not in this column's declared identifier domain". MySQL's
+`CHAR(n)` strips the padding on the way out and keeps its place in that
+dialect's list. This narrows F013's accepted set; it adds no second check.
+
+**`P002` widened — variants must agree on their identifier domain
+(`schema/validation/id-domains.ts`).** Unique coverage: two variant targets
+whose keys are both `string` but HOLD different formats or prefixes. The row
+carrier stores every variant's key in ONE column, so a `uuid` beside a `ulid`
+would be written through a codec that is not its own. It is the same statement
+the storage rule already makes for scalar type and for the decimal descriptor,
+in a third representation fact — not a new guard, one more clause of an existing
+one, and it keeps that clause's code.
+
+It is computed in the DERIVATION rather than beside the rule's other clauses
+because the answer may be derived: a variant whose primary key is its parent
+foreign key declares nothing and still holds uuids, and the storage rule runs
+while the index it would have to ask is still being built. Compared as
+declarations it both over-refused (two variants that hold one domain, one
+declaring and one deriving it) and under-refused (two variants that derive
+domains which differ — the shape that types the carrier column from one variant
+and writes another's key through it).
+
+**`J004` on `generate.implicit` (`schema/json/read.ts`).** Unique coverage: a
+document that marks a generator implicit where `.id()` could not have installed
+it — on another KIND, or without the `id` flag. `implicit` says "this ULID is
+the one `.id()` installs", which is one kind beside one flag. On another kind it
+would claim a generator that does not exist and silently drop that format's
+domain, its admission and its compact column. Without `id` the interpreter
+installs nothing at all — its `.id()` arm needs the flag and its `applyGenerate`
+arm stands down for an implicit node — so the declared generator vanishes and
+the field round-trips as a bare `{"type":"string"}`. Not reachable from
+`serializeSchema`, which writes `implicit` only for an `.id()` field; reachable
+from any hand-authored or externally produced document.
+
+**The identifier domain's second crossing, after a custom schema
+(`validation/primitives/helpers.ts` `buildValidator`, added by the PR #43
+review).** Not a new predicate: the same `canonicalizeId` admission, with the
+same `Expected <domain>` message, chained a second time only when the field
+carries a `.schema()`. Unique coverage: the custom schema's OUTPUT. The first
+crossing admits the caller's input and hands the custom schema the canonical
+spelling; the schema is caller code and a Standard Schema may return any
+string, and nothing after it asked the domain again — `"garbage"` was admitted
+and died at the binding as `EngineInvariantError` (the encode invariant below),
+and a returned alias was admitted unfolded, one identifier under two cache
+keys. The first crossing is not made redundant by the second: it is what gives
+the custom schema canonical input, and it refuses an input outside the domain
+before caller code runs on it. No transform position is added: `idDomain` is
+passed only by `validation/scalars/string.ts`, whose field state carries no
+transform. Pins: `tests/unit/scalars/string-scalar-schemas.core.test.ts`, "a
+custom schema's output crosses the domain again".
+
+**The engine's text-predicate refusal
+(`query-engine/builders/scalar-filter-operators.ts`).** *RETIRED by the Raptor 3
+port (2026-09-23): admission (`validation/scalars/string.ts`,
+`buildCompactIdFilterSchema`) is the one owner, raptor3 keeps no second
+operator switch (`raptor3/AGENTS.md`), and the pins now state the refusal as
+admission's `ValidationError` (`identifier-storage-sql.core.test.ts`). What
+follows is the retired engine's reasoning.* Not a new guard: the
+existing `assertSupportedScalarFilterOperator` gains a narrower operator set for
+a compactly stored identifier, and a message that says why rather than
+"unsupported". The validation schema already removed the four operators from the
+type and from what it admits; this is the same fact restated at the boundary a
+trusted internal program can reach without one, exactly as every other entry in
+that function is.
+
+**The encode-side refusals (`query-engine/builders/id-field.ts`
+`encodeIdValue`).** *Became ONE INVARIANT in the Raptor 3 port (2026-09-23):
+`raptor3/shared/identifier.ts` `encodeIdentifier`, an `assertInvariant`, not a
+refusal (N4). Every path the two sentences below named is, in raptor3, a value
+admission canonicalized, a custom schema's output included (a `{ set }` crosses the validated base schema; filter
+operands, cursors, unique selectors and connect keys are validated) or a
+captured row key the decoder returned as the canonical public string; a
+relation-correlated key is a raw column sub-select that never reaches the
+encoder, and `referenceSql`'s deferred `Ref` has no raptor3 counterpart. The
+provider cell "a value outside the declared domain is refused, not stored" is
+answered by admission. What follows is the retired engine's reasoning.* Two, and
+each names a case the other cannot. `Identifier
+field '…' received <typeof>`: a NON-STRING reached a binding for a column whose
+values are strings — a value that never crossed the field's schema, which is the
+only thing that could have typed it (a `set` inside an atomic update object, a
+connect-derived foreign key, a relation-correlated key lowered by
+`referenceSql`). `… received a value outside its declared <format> domain`: a
+string that IS a string and is not one of this column's, on those same paths. It
+is the closing move `decimalLiteral` already makes for the same reason and at
+the same seam — a value with no bytes has no binding, and writing one would
+store a row no read could return.
+
+**The decode-side refusal (`query-engine/result/ResultParser.ts`
+`createFieldChain`; since the Raptor 3 port, `raptor3/shared/query.ts`
+`decodeScalar`'s identifier arm, `InvalidScalarResult("string", "the value is
+not in this column's declared identifier domain")`).** Unique coverage: a PHYSICAL value the column's codec
+cannot name — bytes of the wrong width, text outside the domain, a shape no
+driver spelling normalizes. It is not the generic malformed-string arm beside
+it, which asks only whether the driver returned a string at all; this one asks
+whether what came back is a value of THIS column, and it is the one refusal that
+catches an estate whose rows were written under a different reading (a migration
+that re-encoded text into a binary column is exactly that).
+
+**The binary-conversion refusal (`migrations/binary-conversion.ts`, reached
+from the one `alterColumn` dispatch in `migrations/drivers/base.ts`).** Unique
+coverage: an altered column whose TARGET type is this dialect's raw-bytes column
+and whose source type is not. Every generated `ALTER COLUMN` is a blind
+re-reading of the stored bytes, which is exact when the two types share a
+reading and data loss the moment the target is binary: PostgreSQL's
+`USING col::bytea` writes the ASCII of the old text, SQLite's rebuild copies the
+value verbatim into the `BLOB`, MySQL truncates or pads to the declared width in
+a non-strict `sql_mode`. All three were measured, and all three produced an
+estate no read could return.
+
+It is stated in COLUMN TYPES rather than in identifier domains on purpose: the
+snapshot carries no logical marker saying "this BLOB decodes identifiers", and
+it needs none — a verbatim copy into a binary column is unreadable whatever the
+column holds. It is one refusal at the dispatch rather than three in the three
+conversion routes, which is how those routes came to be wrong three different
+ways. Both sides binary is a WIDTH change and passes: re-reading the same bytes
+as the same bytes is the property the refusal requires. PostgreSQL's `uuid`
+target passes too — `col::uuid` is a real per-value conversion that succeeds for
+an estate of canonical uuids and aborts the transaction for one that is not,
+leaving the column as it was.
+
+**Deleted, not added.** `createFingerprint`'s
+`globals.length > 0 ? globals + entropy : entropy`
+(`schema/scalars/string/autogenerate.ts`) is gone. Its two arms are the same
+string — concatenating an empty `globals` IS `entropy` — so the condition named
+no case and its unique coverage could not be stated. It was carried over from
+upstream CUID2 and was the one uncovered branch in the whole schema subsystem at
+the stage baseline (`32af0e16`: branches 99.95%). The digest is unchanged, which
+the differential test against the pinned upstream package proves.
+
+So is the PostgreSQL migration driver's `scalarState.autoGenerate !== undefined`
+conjunct in `getDefaultExpression`. `idDomainOfState` answers a domain only when
+`state.autoGenerate` is defined, so the conjunct can never be the arm that
+fails; `idDomain !== undefined` beside it already carries it, and the branch it
+added was unreachable.
+
+## Addendum — the existing database (Stage F, identifier conversion)
+
+Three refusals were added. One of them changes no outcome at all, and says so
+here so that a later reader neither deletes it as redundant nor promotes it to a
+second gate.
+
+**The PostgreSQL `text` → `uuid` guard (`migrations/identifier-conversion.ts`
+`postgresTextToUuidGuard`, emitted into the generated alteration).** Unique
+coverage: **the message, and nothing else.** `ALTER COLUMN … TYPE uuid USING
+col::uuid` already fails on the first row that is not canonical uuid text — the
+transaction aborts and the column is left as it was — so the outcome with this
+`DO` block and without it is the same outcome. What the cast alone cannot say is
+how many rows are in the way and what the author's two routes are, and a
+PREFIXED domain is the case that needs saying most: `usr-a0ee…` is not uuid
+text, no `USING substring(col from 5)::uuid` is ever generated for it (the
+snapshot carries the column TYPE, never the domain), and PostgreSQL's own error
+names one offending value and no route at all. It is deliberately NOT a second
+refusal beside `binary-conversion.ts`: that one stops a conversion that would
+otherwise SUCCEED and destroy the data, and this one stops nothing.
+
+**`identifierConversionChecks` on a field with no compactly stored domain
+(same file).** Unique coverage: a caller who named a field that has no text
+conversion to check — a `nanoid`, a `cuid`, or a plain string — for whom the
+honest return value is an empty list and the honest reading of an empty list is
+"this estate is ready". Every other refusal in this program protects a value;
+this one protects an ANSWER, and it is the only place that can: the list is
+handed to `generate()` as `originChecks`, where zero checks pass vacuously and
+the conversion proceeds. It is not `F013` (a native type the domain cannot live
+in) and not `FK012` (two answers to what a column holds): both of those are
+schema facts decided at resolution, and this one is a fact about the call.
+
+Its first check — every row is a value of the domain — asks a KSUID payload one
+more question than its grammar: `<= KSUID_MAX_TEXT`. It is not a new guard but
+the same check made true to its promise. Unique coverage: a 27-character base62
+text above 2^160 (`"z".repeat(27)`, or `aWgEPTl1tmebfsQzFP4bxwgy80W`), which the
+regex and the GLOB admit and `ksuidToBytes` refuses; without the bound the check
+certified an estate the conversion cannot carry. The bound is read from
+`validation/primitives/id-formats.ts`, which owns it beside
+`KSUID_EXCLUSIVE_MAX`, never spelled here. The comparison is byte order on every
+dialect because base62's alphabet (`0-9A-Za-z`) is in ASCII order and a
+case-folding collation is not: `CAST(… AS BINARY)` on MySQL, `CAST(… AS text)
+COLLATE "C"` on PostgreSQL (the cast because `citext` lowercases before any
+collation applies), SQLite's default `BINARY`. The pin's own coverage is
+`…80a`, above the maximum yet below it under `en_US.utf8` and
+`utf8mb4_0900_ai_ci`. A ULID needs no such bound: its leading `[0-7]` is one.
+
+**`assertComparableIdStorage` (`query-engine/builders/where-builder.ts`,
+reached from `fieldRefColumn`; since the Raptor 3 port,
+`raptor3/shared/query.ts` `Queries.prepareOperand`, beside the decimal-domain
+refusal it twins, with its sentence built by `raptor3/shared/identifier.ts`
+`incomparableIdentifiers` — the same words).** Unique coverage: a FIELD REFERENCE operand
+whose column does not spell one public value the way the filtered column does —
+one side compact or `uuid`-typed and the other plain text, or two compact
+columns of different domains, where equal payload bytes stand for different
+public values. `checkRef` in `validation/primitives/operand.ts` compares
+`ScalarType` and arity over interned, model-blind filter schemas, and
+`'string' === 'string'` for an identifier field and an ordinary one; the where
+builder is the first boundary that holds the model and can ask what each column
+physically holds. It is the identifier twin of
+`assertComparableDecimalDomains`, which sits on the same line for the same
+reason, and it is NOT the `encodeIdValue` pair: those cover a VALUE arriving at
+a binding, and a reference binds no value at all — it lowers a second column.
+
+Measured before it existed, on in-process SQLite: `where: { id: { equals:
+refs.plain } }` over a row whose `id` and `plain` hold the same public string
+returned `[]`, because `id` holds sixteen bytes and `plain` holds the text. A
+silent wrong answer, in both directions, on a seam the codebase already names.
+
+TEXT against TEXT is left alone in both directions, deliberately: a `nanoid`
+column stores exactly the string it shows, so comparing it with an ordinary
+string column asks the question it appears to ask. A refusal there would have no
+case to name.
+
+## The exact decimal value type (2026-09-17, workstream 1 of the footprint program)
+
+`src/validation/primitives/decimal-value.ts` is a NEW public value type, so it
+brings two refusals of its own. Both are recorded here because they are the only
+ones it has: everything else the old boundary refused is refused by construction
+now, and this entry names what that means as much as what was added.
+
+**`TypeError` in the constructor (`DECIMAL_CONSTRUCTOR_REFUSAL`).** Unique
+coverage: a caller who hands `new Decimal(…)` something that names no exact
+decimal — every JavaScript number (a double, including `NaN` and `Infinity`),
+a string outside the accepted literal grammar (including the exponent form
+`"1e3"`, which the grammar has always refused), or a value of any other type.
+It is not `DECIMAL_ERROR` in `primitives/decimal.ts`: that one refuses a FIELD
+INPUT and returns issues, and its caller is `v.decimal()`. This one refuses a
+VALUE at the constructor, where there is no validation result to return and no
+field in sight, and it is the reason the boundary above can stop inspecting
+what a decimal looks like. The two families differ by one member — the
+constructor also takes a whole `bigint` coefficient, which a field does not —
+so there are two sentences, `DECIMAL_INPUT_REFUSAL` (the field's, which
+`DECIMAL_ERROR` is built from) and `DECIMAL_CONSTRUCTOR_REFUSAL`, and they
+share one spelling clause declared once in `decimal-value.ts`. The STRING
+grammar has one owner, `admitDecimal` (the admission rule for every
+value: a string through the grammar, anything else through the brand): the
+constructor and the field both refuse exactly where it answers `undefined`,
+and `decimal-value.core.test.ts` pins that they agree on every input. The
+codec's `canonicalizeDecimalValue` and the string-only
+`canonicalizeDecimalInput` were two more readers of the same two answers and
+are gone; the custom-schema return position reads `canonicalDecimalText`
+directly, and the codec's `canonicalizeDecimal` is `admitDecimal` itself under
+the name the engine binders import.
+
+**A JavaScript number at a decimal position (2026-09-23, decision D1).** No
+guard of its own: the number arm of the admission rule and the
+`String(n)` exponent expansion behind it are deleted, so a number reaches the
+same `undefined` every other non-decimal value reaches and the field returns
+`DECIMAL_INPUT_REFUSAL`, the constructor `DECIMAL_CONSTRUCTOR_REFUSAL`. The
+invariant that retires the arm: a field admits only values that already name
+an exact decimal, and a double does not. Witnesses:
+`decimal.core.test.ts` (scalar, list member at `[1]`, empty list still
+admitted), `number-scalar-schemas.core.test.ts` (base, create, list create),
+`decimal-update-union.core.test.ts` (every arithmetic arm and the shorthand),
+`decimal-cache-identity.core.test.ts` (a filter operand never reaches a cache
+key) and `client-construction-boundaries.core.test.ts` (`create` refuses at
+`data.total` before any statement).
+
+**`RangeError("Division by zero")` in `div`.** Unique coverage: a quotient with
+no value at all. Nothing else in the type can fail — `plus`, `minus`, `times`,
+the comparisons, `abs`, `neg` and every rendering are total over the domain —
+and the zero divisor cannot be caught earlier, because `"0"`, `"-0.000"`, `0n`
+and a `Decimal` zero are four spellings that only the constructor resolves.
+
+**No guard for `div`'s fraction-digit count, deliberately.** A count that is not
+a non-negative integer is refused by `BigInt(fractionDigits)` (which throws for
+a fractional number) and by `10n ** -1n` (which throws for a negative one), each
+with its own sentence. A guard there would have no unique coverage to name.
+
+**What construction replaced, rather than moved.** The old codec refused a
+foreign value nine ways — a sign that was neither direction, a non-integer
+exponent, an exponent or digit count outside a render ceiling, a missing or
+non-array coefficient, a hostile `length`, a sparse index, a member that was not
+a single digit, an accessor that threw. None of them has a successor. A private
+field is installed by the constructor and by nothing else, so `#c in value` is
+the whole admission and `Object.create(Decimal.prototype)` — which passes
+`instanceof` — is refused by it. The render ceiling has no successor either, for
+a narrower reason than "a rendering is as long as the digits allocated": it
+bounded a FOREIGN value's exponent, and CONSTRUCTION bounds that now — the
+accepted grammar admits no exponent and no number, so a value this module
+built carries exactly the digits it was handed. The length of
+`div(other, fractionDigits)` and `toFixed(dp)` output comes from the caller's
+own small integer argument instead, and is deliberately unguarded:
+`new Decimal("1").div("3", 20000)` renders 20,002 characters for the same reason
+`"0".repeat(20000)` does, it is unreachable from VibORM (no call site in `src/`
+divides or fixes a Decimal), and a ceiling there would be a guard on a caller's
+own arithmetic with no VibORM coverage to name.
+
+## Decimal descriptor and default (2026-09-23)
+
+`src/schema/scalars/decimal/descriptor.ts` read `{ precision, scale }` as a
+hostile object and its default as a hostile list. A `ScalarState` is built only
+by VibORM's factories from the developer's own arguments, and the one untrusted
+source that reaches the factory — a schema document — hands over two plain
+numbers, so the reflection posture had no untrusted input to face. Two guards
+survive, each with one owner and one message.
+
+**The descriptor bound check (`readDecimalDescriptor`).** `precision` is an
+integer from 1 to `Number.MAX_SAFE_INTEGER`; `scale` is an integer from 0 to
+`precision` and is not `-0`. One sentence per key —
+`'precision' must be an integer between 1 and the maximum safe integer`,
+`'scale' must be an integer between 0 and precision` — as a `ValidationError`
+from `s.decimal` at `descriptor.<key>`. Unique coverage: the schema document,
+whose reader (`src/schema/json/read.ts`, `readRequiredDomainBound`) checks
+presence and number type only and delegates integrality, range and
+`scale <= precision` here — `10.5`, `1e300` and `-0` (which `JSON.parse` keeps
+and `JSON.stringify` loses) reach this check and nothing earlier — and an
+untyped JavaScript caller. The public type already refuses everything else.
+Witnesses: `decimal-descriptor.core.test.ts` (the refusal table, with path and
+sentence) and `hostile.core.test.ts` (`10.5`, `-0` and `scale > precision`
+from JSON text, as `J010` at the field). Provider limits stay a separate
+bind-time owner (`provider-limits.ts`).
+
+**The default canonicalization (`normalizeDecimalDefault`).** A literal
+`.default()` — re-run by `.array()` and `.schema()` — crosses the field's
+complete base schema once, at the call that writes it, and `state.default`
+keeps the canonical output. One sentence: `The decimal default did not satisfy
+its field schema`, at `default`. Unique coverage: `state.default` is canonical
+text, which three readers trust without re-validating — the DDL default
+renderers in `src/migrations/drivers/base.ts` (`decimalDefaultText`,
+`decimalListDefaultText`), the schema-document serializer, and the create
+schema's `v.optional(state.base, state.default)`, which emits a literal
+default unchecked. F004 (`rules/model.ts`) does not cover it: it skips
+decimals, runs only at push, the CLI and document `validate`, and stores
+nothing. Witnesses: `.default("1.005")` refused, `.default("+001.20")` stored as
+`"1.2"`, sparse and revoked list defaults refused with the sentence.
+
+**Removed, and the invariant that retires each.** `readOnce` (read-once
+snapshot under a `try`), `ownKeys` and `nameUnknownKey` (every own key,
+symbols and non-enumerable ones included, refused by name),
+`isDescriptorObject` (a revoked-proxy descriptor owned as a refusal), the
+five-message `readBound`, `snapshotDecimalDefaultList` (dense-array snapshot
+with no shadow properties) and `validateDecimalDefault` (a hostile
+Standard-Schema result read property by property). The invariant: the
+descriptor and the default are the developer's own arguments, and the schema
+the default crosses is VibORM's own base schema. An inherited descriptor or an
+extra key is read as an ordinary argument (the public `ExactDomain` type still
+refuses an extra key, fresh or held); a list default is copied by the field's
+own list schema, which reads each index, owns a revoked proxy or a throwing
+member read as an issue, and drops shadow properties; a custom schema is the
+developer's code, so what it throws reaches the developer unchanged.
+
+## Addendum — geographic values as ordinary records (decision D2, 2026-09-23)
+
+Decision D2: the public input for a geographic value is exactly the value
+VibORM returns, validated as an ordinary record. The record walker
+(`createObjectValidator` in `src/validation/primitives/object.ts`) owns key
+reading, unknown and missing keys, and issue paths for every object operand;
+the geographic codecs keep only the facts no generic schema can state.
+
+**Retired: the bespoke geographic record reader.** `snapshotGeoRecord` and
+`readExactGeoRecord` refused a non-plain prototype, a symbol key, an inherited
+key, and a key deleted between listing and reading, and caught every throwing
+reflection trap. Successor: the walker. It reads enumerable string keys (own or
+inherited) in schema order, refuses unknown keys before reading any value, and
+reports a key removed mid-read as `Missing required field`. A throwing getter
+or trap is contained by `parse` (`src/validation/index.ts`) and by the
+operation boundary, which turn it into an issue with the thrown cause; a direct
+call to `validateGeoPoint` now propagates it. Three callers sit outside
+`parse` and the operation boundary, and none sees a caller-built object:
+`parsePointValue` (`src/query-engine/result/scalar-structured-parser.ts`)
+reads provider rows, plain values decoded from JSON; `pointCodec` snapshot and
+materialize (`src/query-engine/result/cache-value-codecs.ts`) read values
+VibORM itself produced; `normalizePointDefault`
+(`src/schema/scalars/point/scalar.ts`, through `validateSchema`) reads the
+developer's own `s.point().default(…)` declaration, trusted code, so a throwing
+getter there now surfaces as that raw error at declaration time instead of a
+`ValidationError`. Witnesses:
+`tests/unit/validation/point.core.test.ts` ("reads the point as an ordinary
+record", "names the offending key", "refuses a coordinate removed while the point
+is read").
+
+**Kept normalization: longitude `-180` becomes `180`** (`validateGeoPoint`).
+Consumers: the SQLite CHECK in `src/migrations/drivers/sqlite/geo-point.ts`
+(`longitude > -180`, so the physical `-180` spelling is refused by the
+database) and the meridian arms of `src/adapters/shared/geo-point.ts`, which
+assume the `+180` spelling.
+
+**Kept normalization: `-0` becomes `0`** (`geoCoordinate`, the one coordinate
+schema). Consumer: the returned-value contract. The same codec decodes provider
+rows and cache snapshots, and the type VibORM returns has no `-0`.
+
+**Retired: `finiteBound` and `readGeoVariantRecord`.** Successors: the bounds
+record (the one coordinate schema per key, walker-owned keys) and the area
+record (fully partial, strict), both in `geo-area-codec.ts`. A bounds
+coordinate now reports the coordinate's range sentence (`Latitude must be …`)
+at the bound's own path. Witnesses: `tests/unit/validation/geo-area.core.test.ts`
+("reads bounds and areas as ordinary records") and
+`tests/unit/operation-schemas/args/geopoint-known-negatives.core.test.ts`.
+
+**Kept guard: `south <= north`** (`validateGeoBounds`). Unique coverage: an
+inverted rectangle is no database error; the latitude arm of `withinBounds` in
+`src/adapters/shared/geo-point.ts` would compile to a predicate that silently
+matches nothing. Falsifier: removing it fails "refuses invalid bounds 0" and
+"reads bounds and areas as ordinary records".
+
+**Kept guard: exactly one of `bounds` or `polygon`** (`validateGeoArea`). Unique
+coverage: `buildGeoPointWithin` (`src/query-engine/builders/geo-point-builder.ts`)
+branches on `"bounds" in area`, so a second variant would be dropped silently,
+and an area with neither would reach `geoPolygonJson(undefined)` and throw a
+`TypeError` rather than a database error. One guard covers both cases, so the
+area record carries no `requiresOneOf`. Falsifier: removing the `!polygon` arm
+fails "discriminates GeoArea exactly".
+
+**Retired: every polygon geometry pre-check** (`geo-area-codec.ts` before
+D2). The open-ring check (closing vertex repeated), the repeated-vertex check,
+ring self-intersection (`segmentsIntersect`, `ringSelfIntersects`,
+`orientation`, `between`, `onSegment`), the zero-area check, the 180-degree
+edge and pole checks inside `unwrapRing`, the pole-vertex check, the spherical
+half-globe test (`sphericalArea`), and hole placement (`shiftRingNear`,
+`locatePoint`, `ringsIntersect`: outside, touching, overlapping, nested).
+Invariant: polygon validity is the database's execution fact; VibORM owns the
+shape, not the geometry. Successor: PostgreSQL (`ST_GeomFromGeoJSON` cast to
+`geography`) and MySQL (`ST_GeomFromGeoJSON(…, 1, 4326)`), which either raise
+or answer; SQLite refuses polygon filtering outright. Reachability witnesses:
+`tests/contracts/engine/query/geopoint-sql.core.test.ts` ("admits … and lets
+PostgreSQL and MySQL decide it", fourteen former refusals, each asserting the
+emitted statement and GeoJSON on PostgreSQL and MySQL and the SQLite
+`FeatureNotSupportedError`); against the pre-D2 codec all fourteen fail.
+`snapshotDenseArray` goes with them: rings are read by `validateArray`, the one
+array reader, which contains throwing `length` and member reads. End-to-end
+falsifiers (Docker lanes): `tests/contracts/drivers/behaviors/geopoint-behavior.ts`
+("includes polygon boundaries and excludes holes") on pg, postgres and mysql2,
+and `tests/providers/docker/mysql2.test.ts`.
+
+**Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
+(`validateRing`). Unique coverage: `closedRing` in
+`src/adapters/shared/geo-point.ts` reads the first vertex of every ring, so an
+empty ring would throw a `TypeError` there rather than reach the database, and
+the JSON Schema projection states the same minimum as `minItems`. Falsifier:
+removing it fails "still refuses a ring shorter than three vertices before any
+SQL" (`geopoint-sql.core.test.ts`).
+
+**Kept output normalization: winding (outer counterclockwise, holes
+clockwise)** (`wound` in `validateGeoPolygon`, computed by `signedArea` over
+longitudes unwrapped across the antimeridian). It is not a refusal and judges
+nothing, so decision D2 does not retire it. Consumer: the GeoJSON bound by
+`withinPolygon` in `src/adapters/databases/postgres/postgres-adapter.ts` and
+`src/adapters/databases/mysql/mysql-adapter.ts`; that PostGIS `geography` and
+MySQL SRID 4326 read the interior the same way for either orientation is
+unproven (`docs/architecture/v1-public-api-geopoint-plan.md`), so VibORM keeps
+sending one orientation. Retiring it needs the Docker falsifiers
+(`tests/contracts/drivers/behaviors/geopoint-behavior.ts` reversed rings on
+pg, postgres and mysql2; `tests/providers/docker/mysql2.test.ts`) green
+against un-rewound rings and an owner decision. Witnesses: "normalizes winding
+and keeps open rings" (`geo-area.core.test.ts`) and "binds canonical polygons
+and never concatenates caller geometry" (`geopoint-sql.core.test.ts`).
+
+**Kept output normalization: `holes: []` is omitted** (`validateGeoPolygon`).
+An empty and an absent hole list emit the same GeoJSON; one spelling keeps them
+one validated argument and so one cache key. Falsifier: "spells an empty and
+an absent hole list as one validated polygon" (`geo-area.core.test.ts`, strict
+equality, so a `holes: []` or `holes: undefined` key left in the value fails
+it). "emits an empty hole list as no hole and a hole list in input order"
+(`geopoint-sql.core.test.ts`) pins the emitted GeoJSON only; `closedRing`
+emits the same text either way, so it cannot falsify this normalization.
+
+**Moved, not added: the coordinate domain constants.** `GEO_POINT_KEYS`, the
+longitude and latitude limits, `GEO_BOUNDS_KEYS` and
+`GEO_POLYGON_MIN_RING_POINTS` now live in the import-free
+`src/validation/primitives/geo-values.ts`. The codecs now build records with
+`object()` at module load; while the JSON Schema converter imported its
+constants from the codecs, loading `object.ts` first re-entered it through
+`json-schema/factory` → `converters` → codec and threw a temporal-dead-zone
+`ReferenceError`. Reading the constants from the leaf removes that edge.
+Falsifier: `tests/unit/validation/point.core.test.ts` ("loads when object is
+the first module of a fresh graph", one case per entry module: object,
+helpers, json-schema factory, json-schema converters); importing
+`GEO_POINT_KEYS` in the converters from `geo-point-codec` again fails the
+object case with that `ReferenceError`, while every other geo suite stays
+green.
+
+---
+
+## Addendum — the G3P-04 suppression refusal becomes a warning (2026-09-24)
+
+**Owner decision (Arnaud, 2026-09-24): "Warn, drop skipDuplicates".** The Raptor 3
+sentence `Raptor 3 borrowed createMany skipDuplicates requires an operation-owned
+member rollback region.` (`TransactionError`, `V5001`) is **RETIRED**. It was a
+candidate (unmatched) refusal in `scripts/raptor3-refusal-census.mjs` at two
+throw sites — `OperationContext.executeSkippableMember` and `requireSuppression`,
+the latter reached from the command analysis pass and from the MySQL
+`recoverableUniqueError` scalar `createMany` — and the census now reads 36
+candidate sentences at 45 sites (37 at 47 before).
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `commands.ts` analysis pass · `if (command.suppression) requireSuppression()` | A skippable member needs a member rollback region the operation owns. | The analysis pass, before the enclosing root writes. | **DELETED.** A refusal had to fire before any effect; a dropped skip does not, so the question moved to where the skip is spent and an arm that never runs never warns. |
+| `OperationContext.executeSkippableMember` | same | the member boundary | **CONVERTED** to `admitsSuppression("rows involving nested writes")`: without a region the member runs through the ordinary `executeMember`. |
+| `OperationContext.createMany` MySQL `recoverableUniqueError` path | same | the scalar per-row loop | **CONVERTED** to `admitsSuppression("duplicate rows")`: without a region each row is a plain insert. Reachable only through a borrowed binding without `memberRollback` (an array `$transaction([...])` member on mysql2/planetscale); batch preparation still answers the dynamic-planning sentinel first. |
+
+`OperationContext.admitsSuppression` is the ONE rule (borrowed without
+`memberRollback`, or `usesBatch` — which batch preparation implies) and the one
+sentence (`droppedSkipMessage`). It warns once per client lineage (the engine's
+`EngineSchema`) and model: through the caller's logger when it routes warnings
+(`meta.notice`, a new ORM-authored key in the log-metadata allowlist beside
+`deprecation`), `console.warn` otherwise. No site still needs to refuse: running
+the member plainly is the same operation the caller would get without the flag —
+a duplicate fails with `UniqueConstraintError`, and a segmented transport keeps
+what an earlier segment committed, reported through `recordSeriesProgress`.
+
+Falsifiers (restoring the refusal in `executeSkippableMember` and at the MySQL
+path turns every one red): `tests/providers/workers/d1.test.ts` (three "drops
+skipDuplicates …" cells), `tests/raptor3/prep/{suppression-replay,
+g3p04-review-regressions,native-suppression-replay}.test.ts`,
+`tests/contracts/engine/write/{compound-junction,polymorphic-collection-write-family,
+combined-depth-stress,nested-create-context-grandchild,create-many-skip-depth}.test.ts`,
+`junction-produced-identity-behavior.ts`, and the `atomicBatch` arm of
+`tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts`.
+The logger route and the `notice` key are pinned by "routes the dropped-skip
+warning through the client's logger once …" (`suppression-replay.test.ts`).

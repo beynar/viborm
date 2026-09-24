@@ -1,8 +1,7 @@
 import { ValidationError, VibORMErrorCode } from "@errors";
 import { decimal } from "@schema/scalars";
-import { normalizeDecimalDefault } from "@schema/scalars/decimal/descriptor";
+import { Decimal } from "@src/index";
 import { getScalarSchemas } from "@validation/scalars";
-import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
 
 // `s.decimal({ precision, scale })` is the first scalar factory that reads a
@@ -74,167 +73,111 @@ describe("decimal descriptor", () => {
   });
 
   it.each([
-    ["a missing descriptor", () => (decimal as any)()],
-    ["a null descriptor", () => (decimal as any)(null)],
-    ["a number descriptor", () => (decimal as any)(5)],
-    ["an array descriptor", () => (decimal as any)([10, 2])],
-    ["a missing precision", () => (decimal as any)({ scale: 2 })],
-    ["a missing scale", () => (decimal as any)({ precision: 10 })],
+    ["a missing descriptor", () => (decimal as any)(), "descriptor.precision"],
+    ["a null descriptor", () => (decimal as any)(null), "descriptor.precision"],
+    ["a number descriptor", () => (decimal as any)(5), "descriptor.precision"],
+    [
+      "an array descriptor",
+      () => (decimal as any)([10, 2]),
+      "descriptor.precision",
+    ],
+    [
+      "a missing precision",
+      () => (decimal as any)({ scale: 2 }),
+      "descriptor.precision",
+    ],
+    [
+      "a missing scale",
+      () => (decimal as any)({ precision: 10 }),
+      "descriptor.scale",
+    ],
     [
       "an explicit undefined precision",
       () => (decimal as any)({ precision: undefined, scale: 2 }),
-    ],
-    [
-      "an inherited-only descriptor",
-      () => (decimal as any)(Object.create({ precision: 10, scale: 2 })),
+      "descriptor.precision",
     ],
     [
       "a string precision",
       () => (decimal as any)({ precision: "10", scale: 2 }),
+      "descriptor.precision",
     ],
     [
       "a fractional precision",
       () => (decimal as any)({ precision: 10.5, scale: 2 }),
+      "descriptor.precision",
     ],
     [
       "a NaN scale",
       () => (decimal as any)({ precision: 10, scale: Number.NaN }),
+      "descriptor.scale",
     ],
     [
       "an infinite precision",
       () => (decimal as any)({ precision: Number.POSITIVE_INFINITY, scale: 2 }),
+      "descriptor.precision",
     ],
     [
       "a negative-zero scale",
       () => (decimal as any)({ precision: 10, scale: -0 }),
+      "descriptor.scale",
     ],
-    ["a zero precision", () => (decimal as any)({ precision: 0, scale: 0 })],
+    [
+      "a zero precision",
+      () => (decimal as any)({ precision: 0, scale: 0 }),
+      "descriptor.precision",
+    ],
     [
       "a negative precision",
       () => (decimal as any)({ precision: -1, scale: 0 }),
+      "descriptor.precision",
     ],
-    ["a negative scale", () => (decimal as any)({ precision: 10, scale: -1 })],
+    [
+      "a negative scale",
+      () => (decimal as any)({ precision: 10, scale: -1 }),
+      "descriptor.scale",
+    ],
     [
       "a precision beyond the safe integers",
       () => (decimal as any)({ precision: 2 ** 53, scale: 0 }),
+      "descriptor.precision",
     ],
     [
       "a scale greater than precision",
       () => (decimal as any)({ precision: 4, scale: 5 }),
+      "descriptor.scale",
     ],
-    [
-      "an unknown key beside the real ones",
-      () =>
-        (decimal as any)({ precision: 10, scale: 2, rounding: "half-even" }),
-    ],
-    [
-      "a misspelling beside the real ones",
-      () => (decimal as any)({ precision: 10, scale: 2, scal: 2 }),
-    ],
-  ])("refuses %s at the declaration", (_name, build) => {
+  ])("refuses %s at the declaration", (_name, build, path) => {
     const error = refusal(build);
     expect(error.source).toMatchObject({
       kind: "schema-builder",
       builder: "s.decimal",
+      path,
     });
     expect(error.code).toBe(VibORMErrorCode.INVALID_INPUT);
-  });
-
-  it.each([
-    ["an Error", () => new Error("accessor exploded")],
-    ["a non-Error value", () => ({ secret: "accessor exploded" })],
-  ])("owns a throwing accessor that threw %s, without rendering it", (_name, makeThrown) => {
-    const error = refusal(() =>
-      (decimal as any)({
-        get precision(): number {
-          throw makeThrown();
-        },
-        scale: 2,
-      })
-    );
-    expect(error.issues[0]?.message).toBe(
-      "Could not read 'precision' from the decimal descriptor"
-    );
-    // Whatever was thrown is normalized into an Error and carried as the
-    // cause; the refusal sentence never coerces a caller value into itself.
-    expect(error.originalCause).toBeInstanceOf(Error);
-    expect(error.issues[0]?.message).not.toContain("accessor exploded");
-  });
-
-  it("contains an Error proxy whose prototype inspection throws", () => {
-    const hostileError = new Proxy(new Error("private accessor failure"), {
-      getPrototypeOf() {
-        throw new Error("private prototype trap");
+    expect(error.issues).toEqual([
+      {
+        path,
+        message:
+          path === "descriptor.precision"
+            ? "'precision' must be an integer between 1 and the maximum safe integer"
+            : "'scale' must be an integer between 0 and precision",
       },
-    });
-    const error = refusal(() =>
-      (decimal as any)({
-        get precision(): number {
-          throw hostileError;
-        },
-        scale: 2,
-      })
-    );
-    expect(error.issues[0]?.message).toBe(
-      "Could not read 'precision' from the decimal descriptor"
-    );
-    expect(error.originalCause).toBeInstanceOf(Error);
-    expect(error.issues[0]?.message).not.toContain("private");
+    ]);
   });
 
-  it("refuses a hostile presence trap exactly like a hostile accessor", () => {
-    // `Object.hasOwn` shares the read's `try`, so a trap that throws from the
-    // descriptor query cannot slip past the presence test.
-    const error = refusal(() =>
-      (decimal as any)(
-        new Proxy(
-          { precision: 10, scale: 2 },
-          {
-            getOwnPropertyDescriptor() {
-              throw new Error("trap");
-            },
-          }
-        )
-      )
-    );
-    expect(error.issues[0]?.message).toContain("Could not read 'precision'");
-  });
-
-  it("refuses a hostile ownKeys trap while enumerating declarations", () => {
-    const error = refusal(() =>
-      (decimal as any)(
-        new Proxy(
-          { precision: 10, scale: 2 },
-          {
-            ownKeys() {
-              throw new Error("keys trap");
-            },
-          }
-        )
-      )
-    );
-    expect(error.issues[0]?.message).toContain("Could not enumerate");
-  });
-
-  it("reads each property exactly once", () => {
-    // A second read is what would let a value that passed validation be
-    // swapped for one that did not before it is used.
-    const reads: string[] = [];
-    let precision = 10;
-    const scalar = decimal({
-      get precision() {
-        reads.push("precision");
-        const current = precision;
-        precision = 2;
-        return current;
-      },
-      get scale() {
-        reads.push("scale");
-        return 2;
-      },
-    } as { precision: number; scale: number });
-    expect(reads).toEqual(["precision", "scale"]);
-    expect(scalar["~"].state.decimal).toEqual({ precision: 10, scale: 2 });
+  it("reads the descriptor as an ordinary argument", () => {
+    // The descriptor is the developer's own argument, so it is read like one:
+    // an inherited pair names the same numbers, and a key the domain has no
+    // name for is ignored at runtime (the public type refuses it, fresh or
+    // held — see tests/types/scalars/state.core.types.ts).
+    expect(
+      (decimal as any)(Object.create({ precision: 10, scale: 2 }))["~"].state
+        .decimal
+    ).toEqual({ precision: 10, scale: 2 });
+    expect(
+      (decimal as any)({ precision: 10, scale: 2, rounding: "half-even" })["~"]
+        .state.decimal
+    ).toEqual({ precision: 10, scale: 2 });
   });
 
   it("accepts scale zero and a scale equal to precision", () => {
@@ -263,75 +206,21 @@ describe("decimal descriptor", () => {
     expect(scalar.default("0")["~"].state.default).toBe("0");
   });
 
-  it("refuses a symbol-keyed own property, named by its description", () => {
-    // An own property this domain has no name for is an undeclared intent
-    // whatever key shape carries it — `Object.keys` semantics are not the rule,
-    // OWN-ness is. The symbol is named by its own `description` string: a
-    // template literal throws on a symbol and `String(symbol)` is a coercion,
-    // and this module never coerces a caller's value into a refusal sentence.
-    const marked: Record<string | symbol, unknown> = {
-      precision: 10,
-      scale: 2,
-    };
-    marked[Symbol.for("rounding")] = "half-up";
-    expect(refusal(() => (decimal as any)(marked)).issues[0]?.message).toBe(
-      "Symbol(rounding) is not a decimal descriptor property; a decimal declares { precision, scale }"
-    );
-  });
-
-  it("refuses an anonymous symbol-keyed own property", () => {
-    const marked: Record<string | symbol, unknown> = {
-      precision: 10,
-      scale: 2,
-    };
-    // biome-ignore lint/style/useSymbolDescription: a symbol with no description is the input under test
-    marked[Symbol()] = 1;
-    expect(refusal(() => (decimal as any)(marked)).issues[0]?.message).toBe(
-      "Symbol() is not a decimal descriptor property; a decimal declares { precision, scale }"
-    );
-  });
-
-  it("refuses a NON-ENUMERABLE own unknown property", () => {
-    // Enumerability is presentation, not intent: an own key the domain has no
-    // name for is unknown whether or not `Object.keys` would list it.
-    const hidden = { precision: 10, scale: 2 };
-    Object.defineProperty(hidden, "rounding", {
-      value: "half-up",
-      enumerable: false,
-    });
-    expect(refusal(() => (decimal as any)(hidden)).issues[0]?.message).toBe(
-      "'rounding' is not a decimal descriptor property; a decimal declares { precision, scale }"
-    );
-  });
-
-  it("owns a REVOKED-proxy descriptor as a refusal, not a raw TypeError", () => {
-    // The shape test itself calls `Array.isArray`, which throws on a revoked
-    // proxy — so it has to sit inside the same normalized boundary as the
-    // reads, or a `TypeError` escapes `s.decimal()` past the one typed
-    // validation surface.
-    const { proxy, revoke } = Proxy.revocable({ precision: 10, scale: 2 }, {});
-    revoke();
-    const error = refusal(() => (decimal as any)(proxy));
-    expect(error.issues[0]?.message).toBe(
-      "Could not inspect the decimal descriptor"
-    );
-    expect(error.originalCause).toBeInstanceOf(Error);
-  });
-
   it("refuses a forged Decimal candidate as a default", () => {
     // The default is normalized through the field codec at definition time, so
-    // a forgery that rendered as non-numeric text would be frozen into model
-    // metadata and into every DDL default derived from it.
-    expect(
-      refusal(() =>
-        decimal(domain()).default({
-          toStringTag: "[object Decimal]",
-          s: 1,
-          e: 0,
-          d: [Number.NaN],
-        } as never)
-      ).source
-    ).toMatchObject({ kind: "schema-builder", builder: "s.decimal" });
+    // a value the constructor never built would be frozen into model metadata
+    // and into every DDL default derived from it. Both halves of the codec's
+    // admission are witnessed: an ordinary object carrying decimal-shaped keys,
+    // and a value wearing the prototype without ever having been constructed —
+    // which passes `instanceof` and still has no coefficient to read.
+    for (const forged of [
+      { s: 1, e: 0, c: [1] },
+      Object.create(Decimal.prototype),
+    ]) {
+      expect(
+        refusal(() => decimal(domain()).default(forged as never)).source
+      ).toMatchObject({ kind: "schema-builder", builder: "s.decimal" });
+    }
   });
 
   describe("a custom schema survives every modifier order", () => {
@@ -417,7 +306,7 @@ describe("decimal descriptor", () => {
   describe("defaults", () => {
     it("normalizes a literal default to canonical text", () => {
       expect(decimal(domain()).default("4.20")["~"].state.default).toBe("4.2");
-      expect(decimal(domain()).default(-0)["~"].state.default).toBe("0");
+      expect(decimal(domain()).default("-0")["~"].state.default).toBe("0");
       expect(
         decimal(domain()).default(new Decimal("1.5"))["~"].state.default
       ).toBe("1.5");
@@ -425,7 +314,7 @@ describe("decimal descriptor", () => {
 
     it("normalizes every member of a list default", () => {
       expect(
-        decimal(domain()).array().default(["1.10", 2])["~"].state.default
+        decimal(domain()).array().default(["1.10", "2"])["~"].state.default
       ).toEqual(["1.1", "2"]);
     });
 
@@ -444,7 +333,10 @@ describe("decimal descriptor", () => {
       expect(first.value).not.toBe(second.value);
     });
 
-    it("snapshots a dense list without calling caller array methods", () => {
+    it("copies a list default without calling caller array methods", () => {
+      // The field's own list schema reads each index and builds a fresh array,
+      // so a shadowing property on the caller's list is never called and never
+      // retained.
       let mapCalls = 0;
       const shadowed = ["1.10"];
       Object.defineProperty(shadowed, "map", {
@@ -454,68 +346,34 @@ describe("decimal descriptor", () => {
         },
       });
 
-      expect(() => decimal(domain()).array().default(shadowed)).toThrowError(
-        ValidationError
-      );
+      const retained = decimal(domain()).array().default(shadowed)["~"]
+        .state.default;
+      expect(retained).toEqual(["1.1"]);
+      expect(retained).not.toBe(shadowed);
       expect(mapCalls).toBe(0);
     });
 
-    it("owns a list-snapshot failure whose thrown value refuses prototype inspection", () => {
-      let ownKeysCalls = 0;
-      const hostileThrown = new Proxy(
-        {},
-        {
-          getPrototypeOf(): object {
-            throw new Error("prototype trap");
-          },
-        }
-      );
-      const hostileDefault = new Proxy(["1.10"], {
-        ownKeys(): never {
-          ownKeysCalls += 1;
-          throw hostileThrown;
-        },
-      });
-
-      const error = refusal(() =>
-        decimal(domain()).array().default(hostileDefault)
-      );
-
-      expect(error.source).toEqual({
-        kind: "schema-builder",
-        builder: "s.decimal",
-        path: "default",
-      });
-      expect(error.issues).toEqual([
-        {
-          path: "default",
-          message: "Could not snapshot the decimal list default",
-        },
-      ]);
-      expect(error.originalCause).toBeInstanceOf(Error);
-      expect(error.originalCause?.message).toBe(
-        "Underlying error details redacted"
-      );
-      expect(ownKeysCalls).toBe(1);
-    });
-
-    it("refuses revoked and sparse list defaults through the builder boundary", () => {
+    it("refuses revoked and sparse list defaults with the default sentence", () => {
       const revoked = Proxy.revocable(["1.10"], {});
       revoked.revoke();
-      expect(() =>
-        decimal(domain()).array().default(revoked.proxy)
-      ).toThrowError(ValidationError);
-
       const sparse = new Array<string>(1);
-      expect(() => decimal(domain()).array().default(sparse)).toThrowError(
-        ValidationError
-      );
-
       const offsetHole = new Array<string>(1);
       Object.defineProperty(offsetHole, "shadow", { value: "1.5" });
-      expect(() => decimal(domain()).array().default(offsetHole)).toThrowError(
-        ValidationError
-      );
+
+      for (const list of [revoked.proxy, sparse, offsetHole]) {
+        const error = refusal(() => decimal(domain()).array().default(list));
+        expect(error.source).toEqual({
+          kind: "schema-builder",
+          builder: "s.decimal",
+          path: "default",
+        });
+        expect(error.issues).toEqual([
+          {
+            path: "default",
+            message: "The decimal default did not satisfy its field schema",
+          },
+        ]);
+      }
     });
 
     it("runs literal defaults through the current full field codec", () => {
@@ -571,94 +429,36 @@ describe("decimal descriptor", () => {
       );
     });
 
-    it("owns throwing, null, and async custom-schema results for literals", () => {
-      const validators: readonly ((value: unknown) => unknown)[] = [
-        () => {
-          throw new Error("custom exploded");
-        },
-        () => null,
-        () => Promise.resolve({ value: new Decimal("1.5") }),
-      ];
-
-      for (const validate of validators) {
-        expect(() =>
-          decimal(domain())
-            .schema({
-              "~standard": {
-                version: 1,
-                vendor: "decimal-descriptor-test",
-                validate,
-              },
-            } as never)
-            .default("1.5")
-        ).toThrowError(ValidationError);
-      }
-    });
-
-    it("owns a custom-schema failure whose thrown value refuses prototype inspection", () => {
-      let validationCalls = 0;
-      const hostileThrown = new Proxy(
-        {},
-        {
-          getPrototypeOf(): object {
-            throw new Error("prototype trap");
+    it("lets a developer's custom schema speak for itself at the default", () => {
+      // The custom schema is the developer's own code: what it throws reaches
+      // the developer unchanged, and an async one is refused by the field
+      // pipeline, whose refusal the default reports in its one sentence.
+      const withSchema = (validate: (value: unknown) => unknown) =>
+        decimal(domain()).schema({
+          "~standard": {
+            version: 1,
+            vendor: "decimal-descriptor-test",
+            validate,
           },
-        }
-      );
+        } as never);
 
-      const error = refusal(() =>
-        decimal(domain())
-          .schema({
-            "~standard": {
-              version: 1,
-              vendor: "decimal-descriptor-test",
-              validate: (): never => {
-                validationCalls += 1;
-                throw hostileThrown;
-              },
-            },
-          })
-          .default("1.5")
-      );
-
-      expect(error.source).toEqual({
-        kind: "schema-builder",
-        builder: "s.decimal",
-        path: "default",
-      });
-      expect(error.issues).toEqual([
+      expect(() =>
+        withSchema(() => {
+          throw new Error("custom exploded");
+        }).default("1.5")
+      ).toThrowError("custom exploded");
+      expect(
+        refusal(() =>
+          withSchema(() =>
+            Promise.resolve({ value: new Decimal("1.5") })
+          ).default("1.5")
+        ).issues
+      ).toEqual([
         {
           path: "default",
-          message:
-            "The decimal field schema failed while validating its default",
+          message: "The decimal default did not satisfy its field schema",
         },
       ]);
-      expect(error.originalCause).toBeInstanceOf(Error);
-      expect(error.originalCause?.message).toBe(
-        "Underlying error details redacted"
-      );
-      expect(validationCalls).toBe(1);
-    });
-
-    it("owns malformed direct field-schema results at the default boundary", () => {
-      const schemas = [
-        { "~standard": { validate: () => null } },
-        {
-          "~standard": {
-            validate: () => ({
-              then: () => undefined,
-              value: new Decimal("1.5"),
-            }),
-          },
-        },
-        { "~standard": { validate: () => ({}) } },
-      ];
-
-      for (const schema of schemas) {
-        expect(() =>
-          normalizeDecimalDefault("1.5", schema as never, false)
-        ).toThrowError(ValidationError);
-      }
     });
 
     it("turns hostile factory-list reads into validation issues", () => {
@@ -794,17 +594,40 @@ describe("decimal descriptor", () => {
         () => decimal(domain()).default("abc" as never),
       ],
       [
-        "a non-finite Decimal",
+        // The constructor builds no non-finite value, so a Decimal-typed value
+        // fails here only when it was never constructed: this one wears the
+        // prototype and carries decimal-shaped own properties with it.
+        "a Decimal-shaped value the constructor never built",
         () =>
           decimal(domain()).default(
-            new Decimal(Number.POSITIVE_INFINITY) as never
+            Object.assign(Object.create(Decimal.prototype), {
+              s: 1,
+              e: 0,
+            }) as never
           ),
       ],
     ])("refuses %s at the declaration", (_name, build) => {
-      expect(refusal(build).source).toMatchObject({
+      const error = refusal(build);
+      expect(error.source).toEqual({
         kind: "schema-builder",
         builder: "s.decimal",
+        path: "default",
       });
+      expect(error.issues).toEqual([
+        {
+          path: "default",
+          message: "The decimal default did not satisfy its field schema",
+        },
+      ]);
+    });
+
+    it("stores the canonical spelling a literal default names", () => {
+      expect(decimal(domain()).default("+001.20")["~"].state.default).toBe(
+        "1.2"
+      );
+      expect(
+        decimal(domain()).array().default(["+001.20", "-0"])["~"].state.default
+      ).toEqual(["1.2", "0"]);
     });
   });
 });
@@ -821,61 +644,5 @@ describe("coverage low value", () => {
     expect(() => decimal(domain()).array().default(hostileList)).toThrowError(
       ValidationError
     );
-  });
-
-  it("contains every hostile Standard Schema result probe", () => {
-    const revoked = Proxy.revocable({ value: new Decimal("1.5") }, {});
-    revoked.revoke();
-    const hostileResults: readonly unknown[] = [
-      revoked.proxy,
-      new Proxy(
-        { value: new Decimal("1.5") },
-        {
-          get(target, property, receiver) {
-            if (property === "then") throw new Error("then read failed");
-            return Reflect.get(target, property, receiver);
-          },
-        }
-      ),
-      new Proxy(
-        { value: new Decimal("1.5") },
-        {
-          get(target, property, receiver) {
-            if (property === "issues") throw new Error("issues read failed");
-            return Reflect.get(target, property, receiver);
-          },
-        }
-      ),
-      new Proxy(
-        { value: new Decimal("1.5") },
-        {
-          has(target, property) {
-            if (property === "value") throw new Error("value probe failed");
-            return Reflect.has(target, property);
-          },
-        }
-      ),
-      new Proxy(
-        { value: new Decimal("1.5") },
-        {
-          get(target, property, receiver) {
-            if (property === "value") throw new Error("value read failed");
-            return Reflect.get(target, property, receiver);
-          },
-        }
-      ),
-    ];
-
-    for (const hostileResult of hostileResults) {
-      const schema = {
-        "~standard": {
-          validate: () => hostileResult,
-        },
-      };
-
-      expect(() =>
-        normalizeDecimalDefault("1.5", schema as never, false)
-      ).toThrowError(ValidationError);
-    }
   });
 });

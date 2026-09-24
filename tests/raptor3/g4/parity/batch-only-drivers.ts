@@ -113,7 +113,10 @@ export class NoIndexBatchOnlyDriver extends BatchOnlyDriver {
  * reserves nothing — `Driver._canPinSession()` is false, because the driver
  * declares no `pinnedSession` hook — so the TEMP table the D-50 batch
  * reference scratch lives in belongs to one dispatched unit and is gone by the
- * next. D1 is the same shape. Its sibling {@link BatchOnlyDriver} keeps one
+ * next. It models Neon HTTP only: D1 pins no session either, but refuses
+ * temporaries, so its scratch is an ordinary table that outlives the batch and
+ * is emptied by each unit's own cleanup, which this fixture's TEMP drop does
+ * not model. Its sibling {@link BatchOnlyDriver} keeps one
  * better-sqlite3 connection, which IS a session, and therefore keeps the
  * scratch across dispatches; the only difference between the two fixtures is
  * the transport fact D-53 names, which is why the pins run the same payload on

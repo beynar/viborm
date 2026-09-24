@@ -49,14 +49,17 @@ relation fields are returned when requested through `include` or relation
 selection. Keep `field` for result keys and select/include keys; use `scalar`
 or `relation` only when the result logic is specific to one concrete field kind.
 
-Fixed-decimal fields accept public `Decimal | string | number` input after the
+Fixed-decimal fields accept public `Decimal | string` input after the
 schema descriptor has fixed their precision and scale. They return a fresh
 public `Decimal` at every selected field or aggregate leaf, including nested
 results and cache hits. They never return canonical transport text or a
 JavaScript number. Decimal lists preserve that same logical element surface.
 Use `Decimal#eq()` in value assertions. Results use the one constructor exported
-from `viborm`, but semantic decimal equality is still a value comparison rather
-than JavaScript object identity or a test framework's structural comparison.
+from `viborm` — VibORM's own `Decimal`, whose 18-member prototype is the whole
+public value surface — but semantic decimal equality is still a value
+comparison rather than JavaScript object identity or a test framework's
+structural comparison. An instance carries NO own property, so a structural
+comparison of two of them compares nothing.
 
 ### Recursive Proxy Pattern
 

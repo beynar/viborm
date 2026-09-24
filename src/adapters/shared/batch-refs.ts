@@ -1,6 +1,14 @@
 import { type Sql, sql } from "@sql";
 import type { BatchReferenceSqlAdapter } from "../adapter-core-types";
 
+/**
+ * The batch reference scratch table's name. The SQLite adapter spells it from
+ * here, and SQLite migration introspection reads it to keep the scratch out of
+ * a snapshot: on a transport without temporary objects (D1) the scratch is an
+ * ordinary table in `main`.
+ */
+export const BATCH_REFS_TABLE = "__viborm_batch_refs";
+
 interface OnConflictBatchRefsConfig {
   table: Sql;
   batchIdColumn: Sql;

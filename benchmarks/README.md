@@ -336,6 +336,14 @@ pinned `decimal.js@10.6.0` importer, package, and snapshot entries; equality and
 every other delta are refused. The report records that exception as
 `fixed-decimal-dependency-only`.
 
+That program is pinned to the checkouts it was written for. `big.js` has since
+replaced `decimal.js` as the exact decimal value, so no candidate taken from
+current HEAD can produce the delta it admits, and the program is refused before
+measurement rather than silently re-based. Reproduce it from its own era
+(baseline `1d796d4e01841becfbb2f6805668ef11d270aa0e` and the feature commit
+that added `decimal.js`); it is not a program to re-point at the current
+dependency.
+
 Composed relation and generated-reference writes currently expose no real
 plan-only seam from the built package: `prepare()` declines them and
 `prepareBatch()` rejects their postconditions. Their catalog entries therefore

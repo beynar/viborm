@@ -1,3 +1,5 @@
+import { idStorageOf } from "@schema/scalars/string/id-domain";
+import type { IdDomain } from "@validation/primitives/id-codec";
 /**
  * MySQL Migration Driver
  *
@@ -295,8 +297,19 @@ export class MySQLMigrationDriver
   // TYPE MAPPING
   // ===========================================================================
 
-  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+  mapScalarType(
+    scalar: Scalar,
+    scalarState: ScalarState,
+    idDomain?: IdDomain
+  ): string {
     const nativeType = scalar["~"].nativeType;
+
+    // See the PostgreSQL driver: one storage owner, override included.
+    const idStorage =
+      idDomain === undefined || scalarState.array === true
+        ? undefined
+        : idStorageOf(idDomain, nativeType, "mysql");
+    if (idStorage) return idStorage.columnType;
 
     // MySQL has no native list type. A native declaration can describe one
     // scalar member only; every list keeps the JSON container below.

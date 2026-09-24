@@ -5,6 +5,24 @@ Versioning.
 
 ## Unreleased
 
+- **Behaviour change on batch-only drivers: `createMany` with `skipDuplicates`
+  warns and runs instead of refusing.** Where no savepoint can isolate one
+  member — D1 Workers bindings, Neon HTTP, a native array batch, and a member of
+  an array `$transaction([...])` — a `createMany` with `skipDuplicates` that is
+  relation-bearing, or nested under another `create`/`update` (many-to-many
+  included), used to throw `TransactionError` (`V5001`) before any write. It
+  now runs **without** `skipDuplicates` and warns once per client and model —
+  on the `warning` log channel when logging routes warnings (the sentence in
+  `meta.notice`), with `console.warn` otherwise: `createMany skipDuplicates
+  cannot skip rows involving nested writes on driver "d1" (no savepoint
+  available) in post.createMany; running without skipDuplicates — a duplicate
+  will fail with a unique-constraint error.` A duplicate then fails with the
+  ordinary `UniqueConstraintError`, and rows an earlier batch committed stay
+  committed, exactly as for the same call without `skipDuplicates`. A root
+  scalar `createMany` with `skipDuplicates` is unchanged (it skips in SQL),
+  except on MySQL inside an array `$transaction([...])`, whose per-row skip
+  needs a savepoint: it too now runs without the flag and warns instead of
+  refusing. Interactive drivers keep skipping inside a savepoint.
 - **Recursive relation projections.** A self-relation's node — `parent`,
   `children`, a proven one-to-one inverse or a paired junction graph — takes
   `recurse` in `select` and `include`: `true`/`{}` follow the relation to depth
@@ -188,6 +206,287 @@ Versioning.
   end. The logical `CastType` gains `"bigint"` (`BIGINT` on
   PostgreSQL, the 64-bit integer cast the other dialects already had), so a
   `bigint` increment key is read back at its own width.
+
+### Decimal (breaking)
+
+A decimal field admits `Decimal | string`. A JavaScript `number` is a double
+rather than an exact decimal, so it is refused at every decimal position —
+create and update values, `increment`/`decrement`/`multiply`/`divide`,
+`push`/`unshift`, every filter operand, `having` operands, cursors and unique
+lookups — with one issue: `Expected an exact decimal: a Decimal or a string
+like '-12.345' (sign, digits, at most one dot, no exponent); a JavaScript
+number is a double and is not accepted`. The keys, the nullable arms and the
+operand forms (literal, field reference, SQL fragment, callback) do not move;
+only the literal narrows, and the input types drop `number`. Write
+`{ total: "0.3" }`, not `{ total: 0.3 }`.
+
+- `new Decimal(value)` takes a `Decimal`, a string, or a whole `bigint`
+  (`new Decimal(5n)` is `5`); a number throws `TypeError`. The arithmetic and
+  comparison methods take the same arguments, so `total.plus("1")` rather than
+  `total.plus(1)`.
+- The `String(number)` rule and the documented `0.1 + 0.2` case are gone with
+  it: there is no double to spell.
+- The input JSON Schema of a decimal is the string alone
+  (`{ type: "string", pattern }`, with the domain in `description`); the
+  `{ type: "number" }` arm is gone, so a document generated from it no longer
+  describes values the validator refuses.
+- A schema document's decimal default written as a JSON number (`"default":
+  1.5`, or a number member of a list default) is refused with `J008`; write
+  the string `"1.5"`. An invalid `precision`/`scale` in a document reports the
+  per-key sentence below under `J010`.
+- `s.decimal({ precision, scale })` reads its argument as the developer's own
+  code. Each bad bound has one sentence at its key —
+  `'precision' must be an integer between 1 and the maximum safe integer` at
+  `descriptor.precision`, `'scale' must be an integer between 0 and precision`
+  at `descriptor.scale` — replacing the five earlier messages. A missing or
+  non-object argument (untyped JavaScript) now reports the `precision`
+  sentence at `descriptor.precision` instead of
+  `A decimal must declare { precision, scale }` at `descriptor`. Extra,
+  inherited, symbol and non-enumerable keys are ignored at runtime (the types
+  still refuse extra keys), and a throwing getter or a revoked proxy throws its
+  own error instead of a `ValidationError`.
+- `.default(x)` checks the default against the field's own schema and reports
+  one sentence, `The decimal default did not satisfy its field schema`, in
+  place of the list-specific messages (`must be an array`, `dense array with
+  no shadow properties`, `Could not snapshot`). Extra properties on a list
+  default are dropped rather than refused. A custom `.schema()` that throws, or
+  that returns a non-object result such as `null`, lets that error (a
+  `TypeError` for `null`) escape `.default()` instead of `The decimal field
+  schema failed while validating its default`. The check is still eager, at
+  `.default()`, `.array()` and `.schema()`.
+
+### Geo: a geographic value is validated as the record VibORM returns (breaking for refusal wording and polygon admission)
+
+A `GeoPoint`, `GeoBounds` or `GeoArea` argument is now read by the same record
+walker as every other object operand, not by a bespoke reader. For points and
+bounds the accepted values are unchanged for ordinary input; what changes is
+the posture toward unusual objects and the wording of refusals. Polygons are
+checked for their shape only, and the database judges their geometry.
+
+- Refusals name the key: `{ longitude, latitude, latitdue }` fails with
+  `Unknown key: latitdue` at path `latitdue` (was `Expected GeoPoint with
+  exactly longitude and latitude`), a missing coordinate fails with
+  `Missing required field: latitude`, a non-object with `Expected object`
+  (was `Expected GeoPoint object`), and a non-finite coordinate with
+  `Expected finite number` (was `Expected finite longitude`). Range messages
+  are unchanged. Unknown-key and missing-key refusals now point at the key:
+  `data.location.extra` and `data.location.longitude` where the path was
+  `data.location`; an object without the coordinates, such as a `Date` or a
+  `Map`, also fails at `data.location.longitude`.
+- Bounds and areas follow the same rule: `{ bounds: { …, nort: 49 } }` fails
+  with `Unknown key: nort` at `bounds.nort` (was `Expected GeoBounds with
+  exactly south and west and north and east`), `{ bounds, extra }` with
+  `Unknown key: extra`, and a bounds coordinate out of range with
+  `Latitude must be between -90 and 90` or `Longitude must be between -180 and
+  180` (was `south must be between -90 and 90`, and so on; paths unchanged).
+  `GeoBounds south must be less than or equal to north` and `Expected GeoArea
+  with exactly one of bounds or polygon` are kept word for word, but an area
+  carrying both variants where one is itself invalid now reports that
+  variant's refusal (for example the `south`/`north` message at
+  `bounds.south`) instead of the exactly-one message.
+- An area spelled `{ bounds: undefined, polygon }` is now the polygon area: an
+  explicit `undefined` is an absent key, as everywhere else.
+- Newly accepted: an inherited enumerable coordinate, a class instance, and an
+  object carrying extra symbol or non-enumerable keys; the walker reads
+  enumerable string keys only, as it does for every other argument.
+- A getter or proxy trap that throws while a point is read surfaces as a
+  validation issue carrying the thrown cause (through `parse` and every
+  operation boundary) instead of the former `Could not read …` message; in an
+  operation it is reported at `root` as `Schema validation failed
+  unexpectedly` where the path named the coordinate. A direct call of a geo
+  validator, and `v.point()["~standard"].validate`, now let the throw
+  propagate, as every other `v.object` schema already did, and so does `s.point().default(…)`, whose value is the
+  developer's own declaration: a throwing getter there is that raw error at
+  declaration time instead of a `ValidationError`.
+- A `GeoPolygon` is checked for its shape only: exactly `outer` and optional
+  `holes`, finite in-range vertices, at least three vertices per ring
+  (`A GeoPolygon ring needs at least 3 vertices`, kept). Geometric validity is
+  the database's execution fact, so twelve former refusals are gone: a closing
+  vertex repeated at the end, a repeated vertex, a self-intersecting ring, a
+  zero-area ring, an exactly 180-degree edge, a pole vertex, a ring winding
+  around a pole, a polygon covering half the globe or more, and a hole outside
+  its outer ring, touching it, overlapping another hole, or nested in one.
+  Those polygons now reach PostgreSQL or MySQL as written (a repeated closing
+  vertex is closed once more); the outcome is that database's error or answer.
+  SQLite-family providers still refuse polygon filtering, now after admission.
+- A polygon without `outer` fails with `Missing required field: outer` (was
+  `Expected GeoPolygon with outer and optional holes`), and a ring that is not
+  an array with `Expected array` (was `Expected outer ring array`). A ring is
+  read by index like every array operand: an empty slot in a sparse ring fails
+  as `Expected object` at its index, and an inherited index is read.
+- Unchanged: longitude `-180` still becomes `180`, `-0` still becomes `0`,
+  `holes: []` is still the same argument as no `holes`, and an accepted
+  polygon is still sent with its outer ring counterclockwise and its holes
+  clockwise.
+
+### Identifiers are generated by VibORM (breaking for the dependency graph)
+
+`@paralleldrive/cuid2`, `nanoid` and `ulidx` leave the runtime dependency graph
+and nothing joins it: SHA3-512, the one hash CUID2 needs, is VibORM's own
+Keccak-f[1600] and adds no dependency at all. Every format is built here, from
+`crypto.getRandomValues` and nothing else — a runtime that cannot provide secure
+randomness is refused rather than served a weaker identifier. CUID2 output is
+byte-identical to the package it replaces, proven by a differential test against
+the pinned upstream, and the digest is byte-identical to `@noble/hashes` over
+the NIST known-answer vectors and 10,000 random messages, proven by a second
+differential test that keeps that package installed for development only.
+
+- Added `s.string().uuidv7()` and `s.string().ksuid()`, with the matching
+  `generate` kinds in the JSON schema document.
+- `s.string().id()` now sets `hasDefault`, so a generated primary key is
+  optional in the create type as it already was at runtime. `.id()` no longer
+  overrides a generator declared before it, and `.id(prefix)` after a generator
+  is refused (`.id("")` names no prefix, so it stays a plain key declaration).
+- A nanoid length outside the range a nanoid can have — not a whole number, or
+  outside 1 to 65536, the entropy source's own per-call quota — is refused at
+  declaration instead of silently producing empty identifiers or throwing a
+  platform error on every row.
+
+### Identifier storage (breaking for new schemas)
+
+Naming a format is now a promise about every value of the field, and VibORM both
+holds you to it and takes advantage of it. `.uuid()`, `.uuidv7()`, `.ulid()`,
+`.ksuid()`, `.nanoid()` and `.cuid()` declare a **domain**; a bare `.id()` still
+declares a **key** and is unchanged in every respect — its values are whatever a
+string column holds, and it is still stored as text.
+
+- **Values are validated.** A declared or derived domain admits only its own
+  values, everywhere one can appear: `create`, `update`, `where`, unique
+  selectors, cursors, and every `connect` / `connectOrCreate` / `upsert` key. A
+  prefix is matched whole, and aliases normalize once — an uppercase UUID and a
+  lowercase ULID address the same row their canonical spelling does. Previously
+  `s.string().uuid()` refused nothing.
+- **Storage changes for new schemas.** `uuid`/`uuidv7` become `uuid` on
+  PostgreSQL and `BINARY(16)`/`BLOB` elsewhere; `ulid` becomes
+  `bytea`/`BINARY(16)`/`BLOB`; `ksuid` becomes `bytea`(20)/`BINARY(20)`/`BLOB`.
+  A declared prefix is no longer stored — it is identical in every row and is
+  re-applied on read. `nanoid` and `cuid` keep text storage.
+- **Foreign keys derive.** A column that references a key is admitted,
+  normalized and stored exactly as that key is, with no declaration of its own —
+  through self-relations, compound members, one-to-one chains, junction columns
+  and polymorphic carrier columns alike. Declaring a DIFFERENT domain on a
+  foreign key than its target has, or reaching one column through references
+  whose keys disagree, is a schema error (FK012).
+- **Four operators are gone from the compact formats.** `contains`,
+  `startsWith`, `endsWith` and `mode` are removed from the filter TYPE of a
+  `uuid`/`uuidv7`/`ulid`/`ksuid` field and refused by the engine: sixteen bytes
+  are not the text you wrote them as. `equals`, `not`, `in`, `notIn`, `lt`,
+  `lte`, `gt`, `gte`, `orderBy`, cursor pagination, `_min`/`_max`, `_count` and
+  `groupBy` are exact and unchanged — the byte order of all four formats IS
+  their canonical text order. The loss goes by the FORMAT, not by the storage:
+  a compact format that takes the text-family override below still loses them,
+  because the validation schema is built before any adapter exists and one
+  filter type per field rather than one per deployment is what keeps the type
+  and the runtime saying the same thing. A DERIVED domain narrows at run time
+  only: a foreign key has no declaration of its own to compute a type from.
+- **A field reference across storage is refused.** `where: { id: { equals: (ctx)
+  => ctx.fields.someString } }` compiled and matched nothing when `id` was
+  compactly stored and `someString` was not — it compared payload bytes with
+  public text. Both directions now raise before any I/O, naming what each column
+  holds. Two TEXT columns are untouched whatever their domains: a `nanoid`
+  stores exactly the string it shows, so comparing it with an ordinary string
+  column asks the question it appears to ask.
+- **`_min`/`_max` aggregate the transported spelling.** PostgreSQL has neither
+  `min(uuid)` nor `max(bytea)`, and the answer is the same either way.
+- **`DEFAULT gen_random_uuid()`** is emitted only for an unprefixed `.uuid()`
+  field, and only where the column can hold one: `uuidv7` needs PostgreSQL 18,
+  and no database can produce a prefixed value or a `bytea` payload.
+
+### Existing databases
+
+A column that already holds text has two routes, and neither is silent.
+
+- **Keep the column.** A text-family native type
+  (`s.string(PG.STRING.VARCHAR(40)).uuid()`, `TEXT`, `citext`, MySQL `CHAR(n)`,
+  …) opts out of compact storage while keeping the domain validated. PostgreSQL's
+  `char(n)` is not among them — `character(n)` blank-pads to its full width, so
+  no value of the domain would ever be returned. A native type the domain cannot
+  live in is refused where it is declared (F013), with a message naming the
+  spellings that format does accept.
+- **Convert the rows.** The generated `alterColumn` into a binary column is now
+  **refused** rather than run: nothing can re-read stored text as bytes, and the
+  refusal names the manual route. PostgreSQL's `text` → `uuid` leg still runs —
+  `col::uuid` is a real per-value conversion — and is now preceded by a guard
+  that says how many rows would fail it and what the two routes are, instead of
+  naming one offending value.
+- `identifierConversionChecks` (new, from `viborm/migrations`, alongside the
+  `MigrationCheckInput` type) renders the questions a conversion has to answer
+  first — every row in the domain, no two rows folding together under the
+  uuid/ulid alias, every referencing foreign key still finding its parent after
+  that fold — as `trusted-read` checks you can run or pass to `generate()`. The
+  fold question is asked of the key and of any referencing column that is a
+  complete key of its own model, never of a plain many-side foreign key. On
+  MySQL every identity comparison is rendered as `CAST(… AS BINARY)`: the 8.0
+  default collation folds case in `=`, which admitted a foreign key that the
+  `BINARY(n)` column would then leave without a parent.
+  The per-dialect recipes are in the new
+  [Converting identifier columns](https://viborm.dev/docs/migration/identifiers)
+  guide; every statement on that page was executed against PostgreSQL 16,
+  MySQL 8 and SQLite.
+
+### Decimal API change (breaking)
+
+The exact decimal value type is now VibORM's own `Decimal` instead of
+decimal.js, and it brings no dependency with it: an immutable signed `BigInt`
+coefficient and a scale, where decimal.js was 32 KB minified.
+`Decimal` is still exported from `viborm`, still constructed once per selected
+leaf, and still satisfies `instanceof Decimal`. Nothing VibORM owns changed:
+`s.decimal({ precision, scale })`, the frozen descriptor, exact admission,
+canonical identity, provider representations, DDL, filters, updates, aggregates
+and migrations all behave exactly as before, and the accepted input grammar
+(`"+1.5"`, `".5"`, `"1."` accepted; `"1e3"` refused) is unchanged.
+
+What changes for application code that does arithmetic on returned values:
+
+- **18 prototype members instead of ~130**, every one of them distinct.
+  Kept: `abs`, `cmp`, `div`, `eq`, `gt`, `gte`, `lt`, `lte`, `minus`, `neg`,
+  `plus`, `times`, `toFixed`, `toJSON`, `toNumber`, `toString`, `valueOf`,
+  and the constructor.
+- **No aliases.** decimal.js spelled three operations twice; only `plus`,
+  `minus` and `times` exist here.
+- **Gone:** `pow`, `sqrt`, `mod`, `prec`, `round`, `toExponential`,
+  `toPrecision`, `isZero`, `isNeg`, `isNaN`, `isFinite`, `floor`, `ceil`,
+  `trunc`, `toDP`, `toSD`, `dp`, `sd`, `ln`, `log`, `exp`, the trigonometric
+  methods, `toFraction`, `toNearest`, `clamp`, and the radix conversions.
+  `x.isZero()` becomes `x.eq("0")`; `x.isNeg()` becomes `x.lt("0")` (a JavaScript number is refused; write the string or a bigint); rounding to a
+  fixed number of places is `x.toFixed(n)`.
+- **No NaN and no Infinity.** `new Decimal("abc")`, `new Decimal(NaN)` and
+  `new Decimal(Infinity)` throw `TypeError` where decimal.js produced a NaN
+  value, and `div(0)` throws `RangeError("Division by zero")`.
+- **No configuration at all.** `Decimal.set({...})` is gone and nothing
+  replaces it: the class has no static properties, so nothing an application
+  sets can move a value in either direction. `div` takes its decimal places and
+  its rounding as arguments — `div(other, fractionDigits = 20, rounding =
+  "half-up")`, where `rounding` is `"half-up"` (ties away from zero, the
+  default and what decimal.js's default produced) or `"half-even"` (ties to the
+  even neighbour, what the SQL engines do). `toFixed` rounds half away from
+  zero.
+- **`toString()` never emits exponent notation.** There is no `toExpNeg` /
+  `toExpPos` equivalent and no threshold: the canonical text of a value is
+  every digit it has, which is also the text VibORM stores, compares and keys
+  cache entries on.
+- **`structuredClone` of a `Decimal` returns an empty object** rather than
+  throwing, because the value lives in private fields. It was already not
+  cloneable; it is now quietly not cloneable. Post `row.total.toString()`
+  across a worker or a `structuredClone`-based cache boundary and rebuild the
+  value on the other side. VibORM's own cache stores the canonical text, so
+  nothing internal is affected.
+- **No `@types/*` package.** The declarations are VibORM's own and ship with
+  it, so `dependencies` carries no type-only package.
+
+There is no compatibility shim, and a decimal.js instance is not accepted as
+input. Convert one at the boundary:
+
+```ts
+import { Decimal } from "viborm";
+
+const converted = new Decimal(oldDecimalJsValue.toFixed());
+```
+
+Use `toFixed()` with no argument rather than `toString()`: it is decimal.js's
+complete value in plain notation, so it cannot hand the new constructor an
+exponent form shaped by the old constructor's `toExpNeg`/`toExpPos`, which the
+accepted grammar refuses.
 
 ## 0.1.0 - 2026-01-24
 

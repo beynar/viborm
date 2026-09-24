@@ -93,11 +93,14 @@ await client.user.createMany({
 ```
 
 An interactive transaction isolates the complete member with a savepoint. A
-batch-only route isolates a root-first skippable INSERT, inspects its exact row
-count, and dispatches descendants only when that root inserted. A zero-row root
-therefore suppresses its descendants. If a write or nested record series must run
-before the skippable root, VibORM refuses the shape before any operation write:
-suppressing that root would otherwise strand the earlier effect.
+batch-only driver (D1 Workers bindings, Neon HTTP) has no savepoint, and neither
+has a member of an array `$transaction([...])`: there a relation-bearing
+`createMany` runs **without** `skipDuplicates` and VibORM warns once per client
+and model (on the `warning` log channel, or with `console.warn` when logging
+does not route warnings). A duplicate then fails with `UniqueConstraintError`,
+and rows an earlier batch committed stay committed. A root scalar `createMany` with
+`skipDuplicates` skips in SQL and is unaffected there, except on MySQL inside a
+`$transaction([...])` array, which warns the same way.
 
 Explicit `$transaction([...])` arrays remain one indivisible atomic batch. They do
 not use the progressive fallback and refuse when the dynamic series cannot lower

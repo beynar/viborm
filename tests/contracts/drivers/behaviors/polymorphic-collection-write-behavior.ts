@@ -25,6 +25,7 @@
  *    case nobody runs.
  */
 
+import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
@@ -32,7 +33,8 @@ import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const collectionWriteSchema = (() => {
   const book = s
@@ -545,6 +547,46 @@ export function runPolymorphicCollectionWriteBehavior(
           },
         },
       });
+
+      // A batch-only substrate has no member rollback region, so a nested
+      // createMany drops skipDuplicates with one warning (owner decision
+      // 2026-09-24, the same drop D1 pins): the first row is a plain member,
+      // the already-existing book fails it with the ordinary unique-constraint
+      // error, and the first membership is left as it was.
+      if ("pgliteMode" in options && options.pgliteMode === "atomicBatch") {
+        const before = await bookMembers();
+        const warn = vi
+          .spyOn(console, "warn")
+          .mockImplementation(() => undefined);
+        try {
+          await expect(
+            client.shelf.update({
+              where: shelfWhere("right"),
+              data: {
+                items: {
+                  createMany: [
+                    {
+                      type: "book",
+                      data: [
+                        { region: "eu", isbn: "111", title: "Book one" },
+                        { region: "eu", isbn: "111", title: "Book one" },
+                      ],
+                      skipDuplicates: true,
+                    },
+                  ],
+                },
+              },
+            })
+          ).rejects.toBeInstanceOf(UniqueConstraintError);
+          expect(warn.mock.calls).toEqual([
+            [droppedSkipWarning("pglite", "shelf.update")],
+          ]);
+        } finally {
+          warn.mockRestore();
+        }
+        expect(await bookMembers()).toEqual(before);
+        return;
+      }
 
       await client.shelf.update({
         where: shelfWhere("right"),

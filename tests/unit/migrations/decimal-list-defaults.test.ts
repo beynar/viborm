@@ -11,10 +11,10 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { introspect } from "@migrations/push/planner";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
 
 const TABLE = "decimal_list_defaults";
@@ -83,7 +83,7 @@ describe("literal decimal-list defaults converge and populate old rows", () => {
         validate(value: unknown) {
           observe();
           return value instanceof Decimal
-            ? { value: value.plus(1) }
+            ? { value: value.plus("1") }
             : { issues: [{ message: "Expected Decimal" }] };
         },
       },

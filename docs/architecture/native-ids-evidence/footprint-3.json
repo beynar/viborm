@@ -1,0 +1,415 @@
+{
+  "schemaVersion": 1,
+  "commit": "c3c311f7ebe68f03417ebed4ecd29993d13fe99a",
+  "tool": {
+    "esbuild": "0.28.1",
+    "esbuildSource": "node_modules/.pnpm/esbuild@0.28.1",
+    "bundleOptions": {
+      "bundle": true,
+      "format": "esm",
+      "platform": "node",
+      "target": "es2022",
+      "minify": true,
+      "treeShaking": true,
+      "external": [
+        "pg",
+        "postgres",
+        "mysql2",
+        "better-sqlite3",
+        "@libsql/client",
+        "@neondatabase/serverless",
+        "@planetscale/database",
+        "@electric-sql/pglite",
+        "@cloudflare/workers-types",
+        "@opentelemetry/api",
+        "commander",
+        "@clack/prompts",
+        "bun",
+        "bun:sqlite",
+        "bun:sql"
+      ]
+    },
+    "gzipLevel": 9,
+    "brotliQuality": 11
+  },
+  "dist": {
+    "files": 181,
+    "totalBytes": 7068450,
+    "runtimeMjsBytes": 976729,
+    "byExtension": {
+      "mjs": {
+        "files": 79,
+        "bytes": 976729
+      },
+      "mjs.map": {
+        "files": 69,
+        "bytes": 5333183
+      },
+      "d.mts": {
+        "files": 33,
+        "bytes": 758538
+      }
+    }
+  },
+  "fixtures": {
+    "ids-only": {
+      "raw": 86452,
+      "gzip": 25820,
+      "brotli": 22650,
+      "composition": {
+        "firstPartyBytes": 86427,
+        "dependencyBytes": {},
+        "topInputs": [
+          {
+            "name": "dist/geo-point-codec-*.mjs",
+            "bytes": 20407
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 17766
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 14243
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 13301
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11419
+          },
+          {
+            "name": "dist/base-*.mjs",
+            "bytes": 5515
+          },
+          {
+            "name": "dist/sql-*.mjs",
+            "bytes": 1618
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 1048
+          },
+          {
+            "name": "dist/value-guards-*.mjs",
+            "bytes": 534
+          },
+          {
+            "name": "scripts/bundle-fixtures/ids-only.mjs",
+            "bytes": 239
+          },
+          {
+            "name": "dist/native-types-*.mjs",
+            "bytes": 170
+          },
+          {
+            "name": "dist/schema-*.mjs",
+            "bytes": 167
+          }
+        ]
+      }
+    },
+    "decimal-only": {
+      "raw": 86303,
+      "gzip": 25814,
+      "brotli": 22702,
+      "composition": {
+        "firstPartyBytes": 86272,
+        "dependencyBytes": {},
+        "topInputs": [
+          {
+            "name": "dist/geo-point-codec-*.mjs",
+            "bytes": 20413
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 17766
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 14243
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 13301
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11419
+          },
+          {
+            "name": "dist/base-*.mjs",
+            "bytes": 5515
+          },
+          {
+            "name": "dist/sql-*.mjs",
+            "bytes": 1618
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 1048
+          },
+          {
+            "name": "dist/value-guards-*.mjs",
+            "bytes": 534
+          },
+          {
+            "name": "dist/native-types-*.mjs",
+            "bytes": 170
+          },
+          {
+            "name": "dist/schema-*.mjs",
+            "bytes": 167
+          },
+          {
+            "name": "scripts/bundle-fixtures/decimal-only.mjs",
+            "bytes": 78
+          }
+        ]
+      }
+    },
+    "pg-representative": {
+      "raw": 535060,
+      "gzip": 156224,
+      "brotli": 132233,
+      "composition": {
+        "firstPartyBytes": 535028,
+        "dependencyBytes": {},
+        "topInputs": [
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 215246
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 51115
+          },
+          {
+            "name": "dist/validator-*.mjs",
+            "bytes": 39999
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 37241
+          },
+          {
+            "name": "dist/geo-point-codec-*.mjs",
+            "bytes": 25873
+          },
+          {
+            "name": "dist/result-shape-*.mjs",
+            "bytes": 25702
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 18603
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 14285
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 13560
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11573
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 11469
+          },
+          {
+            "name": "dist/error-mapping-*.mjs",
+            "bytes": 9678
+          }
+        ]
+      }
+    },
+    "full": {
+      "raw": 902714,
+      "gzip": 261826,
+      "brotli": 216326,
+      "composition": {
+        "firstPartyBytes": 901390,
+        "dependencyBytes": {},
+        "topInputs": [
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 281034
+          },
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 215277
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 51178
+          },
+          {
+            "name": "dist/validator-*.mjs",
+            "bytes": 40073
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 37245
+          },
+          {
+            "name": "dist/result-shape-*.mjs",
+            "bytes": 31546
+          },
+          {
+            "name": "dist/schema/json.mjs",
+            "bytes": 30302
+          },
+          {
+            "name": "dist/geo-point-codec-*.mjs",
+            "bytes": 26375
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 18917
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 14288
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 13578
+          },
+          {
+            "name": "dist/extension-*.mjs",
+            "bytes": 13201
+          }
+        ]
+      }
+    }
+  },
+  "libraries": {
+    "@paralleldrive/cuid2": {
+      "version": "3.3.0",
+      "raw": 24432,
+      "gzip": 10889,
+      "brotli": 9896,
+      "dependencyBytes": {
+        "@noble/hashes": 4600,
+        "@paralleldrive/cuid2": 1174,
+        "bignumber.js": 18625
+      }
+    },
+    "nanoid": {
+      "available": false,
+      "reason": "not installed"
+    },
+    "ulidx": {
+      "available": false,
+      "reason": "not installed"
+    },
+    "decimal.js": {
+      "available": false,
+      "reason": "no longer installed"
+    },
+    "big.js": {
+      "available": false,
+      "reason": "no longer installed"
+    }
+  },
+  "loc": {
+    "total": {
+      "files": 434,
+      "code": 91043,
+      "comment": 26631,
+      "blank": 8159
+    },
+    "perDirectory": {
+      "(root)": {
+        "files": 5,
+        "code": 126,
+        "comment": 107,
+        "blank": 14
+      },
+      "adapters": {
+        "files": 18,
+        "code": 2658,
+        "comment": 2090,
+        "blank": 570
+      },
+      "cache": {
+        "files": 11,
+        "code": 1630,
+        "comment": 478,
+        "blank": 195
+      },
+      "cli": {
+        "files": 4,
+        "code": 590,
+        "comment": 120,
+        "blank": 70
+      },
+      "client": {
+        "files": 17,
+        "code": 5560,
+        "comment": 1228,
+        "blank": 455
+      },
+      "drivers": {
+        "files": 44,
+        "code": 8886,
+        "comment": 2031,
+        "blank": 822
+      },
+      "errors": {
+        "files": 11,
+        "code": 2212,
+        "comment": 521,
+        "blank": 222
+      },
+      "extensions": {
+        "files": 9,
+        "code": 3006,
+        "comment": 108,
+        "blank": 258
+      },
+      "instrumentation": {
+        "files": 11,
+        "code": 1481,
+        "comment": 459,
+        "blank": 210
+      },
+      "migrations": {
+        "files": 82,
+        "code": 22144,
+        "comment": 5419,
+        "blank": 1973
+      },
+      "query-engine": {
+        "files": 39,
+        "code": 16812,
+        "comment": 4729,
+        "blank": 440
+      },
+      "schema": {
+        "files": 68,
+        "code": 11268,
+        "comment": 3610,
+        "blank": 1143
+      },
+      "sql": {
+        "files": 3,
+        "code": 188,
+        "comment": 117,
+        "blank": 44
+      },
+      "validation": {
+        "files": 112,
+        "code": 14482,
+        "comment": 5614,
+        "blank": 1743
+      }
+    }
+  }
+}

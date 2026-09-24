@@ -13,6 +13,11 @@ const scripts = [
     "./exports-smoke.mjs",
   ],
   [
+    "carries its published types on its own runtime dependencies",
+    "./dependency-types-smoke.mjs",
+  ],
+  ["publishes exactly one Decimal constructor", "./decimal-identity-smoke.mjs"],
+  [
     "matches the reviewed packed public surface golden",
     "./public-surface-golden-smoke.mjs",
   ],

@@ -143,6 +143,29 @@ decode leaf, which refuses to hand a list's native type to a literal. Every
 other scalar crosses a container exactly as it crosses its column. Do not add
 an operator-local converter for `has`.
 
+*Addendum (identifier storage, 2026-09-23).* An identifier column's physical
+form is the third such fact, and it is a fact of the COLUMN, not of the scalar:
+a foreign key DERIVES its domain from the key it references, and a polymorphic
+row carrier's id column names the key it stands in for
+(`PhysicalField.reference`). `shared/identifier.ts` resolves it once per
+(adapter, model, field) onto `Leaf.id`, beside `decimal` and `dateTime`, and
+its four consumers read that leaf: `scalarValue` binds a COMPACT identifier
+(payload bytes, or a PostgreSQL `uuid`) through `adapter.literals.id` — reached
+by `fieldValue` and by a column target's operand, never by an aggregate's
+`having` operand, which admission types as a number; `projectedColumn`, the
+junction probe and `recursiveIdentity` carry a byte column as lowercase hex
+(`transportedIdentifier`, null-guarded because SQLite's `hex(NULL)` is `''`);
+`aggregateExpression` runs `MIN`/`MAX` over that transported text
+(`aggregatedIdentifier` — PostgreSQL has no `min(uuid)`/`max(bytea)`); and
+`decodeScalar` turns every domain field's physical value into the canonical
+public string, keeping a text-stored value's own spelling on an INTERNAL read
+exactly as the datetime arm does (FC-02B). A text-stored domain takes the
+ordinary string arms everywhere and builds the SQL a plain string column
+builds. The encode arm's out-of-domain case is an invariant (admission
+canonicalizes every identifier operand; a captured key decodes to the
+canonical string), and the text-predicate narrowing is admission's alone
+(`validation/scalars/string.ts`), so there is no operator switch here for it.
+
 `Queries.wholeValue` is the one answer to "does an admitted scalar payload name
 a whole value?". A non-plain object is one whole value in EVERY domain — a
 `Uint8Array`, `Decimal` or `Date` inherits methods with the same names, and a
@@ -746,16 +769,23 @@ transaction driver's nested `withTransaction` boundary; a borrowed operation
 must receive the executable `memberRollback` capability from the existing
 callback/array transaction owner. Both suppress only the exact annotated root
 unique failure after successful rollback. A plain `borrowed-transaction`
-binding remains refused before member effects even when its driver supports
-savepoints: neither the payload nor transport capability grants that authority.
+binding owns no such region even when its driver supports savepoints: neither
+the payload nor transport capability grants that authority.
 
-Construction-time suppression refusal belongs to the existing command analysis
-pass. A statically constructed suppressed descendant directly requires the
-context-owned suppression capability during that traversal. The requirement is
-operation-wide across both `Choose` arms even though ordinary branch-local
-refusals remain conditional. It fires before the enclosing root can write. The
-runtime member boundary reuses the same rule for dynamic series; do not add a
-payload walker, public permission, or operation-local policy flag.
+Where the operation owns no member rollback region (a batch-only driver
+standalone, batch preparation, or a `borrowed-transaction` binding without
+`memberRollback`), the skip is DROPPED, never refused (Arnaud, 2026-09-24,
+"Warn, drop skipDuplicates"). `OperationContext.admitsSuppression` is the one
+rule and the one sentence: it answers whether the member may be skipped and, when
+it may not, warns once per client lineage and model (the client's logger when it
+routes warnings, `console.warn` otherwise) and the member runs as a plain member.
+A duplicate then fails with the ordinary `UniqueConstraintError`, and members an
+earlier segment committed stay committed, exactly as for the same `createMany`
+without `skipDuplicates`. The rule is asked where the skip would be spent — at
+`executeSkippableMember` for a record series and at the MySQL
+`recoverableUniqueError` scalar path — so an arm that never runs never warns;
+there is no construction-time refusal, payload walker, public permission, or
+operation-local policy flag.
 
 Failed-INSERT producer attribution is evidence, not replay authority. The scope
 is stated once, by `OperationContext.recoveryRejection`, and that statement is
@@ -1328,14 +1358,21 @@ this paragraph is the rule. Pins:
 `tests/raptor3/g4/parity/transport-seam-pglite.test.ts` (live PGlite), and the
 credential-gated `tests/providers/hosted/neon-http-transport.test.ts`.
 
+**D1 addendum (2026-09-24).** A fourth transport fact, TEMPORARY OBJECTS (D1
+refuses `CREATE TEMP TABLE`), is recorded with its driver rows and witnesses in
+that note, §2, addendum. Unlike the three above it is not read from the
+driver's own declaration: the driver passes it to the adapter it builds, and
+the adapter spells the scratch DDL; the engine reads nothing new.
+
 **A value crosses a segment as a LITERAL, and every unit owns its own scratch
-(D-58).** The D-50 batch reference table is a session-scoped temporary, so it
-belongs to the DISPATCHED UNIT and not to the operation: `ensureScratch` mints
+(D-58).** The D-50 batch reference table is a session-scoped temporary wherever
+the transport admits one (on D1 it is an ordinary table, d53/note.md §2
+addendum), so its rows belong to the DISPATCHED UNIT and not to the operation: `ensureScratch` mints
 one per unit, and `submit` — the one place that assembles a unit and knows
 where it ends — reads back every value that unit stored (one `SELECT` per
 value, asked of `Queries.scalarQuery`, the composition every scalar this
-engine publishes is read back through) and then drops the table, inside the
-same batch.
+engine publishes is read back through) and then deletes the unit's rows,
+inside the same batch.
 `TransportAttempt.carried` holds the literals beside the scratch id, and
 `CommandAttempt.read` — the estate's ONE reader of a field's runtime value —
 answers the literal in place of the spent expression, so every later statement,

@@ -1,7 +1,7 @@
+import { Decimal } from "@src/index";
 import { DecimalScalar, PG, s } from "@src/schema";
 import type { InferInput } from "@validation";
 import v from "@validation/primitives/v";
-import Decimal from "decimal.js";
 
 const nullableName = s.string().nullable().default("anonymous");
 type NullableName = InferInput<(typeof nullableName)["~"]["state"]["base"]>;
@@ -188,6 +188,15 @@ price.default(true);
 price.schema(v.string());
 
 price.array().nullable();
-price.array().default(["1.5", 2, new Decimal("3.5")]);
+price.array().default(["1.5", "2", new Decimal("3.5")]);
+// @ts-expect-error - a JavaScript number is a double, not an exact decimal
+price.array().default(["1.5", 2]);
+// @ts-expect-error - and so is a scalar one
+price.default(2);
+// @ts-expect-error - the constructor refuses a double as well
+export const refusedDouble = new Decimal(2);
+// @ts-expect-error - and so does arithmetic on a held value
+export const refusedDoubleOperand = new Decimal("1").plus(1);
+export const wholeBigint = new Decimal(5n).plus(1n);
 const readonlyDecimalList = ["1.5", new Decimal("2.5")] as const;
 price.array().default(readonlyDecimalList);

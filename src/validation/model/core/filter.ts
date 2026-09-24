@@ -80,33 +80,85 @@ export type CompoundConstraintFilterSchema<M extends AnyModel> = ObjectSchema<
   CompoundConstraintEntries<M>
 >;
 
-export const getCompoundConstraintFilter = <M extends AnyModel>(
-  model: M
+/**
+ * One compound selector, with each member taken from the FIELD's own schema.
+ *
+ * `Model.id([...])` / `.unique([...])` snapshot `state.base` at declaration
+ * time, which is the PRE-DOMAIN schema: a `.uuid()` member was validated as a
+ * plain string there, so an out-of-domain value crossed the args boundary and
+ * an alias was never folded — one row addressed by two cache keys. The member
+ * names and their order are the declaration's; what each member ADMITS is the
+ * field's, which is where an identifier domain (declared or derived) lives.
+ */
+/** The per-field schemas a compound member is rebuilt from. */
+type CompoundMemberSources = Readonly<
+  Record<string, { readonly base: V.Schema } | undefined>
+>;
+
+/** One rebuilt selector: the same shape `Model.id([...])` stored, member for member. */
+type CompoundSelectorSchema = V.Object<
+  Record<string, V.Schema>,
+  { readonly partial: false }
+>;
+
+const compoundSelector = (
+  declared: ObjectSchema<Record<string, V.Schema>>,
+  scalars: CompoundMemberSources
+): CompoundSelectorSchema => {
+  const members: Record<string, V.Schema> = {};
+  for (const field of Object.keys(declared.entries)) {
+    // Every member IS a model scalar: `Model.id([...])` refuses a name that is
+    // not one, and the registry builds one schema per model scalar. There is
+    // no absent case to fall back for.
+    members[field] = scalars[field]!.base;
+  }
+  return v.object(members, { partial: false });
+};
+
+const compoundSelectors = (
+  declared: Record<string, ObjectSchema<Record<string, V.Schema>>> | undefined,
+  scalars: CompoundMemberSources
+): Record<string, CompoundSelectorSchema> => {
+  const selectors: Record<string, CompoundSelectorSchema> = {};
+  for (const [name, entry] of Object.entries(declared ?? {})) {
+    selectors[name] = compoundSelector(entry, scalars);
+  }
+  return selectors;
+};
+
+export const getCompoundConstraintFilter = <
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+>(
+  model: M,
+  fieldSchemas: F
 ): CompoundConstraintFilterSchema<M> => {
   const state = model["~"].state;
   if (!(state.compoundUniques || state.compoundId)) {
     return v.object({}) as CompoundConstraintFilterSchema<M>;
   }
-  if (!state.compoundUniques) {
-    return v.object(state.compoundId) as CompoundConstraintFilterSchema<M>;
-  }
-  if (state.compoundId) {
-    return v
-      .object(state.compoundUniques)
-      .extend(state.compoundId) as CompoundConstraintFilterSchema<M>;
-  }
-  return v.object(state.compoundUniques) as CompoundConstraintFilterSchema<M>;
+  const scalars = fieldSchemas.scalars as CompoundMemberSources;
+  return v.object({
+    ...compoundSelectors(state.compoundUniques, scalars),
+    ...compoundSelectors(state.compoundId, scalars),
+  }) as CompoundConstraintFilterSchema<M>;
 };
 
 export type CompoundIdFilterSchema<M extends AnyModel> = V.Object<
   ModelStateOf<M>["compoundId"]
 >;
-export const getCompoundIdFilter = <M extends AnyModel>(
-  model: M
+export const getCompoundIdFilter = <
+  M extends AnyModel,
+  F extends ScalarSchemas<M>,
+>(
+  model: M,
+  fieldSchemas: F
 ): CompoundIdFilterSchema<M> => {
   const state = model["~"].state;
   if (!state.compoundId) {
     return v.object({});
   }
-  return v.object(state.compoundId);
+  return v.object(
+    compoundSelectors(state.compoundId, fieldSchemas.scalars)
+  ) as CompoundIdFilterSchema<M>;
 };

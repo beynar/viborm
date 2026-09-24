@@ -214,7 +214,16 @@ function buildScalar(
     scalar = modify(scalar, "nullable", [], type, pointer(path, "nullable"));
   }
   if (document.id) {
-    scalar = modify(scalar, "id", [], type, pointer(path, "id"));
+    // An IMPLICIT generator is `.id()`'s own, prefix included: applying it here
+    // is what keeps a key a key. Declaring the ULID separately afterwards would
+    // NAME the format, which is a different field — a validated domain in a
+    // compact column — so the generate node below stands down for it.
+    const implicit = document.generate?.implicit === true;
+    const args =
+      implicit && document.generate?.prefix !== undefined
+        ? [document.generate.prefix]
+        : [];
+    scalar = modify(scalar, "id", args, type, pointer(path, "id"));
   }
   if (document.unique) {
     scalar = modify(scalar, "unique", [], type, pointer(path, "unique"));
@@ -237,7 +246,7 @@ function buildScalar(
       pointer(path, "dimension")
     );
   }
-  if (document.generate !== undefined) {
+  if (document.generate !== undefined && document.generate.implicit !== true) {
     scalar = applyGenerate(scalar, document.generate, type, path);
   }
   const literal = document.default;
@@ -351,7 +360,7 @@ function modify(
 
 /**
  * `generate.kind` names the scalar method that installs the generator, so the
- * seven tokens are the seven methods.
+ * nine tokens are the nine methods.
  *
  * Whether that method TAKES a prefix or a length is read back from the state it
  * wrote rather than from a second arity table: a generator that ignored the

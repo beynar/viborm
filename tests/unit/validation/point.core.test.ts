@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v, { type GeoPoint, parse } from "@validation";
-import { describe, expect, expectTypeOf, test } from "vitest";
+import { describe, expect, expectTypeOf, test, vi } from "vitest";
 
 describe("GeoPoint validation boundary", () => {
   const schema = v.point();
@@ -39,10 +39,40 @@ describe("GeoPoint validation boundary", () => {
     { longitude: 0, latitude: "48" },
     { longitude: 0, latitude: Number.NaN },
     { longitude: 0, latitude: -91 },
-    { longitude: 0, latitude: 0, [Symbol("altitude")]: 1 },
-    Object.assign(Object.create({ longitude: 0 }), { latitude: 0 }),
   ])("refuses values outside the one point language %#", (value) => {
     expect(parse(schema, value).issues).toBeDefined();
+  });
+
+  test("reads the point as an ordinary record: string keys, own or inherited", () => {
+    // The record walker owns key reading for every object operand. It sees
+    // enumerable string keys, inherited ones included, and never symbols.
+    expect(
+      parse(schema, { longitude: 1, latitude: 2, [Symbol("altitude")]: 3 })
+    ).toEqual({ value: { longitude: 1, latitude: 2 } });
+    expect(
+      parse(
+        schema,
+        Object.assign(Object.create({ longitude: 1 }), { latitude: 2 })
+      )
+    ).toEqual({ value: { longitude: 1, latitude: 2 } });
+  });
+
+  test("names the offending key of a misspelled or incomplete point", () => {
+    expect(
+      parse(schema, { longitude: 2, latitude: 48, latitdue: 48 }).issues
+    ).toEqual([{ message: "Unknown key: latitdue", path: ["latitdue"] }]);
+    expect(parse(schema, { longitude: 2 }).issues).toEqual([
+      { message: "Missing required field: latitude", path: ["latitude"] },
+    ]);
+    expect(
+      parse(schema, { longitude: Number.NaN, latitude: 0 }).issues
+    ).toEqual([{ message: "Expected finite number", path: ["longitude"] }]);
+    expect(parse(schema, { longitude: 181, latitude: 0 }).issues).toEqual([
+      {
+        message: "Longitude must be between -180 and 180",
+        path: ["longitude"],
+      },
+    ]);
   });
 
   test("reads each coordinate accessor exactly once", () => {
@@ -106,7 +136,7 @@ describe("GeoPoint validation boundary", () => {
     }
   });
 
-  test("refuses a coordinate removed after the key snapshot", () => {
+  test("refuses a coordinate removed while the point is read", () => {
     const value = Object.defineProperties(
       {},
       {
@@ -125,9 +155,9 @@ describe("GeoPoint validation boundary", () => {
       }
     );
 
-    expect(parse(schema, value).issues?.[0]?.message).toBe(
-      "Could not snapshot GeoPoint"
-    );
+    expect(parse(schema, value).issues).toEqual([
+      { message: "Missing required field: latitude", path: ["latitude"] },
+    ]);
   });
 
   test("retains validation-library optional, nullable, and array composition", () => {
@@ -141,5 +171,39 @@ describe("GeoPoint validation boundary", () => {
         { longitude: 3, latitude: 4 },
       ]).issues
     ).toBeUndefined();
+  });
+});
+
+/**
+ * The geo codecs build their records with object() at module load, and
+ * object.ts reaches the JSON Schema converters (object → json-schema/factory →
+ * converters). The converters therefore read the coordinate constants from the
+ * import-free geo-values.ts; an edge from the converters back into a codec
+ * makes loading object.ts first throw a temporal-dead-zone ReferenceError.
+ */
+describe("GeoPoint codec module load order", () => {
+  test.each([
+    ["object", () => import("@validation/primitives/object")],
+    ["helpers", () => import("@validation/primitives/helpers")],
+    ["json-schema factory", () => import("@validation/json-schema/factory")],
+    [
+      "json-schema converters",
+      () => import("@validation/json-schema/converters"),
+    ],
+  ])("loads when %s is the first module of a fresh graph", async (_, first) => {
+    vi.resetModules();
+    try {
+      await first();
+      const { object } = await import("@validation/primitives/object");
+      const { validateGeoPoint } = await import(
+        "@validation/primitives/geo-point-codec"
+      );
+      expect(object({}).type).toBe("object");
+      expect(validateGeoPoint({ longitude: 1, latitude: 2 })).toEqual({
+        value: { longitude: 1, latitude: 2 },
+      });
+    } finally {
+      vi.resetModules();
+    }
   });
 });

@@ -48,6 +48,9 @@ The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRe
 | `types.ts` | VibSchema, InferInput/Output, SchemaRegistry contract | Rarely |
 | `primitives/` | Standard Schema V1 primitives (`v.*`) | Adding a primitive |
 | `scalars/` | Scalar-state to scalar operation schemas | Adding scalar operation behavior |
+| `scalars/family.ts` | The shapes more than one scalar kind shares, and the interned pay-per-use tail | Changing a shape several kinds have |
+| `scalars/intern.ts` | The scalar intern KEY (flag bits, identifier domain) and the cache factory | Changing what makes two fields the same shape |
+| `scalars/negatable-filter.ts` | The recursive `not` wrapper every scalar filter carries | Changing how `not` nests |
 | `relations/` | Relation operation schemas with target-model thunks | Changing nested relation inputs |
 | `relations/nested-data-projection.ts` | Which target schema a nested payload writes into, per edge | Changing what a nesting context omits |
 | `relations/to-one-mutation-schema.ts` | The to-one composition lattice and its `exactlyOne` mode | Changing accepted operation combinations |
@@ -122,19 +125,73 @@ and releases each factory after that variant resolves. General lazy records and
 `v.lazy`/`v.lazyRef` also release a successful factory while retaining the
 resolved value.
 
+### One Family Per Shape, One Intern Cache Per Kind
+
+`scalars/family.ts` owns every operation-schema shape that more than one scalar
+kind has: the ordered comparison filter (`in`/`notIn`/`lt`/`lte`/`gt`/`gte` then
+`equals`), the list filter (`has`/`hasEvery`/`hasSome`/`isEmpty` then `equals`),
+the arithmetic and set-only update bags, the list update bag, and the interned
+tail. A kind module names its member and list schemas and calls the family; it
+spells a shape for itself only where its language really differs — boolean has
+no order, blob, vector and point have no list arm, enum refuses ordering,
+decimal and json speak their own, and string's ordered comparisons take the
+FIELD schema, not the member schema, with its entry order appending `equals`
+after the text predicates (the compact-identifier narrowing is a third, further
+difference).
+
+Two rules hold that ownership together.
+
+**Entry ORDER is observable, so the families keep the `.extend()` sequencing.**
+The object validator iterates entries in insertion order and returns the FIRST
+issue, and `toJsonSchema` emits `properties` in that order. Today's order is an
+artifact of a module-level operator bag with `equals` appended after it; a
+rewrite that spells one canonical literal per kind would quietly reorder eight
+of the fourteen kinds. `tests/unit/scalars/_scalar-shape-census.ts` records the
+exact order of all twenty-four cases and is the pin.
+
+**The intern caches are PER KIND, and that is a correctness rule, not a
+detail.** `scalarInternKey` spells only the flag bits — nullable, array,
+withTimezone, and a string's identifier domain — and carries no kind at all. One
+cache shared across kinds would hand an `s.number()` field the validator built
+for an `s.int()` field, and every shape assertion in the estate would still
+pass, because the two trees are structurally identical and differ only in which
+values they admit. `createScalarInterners()` mints a private pair per module;
+`tests/unit/scalars/scalar-family.core.test.ts` is what refuses to share it.
+
 Each public operation owns its exact args language. In particular, `exist`
 accepts only its optional `where` clause; it must not reuse `count`, whose
 ordering, pagination, cursor, and selection clauses describe a larger query.
 
 ### Fixed-Decimal Value and Operation Boundary
 
+`primitives/decimal-value.ts` owns the exact decimal VALUE: the `Decimal` class
+over a signed `BigInt` coefficient and a scale, the accepted literal grammar,
+canonicalization, and the one canonical rendering. It admits a `Decimal`, a
+string, or a whole `bigint`; a JavaScript number is a double and is refused. It has
+no statics and no configuration, its state is a private field the constructor
+alone installs, and it imports nothing. Three seams are exported for the codec
+beside it and for nothing else: the admission rule `admitDecimal`
+(a string through the grammar, anything else through the brand), the
+canonical-text reader `canonicalDecimalText` —
+which IS the brand answer, because the module-private `owns` is the only thing
+that can answer and it returns `undefined` for anything the constructor never
+built — the two grammar-skipping decode seams `fromCanonical` and
+`fromCoefficient`, and the text-level arithmetic the codec needs:
+`domainRefusal` (the one owner of both descriptor sentences, read from the text
+without allocating) and `toCoefficient`. `DECIMAL_INPUT_REFUSAL`,
+the field boundary's sentence, goes to `primitives/decimal.ts` for the same
+reason; the constructor's sentence adds the `bigint` member and shares the
+rest. `src/index.ts` re-exports only the class.
+
 `primitives/decimal-codec.ts` owns both the one structural `DecimalDescriptor`
-shape and the one field-aware decimal codec. It owns the accepted
-`Decimal | string | number` input grammar, configuration-independent Decimal
-snapshot/render, exact one-constructor materialization, canonical private text, descriptor validation,
-logical/coefficient conversion, provider scalar/list encode/decode, widened
-sum decode, and fresh public Decimal construction. Import it by direct path;
-do not add a barrel cycle, another structural descriptor, or a second
+shape and the one field-aware decimal codec: the two physical vocabularies,
+the provider scalar/list decode grammars, widened sum decode, the two DDL
+renderings, and the provider limit table. It moves no decimal point in a
+string — the coefficient and fixed renderings are the value module's — and it
+keeps `canonicalizeDecimal`, `canonicalizeMaterializedDecimal`, `toDecimal`
+and `logicalToCoefficient` as the value module's functions under the names the
+engine imports. Import it by direct path; do not
+add a barrel cycle, another structural descriptor, or a second
 cache/query/migration codec.
 
 Its provider-domain table applies uniformly to scalar and list fields:
@@ -145,11 +202,14 @@ reads this table before provider I/O; no dialect invents a wider local domain.
 
 `v.decimal()` emits canonical private text because operation identity, row keys,
 cursors, and cache keys need value equality. A custom schema observes a
-`Decimal`; the codec snapshots its complete, bounded, finite observable
-numerical representation, then the descriptor validates that snapshot last.
-Decimal.js provides no unforgeable constructor-history witness, so this boundary
-does not claim historical provenance. Public result materialization happens
-later at the typed result leaf.
+`Decimal` and may return a `Decimal`; the descriptor validates it last. The
+value type's brand IS a construction witness, so this boundary asks whether the
+value was BUILT rather than what it looks like: there is no representation to
+snapshot, no forgery to refuse arm by arm, and no rendering ceiling, because the
+accepted grammar admits no exponent and a canonical rendering is exactly as long
+as the digits the caller allocated. The canonical text is read from the value's
+private fields, never through its prototype. Public result materialization
+happens later at the typed result leaf.
 
 A literal decimal default crosses that complete field codec once at declaration
 and is retained as trusted canonical output. The decimal create schema applies
@@ -184,13 +244,16 @@ The query engine trusts that decision and must not add a second precedence guard
 ### GeoPoint and GeoArea boundaries
 
 `primitives/geo-values.ts` is the import-free owner of the exact `GeoPoint`,
-`GeoBounds`, `GeoPolygon`, and `GeoArea` value vocabulary. The point and area
-codecs import and re-export those same symbols; do not redeclare their record
-shapes at a consumer boundary. `geo-point-codec.ts` alone owns hostile-safe
-point interpretation, canonical meridians/zero, provider decode, cache
-materialization, and JSON Schema coordinate facts. `geo-area-codec.ts` alone
-owns bounds and canonical simple-polygon interpretation, including holes and
-conservative distance-cap bounds.
+`GeoBounds`, `GeoPolygon`, and `GeoArea` value vocabulary and of the coordinate
+domain constants the codecs, the JSON Schema projection, and the SQLite CHECK
+read. The point and area codecs import and re-export those same types; do not
+redeclare their record shapes at a consumer boundary. `geo-point-codec.ts`
+alone owns point interpretation (an ordinary `object()` record over the one
+coordinate schema), canonical meridians/zero, provider decode, and cache
+materialization. `geo-area-codec.ts` alone
+owns bounds and polygon shape (ordinary records; rings of at least three
+vertices, holes included) and conservative distance-cap bounds. It does not
+judge polygon geometry: validity is the database's execution fact.
 
 Point operation schemas expose only exact equality, recursive `not`,
 `within: GeoArea`, numeric distance comparisons, and `_distance`. They consume
@@ -352,7 +415,54 @@ them when the boundary needs stronger semantics such as a plain prototype,
 finite/integer values, promise-like behavior, safe reads from hostile values,
 or recursive JSON validation. Native array identity remains `Array.isArray`.
 
-### Rule 7: One Typed Validation Error Surface
+### Rule 7: One Identifier Codec, Below Every Boundary
+
+`primitives/id-codec.ts` owns the identifier DOMAIN: which strings belong to
+`{ format, prefix?, length? }`, what their canonical spelling is
+(`canonicalizeId`), and the two physical conversions (`encodePhysicalId` /
+`decodePhysicalId`). It is PURE and dialect-blind — it takes an
+`IdRepresentation` (`"text"` / `"uuid"` / `"bytes"`), never a provider — which is
+what lets the validation schemas admit with the same code the write path encodes
+with. Choosing the representation belongs one layer up, to
+`@schema/scalars/string/id-domain`'s `idStorageOf`; do not teach this module a
+column type.
+
+Admission is chained in ONE place, `buildValidator`, from the internal
+`ScalarOptions.idDomain` (a sibling of `disallowZero`), and the domain is both
+the first and the last word on the value: base type check → domain → a
+caller's `.schema()` → domain again → transform. The first crossing gives a
+custom validator the canonical spelling; the second is there because that
+validator's OUTPUT is caller code — a Standard Schema may return any string —
+so an alias it returns folds and a value outside the domain is refused at the
+field's path with the same `Expected <domain>` an input gets, instead of
+reaching the engine's binding invariant. The second crossing is chained only
+when a custom schema exists, and no transform ever meets a domain
+(`scalars/string.ts` is the one caller and a field state carries none). Every
+identity-sensitive consumer downstream — cache key, captured row key,
+`fkEquals` — therefore sees one spelling per identifier.
+`scalars/string.ts` is the one place that passes it: from the field's own
+declaration, or from the domain a FOREIGN KEY derives, which the registry reads
+off the resolved index and threads through `getScalarsSchemas`. The four
+compact formats also build a filter without `contains`/`startsWith`/`endsWith`/
+`mode`, and `scalarInternKey` carries the domain so two fields share a filter
+tree only when they share a domain.
+
+EVERY operand the field takes is built from that domain-carrying base, not only
+the comparison ones: `in`/`notIn` take a domain-carrying array (a module-level
+list schema can hold no field's domain), and a compound selector's members are
+rebuilt from the field's schema in `model/core/filter.ts` rather than read from
+the pre-domain base `Model.id([...])` snapshotted at declaration time. An
+operand that skips admission is refused later as an engine error — the wrong
+boundary — and, worse, an unfolded alias hashes ONE identifier to two cache
+keys, which is what normalizing at the args boundary exists to prevent.
+
+`primitives/binary-shapes.ts` is the one normalization of every driver's binary
+spelling — `Buffer`, `Uint8Array`, `ArrayBuffer`, a byte array, PostgreSQL's
+`\x…`, MySQL's `base64:typeNNN:…`, plain hex. It REPORTS rather than throws: the
+blob result parser and the id codec owe different messages, so the wording
+belongs to them and only the classification belongs here.
+
+### Rule 8: One Typed Validation Error Surface
 `ValidationError.source` identifies the boundary that refused the value:
 `operation`, `registry`, `schema-builder`, or `json-schema`. Operation failures
 use V4001 and Prisma P2009. All other runtime-validation sources use V4002 and
@@ -441,7 +551,8 @@ This is rare - the existing primitives cover most cases.
 
 | Change | Location |
 |--------|----------|
-| Scalar filter/create/update behavior | `src/validation/scalars/{type}.ts` |
+| Scalar filter/create/update behavior, one kind only | `src/validation/scalars/{type}.ts` |
+| A filter or update shape several scalar kinds share | `src/validation/scalars/family.ts` |
 | Relation nested create/update/filter behavior | `src/validation/relations/` |
 | Model where/create/update/select/orderBy behavior | `src/validation/model/core/` |
 | Operation args (`findMany`, `create`, etc.) | `src/validation/model/args/` |

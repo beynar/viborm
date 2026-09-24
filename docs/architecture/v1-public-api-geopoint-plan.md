@@ -197,6 +197,13 @@ orientation semantics that PostgreSQL and MySQL do not make portable enough
 for this V1 contract. Multiple disjoint polygons use ordinary `OR`, not a
 `MultiPolygon` type.
 
+Superseded in part by decision D2 (2026-09-23, see the "geographic values as
+ordinary records" addendum of `guard-ownership-ledger.md`): the codec no longer
+refuses any polygon for its geometry (self-intersection, repeated or closing
+vertices, zero area, hole placement, 180-degree edges, poles, half the globe);
+PostgreSQL and MySQL judge those. The winding normalization and the
+three-vertex ring minimum stated above still hold.
+
 The public bounds area and the conservative prefilter derived for a distance
 query consume the same trusted bounds representation. The derived path
 constructs a trusted value directly; it does not feed internal numbers back

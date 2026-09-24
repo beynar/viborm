@@ -1,7 +1,7 @@
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
+import type { Decimal } from "@validation/primitives/decimal-value";
 import v from "@validation/primitives/v";
-import type Decimal from "decimal.js";
 import {
   createDefaultState,
   type DefaultValueInput,
@@ -109,7 +109,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
     const state = updateState(this, { array: true, base });
     if (this.state.hasDefault && typeof this.state.default !== "function") {
       Object.defineProperty(state, "default", {
-        value: normalizeDecimalDefault(this.state.default, base, true),
+        value: normalizeDecimalDefault(this.state.default, base),
         configurable: true,
         enumerable: true,
         writable: true,
@@ -137,7 +137,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
   default<V extends DefaultValueInput<State>>(value: V) {
     return withValidatedDecimalDefault(
       this,
-      normalizeDecimalDefault(value, this.state.base, this.state.array)
+      normalizeDecimalDefault(value, this.state.base)
     );
   }
 
@@ -147,7 +147,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
    * LAST, so a custom schema can narrow the domain but never escape it, and it
    * cannot change the value family the field reads back as.
    */
-  schema<S extends StandardSchemaOf<Decimal>>(schema: S) {
+  schema<S extends StandardSchemaV1<Decimal>>(schema: S) {
     const base = v.decimal<{
       nullable: State["nullable"];
       array: State["array"];
@@ -162,11 +162,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
     const state = updateState(this, { schema, base });
     if (this.state.hasDefault && typeof this.state.default !== "function") {
       Object.defineProperty(state, "default", {
-        value: normalizeDecimalDefault(
-          this.state.default,
-          base,
-          this.state.array
-        ),
+        value: normalizeDecimalDefault(this.state.default, base),
         configurable: true,
         enumerable: true,
         writable: true,
@@ -233,7 +229,7 @@ export const buildDecimalScalar = (descriptor: unknown) => {
   });
 };
 
-/** The exact public argument surface over the hostile construction boundary. */
+/** The exact public argument surface over the untyped construction seam. */
 export const decimal = <const D>(
   descriptor: D & NoInfer<DecimalDescriptor & ExactDomain<D>>
 ) => buildDecimalScalar(descriptor);

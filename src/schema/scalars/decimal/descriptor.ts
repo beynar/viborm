@@ -7,175 +7,67 @@
  * consumer — validation, DDL, binding, decoding, comparison, arithmetic,
  * migration — reads that one frozen fact off the resolved scalar.
  *
- * The descriptor object is hostile input. It may be a Proxy, carry accessors,
- * or be mutated after the call returns. Each property is therefore read exactly
- * once, from the object itself, with the presence test inside the same `try`
- * (a second read is what would let a value that passed validation be swapped
- * for one that did not), and what survives is a FROZEN COPY this module built —
- * never the caller's object.
+ * The descriptor is the developer's own argument, or two numbers a schema
+ * document carried verbatim; neither is a hostile object, so it is read like
+ * any other argument — no read-once snapshot, no key enumeration. What this
+ * module owns is whether the two numbers name a domain at all.
  */
 
 import { ValidationError } from "@errors";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
-import { isFunction, isRecord } from "@validation/value-guards";
-import { toError } from "../../../errors/diagnostic-safety";
-
-const BUILDER = "s.decimal";
-const DESCRIPTOR_KEYS: readonly string[] = ["precision", "scale"];
+import { validateSchema } from "@validation/primitives/helpers";
+import { isRecord } from "@validation/value-guards";
 
 /** The one construction-time refusal of a decimal declaration. */
-function refuse(path: string, message: string, cause?: Error): never {
+function refuse(path: string, message: string): never {
   throw new ValidationError(
-    { kind: "schema-builder", builder: BUILDER, path },
-    [{ path, message }],
-    cause === undefined ? undefined : { cause }
+    { kind: "schema-builder", builder: "s.decimal", path },
+    [{ path, message }]
   );
 }
 
 /**
- * Read one descriptor property exactly once, from the object itself.
+ * The frozen fixed-decimal domain the two numbers name: `precision` an integer
+ * from 1 to the maximum safe integer, `scale` an integer from 0 to `precision`,
+ * so "at most `precision` total digits and at most `scale` fractional digits"
+ * is a domain with values in it.
  *
- * `Object.hasOwn` shares the `try` with the `Reflect.get` so a hostile
- * `getOwnPropertyDescriptor` trap fails exactly like a hostile accessor, and it
- * is not a second read of the value: it consults the descriptor, not the
- * getter. An inherited value is prototype pollution or a carrier's prototype,
- * never a domain this author wrote down.
- */
-function readOnce(source: object, key: string): unknown {
-  try {
-    if (!Object.hasOwn(source, key)) return undefined;
-    return Reflect.get(source, key);
-  } catch (thrown) {
-    refuse(
-      `descriptor.${key}`,
-      `Could not read '${key}' from the decimal descriptor`,
-      toError(thrown)
-    );
-  }
-}
-
-/**
- * EVERY own key, with a throwing `ownKeys` trap owned as a refusal.
- *
- * `Reflect.ownKeys` rather than `Object.keys`: a declaration is an OWN
- * property, and neither a symbol key nor `enumerable: false` changes that.
- * Enumerability is presentation and a symbol is a key shape; an object carrying
- * either beside `{ precision, scale }` is naming something this domain has no
- * word for, and guessing which half the author meant is exactly the silent
- * acceptance the definition boundary exists to prevent.
- */
-function ownKeys(source: Record<string, unknown>): (string | symbol)[] {
-  try {
-    return Reflect.ownKeys(source);
-  } catch (thrown) {
-    refuse(
-      "descriptor",
-      "Could not enumerate the decimal descriptor's keys",
-      toError(thrown)
-    );
-  }
-}
-
-/**
- * The refusal path and the phrase that names one unexpected own key.
- *
- * A symbol is named by its own `description`, spelled the way JavaScript spells
- * it. `String(symbol)` and a template literal are coercions — one runs library
- * code and the other throws — and this module names a caller's value by what it
- * is rather than by running anything to render it.
- */
-function nameUnknownKey(key: string | symbol): [string, string] {
-  if (typeof key === "string") return [`descriptor.${key}`, `'${key}'`];
-  return ["descriptor", `Symbol(${key.description ?? ""})`];
-}
-
-/** `isRecord`, whose own `Array.isArray` throws on a revoked proxy. */
-function isDescriptorObject(
-  source: unknown
-): source is Record<string, unknown> {
-  try {
-    return isRecord(source);
-  } catch (thrown) {
-    refuse(
-      "descriptor",
-      "Could not inspect the decimal descriptor",
-      toError(thrown)
-    );
-  }
-}
-
-/**
- * One descriptor number: present, an integer, never `-0`, and in range.
- *
- * `-0` behaves like `0` in every conversion this codec performs, but it does
- * not survive JSON, so a state carrying it would serialize to a schema document
- * that reads back as a different declaration. It is refused where it is written
- * rather than tolerated everywhere it is read.
- */
-function readBound(
-  source: object,
-  key: string,
-  low: number,
-  high: number,
-  highLabel: string
-): number {
-  const value = readOnce(source, key);
-  const path = `descriptor.${key}`;
-  if (value === undefined) {
-    refuse(path, `A decimal must declare '${key}'`);
-  }
-  if (typeof value !== "number") {
-    // The caller's value is named by TYPE, never coerced: rendering an object
-    // would run its own `toString`, which is more caller code.
-    refuse(
-      path,
-      `'${key}' must be an integer; received a value of type '${typeof value}'`
-    );
-  }
-  if (!Number.isInteger(value)) {
-    refuse(path, `'${key}' must be an integer`);
-  }
-  if (Object.is(value, -0)) {
-    refuse(path, `'${key}' must not be negative zero`);
-  }
-  if (value < low || value > high) {
-    refuse(path, `'${key}' must be between ${low} and ${highLabel}`);
-  }
-  return value;
-}
-
-/**
- * The trusted, frozen fixed-decimal domain named by a caller-owned object.
- *
- * `precision` is the maximum total digit count of the unscaled coefficient and
- * `scale` the maximum fractional digit count, so `scale <= precision` is what
- * makes "at most `precision` total digits and at most `scale` fractional
- * digits" a domain with values in it at all. Whether a given PROVIDER can store that domain is a
- * different question with a different owner: the adapter answers it once when
- * the schema is bound, so a model valid for PostgreSQL stays a valid model.
+ * Its unique coverage is the schema document and an untyped JavaScript caller:
+ * `read.ts` hands the numbers over as they were written, so `10.5`, `1e300` and
+ * `-0` (which `JSON.parse` keeps and `JSON.stringify` loses) reach this check
+ * and nothing earlier. The argument is `unknown` because the document seam
+ * passes it untyped; it is read as an ordinary object, not a hostile one.
+ * Whether a given PROVIDER can store the domain is a different question with a
+ * different owner: the adapter answers it once when the schema is bound.
  */
 export function readDecimalDescriptor(source: unknown): DecimalDescriptor {
-  if (!isDescriptorObject(source)) {
+  const precision = isRecord(source) ? source.precision : undefined;
+  const scale = isRecord(source) ? source.scale : undefined;
+  if (
+    !(
+      typeof precision === "number" &&
+      Number.isSafeInteger(precision) &&
+      precision >= 1
+    )
+  ) {
     refuse(
-      "descriptor",
-      `A decimal must declare { precision, scale }; received a value of type '${typeof source}'`
+      "descriptor.precision",
+      "'precision' must be an integer between 1 and the maximum safe integer"
     );
   }
-  const precision = readBound(
-    source,
-    "precision",
-    1,
-    Number.MAX_SAFE_INTEGER,
-    "the maximum safe integer"
-  );
-  const scale = readBound(source, "scale", 0, precision, "precision");
-  for (const key of ownKeys(source)) {
-    if (typeof key === "string" && DESCRIPTOR_KEYS.includes(key)) continue;
-    const [path, named] = nameUnknownKey(key);
+  if (
+    !(
+      typeof scale === "number" &&
+      Number.isSafeInteger(scale) &&
+      scale >= 0 &&
+      scale <= precision &&
+      !Object.is(scale, -0)
+    )
+  ) {
     refuse(
-      path,
-      `${named} is not a decimal descriptor property; a decimal declares { precision, scale }`
+      "descriptor.scale",
+      "'scale' must be an integer between 0 and precision"
     );
   }
   return Object.freeze({ precision, scale });
@@ -212,174 +104,25 @@ export function refuseDecimalListKey(
   );
 }
 
-/** Snapshot one caller-owned list before the field validator can inspect it. */
-function snapshotDecimalDefaultList(value: unknown): unknown[] {
-  let list: unknown[] | undefined;
-  try {
-    if (Array.isArray(value)) list = value;
-  } catch (thrown) {
-    refuse(
-      "default",
-      "Could not snapshot the decimal list default",
-      toError(thrown)
-    );
-  }
-  if (list === undefined) {
-    refuse("default", "A decimal list default must be an array");
-  }
-
-  let length: unknown;
-  let keys: (string | symbol)[];
-  try {
-    length = Reflect.get(list, "length");
-    keys = Reflect.ownKeys(list);
-  } catch (thrown) {
-    refuse(
-      "default",
-      "Could not snapshot the decimal list default",
-      toError(thrown)
-    );
-  }
-  if (
-    typeof length !== "number" ||
-    !Number.isInteger(length) ||
-    length < 0 ||
-    keys.length !== length + 1
-  ) {
-    refuse(
-      "default",
-      "A decimal list default must be a dense array with no shadow properties"
-    );
-  }
-
-  const keySet = new Set<PropertyKey>(keys);
-  const snapshot = new Array<unknown>(length);
-  for (let index = 0; index < length; index++) {
-    if (!keySet.has(String(index))) {
-      refuse(
-        "default",
-        "A decimal list default must be a dense array with no shadow properties"
-      );
-    }
-    try {
-      snapshot[index] = Reflect.get(list, String(index));
-    } catch (thrown) {
-      refuse(
-        "default",
-        "Could not snapshot the decimal list default",
-        toError(thrown)
-      );
-    }
-  }
-  return snapshot;
-}
-
-/** Validate one literal through the field's complete current codec. */
-function validateDecimalDefault(
-  value: unknown,
-  schema: StandardSchemaV1<unknown, unknown>
-): unknown {
-  let result: unknown;
-  try {
-    result = schema["~standard"].validate(value);
-  } catch (thrown) {
-    refuse(
-      "default",
-      "The decimal field schema failed while validating its default",
-      toError(thrown)
-    );
-  }
-
-  let resultRecord: Record<string, unknown> | undefined;
-  try {
-    if (isRecord(result)) resultRecord = result;
-  } catch (thrown) {
-    refuse(
-      "default",
-      "The decimal field schema failed while validating its default",
-      toError(thrown)
-    );
-  }
-  if (resultRecord === undefined) {
-    refuse(
-      "default",
-      "The decimal field schema returned a malformed validation result"
-    );
-  }
-
-  let then: unknown;
-  try {
-    then = Reflect.get(resultRecord, "then");
-  } catch (thrown) {
-    refuse(
-      "default",
-      "The decimal field schema failed while validating its default",
-      toError(thrown)
-    );
-  }
-  if (isFunction(then)) {
-    refuse("default", "Async decimal field schemas are not supported");
-  }
-
-  let issues: unknown;
-  try {
-    issues = Reflect.get(resultRecord, "issues");
-  } catch (thrown) {
-    refuse(
-      "default",
-      "The decimal field schema failed while validating its default",
-      toError(thrown)
-    );
-  }
-  if (issues !== undefined) {
-    refuse("default", "The decimal default did not satisfy its field schema");
-  }
-
-  let hasValue: boolean;
-  try {
-    hasValue = "value" in resultRecord;
-  } catch (thrown) {
-    refuse(
-      "default",
-      "The decimal field schema failed while validating its default",
-      toError(thrown)
-    );
-  }
-  if (!hasValue) {
-    refuse(
-      "default",
-      "The decimal field schema returned a malformed validation result"
-    );
-  }
-
-  try {
-    return Reflect.get(resultRecord, "value");
-  } catch (thrown) {
-    refuse(
-      "default",
-      "The decimal field schema failed while validating its default",
-      toError(thrown)
-    );
-  }
-}
-
 /**
- * A literal default, normalized through the complete current field codec at
- * DEFINITION time. Model metadata therefore already contains the canonical
- * logical value the serializer may trust; custom schemas, descriptor bounds,
- * nullability, and list arity have no second migration-time guard.
+ * A literal default, normalized through the field's complete current schema at
+ * DEFINITION time, so model metadata holds the canonical logical value the DDL
+ * renderer, the schema-document serializer and the create schema's trusted
+ * default all read. A value outside the declared domain fails at the call that
+ * wrote it, not at the first write.
  *
  * A function default keeps its closure, exactly as every other scalar's does:
- * a closure has no canonical spelling to retain, and the schema-document
- * serializer already refuses one by name.
+ * a closure has no canonical spelling to retain, and the create schema runs the
+ * field codec on each value it returns.
  */
 export function normalizeDecimalDefault(
   value: unknown,
-  schema: StandardSchemaV1<unknown, unknown>,
-  array: boolean
+  schema: StandardSchemaV1<unknown, unknown>
 ): unknown {
   if (typeof value === "function") return value;
-  const snapshot =
-    array && value !== null ? snapshotDecimalDefaultList(value) : value;
-  return validateDecimalDefault(snapshot, schema);
+  const result = validateSchema(schema, value);
+  if (result.issues !== undefined) {
+    refuse("default", "The decimal default did not satisfy its field schema");
+  }
+  return result.value;
 }

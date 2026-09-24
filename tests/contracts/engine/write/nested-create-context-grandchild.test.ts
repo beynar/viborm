@@ -1,6 +1,6 @@
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite } from "@electric-sql/pglite";
-import { TransactionError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -8,7 +8,8 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
+import { describe, expect, test, vi } from "vitest";
 
 /**
  * T4a CLASS VI — deep create-context grandchildren (the three absorbed blast-radius keys).
@@ -31,9 +32,9 @@ import { describe, expect, test } from "vitest";
  * byte-identical final state, and the observed boundary is Observed (a NATIVE execution,
  * not a silent Direct fallback). KEY 3's batch leg is not: G3P-04 admits root-conflict
  * suppression only where the operation owns the member rollback region, and the batch
- * route owns none, so key 3's nested `skipDuplicates` is refused there before the fresh
- * root can write — that refusal, and the empty database behind it, is what the batch leg
- * pins. Keys 1 and 2
+ * route owns none, so key 3's nested `skipDuplicates` is DROPPED there with one warning
+ * (owner decision 2026-09-24) — the batch leg pins that it then behaves exactly as the
+ * same create without `skipDuplicates`: the duplicate fails it. Keys 1 and 2
  * carry a multi-parent witness at the GRANDCHILD level — a disjoint second parent whose
  * subtree must stay untouched, which is exactly what would break if the captured FK were
  * mis-threaded (inject the wrong parent id and the grandchild lands under the disjoint
@@ -101,10 +102,6 @@ const bulkSchema = (() => {
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
 type AnyClient = Record<string, any>;
-
-// G3P-04, registered at `shared/operation-context.ts` `suppressionRefusal()`.
-const BORROWED_SUPPRESSION_REFUSAL =
-  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
 
 /** The part of a schema family this harness reads. */
 interface SuiteFamily {
@@ -277,23 +274,25 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
   const seed = async () => {
     // no seed — the parent is freshly created by the op.
   };
-  const op = async (c: Record<string, any>) => {
-    await c.parent.create({
-      data: {
-        name: "parent",
-        children: {
-          createMany: {
-            data: [
-              { code: "unrelated", label: "generated-first" },
-              { id: 50, code: "winner", label: "input-first" },
-              { code: "winner", label: "must-skip" },
-            ],
-            skipDuplicates: true,
+  const create =
+    (skipDuplicates: boolean) => async (c: Record<string, any>) => {
+      await c.parent.create({
+        data: {
+          name: "parent",
+          children: {
+            createMany: {
+              data: [
+                { code: "unrelated", label: "generated-first" },
+                { id: 50, code: "winner", label: "input-first" },
+                { code: "winner", label: "must-skip" },
+              ],
+              ...(skipDuplicates ? { skipDuplicates } : {}),
+            },
           },
         },
-      },
-    });
-  };
+      });
+    };
+  const op = create(true);
   const snap = async (c: AnyClient) => {
     const children = await (c as any).child.findMany({
       orderBy: { id: "asc" },
@@ -308,10 +307,10 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
 
   // G3P-04: suppression needs an operation-owned member rollback region, which the
   // batch route never has, so this key's skip composes on direct and transaction
-  // and is REFUSED on batch — ahead of the fresh root's own INSERT (AGENTS.md
-  // "G3P-04 admits root-conflict suppression only when the operation owns the
-  // member rollback region").
-  test("direct, transaction preserve the same skip winner; batch refuses it", async () => {
+  // and is DROPPED on batch with one warning (owner decision 2026-09-24, "Warn,
+  // drop skipDuplicates"): the batch leg then answers exactly as the same create
+  // without skipDuplicates — the duplicate "winner" fails it.
+  test("direct, transaction preserve the same skip winner; batch drops the skip", async () => {
     const direct = (await runDirect(
       getBulkFamily,
       seed,
@@ -333,17 +332,40 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
     expect(engines).toEqual(new Set(["production"]));
     expect(state).toEqual(direct);
 
-    const failure = await runObserved(
-      getBulkFamily,
-      bulkSchema,
-      "batch",
-      seed,
-      op,
-      snap
-    ).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(TransactionError);
-    expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
-    // Neither the parent nor any child row was written.
-    expect(await snap(getBulkFamily().client as AnyClient)).toEqual([]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const failure = await runObserved(
+        getBulkFamily,
+        bulkSchema,
+        "batch",
+        seed,
+        op,
+        snap
+      ).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(UniqueConstraintError);
+      expect(warn.mock.calls).toEqual([
+        [droppedSkipWarning("pglite", "parent.create")],
+      ]);
+      const dropped = await snap(getBulkFamily().client as AnyClient);
+      const plainFailure = await runObserved(
+        getBulkFamily,
+        bulkSchema,
+        "batch",
+        seed,
+        create(false),
+        snap
+      ).catch((error: unknown) => error);
+      expect(plainFailure).toBeInstanceOf(UniqueConstraintError);
+      expect(warn).toHaveBeenCalledTimes(1);
+      // The dropped skip leaves the rows the plain create leaves: none, because
+      // the fresh parent and its children are one atomic batch.
+      expect(dropped).toEqual([]);
+      expect(await snap(getBulkFamily().client as AnyClient)).toEqual(dropped);
+      await expect(
+        (getBulkFamily().client as AnyClient).parent.findMany()
+      ).resolves.toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

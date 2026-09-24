@@ -28,6 +28,7 @@ import {
   describeDecimalProviderLimitRefusal,
   findDecimalProviderLimitRefusal,
 } from "../schema/scalars/decimal/provider-limits";
+import { idDomainOf } from "../schema/validation/id-domains";
 import {
   type ResolvedRelationEdge,
   type ResolvedRelationIndex,
@@ -266,7 +267,14 @@ export function serializeResolvedModels(
           );
         }
       } else {
-        columnType = migrationDriver.mapScalarType(scalar, scalarState);
+        // A foreign key's identifier domain is DERIVED from the key it
+        // references, so it is read against the model through the same
+        // resolved index this serialization is already built from.
+        columnType = migrationDriver.mapScalarType(
+          scalar,
+          scalarState,
+          idDomainOf(model, fieldName, index)
+        );
       }
 
       const columnDef: ColumnDef = {
@@ -384,7 +392,8 @@ export function serializeResolvedModels(
             model,
             tableName,
             member,
-            migrationDriver
+            migrationDriver,
+            index
           );
           // pairName is always set for a member junction: the resolved topology
           // is built exclusively by the gate, which passes
@@ -441,9 +450,20 @@ export function serializeResolvedModels(
         },
         {
           name: storage.idColumn.name,
+          // The carrier's id column holds every variant's KEY, and a key's
+          // domain may be DERIVED, so the column names the key it stands in for
+          // and that key is resolved against the index. Every variant agrees on
+          // the answer or this storage does not exist (P002).
           type: migrationDriver.mapScalarType(
             storage.idColumn.scalar,
-            idScalarState
+            idScalarState,
+            storage.idColumn.reference === undefined
+              ? undefined
+              : idDomainOf(
+                  storage.idColumn.reference.model,
+                  storage.idColumn.reference.field,
+                  index
+                )
           ),
           nullable: storage.idColumn.nullable,
         }
@@ -676,8 +696,16 @@ export function serializeResolvedModels(
     const onDelete = mapReferentialAction(edge.onDelete, "cascade");
     const onUpdate = mapReferentialAction(edge.onUpdate, "cascade");
 
-    const sourcePkFields = getPrimaryKeyFieldDefs(model, migrationDriver);
-    const targetPkFields = getPrimaryKeyFieldDefs(targetModel, migrationDriver);
+    const sourcePkFields = getPrimaryKeyFieldDefs(
+      model,
+      migrationDriver,
+      index
+    );
+    const targetPkFields = getPrimaryKeyFieldDefs(
+      targetModel,
+      migrationDriver,
+      index
+    );
     const topology = edge.topology;
     // Decorate the owner's members with the driver-typed key defs by index:
     // the members were zipped from these same row-key lists, so both sides
@@ -814,7 +842,8 @@ function serializeMemberJunction(
   ownerModel: AnyModel,
   ownerTableName: string,
   member: ResolvedVariantJunctionMember,
-  migrationDriver: MigrationDriver
+  migrationDriver: MigrationDriver,
+  relations: ResolvedRelationIndex
 ): TableDef {
   const junction = member.topology;
   const targetModel = junction.target.model;
@@ -823,8 +852,16 @@ function serializeMemberJunction(
     targetModel,
     targetModelName?.toLowerCase() ?? "unknown"
   );
-  const sourcePkFields = getPrimaryKeyFieldDefs(ownerModel, migrationDriver);
-  const targetPkFields = getPrimaryKeyFieldDefs(targetModel, migrationDriver);
+  const sourcePkFields = getPrimaryKeyFieldDefs(
+    ownerModel,
+    migrationDriver,
+    relations
+  );
+  const targetPkFields = getPrimaryKeyFieldDefs(
+    targetModel,
+    migrationDriver,
+    relations
+  );
   // Decorate the sides with the driver-typed key defs by index: the stored
   // topology zipped its members from the same model-key-catalog row keys these
   // defs come from, so both lists carry exactly one entry per key def.
@@ -932,7 +969,8 @@ function serializeMemberJunction(
  */
 function getPrimaryKeyFieldDefs(
   model: AnyModel,
-  migrationDriver: MigrationDriver
+  migrationDriver: MigrationDriver,
+  relations: ResolvedRelationIndex
 ): readonly { field: string; column: string; type: string }[] {
   const modelState = model["~"].state;
   const modelName = model["~"].names.ts;
@@ -953,7 +991,18 @@ function getPrimaryKeyFieldDefs(
     return {
       field,
       column: model["~"].getFieldName(field).sql,
-      type: migrationDriver.mapScalarType(scalar, scalarState),
+      // A junction column holds the referenced primary KEY's values, and that
+      // key's identifier domain may be DERIVED — the one-to-one child whose
+      // primary key is its parent foreign key is the ordinary case — so it is
+      // read against the model through the same resolved index every other
+      // column of this serialization is typed from. Reading the scalar's own
+      // declaration types the junction column as text beside the sixteen-byte
+      // column it references, which PostgreSQL refuses to key at all.
+      type: migrationDriver.mapScalarType(
+        scalar,
+        scalarState,
+        idDomainOf(model, field, relations)
+      ),
     };
   });
 }

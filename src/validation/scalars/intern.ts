@@ -1,4 +1,5 @@
 import type { ScalarState } from "@schema/scalars/common";
+import type { IdDomain } from "../primitives/id-codec";
 
 /**
  * Interning for scalar filter/update schemas.
@@ -16,14 +17,29 @@ import type { ScalarState } from "@schema/scalars/common";
  *
  * Fields with a custom standard schema (`state.schema !== undefined`) return
  * a null key and always build fresh — unknown validators are never interned.
+ *
+ * An IDENTIFIER DOMAIN is part of the key rather than a reason not to intern.
+ * A domain field's filter tree embeds an operand that ADMITS and NORMALIZES —
+ * `usr-` prefixed uuids and nothing else — so two fields may share one tree
+ * exactly when they share one domain, and a `.uuid()` field must never be
+ * handed a `.ulid()` field's validator. Excluding domain fields from interning
+ * would be correct too, and larger: every uuid primary key in a schema builds
+ * structurally identical filters.
  */
-export const scalarInternKey = (state: ScalarState): string | null => {
+export const scalarInternKey = (
+  state: ScalarState,
+  idDomain?: IdDomain | undefined
+): string | null => {
   if (state.schema !== undefined) {
     return null;
   }
+  const domain =
+    idDomain === undefined
+      ? ""
+      : `:${idDomain.format}:${idDomain.prefix ?? ""}:${idDomain.length ?? ""}`;
   return `${state.nullable ? 1 : 0}${state.array ? 1 : 0}${
     state.withTimezone ? 1 : 0
-  }`;
+  }${domain}`;
 };
 
 /**

@@ -1,12 +1,13 @@
 import { PGliteDriver } from "@drivers/pglite";
-import { TransactionError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
+import { describe, expect, test, vi } from "vitest";
 
 /**
  * X1b MECHANISM 3 — createMany skipDuplicates at depth.
@@ -27,11 +28,12 @@ import { describe, expect, test } from "vitest";
  *
  * G3P-04: the two substrates do NOT answer the same thing here. Root-conflict
  * suppression is admitted only where the operation owns the member rollback region;
- * the batch route owns none, so a BORROWED `createMany skipDuplicates` is refused in
- * the command analysis pass, before the enclosing root can write. The batch legs pin
- * that refusal and the untouched seed (AGENTS.md "G3P-04 admits root-conflict
- * suppression only when the operation owns the member rollback region"); the tx legs
- * pin the composed skip itself.
+ * the batch route owns none, so there `createMany skipDuplicates` DROPS the skip
+ * with one warning (owner decision 2026-09-24, "Warn, drop skipDuplicates"): the
+ * colliding row fails with the ordinary unique-constraint error, and the database
+ * keeps exactly what the same createMany without skipDuplicates keeps. The batch legs
+ * pin that failure, the warning and that equivalence; the tx legs pin the composed
+ * skip itself.
  */
 
 const tree = (() => {
@@ -55,9 +57,34 @@ const getFamily = usePGliteSchemaFamily(tree);
 
 type AnyClient = Record<string, any>;
 
-// G3P-04, registered at `shared/operation-context.ts` `suppressionRefusal()`.
-const BORROWED_SUPPRESSION_REFUSAL =
-  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
+/**
+ * The batch leg, run twice from the same seed: once with the skip (which the
+ * batch drops with one warning) and once without it. The caller pins that
+ * both fail with the ordinary unique-constraint error and keep the same rows.
+ */
+async function runDroppedAndPlain(
+  seed: (c: AnyClient) => Promise<void>,
+  op: (skipDuplicates: boolean) => (c: Record<string, any>) => Promise<void>
+) {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  let dropped: unknown;
+  let warnings: unknown[][];
+  try {
+    dropped = await runObserved("batch", seed, op(true), snap).catch(
+      (error: unknown) => error
+    );
+    warnings = warn.mock.calls;
+  } finally {
+    warn.mockRestore();
+  }
+  const keptDropped = await snap(getFamily().client as AnyClient);
+  await getFamily().reset();
+  const plain = await runObserved("batch", seed, op(false), snap).catch(
+    (error: unknown) => error
+  );
+  const keptPlain = await snap(getFamily().client as AnyClient);
+  return { dropped, warnings, keptDropped, plain, keptPlain };
+}
 
 async function runObserved(
   substrate: "tx" | "batch",
@@ -110,29 +137,31 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a located update t
   };
 
   // update(c0) -> children.update(c1) -> children.createMany({..skipDuplicates})
-  const op = async (c: Record<string, any>) => {
-    await c.node.update({
-      where: { id: "c0" },
-      data: {
-        children: {
-          update: {
-            where: { id: "c1" },
-            data: {
-              children: {
-                createMany: {
-                  data: [
-                    { id: "g1", code: "fresh", name: "g1" },
-                    { id: "g2", code: "taken", name: "g2" },
-                  ],
-                  skipDuplicates: true,
+  const update =
+    (skipDuplicates: boolean) => async (c: Record<string, any>) => {
+      await c.node.update({
+        where: { id: "c0" },
+        data: {
+          children: {
+            update: {
+              where: { id: "c1" },
+              data: {
+                children: {
+                  createMany: {
+                    data: [
+                      { id: "g1", code: "fresh", name: "g1" },
+                      { id: "g2", code: "taken", name: "g2" },
+                    ],
+                    ...(skipDuplicates ? { skipDuplicates } : {}),
+                  },
                 },
               },
             },
           },
         },
-      },
-    });
-  };
+      });
+    };
+  const op = update(true);
 
   // g1 lands under c1 (its immediate ancestor); g2 skipped (code "taken" collides
   // with t0). The disjoint d-subtree and t0 are untouched.
@@ -145,12 +174,15 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a located update t
     ["t0", null, "taken"],
   ];
 
-  // What the batch route leaves behind when G3P-04 refuses ahead of every write.
-  const seeded = [
+  // What the batch route keeps once the skip is dropped - the same rows the
+  // plain createMany keeps: each row under a located target is its own
+  // committed member, so g1 stays and the colliding g2 fails.
+  const kept = [
     ["c0", null, "c0"],
     ["c1", "c0", "c1"],
     ["d0", null, "d0"],
     ["d1", "d0", "d1"],
+    ["g1", "c1", "fresh"],
     ["t0", null, "taken"],
   ];
 
@@ -161,13 +193,15 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a located update t
   });
 
   // G3P-04: the borrowed member has no operation-owned rollback region here.
-  test("batch refuses the borrowed skipDuplicates member, writing nothing", async () => {
-    const failure = await runObserved("batch", seed, op, snap).catch(
-      (error: unknown) => error
-    );
-    expect(failure).toBeInstanceOf(TransactionError);
-    expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
-    expect(await snap(getFamily().client as AnyClient)).toEqual(seeded);
+  test("batch drops the skip with one warning and keeps what the plain createMany keeps", async () => {
+    const outcome = await runDroppedAndPlain(seed, update);
+    expect(outcome.dropped).toBeInstanceOf(UniqueConstraintError);
+    expect(outcome.warnings).toEqual([
+      [droppedSkipWarning("pglite", "node.update")],
+    ]);
+    expect(outcome.keptDropped).toEqual(kept);
+    expect(outcome.plain).toBeInstanceOf(UniqueConstraintError);
+    expect(outcome.keptPlain).toEqual(kept);
   });
 });
 
@@ -184,26 +218,28 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a fresh create at 
   // update(c0) -> children.update(c1) -> children.create(g1) ->
   //   children.createMany({..skipDuplicates}) : the createMany hangs off a FRESH
   //   create (g1), whose own literal PK is the createMany rows' parent.
-  const op = async (c: Record<string, any>) => {
-    await c.node.update({
-      where: { id: "c0" },
-      data: {
-        children: {
-          update: {
-            where: { id: "c1" },
-            data: {
-              children: {
-                create: {
-                  id: "g1",
-                  code: "g1",
-                  name: "g1",
-                  children: {
-                    createMany: {
-                      data: [
-                        { id: "gg1", code: "gg1", name: "gg1" },
-                        { id: "gg2", code: "taken", name: "gg2" },
-                      ],
-                      skipDuplicates: true,
+  const update =
+    (skipDuplicates: boolean) => async (c: Record<string, any>) => {
+      await c.node.update({
+        where: { id: "c0" },
+        data: {
+          children: {
+            update: {
+              where: { id: "c1" },
+              data: {
+                children: {
+                  create: {
+                    id: "g1",
+                    code: "g1",
+                    name: "g1",
+                    children: {
+                      createMany: {
+                        data: [
+                          { id: "gg1", code: "gg1", name: "gg1" },
+                          { id: "gg2", code: "taken", name: "gg2" },
+                        ],
+                        ...(skipDuplicates ? { skipDuplicates } : {}),
+                      },
                     },
                   },
                 },
@@ -211,9 +247,9 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a fresh create at 
             },
           },
         },
-      },
-    });
-  };
+      });
+    };
+  const op = update(true);
 
   // g1 under c1; gg1 under g1 (its immediate ancestor); gg2 skipped.
   const expected = [
@@ -224,9 +260,10 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a fresh create at 
     ["t0", null, "taken"],
   ];
 
-  // What the batch route leaves behind when G3P-04 refuses ahead of every write:
-  // the fresh create g1 never lands either, because the refusal precedes it.
-  const seeded = [
+  // What the batch route keeps once the skip is dropped - the same rows the
+  // plain createMany keeps: the fresh create g1 and its rows are one atomic
+  // batch, so the colliding gg2 rolls g1 back with it.
+  const kept = [
     ["c0", null, "c0"],
     ["c1", "c0", "c1"],
     ["t0", null, "taken"],
@@ -239,13 +276,15 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a fresh create at 
   });
 
   // G3P-04: the borrowed member has no operation-owned rollback region here.
-  test("batch refuses the borrowed skipDuplicates member, writing nothing", async () => {
-    const failure = await runObserved("batch", seed, op, snap).catch(
-      (error: unknown) => error
-    );
-    expect(failure).toBeInstanceOf(TransactionError);
-    expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
-    expect(await snap(getFamily().client as AnyClient)).toEqual(seeded);
+  test("batch drops the skip with one warning and keeps what the plain createMany keeps", async () => {
+    const outcome = await runDroppedAndPlain(seed, update);
+    expect(outcome.dropped).toBeInstanceOf(UniqueConstraintError);
+    expect(outcome.warnings).toEqual([
+      [droppedSkipWarning("pglite", "node.update")],
+    ]);
+    expect(outcome.keptDropped).toEqual(kept);
+    expect(outcome.plain).toBeInstanceOf(UniqueConstraintError);
+    expect(outcome.keptPlain).toEqual(kept);
   });
 });
 

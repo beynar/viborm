@@ -1,4 +1,9 @@
+import { UniqueConstraintError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
+import {
+  captureDroppedSkipWarnings,
+  droppedSkipWarning,
+} from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -97,6 +102,8 @@ export function registerProducedIdentityBehavior(
   register: (label: string, body: () => void) => void = describe
 ): void {
   register(`E4-U3 junction produced identity (${name})`, () => {
+    const droppedSkipWarnings = captureDroppedSkipWarnings();
+
     test("the create arm's produced id reaches BOTH the join row and the grandchildren", async () => {
       const client = await connect();
       await reset(client);
@@ -339,16 +346,15 @@ export function registerProducedIdentityBehavior(
       if (name === "atomic batch") {
         // G3P-04: root-conflict suppression is admitted only where the
         // operation owns the member rollback region, and the batch route owns
-        // none (`AGENTS.md`, "G3P-04 admits root-conflict suppression only
-        // when the operation owns the member rollback region"); the refusal
-        // fires in the command analysis pass, before the enclosing root can
-        // write. The adopt shape this cell pins is measured on the
-        // interactive leg.
-        await expect(operation).rejects.toMatchObject({
-          name: "TransactionError",
-          message:
-            "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.",
-        });
+        // none, so the skip is DROPPED with one warning (owner decision
+        // 2026-09-24, "Warn, drop skipDuplicates"): the "sitting" row is a
+        // plain member, its duplicate name fails the create's one atomic
+        // batch, and nothing of the create is written. The adopt shape this
+        // cell pins is measured on the interactive leg.
+        await expect(operation).rejects.toBeInstanceOf(UniqueConstraintError);
+        expect(droppedSkipWarnings("post")).toEqual([
+          droppedSkipWarning("pglite", "post.create"),
+        ]);
         expect(await client.post.findMany()).toEqual([]);
         expect(
           (await client.stamp.findMany()).map((row: any) => row.id)

@@ -37,8 +37,14 @@ export interface DocsFenceCase {
   readonly document: SchemaDocument;
 }
 
+/** `.id().ulid()` — the format is NAMED, so the document states it. */
 const ULID = { type: "string", id: true, generate: { kind: "ulid" } } as const;
-const ID = { type: "string", id: true, generate: { kind: "ulid" } } as const;
+/**
+ * A bare `.id()` — a KEY declaration. The ULID it generates was never named by
+ * the caller, so `id: true` is the whole declaration and the document carries
+ * no `generate` node to read back as a named format.
+ */
+const ID = { type: "string", id: true } as const;
 const STRING = { type: "string" } as const;
 
 export const docsFenceCorpus: DocsFenceCase[] = [
@@ -1537,6 +1543,72 @@ export const docsFenceCorpus: DocsFenceCase[] = [
             createdAt: { type: "datetime", generate: { kind: "now" } },
           },
           table: "documents",
+        },
+      },
+    },
+  },
+  {
+    id: "scalars/string.mdx#3",
+    coded: () => {
+      const user = s.model({ id: s.string().id().uuid("usr") });
+      return { user };
+    },
+    document: {
+      version: 1,
+      models: {
+        user: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+              generate: { kind: "uuid", prefix: "usr" },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    id: "relations/index.mdx#7",
+    coded: () => {
+      const user = s.model({
+        id: s.string().id().uuid("usr"),
+        posts: s.toMany(() => post),
+      });
+      const post = s.model({
+        id: s.string().id(),
+        authorId: s.string(),
+        author: s
+          .toOne(() => user)
+          .fields("authorId")
+          .references("id"),
+      });
+      return { user, post };
+    },
+    document: {
+      version: 1,
+      models: {
+        user: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+              generate: { kind: "uuid", prefix: "usr" },
+            },
+            posts: { type: "toMany", target: "post" },
+          },
+        },
+        post: {
+          fields: {
+            id: ID,
+            authorId: STRING,
+            author: {
+              type: "toOne",
+              target: "user",
+              fields: ["authorId"],
+              references: ["id"],
+            },
+          },
         },
       },
     },

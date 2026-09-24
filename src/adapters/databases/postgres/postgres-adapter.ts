@@ -1,3 +1,4 @@
+import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { type Sql, sql } from "@sql";
 import {
   type DecimalDescriptor,
@@ -5,6 +6,7 @@ import {
   encodePhysicalDecimal,
 } from "@validation/primitives/decimal-codec";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
+import type { IdRepresentation } from "@validation/primitives/id-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import { JsonParameter } from "../../../sql/json-parameter";
 import type {
@@ -178,6 +180,19 @@ export class PostgresAdapter implements DatabaseAdapter {
     // than two that happen to agree.
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
+
+    // A `uuid` column takes canonical text and is TYPED: PostgreSQL has no
+    // `uuid = text` operator, so an untyped operand raises 42883 rather than
+    // comparing. `bytea` takes the payload's bytes as an ordinary binary
+    // parameter — the same parameter every blob scalar already binds — and a
+    // text-stored domain takes the public string unchanged.
+    id: (
+      physical: string | Uint8Array,
+      representation: IdRepresentation
+    ): Sql =>
+      representation === "uuid"
+        ? sql`CAST(${physical} AS UUID)`
+        : sql`${physical}`,
   };
 
   // ============================================================
@@ -282,6 +297,13 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${expr} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
+
+    idCast: (expr: Sql, representation: IdRepresentation): Sql =>
+      representation === "bytes"
+        ? sql`decode(${expr}, 'hex')`
+        : sql`CAST(${expr} AS ${sql.raw(
+            representation === "uuid" ? "UUID" : "TEXT"
+          )})`,
 
     // PostgreSQL type mappings
     cast: createCastExpression({
@@ -693,6 +715,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     // A managed enum's array OID is in no driver's result-type table, so an
     // enum LIST comes back as the array's own text rather than a JS array.
     enumListRepresentation: "arrayText",
+
+    // The one physical promise an identifier column makes, derived from the
+    // ONE storage owner so the column the migration creates, the parameter the
+    // write binds and the value this reads back cannot be three decisions.
+    idRepresentation: (domain, nativeType) =>
+      idStorageOf(domain, nativeType, "pg")?.representation ?? "text",
 
     // The contract's shape, deciding nothing. This leg used to offer
     // `convertBigIntToNumber(raw)`, but `Queries.decodeResult` hands it the

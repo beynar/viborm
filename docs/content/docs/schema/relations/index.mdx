@@ -203,6 +203,62 @@ column carries the membership itself, so there is nothing there to null.
 
 This is the canonical reference — the per-relationship pages link back here.
 
+## Identifier Domains Are Derived
+
+A key declares its format; the columns that reference it do not repeat the
+declaration. If `user.id` is a `.uuid("usr")`, then `post.authorId` holds exactly
+the values `user.id` holds — so VibORM admits them, normalizes them and stores
+them the same way, with no declaration on the foreign key at all:
+
+```ts
+const user = s.model({
+  id: s.string().id().uuid("usr"),
+  posts: s.toMany(() => post),
+});
+
+const post = s.model({
+  id: s.string().id(),
+  authorId: s.string(), // derives `uuid("usr")`: admitted, and stored compactly
+  author: s.toOne(() => user).fields("authorId").references("id"),
+});
+```
+
+It is derived everywhere the reference reaches: self-relations, compound keys
+member for member, one-to-one children whose own primary key IS the foreign key
+(the derivation follows the chain), junction columns, and a polymorphic
+carrier's id column.
+
+Two things are refused rather than resolved, both the same failure — two answers
+to "what does this column hold":
+
+- a foreign key whose own declaration contradicts its target
+  (`authorId: s.string().ulid()` against a `uuid` key);
+- one column reached through several references whose keys disagree — a shared
+  foreign key, a compound member, or a set of polymorphic variants.
+- a foreign key that would store its key's values differently from the key
+  itself — a key kept as text by a native type override (`varchar(40)`) beside
+  a foreign key with no override, which would get the compact column. Give the
+  foreign key the same override.
+
+Both are schema errors with the code `FK012`, and both name the two references
+that disagreed and what each of them holds.
+
+Declaring the same format the target declares is allowed and changes nothing.
+Declaring nothing is the normal spelling.
+
+One asymmetry to know about. A DERIVED domain narrows at RUN TIME only: the
+declared key loses `contains` / `startsWith` / `endsWith` / `mode` from its
+filter TYPE, while the foreign key keeps them in the type and is refused when
+the query runs. A field's filter type is computed from the field's own
+declaration, and a foreign key has none — deriving it would mean resolving
+`.references(...)` at the type level and threading whole-schema context through
+every per-model type. Declare the format on the foreign key too if you want the
+editor to say so; it changes nothing else.
+
+Converting an existing text column onto the storage a derived domain implies is
+[Converting identifier columns](/docs/migration/identifiers) — the foreign key
+converts with the key it references, not separately.
+
 ## Pages
 
 <CardGroup>

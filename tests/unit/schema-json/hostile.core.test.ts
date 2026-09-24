@@ -450,6 +450,33 @@ describe("relation arms", () => {
     expect(error.originalCause).toBeInstanceOf(Error);
   });
 
+  it("hands a decimal domain to s.decimal, which owns whether it is one", () => {
+    // JSON TEXT, so `-0` arrives as the negative zero `JSON.parse` keeps and
+    // `JSON.stringify` would lose. `read.ts` checks presence and number type
+    // only; integrality, range and `scale <= precision` are the builder's, and
+    // this is the one untrusted source its check has.
+    for (const [field, sentence] of [
+      [
+        '{ "type": "decimal", "precision": 10.5, "scale": 2 }',
+        "'precision' must be an integer between 1 and the maximum safe integer",
+      ],
+      [
+        '{ "type": "decimal", "precision": 10, "scale": -0 }',
+        "'scale' must be an integer between 0 and precision",
+      ],
+      [
+        '{ "type": "decimal", "precision": 4, "scale": 5 }',
+        "'scale' must be an integer between 0 and precision",
+      ],
+    ] as const) {
+      const error = refusal(
+        `{ "version": 1, "models": { "user": { "fields": { "id": { "type": "string", "id": true }, "probe": ${field} } } } }`
+      );
+      expect(issues(error)).toEqual(["[J010] /models/user/fields/probe"]);
+      expect(error.issues[0]?.message).toContain(sentence);
+    }
+  });
+
   it("hands an incomplete foreign key to the model boundary", () => {
     const error = refusal(
       withUserField({ type: "toOne", target: "user", fields: ["id"] })
@@ -555,6 +582,31 @@ describe("modifier legality", () => {
         )
       )
     ).toEqual(["[J007] /models/user/fields/probe/generate"]);
+    for (const kind of ["uuidv7", "ksuid", "cuid"]) {
+      expect(
+        issues(
+          refusal(
+            withUserField({ type: "string", generate: { kind, length: 8 } })
+          )
+        )
+      ).toEqual(["[J007] /models/user/fields/probe/generate"]);
+    }
+  });
+
+  /**
+   * A nanoid length is a DECLARATION the builder refuses, so the document's
+   * refusal is the builder's own message carried back to this node.
+   */
+  it("refuses a nanoid length no identifier can have", () => {
+    for (const length of [0, -1, 1.5, 65_537]) {
+      const error = refusal(
+        withUserField({ type: "string", generate: { kind: "nanoid", length } })
+      );
+      expect(issues(error)).toEqual([
+        "[J010] /models/user/fields/probe/generate",
+      ]);
+      expect(error.issues[0]?.message).toContain("between 1 and 65536");
+    }
   });
 });
 
@@ -591,6 +643,27 @@ describe("defaults", () => {
         issues(refusal(withUserField({ type: "bigint", default: value })))
       ).toEqual(["[J008] /models/user/fields/probe/default"]);
     }
+  });
+
+  it("refuses a decimal default written as a JSON number", () => {
+    // A JSON number is a double, so the decimal domain refuses it exactly as
+    // it refuses one at the query boundary; the string spelling is accepted.
+    const decimal = { type: "decimal", precision: 10, scale: 2 };
+    for (const field of [
+      { ...decimal, default: 1.5 },
+      { ...decimal, array: true, default: ["1.5", 2] },
+    ]) {
+      const error = refusal(withUserField(field));
+      expect(issues(error)).toEqual([
+        "[J008] /models/user/fields/probe/default",
+      ]);
+      expect(error.issues[0]?.message).toContain(
+        "a JavaScript number is a double and is not accepted"
+      );
+    }
+    expect(String(serializedDefault({ ...decimal, default: "1.5" }))).toBe(
+      "1.5"
+    );
   });
 
   it("takes a blob default as `$bytes` and nothing else", () => {

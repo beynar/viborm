@@ -1,9 +1,13 @@
-import { TransactionError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import {
   type PGliteSchemaFamily,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import {
+  captureDroppedSkipWarnings,
+  droppedSkipWarning,
+} from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -181,15 +185,14 @@ async function noteIds(family: Family): Promise<string[]> {
 
 /**
  * G3P-04 admits root-conflict suppression only where the operation owns the
- * member rollback region, and an atomic batch owns none, so a BORROWED
- * `createMany skipDuplicates` is refused there before any member effect
- * (`shared/operation-context.ts` `suppressionRefusal()`; AGENTS.md "G3P-04
- * admits root-conflict suppression only when the operation owns the member
- * rollback region"). The two skipDuplicates rows below therefore answer
+ * member rollback region, and an atomic batch owns none, so there a
+ * `createMany skipDuplicates` DROPS the skip with one warning per client and
+ * model and runs every member plainly (`shared/operation-context.ts`
+ * `admitsSuppression()`; owner decision 2026-09-24, "Warn, drop
+ * skipDuplicates"). The two skipDuplicates rows below therefore answer
  * differently per substrate, and each leg pins its own end state.
  */
-const BORROWED_SUPPRESSION_REFUSAL =
-  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
+const droppedSkipWarnings = captureDroppedSkipWarnings();
 
 /** The two shelves and the three targets every scenario starts from. */
 async function seed(family: Family): Promise<void> {
@@ -899,14 +902,27 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
           },
         });
 
-      // G3P-04: the atomic batch owns no member rollback region, so the whole
-      // second update is refused before its `connect` transfer runs - the first
-      // update's membership on `left` is what stays.
+      // G3P-04: the atomic batch owns no member rollback region, so the skip is
+      // dropped and each createMany row runs as a plain member, exactly as the
+      // same update without skipDuplicates: the `connect` transfer commits as
+      // the first segment, then the duplicate row fails with the ordinary
+      // unique-constraint error and reports that committed segment.
       if (mode === "atomicBatch") {
         const failure = await coalesce().catch((error: unknown) => error);
-        expect(failure).toBeInstanceOf(TransactionError);
-        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
-        expect(await bookMembers(family)).toEqual(["t1/left/eu/111"]);
+        expect(failure).toBeInstanceOf(UniqueConstraintError);
+        expect(failure).toMatchObject({
+          meta: {
+            recordSeriesProgress: {
+              atomicity: "segment",
+              phase: "member",
+              committedSegments: 1,
+            },
+          },
+        });
+        expect(droppedSkipWarnings("shelf")).toEqual([
+          droppedSkipWarning("pglite", "shelf.update"),
+        ]);
+        expect(await bookMembers(family)).toEqual(["t1/right/eu/111"]);
         expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
         return;
       }
@@ -950,13 +966,14 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
           },
         });
 
-      // G3P-04: the refusal belongs to the command analysis pass, so it fires
-      // for the whole update - the sibling `video` group that carries no
+      // G3P-04: the skip is dropped, so A1's alternate-title conflict fails the
+      // whole atomic update - the sibling `video` group that carries no
       // skipDuplicates does not write either.
       if (mode === "atomicBatch") {
-        const failure = await join().catch((error: unknown) => error);
-        expect(failure).toBeInstanceOf(TransactionError);
-        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+        await expect(join()).rejects.toBeInstanceOf(UniqueConstraintError);
+        expect(droppedSkipWarnings("shelf")).toEqual([
+          droppedSkipWarning("pglite", "shelf.update"),
+        ]);
         expect(await bookMembers(family)).toEqual([]);
         expect(await videoMembers(family)).toEqual([]);
         expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);

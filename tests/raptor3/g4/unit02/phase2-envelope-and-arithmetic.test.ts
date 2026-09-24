@@ -8,18 +8,18 @@
  */
 
 import assert from "node:assert/strict";
+import { createClient } from "@client/client";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { NotFoundError, QueryEngineError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
-import { createClient } from "@client/client";
-import { Decimal } from "@src/index";
-import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
-import { cost, createWorld, worldSchema, type World } from "./world";
+import { cost, createWorld, type World, worldSchema } from "./world";
 
 let world: World | undefined;
 
@@ -28,14 +28,17 @@ afterEach(async () => {
   world = undefined;
 });
 
+const SAVEPOINT_STATEMENT = /^SAVEPOINT\b/i;
+
 function engineOf(current: World) {
   return createCommandEngine({ schema: worldSchema, driver: current.driver });
 }
 
 /** Regions opened INSIDE a caller's transaction are savepoints, not BEGINs. */
 function savepoints(driver: World["driver"]): number {
-  return driver.control.filter((statement) => /^SAVEPOINT\b/i.test(statement))
-    .length;
+  return driver.control.filter((statement) =>
+    SAVEPOINT_STATEMENT.test(statement)
+  ).length;
 }
 
 /** The array fallback's grant: member isolation only, no operation region. */
@@ -43,7 +46,7 @@ function memberOnly(scoped: AnyDriver) {
   return {
     kind: "borrowed-transaction",
     driver: scoped,
-    memberRollback: <T,>(
+    memberRollback: <T>(
       execute: (driver: AnyDriver) => Promise<T>,
       context: QueryExecutionContext
     ) => scoped.withTransaction(execute, undefined, context),
@@ -55,11 +58,11 @@ function transferred(caller: AnyDriver) {
   return {
     kind: "borrowed-transaction",
     driver: caller,
-    memberRollback: <T,>(
+    memberRollback: <T>(
       execute: (driver: AnyDriver) => Promise<T>,
       context: QueryExecutionContext
     ) => caller.withTransaction(execute, undefined, context),
-    operationRegion: <T,>(
+    operationRegion: <T>(
       execute: (driver: AnyDriver) => Promise<T>,
       context: QueryExecutionContext
     ) => caller.withTransaction(execute, undefined, context),
@@ -73,7 +76,10 @@ describe("G4-02 operationRegion — ownership is stated, never inferred", () => 
     const driver = world.driver;
     const relationBearing = {
       where: { id: 1 },
-      data: { name: "Ada+", posts: { create: [{ id: 20, title: "n", rank: 9 }] } },
+      data: {
+        name: "Ada+",
+        posts: { create: [{ id: 20, title: "n", rank: 9 }] },
+      },
     };
 
     // Granted: the candidate opens ONE region of its own.
@@ -86,7 +92,10 @@ describe("G4-02 operationRegion — ownership is stated, never inferred", () => 
         transferred(caller as AnyDriver)
       );
       const granted = cost(driver);
-      assert.ok(granted.statements > 1, "a relation-bearing update is a series");
+      assert.ok(
+        granted.statements > 1,
+        "a relation-bearing update is a series"
+      );
       assert.equal(
         savepoints(driver),
         1,
@@ -103,7 +112,10 @@ describe("G4-02 operationRegion — ownership is stated, never inferred", () => 
         "update",
         {
           where: { id: 2 },
-          data: { name: "Bo+", posts: { create: [{ id: 21, title: "m", rank: 8 }] } },
+          data: {
+            name: "Bo+",
+            posts: { create: [{ id: 21, title: "m", rank: 8 }] },
+          },
         },
         memberOnly(caller as AnyDriver)
       );
@@ -153,7 +165,8 @@ async function arithmeticWorld() {
   const database = new Database(":memory:");
   const driver = new SQLite3Driver({ client: database });
   const client = createClient({ schema: arithmeticSchema, driver });
-  assert.equal((await syncLiveSchema(client)).applied, true);
+  if (!(await syncLiveSchema(client)).applied)
+    throw new Error("the arithmetic world did not apply its schema");
   const engine = createCommandEngine({ schema: arithmeticSchema, driver });
   await engine.execute("ledger", "create", {
     data: {
@@ -210,7 +223,11 @@ describe("G4-02 scalar update language (SC-03…SC-06 write side)", () => {
         where: { id: 1 },
         data: { count: { divide: 5 } },
       })) as Record<string, unknown>;
-      assert.equal(truncated.count, 7, "integer division truncates toward zero");
+      assert.equal(
+        truncated.count,
+        7,
+        "integer division truncates toward zero"
+      );
       const listed = (await live.engine.execute("ledger", "update", {
         where: { id: 1 },
         data: { labels: { push: ["b", "c"] } },
@@ -233,7 +250,7 @@ describe("G4-02 scalar update language (SC-03…SC-06 write side)", () => {
       try {
         await live.engine.execute("ledger", "update", {
           where: { id: 1 },
-          data: { amount: { divide: 0 } },
+          data: { amount: { divide: "0" } },
         });
       } catch (caught) {
         failure = caught;
@@ -299,9 +316,12 @@ describe("G4-02 a statement-atomic operation has no record series", () => {
     const driver = new BatchOnly({ client: database });
     const client = createClient({ schema: worldSchema, driver });
     try {
-      assert.equal((await syncLiveSchema(client)).applied, true);
+      if (!(await syncLiveSchema(client)).applied)
+        throw new Error("the arithmetic world did not apply its schema");
       const engine = createCommandEngine({ schema: worldSchema, driver });
-      await engine.execute("author", "create", { data: { id: 1, name: "A", age: 1 } });
+      await engine.execute("author", "create", {
+        data: { id: 1, name: "A", age: 1 },
+      });
       let failure: unknown;
       try {
         await engine.execute("author", "delete", { where: { id: 99 } });

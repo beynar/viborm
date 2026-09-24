@@ -5,6 +5,7 @@
  * and sqlite_master, returning a normalized SchemaSnapshot.
  */
 
+import { BATCH_REFS_TABLE } from "@adapters/shared/batch-refs";
 import type {
   ColumnDef,
   ForeignKeyDef,
@@ -174,14 +175,21 @@ export async function introspect(
   // Get all tables. `sql` rides along on the query that was already being made
   // — the reserved decimal constraints are read out of it, and a second live
   // read for them would be a raw-execution call site the architecture census
-  // pins per file.
-  const tablesResult = await executeRaw<SqliteTable>(`
+  // pins per file. The engine's batch reference scratch is not part of the
+  // user's schema: it is TEMP where the transport admits temporary objects and
+  // never appears here, but on D1 it is an ordinary table in `main`, and a
+  // snapshot that carried it would have push and diff plan its drop.
+  const tablesResult = await executeRaw<SqliteTable>(
+    `
     SELECT name, sql
     FROM sqlite_master
     WHERE type = 'table'
       AND name NOT LIKE 'sqlite_%'
+      AND name <> ?
     ORDER BY name
-  `);
+  `,
+    [BATCH_REFS_TABLE]
+  );
 
   const tables: TableDef[] = [];
 

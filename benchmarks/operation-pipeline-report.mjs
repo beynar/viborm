@@ -36,6 +36,20 @@ const FIXED_DECIMAL_LOCK_ENTRIES = Object.freeze([
   "\n  decimal.js@10.6.0: {}\n",
 ]);
 
+/**
+ * The fixed-decimal evidence program is pinned to its own history.
+ *
+ * Its baseline is the exact pre-feature commit
+ * `1d796d4e01841becfbb2f6805668ef11d270aa0e`, and the feature it prices added
+ * `decimal.js@10.6.0` — so the one admitted lockfile delta names that package
+ * and no other. big.js has since replaced decimal.js as the exact decimal
+ * value, and this repository's lockfile carries no decimal.js entry at all:
+ * the program therefore runs only from the checkouts of that era, and a
+ * candidate taken from current HEAD is refused here rather than measured
+ * against a baseline it does not belong to. Re-pointing the delta at big.js
+ * would not repair it — it would price a different change from a baseline
+ * that never contained one.
+ */
 export function isExactFixedDecimalLockDelta(baseline, candidate) {
   if (baseline.includes("decimal.js")) return false;
   let normalizedCandidate = candidate;

@@ -12,6 +12,7 @@
 
 import { decimal, int } from "@schema/scalars";
 import { type InferInput, type InferOutput, parse } from "@validation";
+import { DECIMAL_INPUT_REFUSAL } from "@validation/primitives/decimal-value";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
@@ -29,7 +30,8 @@ describe("decimal update — types", () => {
   test("type: each operation is spellable alone", () => {
     expectTypeOf<{ set: string }>().toExtend<ScalarUpdate>();
     expectTypeOf<{ increment: string }>().toExtend<ScalarUpdate>();
-    expectTypeOf<{ decrement: number }>().toExtend<ScalarUpdate>();
+    expectTypeOf<{ decrement: string }>().toExtend<ScalarUpdate>();
+    expectTypeOf<{ decrement: number }>().not.toExtend<ScalarUpdate>();
     expectTypeOf<{ multiply: string }>().toExtend<ScalarUpdate>();
     expectTypeOf<{ divide: string }>().toExtend<ScalarUpdate>();
   });
@@ -76,7 +78,7 @@ describe("decimal update — exactly one operation", () => {
   test.each([
     ["set", { set: "1.50" }, { set: "1.5" }],
     ["increment", { increment: "0.010" }, { increment: "0.01" }],
-    ["decrement", { decrement: 2 }, { decrement: "2" }],
+    ["decrement", { decrement: "+2" }, { decrement: "2" }],
     ["multiply", { multiply: "1.50" }, { multiply: "1.5" }],
     ["divide", { divide: "2" }, { divide: "2" }],
   ])("accepts %s alone", (_name, payload, expected) => {
@@ -103,6 +105,23 @@ describe("decimal update — exactly one operation", () => {
     ],
   ])("refuses %s", (_name, payload) => {
     expect(parse(update, payload).issues).toBeDefined();
+  });
+
+  test("refuses a number in every arm and in the shorthand", () => {
+    // The keys and arms are unchanged; only the literal narrows to an exact
+    // spelling. A double used to be admitted as `String(n)`.
+    for (const payload of [
+      2,
+      { set: 2 },
+      { increment: 2 },
+      { decrement: 2 },
+      { multiply: 2 },
+      { divide: 2 },
+    ]) {
+      expect(JSON.stringify(parse(update, payload).issues)).toContain(
+        DECIMAL_INPUT_REFUSAL
+      );
+    }
   });
 
   test("refuses an unknown key beside a real one", () => {

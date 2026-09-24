@@ -1,4 +1,3 @@
-import type Decimal from "decimal.js";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -7,13 +6,14 @@ import type {
   ValidationResult,
   VibSchema,
 } from "../types";
+import { type DecimalDescriptor, toDecimal } from "./decimal-codec";
 import {
-  canonicalizeDecimal,
-  canonicalizeDecimalValue,
-  type DecimalDescriptor,
-  describeDescriptorRefusal,
-  toDecimal,
-} from "./decimal-codec";
+  admitDecimal,
+  canonicalDecimalText,
+  DECIMAL_INPUT_REFUSAL,
+  type Decimal,
+  domainRefusal,
+} from "./decimal-value";
 import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
 
 // =============================================================================
@@ -21,15 +21,10 @@ import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
 // =============================================================================
 
 /**
- * What a decimal accepts on the way IN.
- *
- * A `Decimal` is the public value type and the exact one. A `string` is its
- * lossless spelling. A `number` is a convenience: it is accepted, but a JS
- * number is a double, so whatever float error the caller already introduced
- * (`0.1 + 0.2`) travels in with it — we name the double's own shortest exact
- * spelling rather than pretend otherwise, and the field's scale then refuses it.
+ * What a decimal accepts on the way IN: the public value type, or its lossless
+ * spelling. A JavaScript number is a double and is refused.
  */
-export type DecimalInput = Decimal | string | number;
+export type DecimalInput = Decimal | string;
 
 /**
  * What a VALIDATED decimal is inside the engine: the canonical private string.
@@ -57,7 +52,7 @@ export interface DecimalOptions<TSchemaOut = Decimal>
  * A custom `.schema()` REFINES the Decimal the base already built; it does not
  * redefine what the field accepts or what the pipeline emits. So neither
  * computed side may take its types from the schema the way every other scalar's
- * does: input stays `Decimal | string | number`, output stays canonical text.
+ * does: input stays `Decimal | string`, output stays canonical text.
  */
 type DecimalValueOptions<Opts> =
   Opts extends ScalarOptions<any, any, any>
@@ -86,17 +81,13 @@ export interface DecimalSchema<TInput = DecimalInput, TOutput = DecimalOutput>
     | undefined;
 }
 
+/** The FIELD boundary's refusal, in the value module's own words. */
 const DECIMAL_ERROR: ValidationFailure = Object.freeze({
-  issues: Object.freeze([
-    Object.freeze({
-      message:
-        "Expected an exact decimal: a Decimal, a string like '-12.345' (sign, digits, at most one dot, no exponent), or a finite number",
-    }),
-  ]),
+  issues: Object.freeze([Object.freeze({ message: DECIMAL_INPUT_REFUSAL })]),
 });
 
 const DECIMAL_VALUE_ERROR =
-  "Expected a complete bounded finite Decimal.js numerical representation: a custom decimal schema may refine or brand the value it is given, but not return a string, number, tag-only or incomplete decimal-like object, NaN, or infinity";
+  "Expected a Decimal: a custom decimal schema may refine or brand the value it is given, but not return a string, a number, or a value of any other type";
 
 /**
  * Validate a decimal and NORMALIZE it to its canonical string in one step, so
@@ -104,7 +95,7 @@ const DECIMAL_VALUE_ERROR =
  * spelling.
  */
 function validateDecimal(value: unknown): ValidationResult<string> {
-  const canonical = canonicalizeDecimal(value);
+  const canonical = admitDecimal(value);
   return canonical === undefined ? DECIMAL_ERROR : ok(canonical);
 }
 
@@ -141,7 +132,10 @@ function buildDecimalValueValidator(
       if (refined.issues) {
         return standardSchemaFailure(refined.issues);
       }
-      const canonical = canonicalizeDecimalValue(refined.value);
+      // The return position admits only a Decimal: a string, a number or a
+      // decimal-shaped object the constructor never built is a different
+      // value family, so the brand reader alone answers here.
+      const canonical = canonicalDecimalText(refined.value);
       return canonical === undefined
         ? fail(DECIMAL_VALUE_ERROR)
         : ok(canonical);
@@ -153,7 +147,11 @@ function buildDecimalValueValidator(
     validate = (value) => {
       const parsed = base(value);
       if (parsed.issues) return parsed;
-      const refusal = describeDescriptorRefusal(parsed.value, descriptor);
+      const refusal = domainRefusal(
+        parsed.value,
+        descriptor.precision,
+        descriptor.scale
+      );
       return refusal === undefined ? parsed : fail(refusal);
     };
   }

@@ -16,6 +16,7 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/engine/query/bind-budget.core.test.ts",
   "tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts",
   "tests/contracts/engine/query/cache-result-codec-boundaries.core.test.ts",
+  "tests/contracts/engine/query/identifier-storage-sql.core.test.ts",
   "tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts",
   "tests/contracts/engine/query/default-insert-sql.core.test.ts",
   "tests/contracts/engine/query/field-reference-sql.core.test.ts",

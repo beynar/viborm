@@ -28,8 +28,9 @@ decimal native-type override.
 
 ## Inputs and results
 
-Writes accept `Decimal | string | number`. They do not accept `bigint`.
-Selected values are fresh `Decimal` instances:
+Writes accept `Decimal | string`. They do not accept a JavaScript `number`,
+which is a double rather than an exact decimal, or a `bigint`. Selected values
+are fresh `Decimal` instances:
 
 ```ts
 await db.invoice.create({
@@ -43,47 +44,32 @@ invoice.total.toNumber(); // explicit, potentially lossy conversion
 ```
 
 Strings use plain decimal notation: an optional sign, digits, and at most one
-decimal point. Whitespace, exponent notation, `NaN`, and infinity are refused.
-A `Decimal` constructed from exponent notation is accepted when its expanded
-exact value fits the descriptor.
+decimal point. Whitespace, exponent notation, `NaN`, and infinity are refused,
+by the field and by the `Decimal` constructor alike.
 
 ```ts
 "1234.56"; // accepted for { precision: 10, scale: 2 }
 "+001.20"; // accepted and canonicalized privately to "1.2"
-"1e3"; // rejected as a string
-new Decimal("1e3"); // accepted when 1000 fits
+"1e3"; // rejected
+1.5; // rejected: a JavaScript number is a double, not an exact decimal
 ```
 
-A JavaScript number is only a convenience. VibORM validates `String(number)`;
-it cannot recover digits already lost to binary floating point and never
-rounds the number into the field:
-
-```ts
-await db.invoice.create({
-  data: { total: 0.1 + 0.2 },
-});
-// Rejected by a scale-2 field: the value supplied is
-// "0.30000000000000004", not exact 0.30.
-```
-
-Keep audited input as a string or `Decimal` end to end.
+The `Decimal` constructor takes the same strings, another `Decimal`, or a whole
+`bigint` (`new Decimal(5n)` is `5`). Its arithmetic and comparison methods take
+the same arguments, so `total.plus("0.44")`, never `total.plus(0.44)`.
 
 ### Equality in tests
 
-Compare decimal values with `.eq()`, `.cmp()`, or another Decimal.js comparison
-method. Do not use `===`: every selected scalar and list member is a fresh value.
+Compare decimal values with `.eq()`, `.cmp()`, `.lt()` and the rest. Do not use
+`===`: every selected scalar and list member is a fresh value.
 
 VibORM constructs results with the one `Decimal` constructor exported from
 `viborm`. A returned value therefore satisfies both `instanceof Decimal` and
-`value.constructor === Decimal`. Result construction temporarily isolates only
-the constructor's exponent range, so a narrow application `minE` or `maxE`
-cannot turn a stored exact value into zero or infinity. The previous range is
-restored before the value is returned. Application arithmetic then uses the
-complete current `Decimal` configuration, while built-in field-domain
-validation, SQL, storage, cache identity, migrations, result decoding, and
-database rounding remain configuration-independent.
+`value.constructor === Decimal`. The class has no configuration at all — no
+statics, nothing an application can set — so there is nothing that could turn a
+stored exact value into something else, in either direction.
 
-Use Decimal.js comparison methods for the semantic assertion:
+Use those comparison methods for the semantic assertion:
 
 ```ts
 expect(row.total.eq(new Decimal("1.2"))).toBe(true);
@@ -91,17 +77,21 @@ expect(row.total.constructor).toBe(Decimal);
 ```
 
 `Decimal#toJSON()` returns a string for ordinary application JSON. VibORM does
-not depend on JSON or structured cloning to preserve a Decimal prototype.
+not depend on JSON or structured cloning to preserve a Decimal prototype — and
+a `Decimal` is not structured-cloneable, because its state is private: send
+`value.toString()` across a worker or a `structuredClone`-based boundary and
+rebuild the value on the other side.
 
 ## Custom validation
 
 `.schema()` observes a `Decimal`, not the private canonical text. It may refine
-that value or return another complete, bounded, finite Decimal.js numerical
-representation. Decimal.js has no unforgeable constructor-history witness, so
-VibORM validates and snapshots the observable numerical representation instead
-of claiming historical provenance. The field descriptor is validated last, so
-a custom schema cannot return a string, number, tag-only, incomplete, or
-malformed representation, NaN, infinity, or a value outside the field domain.
+that value, brand it, or return another `Decimal` — including an instance of a
+subclass. A `Decimal` carries its state in a private field that only the
+constructor installs, so VibORM asks whether the value WAS constructed rather
+than inspecting what it looks like: `Object.create(Decimal.prototype)` passes
+`instanceof` and is refused. The field descriptor is validated last, so a custom
+schema cannot return a string, a number, a value of any other type, or a value
+outside the field domain.
 
 ```ts
 import { Decimal, s } from "viborm";
@@ -109,7 +99,7 @@ import { custom } from "valibot";
 
 const positiveAmount = s
   .decimal({ precision: 10, scale: 2 })
-  .schema(custom<Decimal>((value) => value.isPositive()));
+  .schema(custom<Decimal>((value) => value.gt("0")));
 ```
 
 A literal `.default(...)` runs this validation and transformation once when the
@@ -229,10 +219,11 @@ Cache snapshots, operation identity, cursors, and relation keys use canonical
 private strings. Every cache hit reconstructs fresh public `Decimal` instances;
 the cache never clones a Decimal prototype.
 
-Decimal.js configuration can affect custom `.schema()` code and arithmetic your
-application performs on returned values. It cannot change VibORM's built-in
-field-domain validation, SQL, storage, cache identity, migrations, result
-decoding, or half-even database arithmetic.
+There is no configuration to get wrong: the value type has no statics, so
+nothing an application sets can reach field-domain validation, SQL, storage,
+cache identity, migrations, result decoding, or half-even database arithmetic —
+and nothing can reach the arithmetic your application performs either. `div`
+takes its fraction digits and its rounding as arguments.
 
 ## Descriptor migrations
 

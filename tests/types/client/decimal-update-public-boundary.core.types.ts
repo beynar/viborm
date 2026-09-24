@@ -3,6 +3,7 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
 import { createClient, Decimal } from "@src/index";
+import type { Prettify } from "@validation/types";
 import { describe, expectTypeOf, test } from "vitest";
 
 const invoice = s.model({
@@ -164,5 +165,25 @@ describe("public decimal update payload", () => {
     expectTypeOf(_legalConditionalDecimalUpdate).toBeFunction();
     expectTypeOf(_legalDecimalSpellings).toBeFunction();
     expectTypeOf(_nonDecimalUnknownBesideRealStillCompiles).toBeFunction();
+  });
+});
+
+describe("the published decimal survives the result mapped type", () => {
+  // Every client result leaf is mapped through `Prettify`, which short-circuits
+  // on `Date` and on NOTHING else — there is no `Decimal` arm and there is not
+  // meant to be one. A decimal survives because `decimal-value.ts` publishes an
+  // INTERFACE beside the const holding the class: a class's instance type
+  // carries its private field, a mapped type drops private fields, and a
+  // structural twin of a `Decimal` would not be a `Decimal`. If the class ever
+  // became the published TYPE, these two assignments are where it stops
+  // compiling — before a user's `const total: Decimal = row.amount` does.
+  const _prettifiedIsStillADecimal = (value: Prettify<Decimal>): Decimal =>
+    value;
+  const _decimalIsStillPrettifiable = (value: Decimal): Prettify<Decimal> =>
+    value;
+
+  test("the mapped leaf and the published type are the same type", () => {
+    expectTypeOf(_prettifiedIsStillADecimal).toBeFunction();
+    expectTypeOf(_decimalIsStillPrettifiable).toBeFunction();
   });
 });

@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { inferred } from "./inferred";
 import type { JsonSchemaConverter } from "./json-schema/types";
 import type { ArgsSchemas, ModelSchemas, ScalarSchemas } from "./model";
+import type { IdDomain } from "./primitives/id-codec";
 
 // =============================================================================
 // Core Type Utilities
@@ -19,6 +20,16 @@ export type Simplify<T> = { [K in keyof T]: T[K] } & {};
  * Prettify forces TypeScript to fully evaluate the type.
  * Recursively prettifies nested objects for cleaner type display.
  * Use sparingly - mapped types are expensive!
+ *
+ * `Date` is the one VALUE type short-circuited here: mapping it would expand
+ * every member onto a fresh object type for no reader's benefit. The other
+ * value type a result leaf can carry, `Decimal`, needs no arm of its own and
+ * deliberately has none — `decimal-value.ts` publishes it as an INTERFACE
+ * beside a const holding the class, so the published instance type carries no
+ * private field for the mapped type below to drop and a selected decimal stays
+ * assignable to `Decimal`. A probe in
+ * `tests/types/client/decimal-update-public-boundary.core.types.ts` is where
+ * that stops compiling if the class ever becomes the published type.
  */
 export type Prettify<T> = T extends (...args: any[]) => any
   ? T // Preserve functions as-is
@@ -100,6 +111,18 @@ export interface ScalarOptions<T, TOut = T, TSchemaOut = TOut> {
   default?: any | (() => any) | undefined;
   /** Internal create-input guard used by portable auto-increment scalars. */
   disallowZero?: boolean;
+  /**
+   * The identifier domain this value must belong to, for a string scalar that
+   * declares or derives one.
+   *
+   * Internal, like `disallowZero`: it is not a schema option a caller spells,
+   * it is the declaration the field already carries, threaded here so that ONE
+   * validator admits and normalizes — create, update, filter operand, cursor,
+   * unique selector and every nested-write key alike. Normalization happens
+   * BEFORE the custom `.schema()` and before anything identity-sensitive, so a
+   * `Usr-AB…` and a `usr-ab…` cannot become two cache keys for one row.
+   */
+  idDomain?: IdDomain | undefined;
   /** Transform function applied AFTER schema validation */
   transform?: ((value: TSchemaOut) => TOut) | undefined;
   /** Additional StandardSchema for extra validation. Its output flows to transform. */

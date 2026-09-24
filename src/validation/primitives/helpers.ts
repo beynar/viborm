@@ -10,6 +10,7 @@ import type {
   VibSchema,
 } from "../types";
 import { isFunction } from "../value-guards";
+import { canonicalizeId, describeIdDomain, type IdDomain } from "./id-codec";
 
 // =============================================================================
 // Core Validation Primitives
@@ -153,6 +154,26 @@ function describeDefaultFailure(error: unknown): string {
 // Optimized Validator Builder (Set Theory + Composition)
 // =============================================================================
 
+/** `next` on the value `prev` admitted; `prev`'s issues otherwise. */
+function thenValidate(
+  prev: ValidatorFn<unknown>,
+  next: ValidatorFn<unknown>
+): ValidatorFn<unknown> {
+  return (value) => {
+    const result = prev(value);
+    return result.issues ? result : next(result.value);
+  };
+}
+
+/** The canonical member of `domain`, or its "Expected <domain>" refusal. */
+function idDomainAdmission(domain: IdDomain): ValidatorFn<string> {
+  const expected = `Expected ${describeIdDomain(domain)}`;
+  return (value) => {
+    const canonical = canonicalizeId(value, domain);
+    return canonical === undefined ? fail(expected) : ok(canonical);
+  };
+}
+
 /**
  * Build an optimized validator at schema creation time.
  * Uses set theory approach for nullable/optional/array/default combinations.
@@ -179,12 +200,12 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
     transform,
     schema,
     disallowZero,
+    idDomain,
   } = options;
 
   // Check what we have
   const hasDefault = defaultVal !== undefined;
   const hasTransform = transform !== undefined;
-  const hasSchema = schema !== undefined;
 
   // Build the core validator (base + schema + transform chain)
   let validate: ValidatorFn<any> = baseValidate;
@@ -204,19 +225,36 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
     };
   }
 
+  // The identifier domain is the first AND the last word on the value.
+  // First, before the custom schema and the transform: a `.schema()` a caller
+  // attached to a `.uuid()` field reads the canonical spelling. Last, after
+  // that schema: its output is the caller's code — a Standard Schema may
+  // return any string — so it crosses the domain again, where an alias it
+  // returns folds and a value outside the domain is refused with the same
+  // "Expected <domain>" an input gets, at admission rather than at the
+  // binding. Every identity-sensitive consumer downstream — cache key,
+  // captured row key, `fkEquals` — reads the one spelling that leaves, and
+  // `canonicalizeId` is the only place an alias is folded. A transform never
+  // meets a domain: `scalars/string.ts` is the one caller that passes
+  // `idDomain`, and a field state carries no transform.
+  const admitIdDomain =
+    idDomain === undefined ? undefined : idDomainAdmission(idDomain);
+  if (admitIdDomain) validate = thenValidate(validate, admitIdDomain);
+
   // Chain custom schema validation (if any)
 
-  if (hasSchema) {
-    const schemaValidate = schema!["~standard"].validate;
+  if (schema !== undefined) {
+    const schemaValidate = schema["~standard"].validate;
     const prev = validate;
     validate = (v): ValidationResult<any> => {
       const r = prev(v);
       if (r.issues) return r;
-      const sr = schemaValidate((r as { value: any }).value);
+      const sr = schemaValidate(r.value);
       if ("then" in sr) return fail("Async schemas are not supported");
       if (sr.issues) return standardSchemaFailure(sr.issues);
-      return ok((sr as { value: any }).value);
+      return ok(sr.value);
     };
+    if (admitIdDomain) validate = thenValidate(validate, admitIdDomain);
   }
 
   // Chain transform (if any)

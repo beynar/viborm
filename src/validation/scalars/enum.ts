@@ -3,6 +3,14 @@ import type { EnumSchema, EnumValues } from "@validation/primitives/enum";
 import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
 import {
+  buildSetUpdate,
+  type ListFilterSchema,
+  type ListUpdateSchema,
+  listFilterFamily,
+  listUpdateFamily,
+  type SetUpdateSchema,
+} from "./family";
+import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
 } from "./negatable-filter";
@@ -40,50 +48,21 @@ type EnumFilterSchema<
   C extends V.Operand<any>,
 > = NegatableFilterSchema<EnumOperand<S, C>, EnumFilterBase<S, Values, C>>;
 
-type EnumListFilterBase<S extends V.Schema, Values extends string[]> = {
-  equals: S;
-  has: V.Enum<Values>;
-  hasEvery: V.Enum<Values, { array: true }>;
-  hasSome: V.Enum<Values, { array: true }>;
-  isEmpty: V.Boolean;
-};
-
+/**
+ * The list arms are the shared family, built PER FIELD: an enum's member and
+ * list schemas are a function of that field's declared values, so unlike every
+ * other kind there is no module-level pair to close over — and, for the same
+ * reason, no interning (a key would have to carry the whole value list).
+ */
 type EnumListFilterSchema<
   S extends V.Schema,
   Values extends string[],
-> = NegatableFilterSchema<S, EnumListFilterBase<S, Values>>;
-
-// =============================================================================
-// UPDATE TYPES
-// =============================================================================
-
-type EnumUpdateSchema<S extends V.Schema> = V.Union<
-  readonly [V.ShorthandUpdate<S>, V.Object<{ set: S }, { partial: false }>]
->;
+> = ListFilterSchema<S, V.Enum<Values>, V.Enum<Values, { array: true }>>;
 
 type EnumListUpdateSchema<
   S extends V.Schema,
   Values extends string[],
-> = V.Union<
-  readonly [
-    V.ShorthandUpdate<S>,
-    V.Object<{
-      set: S;
-      push: V.Union<
-        readonly [
-          V.ShorthandArray<V.Enum<Values>>,
-          V.Enum<Values, { array: true }>,
-        ]
-      >;
-      unshift: V.Union<
-        readonly [
-          V.ShorthandArray<V.Enum<Values>>,
-          V.Enum<Values, { array: true }>,
-        ]
-      >;
-    }>,
-  ]
->;
+> = ListUpdateSchema<S, V.Enum<Values>, V.Enum<Values, { array: true }>>;
 
 // =============================================================================
 // SCHEMA BUILDERS
@@ -138,53 +117,14 @@ const buildEnumFilterSchema = <
 const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
   schema: S,
   values: Values
-): EnumListFilterSchema<S, Values> => {
-  const base = enumBase(values);
-  const list = enumList(values);
-  const enumListFilterBase = v.object({
-    has: base,
-    hasEvery: list,
-    hasSome: list,
-    isEmpty: v.boolean(),
-  });
-
-  const filter = enumListFilterBase.extend({
-    equals: schema,
-  });
-  return buildNegatableFilterSchema<S, EnumListFilterBase<S, Values>>(
-    filter,
-    schema
-  );
-};
-
-const buildEnumUpdateSchema = <S extends V.Schema>(
-  schema: S
-): EnumUpdateSchema<S> =>
-  v.union([
-    v.shorthandUpdate(schema),
-    v.object(
-      {
-        set: schema,
-      },
-      { partial: false }
-    ),
-  ]);
+): EnumListFilterSchema<S, Values> =>
+  listFilterFamily(enumBase(values), enumList(values))(schema);
 
 const buildEnumListUpdateSchema = <S extends V.Schema, Values extends string[]>(
   schema: S,
   values: Values
-): EnumListUpdateSchema<S, Values> => {
-  const base = enumBase(values);
-  const list = enumList(values);
-  return v.union([
-    v.shorthandUpdate(schema),
-    v.object({
-      set: schema,
-      push: v.union([v.shorthandArray(base), list]),
-      unshift: v.union([v.shorthandArray(base), list]),
-    }),
-  ]);
-};
+): EnumListUpdateSchema<S, Values> =>
+  listUpdateFamily(enumBase(values), enumList(values))(schema);
 
 // =============================================================================
 // ENUM SCHEMA BUILDER
@@ -199,7 +139,7 @@ export interface EnumSchemas<
   create: V.Enum<Values, F>;
   update: F["array"] extends true
     ? EnumListUpdateSchema<F["base"], Values>
-    : EnumUpdateSchema<F["base"]>;
+    : SetUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? EnumListFilterSchema<F["base"], Values>
     : EnumFilterSchema<F["base"], Values, C>;
@@ -218,7 +158,7 @@ export const buildEnumSchema = <
     update: () =>
       (state.array
         ? buildEnumListUpdateSchema(state.base, values)
-        : buildEnumUpdateSchema(state.base)) as never,
+        : buildSetUpdate(state.base)) as never,
     filter: () =>
       (state.array
         ? buildEnumListFilterSchema(state.base, values)

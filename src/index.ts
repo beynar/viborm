@@ -24,15 +24,6 @@
 // CLIENT
 // =============================================================================
 
-// The exact decimal VALUE type. `s.decimal({ precision, scale })` reads back as
-// one of these and accepts one on the way in, so application arithmetic is
-// ordinary `.plus()` / `.minus()` / `.eq()` on the library's own value object.
-// This is decimal.js's ONE constructor, re-exported rather than wrapped: VibORM
-// owns the database domain (precision, scale, overflow, SQL rounding, physical
-// representation) and decimal.js owns the value. Configuring it with
-// `Decimal.set(...)` governs only the arithmetic the application performs —
-// VibORM's own SQL, encoding, identity, and validation never consult it.
-export { default as Decimal } from "decimal.js";
 export type {
   ExtendedClient,
   VibORMClient,
@@ -95,6 +86,15 @@ export type {
   InputJsonValue,
   JsonValue,
 } from "./validation/index.js";
+// The exact decimal VALUE type. `s.decimal({ precision, scale })` reads back as
+// one of these and accepts one on the way in, so application arithmetic is
+// ordinary `.plus()` / `.minus()` / `.eq()` on the library's own value object.
+// It is VibORM's own class over a `BigInt` coefficient and a scale, and it has
+// no configuration at all — no statics, nothing an application can set — so
+// nothing an application does can move an answer in either direction, and
+// `toString()` never emits exponent notation. `div` takes its decimal places
+// and its rounding as arguments instead.
+export { Decimal } from "./validation/primitives/decimal-value.js";
 
 // =============================================================================
 // RAW SQL

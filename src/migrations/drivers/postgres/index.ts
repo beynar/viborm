@@ -1,3 +1,5 @@
+import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
+import type { IdDomain } from "@validation/primitives/id-codec";
 /**
  * PostgreSQL Migration Driver
  *
@@ -6,6 +8,7 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { hasIdPrefix } from "@validation/primitives/id-formats";
 import { errorCause } from "../../../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
@@ -14,6 +17,10 @@ import {
   decimalConversionRequired,
   postgresDecimalFitsCheck,
 } from "../../decimal";
+import {
+  isPostgresTextToUuid,
+  postgresTextToUuidGuard,
+} from "../../identifier-conversion";
 import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
 import {
   type AddColumnOperation,
@@ -384,8 +391,22 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // TYPE MAPPING
   // ===========================================================================
 
-  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+  mapScalarType(
+    scalar: Scalar,
+    scalarState: ScalarState,
+    idDomain?: IdDomain
+  ): string {
     const nativeType = scalar["~"].nativeType;
+
+    // An identifier column's type is the ONE storage owner's answer, override
+    // included — which is also why the override is not read separately here: a
+    // spelling this domain cannot live in was refused at the schema boundary,
+    // and a text-family one keeps text storage with the domain still admitted.
+    const idStorage =
+      idDomain === undefined
+        ? undefined
+        : idStorageOf(idDomain, nativeType, "pg");
+    if (idStorage) return idStorage.columnType;
 
     // If a native type is specified and it's for PostgreSQL, use it
     if (nativeType && nativeType.db === "pg") {
@@ -415,21 +436,49 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // PostgreSQL uses "true"/"false" for booleans which is the base default
 
   /**
-   * PostgreSQL supports native UUID generation via gen_random_uuid().
-   * This is more efficient than generating UUIDs at the application level.
+   * The only generator PostgreSQL can run itself.
+   *
+   * `gen_random_uuid()` (PostgreSQL 13+) produces exactly what `.uuid()`
+   * produces — but ONLY when no prefix is declared: a prefixed field's public
+   * value is `prefix-payload`, and a column default that wrote the bare payload
+   * would disagree with every row the application inserts. No other format has
+   * a server-side equivalent: `uuidv7()` arrives in PostgreSQL 18, and ULID,
+   * KSUID, NanoID and CUID2 have none at all, so those fields carry no DDL
+   * default and the application's own generator remains their single owner.
    */
+  override getDefaultExpression(
+    scalar: Scalar,
+    scalarState: ScalarState
+  ): string | undefined {
+    // `gen_random_uuid()` produces a `uuid`, so a column that does not hold one
+    // cannot take it as a default. A `.uuid()` field whose native type override
+    // makes it `bytea` is exactly that column: the value would be a type error
+    // at DDL time, and the application generator is already its single owner.
+    const idDomain = idDomainOfState(scalarState);
+    if (
+      idDomain !== undefined &&
+      idStorageOf(idDomain, scalar["~"].nativeType, "pg")?.representation ===
+        "bytes"
+    ) {
+      return undefined;
+    }
+    return super.getDefaultExpression(scalar, scalarState);
+  }
+
   protected override getAutoGenerateExpression(
     autoGenerate: import("@schema/scalars").ScalarState["autoGenerate"]
   ): string | undefined {
     switch (autoGenerate?.kind) {
       case "uuid":
-        // gen_random_uuid() is available in PostgreSQL 13+ (pgcrypto extension in older versions)
-        return "gen_random_uuid()";
+        // `.id()`'s implicit ULID never reaches here (its kind is `ulid`), and
+        // a NAMED `.uuid()` gets the database default only unprefixed.
+        return hasIdPrefix(autoGenerate.prefix)
+          ? undefined
+          : "gen_random_uuid()";
       case "now":
         // Use database-level NOW() for consistent timestamps
         return "NOW()";
       default:
-        // Other types (ulid, nanoid, cuid, increment, updatedAt) handled elsewhere
         return undefined;
     }
   }
@@ -676,6 +725,14 @@ export class PostgresMigrationDriver extends MigrationDriver {
       // is qualified here too — in BOTH positions, since the `USING` cast names
       // the same type the column is being changed to.
       const newType = this.renderTypeToken(to.type, context);
+      // text → uuid is the ONE identifier conversion a dialect performs on its
+      // own, and the only one whose failure is per-row rather than structural.
+      // The guard changes no outcome — the cast below refuses the same estate —
+      // it replaces "invalid input syntax for type uuid" with the count and the
+      // two routes, before the transaction is spent.
+      if (isPostgresTextToUuid(from.type, newType)) {
+        statements.push(postgresTextToUuidGuard(table, col));
+      }
       statements.push(
         `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE ${newType} USING ${col}::${newType}`
       );

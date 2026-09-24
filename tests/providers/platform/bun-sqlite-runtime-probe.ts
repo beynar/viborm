@@ -19,8 +19,8 @@ import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { ForeignKeyError } from "@errors";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import Decimal from "decimal.js";
 
 const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
 const PAST_DOUBLE = "99999999999999.99";
@@ -54,6 +54,30 @@ const reading = s
       .references("id"),
   })
   .map("bun_sqlite_runtime_readings");
+
+/**
+ * The native identifier, on Bun's own SQLite. The generator is VibORM's — no
+ * identifier package is installed any more — and the column it writes into is a
+ * 16-byte BLOB, so this covers the generation, the parameter binding, the
+ * projection and the decode on a runtime vitest cannot even load.
+ */
+const idEvidence = s
+  .model({
+    id: s.string().id().ulid(),
+    label: s.string(),
+    marks: s.toMany(() => idMark),
+  })
+  .map("bun_sqlite_runtime_ids");
+const idMark = s
+  .model({
+    id: s.string().id().uuid("mk"),
+    ownerId: s.string(),
+    owner: s
+      .toOne(() => idEvidence)
+      .fields("ownerId")
+      .references("id"),
+  })
+  .map("bun_sqlite_runtime_id_marks");
 
 const geoPlace = s
   .model({
@@ -124,6 +148,8 @@ const client = createClient({
     geoRoute,
     geoStop,
     geoVideo,
+    idEvidence,
+    idMark,
     measurement,
     reading,
   },
@@ -517,6 +543,49 @@ assert(
   "GeoPoint raw boundaries did not retain physical JSON text"
 );
 
+// 14. The native identifier: generated here, stored compactly, and read back
+//     through the same public string whichever spelling addressed it.
+const CANONICAL_ULID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+const generated = await client.idEvidence.create({ data: { label: "first" } });
+assert(
+  CANONICAL_ULID.test(generated.id),
+  `generated identifier was ${generated.id}, expected a canonical ULID`
+);
+const mark = await client.idMark.create({
+  data: { owner: { connect: { id: generated.id } } },
+});
+assert(
+  mark.id.startsWith("mk-") && mark.ownerId === generated.id,
+  `generated prefixed uuid was ${mark.id} for owner ${mark.ownerId}`
+);
+const byAlias = await client.idEvidence.findUnique({
+  where: { id: generated.id.toLowerCase() },
+  include: { marks: true },
+});
+assert(
+  byAlias?.id === generated.id && byAlias.marks[0]?.id === mark.id,
+  "a lowercase ULID did not address the row its canonical spelling does"
+);
+// `$queryRaw` opts this driver into safeIntegers, so `length()` answers a
+// bigint here and 16 alone would never equal it.
+const storedId = await client.$queryRaw<{
+  t: string;
+  n: number | bigint;
+}>`SELECT typeof(id) AS t, length(id) AS n FROM bun_sqlite_runtime_ids`;
+assert(
+  storedId[0]?.t === "blob" && Number(storedId[0]?.n) === 16,
+  `stored identifier was ${storedId[0]?.t} of ${storedId[0]?.n} bytes, expected a 16-byte blob`
+);
+const storedFk = await client.$queryRaw<{
+  t: string;
+  n: number | bigint;
+}>`SELECT typeof(ownerId) AS t, length(ownerId) AS n FROM bun_sqlite_runtime_id_marks`;
+assert(
+  storedFk[0]?.t === "blob" && Number(storedFk[0]?.n) === 16,
+  `the derived foreign key was ${storedFk[0]?.t} of ${storedFk[0]?.n} bytes`
+);
+
 console.log("fixed-decimal evidence passed");
+console.log("native identifier evidence passed");
 
 await client.$disconnect();

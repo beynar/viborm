@@ -112,13 +112,13 @@ containing member writes. If reached inside a progressive root bulk call, earlie
 root members can already be committed and are reported.
 
 With `skipDuplicates`, a row that may need root-conflict suppression is one
-subtree. A transaction uses a savepoint. A batch-only route isolates the root
-write, observes whether it skipped, and dispatches descendants only when it
-inserted. A member with an earlier write before that skippable root is refused
-pre-effect, as is one with an earlier nested record series, because skipping the
-root would strand the earlier effect. A
-many-to-many row whose flag is vacuous drops it, and one exact selector can use
-adopt-and-link; neither route needs root suppression.
+subtree, and a transaction suppresses it inside a savepoint. A many-to-many row
+whose flag is vacuous drops it, and one exact selector can use adopt-and-link.
+A batch-only driver has no savepoint, so there a `createMany` with
+`skipDuplicates` that is relation-bearing or nested under another write runs
+without `skipDuplicates` and warns once per client and model: a duplicate fails
+with `UniqueConstraintError`. A root scalar `createMany` with `skipDuplicates`
+is unaffected.
 
 Explicit `$transaction([...])` arrays remain one indivisible batch. They do not
 use this ordered progressive fallback.
@@ -266,7 +266,7 @@ The two spellings are told apart structurally: an object with a `data` key
   envelope's `data`.
 :::
 
-A fixed-decimal field takes a bare `Decimal | string | number` or an object with
+A fixed-decimal field takes a bare `Decimal | string` or an object with
 exactly one of `set`, `increment`, `decrement`, `multiply`, or `divide`. Nested
 writes use the same schema: an empty or multi-operation decimal bag is refused
 before the relation write starts.

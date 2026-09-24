@@ -182,8 +182,9 @@ export const getCoreSchemas = <M extends AnyModel, F extends ScalarSchemas<M>>(
     scalarFilter: () => getScalarFilter<M, F>(fieldSchemas),
     uniqueFilter: () => getUniqueFilter(model, fieldSchemas),
     relationFilter: () => getRelationFilter<M, F>(fieldSchemas),
-    compoundIdFilter: () => getCompoundIdFilter(model),
-    compoundConstraintFilter: () => getCompoundConstraintFilter(model),
+    compoundIdFilter: () => getCompoundIdFilter(model, fieldSchemas),
+    compoundConstraintFilter: () =>
+      getCompoundConstraintFilter(model, fieldSchemas),
     scalarCreate: () => getScalarCreate(model, fieldSchemas),
     bulkCreate: () => getBulkCreate(model, fieldSchemas, slots),
     relationCreate: () => getRelationCreate<M, F>(fieldSchemas),

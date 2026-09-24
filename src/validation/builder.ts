@@ -14,6 +14,7 @@ import type { AnyModel, Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 import type { RelationState } from "@schema/relation/types";
 import { resolveSchemaOrThrow } from "@schema/validation";
+import { idDomainsOf } from "@schema/validation/id-domains";
 import type {
   ResolvedRelationIndex,
   ResolvedSlot,
@@ -86,7 +87,13 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
   private readonly buildModelSchemas = (
     model: AnyModel
   ): ModelSchemas<AnyModel> => {
-    const scalars = getScalarsSchemas(model);
+    // The identifier domains a foreign-key member DERIVES, from the same
+    // resolved index the registry already threads. A field that declares its
+    // own reads it from the declaration; this is only the inheritance.
+    const scalars = getScalarsSchemas(
+      model,
+      idDomainsOf(this.index).get(model)
+    );
     // `createResolvedSchemaRegistry` accepts the index resolved for this exact
     // schema. Every registered model therefore has one slot map, including an
     // empty map for a model with no relations.

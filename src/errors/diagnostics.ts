@@ -153,9 +153,10 @@ const ERROR_META_KEYS = new Set([
   "timeout",
   "type",
 ]);
-// `deprecation` carries ORM-authored constant notice text (never user data or
-// query text), so it is disclosed on the warning channel unconditionally.
-const LOG_META_KEYS = new Set(["deprecation", "event", "status"]);
+// `deprecation` and `notice` carry ORM-authored notice text (constant wording
+// around schema and driver names, never user data or query text), so they are
+// disclosed on the warning channel unconditionally.
+const LOG_META_KEYS = new Set(["deprecation", "event", "notice", "status"]);
 const STRING_META_KEYS = new Set([
   "actualChecksum",
   "clientTarget",
@@ -180,6 +181,7 @@ const STRING_META_KEYS = new Set([
   "migrationsDir",
   "model",
   "namespace",
+  "notice",
   "operation",
   "referencedTable",
   "relation",

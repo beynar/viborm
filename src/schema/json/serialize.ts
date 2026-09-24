@@ -34,7 +34,11 @@ import type {
 } from "@schema/relation/types";
 import { isVariantRelationState } from "@schema/relation/types";
 import type { Scalar } from "@schema/scalars/base";
-import { isGeneratorDefault, type ScalarState } from "@schema/scalars/common";
+import {
+  type AutoGenerate,
+  isGeneratorDefault,
+  type ScalarState,
+} from "@schema/scalars/common";
 import type { JsonValue } from "@validation/primitives/json";
 import type { ObjectSchema } from "@validation/primitives/object";
 import { isFunction } from "@validation/value-guards";
@@ -44,6 +48,7 @@ import type {
   CompoundKeyDocument,
   EnumDocument,
   FieldDocument,
+  GenerateDocument,
   IndexDocument,
   JunctionDocument,
   ModelDocument,
@@ -309,13 +314,7 @@ function serializeScalar(
     if (document.type === "point") {
       refusePointState(path, "generate", issues);
     } else {
-      document.generate = { kind: state.autoGenerate.kind };
-      if (state.autoGenerate.prefix !== undefined) {
-        document.generate.prefix = state.autoGenerate.prefix;
-      }
-      if (state.autoGenerate.length !== undefined) {
-        document.generate.length = state.autoGenerate.length;
-      }
+      writeGenerate(document, state.autoGenerate);
     }
   }
   if (state.schema !== undefined) {
@@ -475,7 +474,7 @@ function serializeFunctionDefault(
     issues,
     pointer(path, "default"),
     "J009",
-    "This field carries a function default, which the document cannot hold. Use one of the seven `generate` kinds, a literal default, or a database default through `native`"
+    "This field carries a function default, which the document cannot hold. Use one of the nine `generate` kinds, a literal default, or a database default through `native`"
   );
   return;
 }
@@ -627,4 +626,27 @@ function readTarget(getter: Getter, path: string): unknown {
     );
     throw refuseDocument(issue, toError(thrown));
   }
+}
+
+/**
+ * Restate a generator DECLARATION.
+ *
+ * The implicit ULID `.id()` installs is not a declaration of its own: `id:
+ * true` already says everything the caller spelled, and emitting `generate`
+ * for it would be read back as a NAMED `.ulid()` — a validated domain in a
+ * compact column, which is a different field. The one thing `id: true` cannot
+ * carry is the prefix of `.id(prefix)`, so that single case emits the node and
+ * marks it `implicit` to keep it a key.
+ */
+function writeGenerate(
+  document: { generate?: GenerateDocument },
+  autoGenerate: AutoGenerate
+): void {
+  const implicit = autoGenerate.implicit === true;
+  if (implicit && autoGenerate.prefix === undefined) return;
+  const generate: GenerateDocument = { kind: autoGenerate.kind };
+  if (autoGenerate.prefix !== undefined) generate.prefix = autoGenerate.prefix;
+  if (autoGenerate.length !== undefined) generate.length = autoGenerate.length;
+  if (implicit) generate.implicit = true;
+  document.generate = generate;
 }

@@ -31,7 +31,12 @@ export const REJECTED_DECIMAL_MODE_MEMBERS = [
 
 export const DECIMAL_FLOAT_TRANSPORT_EXEMPTIONS = [
   "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
-  "src/validation/primitives/decimal-codec.ts expandExponentForm Number(exponentText)",
+  // `toNumber()` is the value type's documented float boundary: an application
+  // asking for a double gets the double its canonical text names, and nothing
+  // in VibORM calls it. The conversion is the method's entire purpose, so the
+  // detector flags exactly the call the API promises. Exempted by exact
+  // spelling: a second Number() anywhere in that module still counts.
+  "src/validation/primitives/decimal-value.ts  Number(this.toString())",
   // An SRID is a spatial reference IDENTIFIER (4326 and friends), an unsigned
   // 32-bit integer rather than a quantity: readSrid bounds it with
   // Number.isSafeInteger to 0..4294967295 and refuses anything else rather than
@@ -97,6 +102,29 @@ const SCALAR_TYPE_OWNER = "src/schema/scalars/common.ts";
 const DECIMAL_OPERATION_SCHEMA_OWNER = "src/validation/scalars/decimal.ts";
 const ADMITTED_DECIMAL_EXPORT_OWNER = "src/index.ts";
 const DECIMAL_CODEC_MODULE = "@validation/primitives/decimal-codec";
+/**
+ * The one module that declares and exports the `Decimal` CLASS, and the
+ * specifiers that name it. The value type is VibORM's own, so a second
+ * declaration is the duplication this detector looks for — where it used to
+ * look for a second import of a package.
+ */
+const DECIMAL_VALUE_OWNER = "src/validation/primitives/decimal-value.ts";
+/**
+ * Every way the value module can be NAMED, matched by its last segment.
+ *
+ * A closed list of the three specifiers that exist today would answer `false`
+ * for `"../primitives/decimal-value"` — a sibling directory's spelling of the
+ * same file — and a second construction site is exactly what this detector is
+ * for. The extension is optional because the root entry writes `.js`.
+ */
+const DECIMAL_VALUE_MODULE_SPECIFIER = /(?:^|\/)decimal-value(?:\.js)?$/;
+const namesDecimalValueModule = (specifier: string): boolean =>
+  DECIMAL_VALUE_MODULE_SPECIFIER.test(specifier);
+/** The modules that legitimately import the class at RUNTIME, not as a type. */
+const DECIMAL_VALUE_RUNTIME_IMPORTERS: ReadonlySet<string> = new Set([
+  DECIMAL_DESCRIPTOR_OWNER,
+  ADMITTED_DECIMAL_EXPORT_OWNER,
+]);
 const DECIMAL_SOURCE_PATH = /(?:^|\/)decimal(?:-[^/]*)?\.(?:[cm]?[jt]sx?)$/;
 const DECIMAL_IDENTIFIER_TOKEN = /^(?:decimal(?:[A-Z_]|$)|Decimal)/;
 const DECIMAL_NAME_TOKEN = /decimal/i;
@@ -1234,70 +1262,85 @@ function classOwnsDecimalValue(
   });
 }
 
+/**
+ * The value module's three ways OUT to a new instance.
+ *
+ * The class is module-private, so a `Decimal` can only be reached through the
+ * exported constructor or through the two decode seams that skip the grammar:
+ * `fromCanonical` for canonical text and `fromCoefficient` for an unscaled
+ * integer. A module that imports any of them at runtime can build the value
+ * type; a module that imports the grammar or the canonical-text reader cannot.
+ */
+const DECIMAL_CONSTRUCTION_BINDINGS: ReadonlySet<string> = new Set([
+  "Decimal",
+  "fromCanonical",
+  "fromCoefficient",
+]);
+
+/** Whether an import declaration binds one of those three. */
+function importsDecimalBinding(node: ts.ImportDeclaration): boolean {
+  const bindings = node.importClause?.namedBindings;
+  if (bindings === undefined || !ts.isNamedImports(bindings)) return false;
+  return bindings.elements.some(
+    (element) =>
+      !element.isTypeOnly &&
+      DECIMAL_CONSTRUCTION_BINDINGS.has(
+        element.propertyName?.text ?? element.name.text
+      )
+  );
+}
+
 export function ormOwnedDecimalWrapperEntries(
   file: string,
   text: string
 ): string[] {
   const source = parse(file, text);
   const counts = new Map<string, number>();
-  const decimalConstructorBindings = new Set<string>();
   const decimalValueBindings = new Set<string>();
   for (const statement of source.statements) {
     if (
       !(
         ts.isImportDeclaration(statement) &&
-        ts.isStringLiteral(statement.moduleSpecifier)
-      ) ||
-      statement.moduleSpecifier.text !== "decimal.js"
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        namesDecimalValueModule(statement.moduleSpecifier.text)
+      )
     ) {
       continue;
     }
     const clause = statement.importClause;
-    if (clause?.name !== undefined) {
-      decimalValueBindings.add(clause.name.text);
-      if (!clause.isTypeOnly) {
-        decimalConstructorBindings.add(clause.name.text);
-      }
-    }
     if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
       for (const element of clause.namedBindings.elements) {
         const importedName = element.propertyName?.text ?? element.name.text;
-        if (importedName === "Decimal" || importedName === "default") {
+        if (importedName === "Decimal") {
           decimalValueBindings.add(element.name.text);
-          if (!(clause.isTypeOnly || element.isTypeOnly)) {
-            decimalConstructorBindings.add(element.name.text);
-          }
         }
       }
     }
   }
   let admittedConstructorExports = 0;
+  let decimalDeclarations = 0;
   walk(source, (node) => {
     if (
-      ts.isCallExpression(node) &&
-      ((ts.isPropertyAccessExpression(node.expression) &&
-        ts.isIdentifier(node.expression.expression) &&
-        decimalConstructorBindings.has(node.expression.expression.text) &&
-        node.expression.name.text === "clone") ||
-        (ts.isElementAccessExpression(node.expression) &&
-          ts.isIdentifier(node.expression.expression) &&
-          decimalConstructorBindings.has(node.expression.expression.text) &&
-          ts.isStringLiteral(node.expression.argumentExpression) &&
-          node.expression.argumentExpression.text === "clone"))
-    ) {
-      add(counts, "decimalCloneCall");
-    }
-    if (
-      file !== DECIMAL_DESCRIPTOR_OWNER &&
+      !DECIMAL_VALUE_RUNTIME_IMPORTERS.has(file) &&
       ts.isImportDeclaration(node) &&
       !node.importClause?.isTypeOnly &&
       ts.isStringLiteral(node.moduleSpecifier) &&
-      node.moduleSpecifier.text === "decimal.js"
+      namesDecimalValueModule(node.moduleSpecifier.text) &&
+      importsDecimalBinding(node)
     ) {
       add(counts, "decimalRuntimeImport");
     }
+    // The class is VibORM's own, so exactly ONE module may declare it and
+    // every other declaration is a second value type wearing the same name.
+    // The owner publishes it as a const over a class expression rather than as
+    // a class declaration — that is what keeps the private fields out of the
+    // published instance TYPE — so both spellings count as the declaration.
     if (ts.isClassDeclaration(node) && node.name?.text === "Decimal") {
-      add(counts, "declaration:Decimal");
+      if (file === DECIMAL_VALUE_OWNER) {
+        decimalDeclarations++;
+      } else {
+        add(counts, "declaration:Decimal");
+      }
     }
     if (
       ts.isClassDeclaration(node) &&
@@ -1320,7 +1363,11 @@ export function ormOwnedDecimalWrapperEntries(
       ts.isIdentifier(node.name) &&
       (node.name.text === "Decimal" || REJECTED_WRAPPER_SET.has(node.name.text))
     ) {
-      add(counts, `declaration:${node.name.text}`);
+      if (file === DECIMAL_VALUE_OWNER && node.name.text === "Decimal") {
+        decimalDeclarations++;
+      } else {
+        add(counts, `declaration:${node.name.text}`);
+      }
     }
     if (ts.isExportDeclaration(node)) {
       const hasRuntimeNamedExport =
@@ -1331,7 +1378,7 @@ export function ormOwnedDecimalWrapperEntries(
         !node.isTypeOnly &&
         node.moduleSpecifier !== undefined &&
         ts.isStringLiteral(node.moduleSpecifier) &&
-        node.moduleSpecifier.text === "decimal.js" &&
+        namesDecimalValueModule(node.moduleSpecifier.text) &&
         hasRuntimeNamedExport;
       const exportsNamedDecimal =
         !node.isTypeOnly &&
@@ -1359,7 +1406,8 @@ export function ormOwnedDecimalWrapperEntries(
           elements.length !== 1 ||
           element === undefined ||
           element.isTypeOnly ||
-          element.propertyName?.text !== "default" ||
+          (element.propertyName !== undefined &&
+            element.propertyName.text !== "Decimal") ||
           element.name.text !== "Decimal"
         ) {
           add(counts, "decimalConstructorExportSpelling");
@@ -1382,6 +1430,9 @@ export function ormOwnedDecimalWrapperEntries(
     admittedConstructorExports !== 1
   ) {
     add(counts, "decimalConstructorExportCount");
+  }
+  if (file === DECIMAL_VALUE_OWNER && decimalDeclarations !== 1) {
+    add(counts, "decimalDeclarationCount");
   }
   return entries(file, counts);
 }
@@ -1719,10 +1770,10 @@ export function collectDecimalLanguageCensus(
       secondDecimalMode.push(...secondDecimalModeEntries(owner, ""));
     }
   }
-  if (!sourceFiles.includes(ADMITTED_DECIMAL_EXPORT_OWNER)) {
-    ormOwnedWrapper.push(
-      ...ormOwnedDecimalWrapperEntries(ADMITTED_DECIMAL_EXPORT_OWNER, "")
-    );
+  for (const owner of [ADMITTED_DECIMAL_EXPORT_OWNER, DECIMAL_VALUE_OWNER]) {
+    if (!sourceFiles.includes(owner)) {
+      ormOwnedWrapper.push(...ormOwnedDecimalWrapperEntries(owner, ""));
+    }
   }
   return {
     secondDecimalMode,

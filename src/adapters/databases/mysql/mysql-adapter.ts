@@ -1,4 +1,5 @@
 import { unsupportedVector } from "@errors";
+import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { type Sql, sql } from "@sql";
 import {
   type DecimalDescriptor,
@@ -6,6 +7,7 @@ import {
   encodePhysicalDecimal,
 } from "@validation/primitives/decimal-codec";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
+import type { IdRepresentation } from "@validation/primitives/id-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
@@ -462,6 +464,15 @@ export class MySQLAdapter implements DatabaseAdapter {
     // names one domain for the operand and the column instead of two.
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${sql.raw(decimalColumnType("mysql", descriptor))})`,
+
+    // MySQL has no `uuid` type: every compact domain is a `BINARY(n)` column
+    // and takes the payload's bytes as an ordinary binary parameter, which is
+    // the same parameter a blob scalar already binds. A text-stored domain
+    // takes the public string unchanged.
+    id: (
+      physical: string | Uint8Array,
+      _representation: IdRepresentation
+    ): Sql => sql`${physical}`,
   };
 
   // ============================================================
@@ -582,6 +593,13 @@ export class MySQLAdapter implements DatabaseAdapter {
 
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
       decimalCast(expr, descriptor.precision, descriptor.scale),
+
+    // `CHAR` rather than `TEXT`: MySQL's CAST target list has no `TEXT`, which
+    // is why `cast` below maps the generic text cast to `CHAR` too.
+    idCast: (expr: Sql, representation: IdRepresentation): Sql =>
+      representation === "bytes"
+        ? sql`UNHEX(${expr})`
+        : sql`CAST(${expr} AS CHAR)`,
 
     // MySQL type mappings - MySQL doesn't support TEXT in CAST
     cast: createCastExpression({
@@ -1029,6 +1047,11 @@ export class MySQLAdapter implements DatabaseAdapter {
     // as unscaled coefficient strings (plan 6.1). This adapter is the reason
     // the two are separate declarations.
     decimalListRepresentation: "coefficient",
+
+    // Derived from the ONE storage owner, so the column the migration creates
+    // and the value this reads back cannot be two decisions.
+    idRepresentation: (domain, nativeType) =>
+      idStorageOf(domain, nativeType, "mysql")?.representation ?? "text",
 
     // The contract's shape, deciding nothing on all 20 asks D-40 measured over
     // seven operations and both routes on live MySQL - the `count`/`exist` arm

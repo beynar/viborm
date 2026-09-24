@@ -18,9 +18,9 @@ import type {
 import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
+import type { Decimal } from "@validation/primitives/decimal-value";
 import type { EnumValues } from "@validation/primitives/enum";
 import type { GeoPoint } from "@validation/primitives/geo-point-codec";
-import type Decimal from "decimal.js";
 
 // =============================================================================
 // SCALAR OUTPUT TYPE MAPPING

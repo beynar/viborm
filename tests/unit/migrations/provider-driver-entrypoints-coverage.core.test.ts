@@ -313,6 +313,19 @@ describe("coverage low value", () => {
     expect(postgres.generatedDefault({ kind: "uuid" })).toBe(
       "gen_random_uuid()"
     );
+    // An empty prefix is no prefix, so the database default still agrees with
+    // the application's value; a real prefix does not, and the column gets none.
+    expect(postgres.generatedDefault({ kind: "uuid", prefix: "" })).toBe(
+      "gen_random_uuid()"
+    );
+    expect(
+      postgres.generatedDefault({ kind: "uuid", prefix: "u" })
+    ).toBeUndefined();
+    // No other identifier format has a server-side equivalent.
+    for (const kind of ["uuidv7", "ksuid", "ulid", "nanoid", "cuid"] as const) {
+      expect(postgres.generatedDefault({ kind })).toBeUndefined();
+      expect(mysql.generatedDefault({ kind })).toBeUndefined();
+    }
   });
 
   test("covers native scalar transport spelling", () => {

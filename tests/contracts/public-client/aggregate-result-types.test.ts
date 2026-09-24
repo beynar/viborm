@@ -21,8 +21,8 @@
 import type { OperationResult } from "@client/types";
 
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
-import Decimal from "decimal.js";
 import { beforeEach, describe, expect, expectTypeOf, test } from "vitest";
 
 const ledger = s
@@ -196,7 +196,10 @@ describe("the runtime agrees with the declaration", () => {
     // The AVERAGE stays in the field domain: the exact mean of these two rows
     // needs 31 fraction digits, and the field has 30, so it is quantized to the
     // field's scale — never widened the way the sum is.
-    expect(averagedAmount?.decimalPlaces()).toBeLessThanOrEqual(30);
+    // There is no `decimalPlaces()`; the fraction of the canonical rendering is
+    // the same fact, and `toString()` is that rendering exactly.
+    const averagedFraction = averagedAmount?.toString().split(".")[1] ?? "";
+    expect(averagedFraction.length).toBeLessThanOrEqual(30);
 
     expect(typeof agg._sum.qty).toBe("number");
     expect(agg._sum.qty).toBe(5);

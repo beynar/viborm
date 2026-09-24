@@ -7,15 +7,13 @@ import { ValidationError } from "@errors";
 import type { DecimalSchema } from "../primitives/decimal";
 import {
   GEO_BOUNDS_KEYS,
-  GEO_POLYGON_MIN_RING_POINTS,
-} from "../primitives/geo-area-codec";
-import {
   GEO_LATITUDE_MAX,
   GEO_LATITUDE_MIN,
   GEO_LONGITUDE_MAX,
   GEO_LONGITUDE_MIN,
   GEO_POINT_KEYS,
-} from "../primitives/geo-point-codec";
+  GEO_POLYGON_MIN_RING_POINTS,
+} from "../primitives/geo-values";
 import type { ExactlyOneSchema } from "../scalars/decimal";
 import type { VibSchema } from "../types";
 import { isFunction, isString } from "../value-guards";
@@ -245,10 +243,10 @@ function convertSchemaBody(
   const jsonSchema: JsonSchema = {};
 
   if (isDecimalSchema(schema)) {
-    // A decimal accepts a `Decimal`, a string, or a number, and validates to
-    // the canonical string. A `Decimal` object has no JSON Schema because a
-    // class instance is not a JSON value; its own `toJSON()` produces the
-    // string arm.
+    // A decimal accepts a `Decimal` or a string, and validates to the
+    // canonical string. A JSON number is a double and is refused, so it has
+    // no arm. A `Decimal` object has no JSON Schema because a class instance
+    // is not a JSON value; its own `toJSON()` produces the string.
     //
     // The DECLARED DOMAIN is NOT expressible here and is stated rather than
     // silently dropped. `precision` counts the SIGNIFICANT digits of the
@@ -262,18 +260,14 @@ function convertSchemaBody(
     if (domain) {
       jsonSchema.description = `Exact decimal with at most ${domain.precision} total digits and at most ${domain.scale} fractional digits`;
     }
-    if (context.direction === "output") {
-      jsonSchema.type = "string";
-      // Output is the codec's ONE canonical spelling, not the broader literal
-      // grammar accepted on input: no leading plus/zero, dangling point,
-      // trailing fractional zero, or signed zero survives validation.
-      jsonSchema.pattern = DECIMAL_OUTPUT_PATTERN;
-    } else {
-      jsonSchema.anyOf = [
-        { type: "string", pattern: DECIMAL_INPUT_PATTERN },
-        { type: "number" },
-      ];
-    }
+    jsonSchema.type = "string";
+    // Output is the codec's ONE canonical spelling, not the broader literal
+    // grammar accepted on input: no leading plus/zero, dangling point,
+    // trailing fractional zero, or signed zero survives validation.
+    jsonSchema.pattern =
+      context.direction === "output"
+        ? DECIMAL_OUTPUT_PATTERN
+        : DECIMAL_INPUT_PATTERN;
 
     // Scalar options compose arity and nullability inside `v.decimal(...)`
     // rather than through standalone wrapper schemas. Project them here at the

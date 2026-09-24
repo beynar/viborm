@@ -9,9 +9,9 @@ import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { DbNull, s } from "@schema";
+import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import Decimal from "decimal.js";
 import {
   afterAll,
   beforeAll,
@@ -391,7 +391,7 @@ describe("Relation Types Integration Test", () => {
         intRequired: 42,
         intNullable: null,
         numberRequired: 3.14,
-        decimalRequired: 99.99,
+        decimalRequired: "99.99",
         booleanRequired: true,
         booleanNullable: false,
         bigintRequired: 9007199254740991n,
@@ -609,7 +609,7 @@ describe("Relation Types Integration Test", () => {
         stringArray: [],
         intRequired: 999,
         numberRequired: 1.5,
-        decimalRequired: 50.0,
+        decimalRequired: "50.0",
         booleanRequired: false,
         bigintRequired: 100n,
         datetimeRequired: testDate,

@@ -234,7 +234,7 @@ export namespace V {
 
   /**
    * Type-level decimal schema. Input and output differ on purpose: a decimal
-   * accepts `Decimal | string | number` and validates to the canonical private
+   * accepts `Decimal | string` and validates to the canonical private
    * string every identity owner keys on. The public `Decimal` result is built
    * once per selected value at the typed result boundary, not here.
    * @example V.Decimal - Required decimal

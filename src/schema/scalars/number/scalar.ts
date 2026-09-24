@@ -1,4 +1,4 @@
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
@@ -79,7 +79,7 @@ export class NumberScalar<State extends ScalarState<"number">> {
     );
   }
 
-  schema<S extends StandardSchemaOf<number>>(schema: S) {
+  schema<S extends StandardSchemaV1<number>>(schema: S) {
     return new NumberScalar(
       updateState(this, {
         schema,

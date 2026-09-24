@@ -1,11 +1,11 @@
 /**
  * A decimal `having` operand is lowered in the column's own domain.
  *
- * `where: { amount: { gt: 5 } }` binds its operand through the dialect's
+ * `where: { amount: { gt: "5" } }` binds its operand through the dialect's
  * DECIMAL literal — `CAST(? AS DECIMAL(p,s))` on MySQL, `CAST(? AS NUMERIC(p,s))`
  * on PostgreSQL, `CAST(? AS INTEGER)` over the unscaled coefficient on SQLite —
  * so the comparison happens in the exact domain the column is stored in.
- * `having: { amount: { _max: { gt: 5 } } }` asks the SAME ordered question
+ * `having: { amount: { _max: { gt: "5" } } }` asks the SAME ordered question
  * about the SAME column and therefore has to bind the same way. It did not:
  * it used `literals.value`, which leaves MySQL comparing a `DECIMAL` column
  * against a non-decimal operand — and MySQL resolves that comparison as
@@ -191,7 +191,7 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
   /** The reference lowering every decimal comparison must match. */
   const whereOperand = () => {
     const where = buildHere("findMany", {
-      where: { amount: { gt: 5 } },
+      where: { amount: { gt: "5" } },
       select: { id: true },
     });
     return {
@@ -207,8 +207,8 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
     // below would still pass while both sides were wrong.
     expect(rendered).not.toMatch(BARE_PARAMETER_REGEX);
     expect(rendered).toContain("CAST(");
-    // The number is canonicalized to its exact decimal spelling before binding,
-    // and then rendered into the domain the column stores.
+    // The operand is canonicalized to its exact decimal spelling before
+    // binding, and then rendered into the domain the column stores.
     expect(values).toEqual(dialectCase.bound);
   });
 
@@ -216,7 +216,7 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
     test(`having ${aggregate} binds its operand exactly as where does`, () => {
       const having = buildHere("groupBy", {
         by: ["bucket"],
-        having: { amount: { [aggregate]: { gt: 5 } } },
+        having: { amount: { [aggregate]: { gt: "5" } } },
         _count: true,
       });
 
@@ -228,7 +228,7 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
   test("every element of a having in-list is lowered, not just the first", () => {
     const having = buildHere("groupBy", {
       by: ["bucket"],
-      having: { amount: { _sum: { in: [5, 6] } } },
+      having: { amount: { _sum: { in: ["5", "6"] } } },
       _count: true,
     });
     const { rendered } = whereOperand();
@@ -354,7 +354,7 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
   test("having _avg filters on the exact average, not AVG()", () => {
     const filtered = buildHere("groupBy", {
       by: ["bucket"],
-      having: { amount: { _avg: { gt: 5 } } },
+      having: { amount: { _avg: { gt: "5" } } },
       _count: true,
     });
     const having = clauseBetween(filtered.statement, "HAVING", " ORDER BY");
@@ -379,7 +379,7 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
     });
     const filtered = buildHere("groupBy", {
       by: ["bucket"],
-      having: { amount: { _avg: { gt: 5 } } },
+      having: { amount: { _avg: { gt: "5" } } },
       _count: true,
     });
 

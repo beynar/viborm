@@ -21,6 +21,14 @@ import { s } from "@schema";
  * the pair incomparable rather than merely inconvenient — on a coefficient
  * dialect a stored `120` is `1.20` in one column and `0.0120` in the other, so
  * comparing the two columns would answer a different question per provider.
+ *
+ * The four IDENTIFIER columns pin the same rule one storage fact further out.
+ * `token` and `mirror` declare one compact domain and compare as columns;
+ * `slug` beside them is an ordinary string, and a compact column against it is
+ * a comparison of payload bytes with public text that no row can satisfy — the
+ * shape that silently answered `[]` before the storage check existed. `handle`
+ * is the control: a `nanoid` stores exactly the string it shows, so it compares
+ * with the plain `handleEcho` and must keep doing so.
  */
 export const fieldRefSchema = (() => {
   const user = s
@@ -42,6 +50,13 @@ export const fieldRefSchema = (() => {
       fee: s.decimal({ precision: 12, scale: 2 }).default("0"),
       discount: s.decimal({ precision: 12, scale: 2 }).default("0"),
       rate: s.decimal({ precision: 12, scale: 4 }).default("0"),
+      // Compactly stored: `uuid` on PostgreSQL, `BINARY(16)` on MySQL, `BLOB`
+      // on SQLite — and the `tok-` prefix lives in none of them.
+      token: s.string().uuid("tok").nullable(),
+      mirror: s.string().uuid("tok").nullable(),
+      // Text-stored identifier beside an ordinary string holding one value.
+      handle: s.string().nanoid(12).nullable(),
+      handleEcho: s.string().nullable(),
       status: s.enum(["draft", "review", "published"]).default("draft"),
       reviewStatus: s
         .enum(["draft", "review", "published"])

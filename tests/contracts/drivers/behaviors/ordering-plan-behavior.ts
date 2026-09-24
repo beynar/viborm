@@ -82,7 +82,7 @@ const pgOuterRowValueSeek = (alias: string): RegExp =>
 
 /** The outer relation's alias, as the emitted statement spells it. */
 const OUTER_ALIAS_IN_STATEMENT =
-  /FROM\s+"?order_plan_rows"?\s+(?:AS\s+)?"?([A-Za-z_][\w$]*)"?/;
+  /FROM\s+(?:"?[A-Za-z_][\w$]*"?\.)?"?order_plan_rows"?\s+(?:AS\s+)?"?([A-Za-z_][\w$]*)"?/;
 
 /**
  * The statement's OWN alias for the outer relation.

@@ -6,7 +6,7 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { type CacheEntry, cache } from "@cache/exports";
 import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
-import { FeatureNotSupportedError } from "@errors";
+import { FeatureNotSupportedError, TransactionError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { type Sql, sql } from "@sql";
@@ -15,6 +15,7 @@ import { createSchemaRegistry } from "@validation";
 import {
   GEO_POINT_EARTH_RADIUS_METERS,
   type GeoBounds,
+  geoBoundsForDistance,
   validateGeoPolygon,
 } from "@validation/primitives/geo-area-codec";
 import { describe, expect, test } from "vitest";
@@ -22,6 +23,8 @@ import { describe, expect, test } from "vitest";
 class MockDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter;
   executeCalls = 0;
+  readonly statements: { readonly sql: string; readonly params: unknown[] }[] =
+    [];
 
   constructor(adapter: DatabaseAdapter, dialect: Dialect) {
     super(dialect, `geopoint-${dialect}`);
@@ -36,8 +39,13 @@ class MockDriver extends Driver<null, null> {
     // The SQL contract owns no provider resource.
   }
 
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async execute<T>(
+    _client: null,
+    statement: string,
+    params: unknown[]
+  ): Promise<{ rows: T[]; rowCount: number }> {
     this.executeCalls += 1;
+    this.statements.push({ sql: statement, params });
     return { rows: [], rowCount: 0 };
   }
 
@@ -96,7 +104,7 @@ const models = (() => {
     .map("venues");
   return { place, region, venue };
 })();
-const { place } = models;
+const { place, region, venue } = models;
 prepareSchema(models);
 
 function createEngine(adapter: DatabaseAdapter, dialect: Dialect): QueryEngine {
@@ -359,6 +367,91 @@ describe("GeoPoint query lowering", () => {
       name: "PostgreSQL",
       adapter: new PostgresAdapter("public", true),
       dialect: "postgresql",
+      constructorSql: "ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography",
+      createManySql:
+        'INSERT INTO "public"."places" ("id", "location", "optionalLocation") VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, NULL), ($4, ST_SetSRID(ST_MakePoint($5, $6), 4326)::geography, NULL)',
+    },
+    {
+      name: "MySQL",
+      adapter: new MySQLAdapter(),
+      dialect: "mysql",
+      constructorSql:
+        "ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'), 4326, 'axis-order=long-lat')",
+      createManySql:
+        "INSERT INTO `places` (`id`, `location`, `optionalLocation`) VALUES (?, ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'), 4326, 'axis-order=long-lat'), NULL), (?, ST_GeomFromText(CONCAT('POINT(', ?, ' ', ?, ')'), 4326, 'axis-order=long-lat'), NULL)",
+    },
+    {
+      name: "SQLite",
+      adapter: new SQLiteAdapter(),
+      dialect: "sqlite",
+      constructorSql: "json_object('longitude', ?, 'latitude', ?)",
+      createManySql:
+        "INSERT INTO \"places\" (\"id\", \"location\", \"optionalLocation\") VALUES (?, json_object('longitude', ?, 'latitude', ?), NULL), (?, json_object('longitude', ?, 'latitude', ?), NULL)",
+    },
+  ] satisfies readonly (GeoPointProviderCase & {
+    readonly constructorSql: string;
+    readonly createManySql: string;
+  })[])("lowers point values for writes on $name", async ({
+    adapter,
+    dialect,
+    constructorSql,
+    createManySql,
+  }) => {
+    // A write compiles to no single statement (build() refuses it), so the
+    // witness is the INSERT the operation hands the driver. The mock inserts
+    // nothing; only the emitted statement is witnessed, not the outcome.
+    const driver = new MockDriver(adapter, dialect);
+    const client = createClient({ schema: models, driver });
+    const insertsOf = () =>
+      driver.statements.filter(({ sql: text }) => text.startsWith("INSERT"));
+    try {
+      await client.place
+        .create({ data: { id: "place-1", location: paris } })
+        .catch((error: unknown) => {
+          expect(error).toBeInstanceOf(TransactionError);
+        });
+      const [create] = insertsOf();
+      expect(create?.sql).toContain(constructorSql);
+      expect(create?.params.slice(0, 3)).toEqual([
+        "place-1",
+        paris.longitude,
+        paris.latitude,
+      ]);
+
+      await expect(
+        client.place.createMany({
+          data: [
+            { id: "place-2", location: paris },
+            {
+              id: "place-3",
+              location: { longitude: -73.9857, latitude: 40.7484 },
+            },
+          ],
+        })
+      ).rejects.toBeInstanceOf(TransactionError);
+      expect(insertsOf().slice(1)).toEqual([
+        {
+          sql: createManySql,
+          params: [
+            "place-2",
+            paris.longitude,
+            paris.latitude,
+            "place-3",
+            -73.9857,
+            40.7484,
+          ],
+        },
+      ]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test.each([
+    {
+      name: "PostgreSQL",
+      adapter: new PostgresAdapter("public", true),
+      dialect: "postgresql",
       coordinateSql: "ST_X",
     },
     {
@@ -433,6 +526,319 @@ describe("GeoPoint query lowering", () => {
     }
     if (dialect === "mysql") {
       expect(bounds.toStatement("$n")).not.toContain("MBRCovers");
+    }
+  });
+
+  test("uses the smallest positive upper bound only in positive polarity", () => {
+    const adapter = new PostgresAdapter("public", true);
+    const engine = createEngine(adapter, "postgresql");
+    const expectedBounds = geoBoundsForDistance(paris, 1000);
+    const expectedIndexPolygon = JSON.stringify({
+      type: "Polygon",
+      coordinates: [
+        [
+          [expectedBounds.west, expectedBounds.south],
+          [expectedBounds.east, expectedBounds.south],
+          [expectedBounds.east, expectedBounds.north],
+          [expectedBounds.west, expectedBounds.north],
+          [expectedBounds.west, expectedBounds.south],
+        ],
+      ],
+    });
+
+    const positive = engine.build(place, "findMany", {
+      where: {
+        location: {
+          distance: { to: paris, lt: 2000, lte: 1000, gte: 5 },
+        },
+      },
+      select: { id: true },
+    });
+    expect(positive.toStatement("$n")).toContain(" && ");
+    expect(positive.values).toContain(expectedIndexPolygon);
+
+    for (const where of [
+      { location: { not: { distance: { to: paris, lte: 1000 } } } },
+      { NOT: { location: { distance: { to: paris, lte: 1000 } } } },
+    ]) {
+      const negative = engine.build(place, "findMany", {
+        where,
+        select: { id: true },
+      });
+      expect(negative.toStatement("$n")).not.toContain(" && ");
+    }
+
+    const doubleNegative = engine.build(place, "findMany", {
+      where: {
+        NOT: {
+          NOT: { location: { distance: { to: paris, lte: 1000 } } },
+        },
+      },
+      select: { id: true },
+    });
+    expect(doubleNegative.toStatement("$n")).toContain(" && ");
+    expect(doubleNegative.values).toContain(expectedIndexPolygon);
+
+    const zero = engine.build(place, "findMany", {
+      where: { location: { distance: { to: paris, lte: 0 } } },
+      select: { id: true },
+    });
+    expect(zero.toStatement("$n")).not.toContain(" && ");
+  });
+
+  test("threads distance-prefilter polarity through relation quantifiers", () => {
+    const engine = createEngine(
+      new PostgresAdapter("public", true),
+      "postgresql"
+    );
+    const distance = { to: paris, lte: 1000 };
+
+    const none = engine.build(region, "findMany", {
+      where: { venues: { none: { location: { distance } } } },
+      select: { id: true },
+    });
+    expect(none.toStatement("$n")).not.toContain(" && ");
+
+    // `every` lowers to NOT EXISTS (... AND NOT (predicate)): the predicate is
+    // negated inside the correlated subquery that would scan the index, so
+    // the positive-only prefilter is withheld there too.
+    const every = engine.build(region, "findMany", {
+      where: { venues: { every: { location: { distance } } } },
+      select: { id: true },
+    });
+    expect(every.toStatement("$n")).not.toContain(" && ");
+
+    const isNot = engine.build(venue, "findMany", {
+      where: { region: { isNot: { location: { distance } } } },
+      select: { id: true },
+    });
+    expect(isNot.toStatement("$n")).not.toContain(" && ");
+
+    const is = engine.build(venue, "findMany", {
+      where: { region: { is: { location: { distance } } } },
+      select: { id: true },
+    });
+    expect(is.toStatement("$n")).toContain(" && ");
+  });
+
+  test("combines every distance comparator and uses null-last point ordering", () => {
+    const query = createEngine(
+      new PostgresAdapter("public", true),
+      "postgresql"
+    ).build(place, "findMany", {
+      where: {
+        location: {
+          distance: {
+            to: paris,
+            lt: 20_000,
+            lte: 19_000,
+            gt: 10_000,
+            gte: 11_000,
+          },
+        },
+      },
+      select: {
+        id: true,
+        optionalLocation: { _distance: { to: paris } },
+      },
+      orderBy: {
+        optionalLocation: { _distance: { to: paris, sort: "desc" } },
+      },
+    });
+    const statement = query.toStatement("$n");
+    expect(statement).toContain(" < ");
+    expect(statement).toContain(" <= ");
+    expect(statement).toContain(" > ");
+    expect(statement).toContain(" >= ");
+    expect(statement).toContain('AS "_distance"');
+    expect(statement).toContain("DESC NULLS LAST");
+  });
+
+  /**
+   * Polygon validity is the database's execution fact. Each input below was
+   * refused by a VibORM geometry pre-check before decision D2; it now passes
+   * admission and reaches the adapter emission unchanged, rings closed once.
+   * Holes are written clockwise and outers counterclockwise, so the emitted
+   * order is the input order.
+   */
+  const g = (longitude: number, latitude: number) => ({ longitude, latitude });
+  const square = [g(0, 0), g(4, 0), g(4, 4), g(0, 4)];
+  const wide = [g(0, 0), g(10, 0), g(10, 10), g(0, 10)];
+  const formerRefusals: readonly {
+    readonly name: string;
+    readonly polygon: {
+      readonly outer: readonly { longitude: number; latitude: number }[];
+      readonly holes?: readonly (readonly {
+        longitude: number;
+        latitude: number;
+      }[])[];
+    };
+  }[] = [
+    {
+      name: "a closed ring",
+      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(0, 0)] },
+    },
+    {
+      name: "a repeated vertex",
+      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(1, 0)] },
+    },
+    {
+      name: "a bowtie",
+      polygon: { outer: [g(0, 0), g(1, 1), g(0, 1), g(1, 0)] },
+    },
+    {
+      name: "a zero-area ring",
+      polygon: { outer: [g(0, 0), g(1, 0), g(2, 0)] },
+    },
+    {
+      name: "a 180-degree edge",
+      polygon: { outer: [g(0, 0), g(180, 0), g(1, 1)] },
+    },
+    {
+      name: "a north pole vertex",
+      polygon: { outer: [g(10, 80), g(0, 90), g(-10, 80)] },
+    },
+    {
+      name: "a south pole vertex",
+      polygon: { outer: [g(-10, -80), g(0, -90), g(10, -80)] },
+    },
+    {
+      name: "a ring winding around a pole",
+      polygon: { outer: [g(-120, 80), g(0, 80), g(120, 80)] },
+    },
+    {
+      name: "half the globe",
+      polygon: {
+        outer: [
+          g(-170, -80),
+          g(0, -80),
+          g(170, -80),
+          g(170, 80),
+          g(0, 80),
+          g(-170, 80),
+        ],
+      },
+    },
+    {
+      name: "a hole outside",
+      polygon: { outer: square, holes: [[g(5, 5), g(6, 6), g(6, 5)]] },
+    },
+    {
+      name: "a hole touching",
+      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+    },
+    {
+      name: "overlapping holes",
+      polygon: {
+        outer: [g(0, 0), g(6, 0), g(6, 6), g(0, 6)],
+        holes: [
+          [g(1, 1), g(1, 4), g(4, 4), g(4, 1)],
+          [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
+        ],
+      },
+    },
+    {
+      name: "a hole nested in a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [g(2, 2), g(2, 5), g(5, 5), g(5, 2)],
+          [g(3, 3), g(3, 4), g(4, 4), g(4, 3)],
+        ],
+      },
+    },
+    {
+      name: "a hole enclosing a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [g(3, 3), g(3, 4), g(4, 4), g(4, 3)],
+          [g(2, 2), g(2, 5), g(5, 5), g(5, 2)],
+        ],
+      },
+    },
+  ];
+  const emittedGeoJson = (
+    polygon: (typeof formerRefusals)[number]["polygon"]
+  ) =>
+    JSON.stringify({
+      type: "Polygon",
+      coordinates: [polygon.outer, ...(polygon.holes ?? [])].map((ring) =>
+        [...ring, ...ring.slice(0, 1)].map(({ longitude, latitude }) => [
+          longitude,
+          latitude,
+        ])
+      ),
+    });
+  const withinPolygon = (
+    engine: QueryEngine,
+    polygon: (typeof formerRefusals)[number]["polygon"]
+  ) =>
+    engine.build(place, "findMany", {
+      where: { location: { within: { polygon } } },
+      select: { id: true },
+    });
+
+  test.each(
+    formerRefusals
+  )("admits $name and lets PostgreSQL and MySQL decide it", ({ polygon }) => {
+    const postgres = withinPolygon(
+      createEngine(new PostgresAdapter("public", true), "postgresql"),
+      polygon
+    );
+    expect(postgres.toStatement("$n")).toContain(
+      "ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)::geography, "
+    );
+    expect(postgres.values).toEqual([emittedGeoJson(polygon)]);
+
+    const mysql = withinPolygon(
+      createEngine(new MySQLAdapter(), "mysql"),
+      polygon
+    );
+    expect(mysql.toStatement("$n")).toContain(
+      "ST_Intersects(ST_GeomFromGeoJSON($1, 1, 4326), "
+    );
+    expect(mysql.values).toEqual([emittedGeoJson(polygon)]);
+
+    // Admission passed: SQLite refuses the operation, not the value.
+    expect(() =>
+      withinPolygon(createEngine(new SQLiteAdapter(), "sqlite"), polygon)
+    ).toThrow(FeatureNotSupportedError);
+  });
+
+  test("emits an empty hole list as no hole and a hole list in input order", () => {
+    const engine = createEngine(
+      new PostgresAdapter("public", true),
+      "postgresql"
+    );
+    const holes = [
+      [g(1, 1), g(1, 2), g(2, 2), g(2, 1)],
+      [g(3, 3), g(3, 3.5), g(3.5, 3.5), g(3.5, 3)],
+    ];
+    expect(withinPolygon(engine, { outer: square, holes: [] }).values).toEqual([
+      emittedGeoJson({ outer: square }),
+    ]);
+    expect(withinPolygon(engine, { outer: square, holes }).values).toEqual([
+      emittedGeoJson({ outer: square, holes }),
+    ]);
+  });
+
+  test("still refuses a ring shorter than three vertices before any SQL", () => {
+    const engine = createEngine(
+      new PostgresAdapter("public", true),
+      "postgresql"
+    );
+    for (const [polygon, path] of [
+      [{ outer: [] }, ["outer"]],
+      [{ outer: [g(0, 0), g(1, 0)] }, ["outer"]],
+      [{ outer: square, holes: [[g(1, 1), g(2, 1)]] }, ["holes", 0]],
+    ] as const) {
+      expect(() => withinPolygon(engine, polygon)).toThrow(
+        "A GeoPolygon ring needs at least 3 vertices"
+      );
+      expect(validateGeoPolygon(polygon).issues).toEqual([
+        { message: "A GeoPolygon ring needs at least 3 vertices", path },
+      ]);
     }
   });
 

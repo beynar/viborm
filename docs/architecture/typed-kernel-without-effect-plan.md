@@ -125,7 +125,7 @@ Deterministic resource disposal via the platform's own protocol — no runtime, 
 
 Measured on the built artifact, before and after, by [scripts/consumer-type-floor.mjs](../../scripts/consumer-type-floor.mjs) (`pnpm test:package:consumer-floor`), three arms each falsified independently:
 
-- **Floor (unchanged):** `lib: ["es2022"]`, `skipLibCheck: true`, no configured `@types/node` — clean before T6 and after. Under `skipLibCheck: false` the published surface carries exactly **one** own-`dist` error both before and after (a pre-existing `StandardSchemaOf` naming fault in `@standard-schema/spec`, unrelated to this phase and left for its own lane).
+- **Floor (unchanged):** `lib: ["es2022"]`, `skipLibCheck: true`, no configured `@types/node` — clean before T6 and after. Under `skipLibCheck: false` the published surface carries exactly **one** own-`dist` error both before and after (a pre-existing `StandardSchemaOf` naming fault in `@standard-schema/spec`, unrelated to this phase and left for its own lane — since fixed by dropping that alias for `StandardSchemaV1`, so the published surface now carries no own-`dist` error under `skipLibCheck: false`).
 - **Isolation:** viborm's disposal carrier, lifted verbatim out of the emitted `.d.mts` and compiled with *no* ambient types, type-checks. This is the arm that fires if anyone swaps the mapped key back for a bare one.
 - **Capability:** the same carrier still yields a real `AsyncDisposable` where the symbol *is* declared — so "degrade away for everybody" cannot pass as a floor result.
 
