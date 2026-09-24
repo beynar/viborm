@@ -342,8 +342,15 @@ describe("GeoArea validation boundary", () => {
   const poleVertex = "A GeoPolygon ring cannot contain a pole";
   const aroundPole = "A GeoPolygon cannot contain a pole";
   const halfGlobe = "A GeoPolygon must cover less than half the globe";
-  const holeOutside = "A GeoPolygon hole must be inside its outer ring";
-  const holesOverlap = "GeoPolygon holes cannot overlap";
+  const holeOutside =
+    "A GeoPolygon hole must be strictly inside its outer ring";
+  const holesOverlap = "GeoPolygon holes cannot touch or overlap";
+  // Both databases read an edge as a great-circle arc: the south edge of this
+  // box bows north to about latitude 40.105 at longitude 5, its north edge to
+  // about 50.10.
+  const box = [point(0, 40), point(10, 40), point(10, 50), point(0, 50)];
+  const turn = (longitude: number) =>
+    longitude > 180 ? longitude - 360 : longitude;
   test.each([
     {
       name: "a bowtie",
@@ -529,14 +536,116 @@ describe("GeoArea validation boundary", () => {
       },
       issue: { message: holesOverlap, path: ["holes", 1] },
     },
+    {
+      // Longitudes 0 to 400 along a band: 0 to 40 is covered twice.
+      name: "a ring past a whole turn over itself",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(80, 0),
+          point(160, 0),
+          point(-120, 0),
+          point(-40, 0),
+          point(40, 0),
+          point(40, 2),
+          point(-40, 2),
+          point(-120, 2),
+          point(160, 2),
+          point(80, 2),
+          point(0, 2),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a hole touching the outer ring at one point",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 1), point(1, 2), point(1, 1)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole along an outer edge",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 1), point(0, 2), point(1, 2), point(1, 1)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole touching the outer ring at three points",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 2), point(2, 4), point(4, 2)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole equal to its outer ring",
+      polygon: { outer: square, holes: [square] },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // PostGIS matched (5, 40.05) and (5, 40.08), MySQL did not.
+      name: "a hole touching a parallel edge in the plane",
+      polygon: {
+        outer: box,
+        holes: [[point(5, 40), point(4, 45), point(6, 45)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole inside the plane's edge but outside the great-circle arc",
+      polygon: {
+        outer: box,
+        holes: [[point(5, 40.05), point(4, 45), point(6, 45)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "holes touching at one point",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(3, 3), point(3, 5), point(5, 5), point(5, 3)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "holes sharing an edge",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(3, 1), point(3, 3), point(5, 3), point(5, 1)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      // PostGIS matched (5, 44.01) to (5, 44.03), in both holes; MySQL did not.
+      name: "a hole touching another's parallel edge in the plane",
+      polygon: {
+        outer: box,
+        holes: [
+          [point(2, 42), point(2, 44), point(8, 44), point(8, 42)],
+          [point(5, 44), point(4, 46), point(6, 46)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
   ])("refuses $name", ({ polygon, issue }) => {
     expect(validateGeoPolygon(polygon)).toEqual({ issues: [issue] });
   });
 
   /**
-   * The polygons both databases answered as "inside the outer ring and in no
-   * hole": a repeated consecutive vertex is a zero-length edge, and a hole may
-   * touch the outer ring or another hole at a point or along an edge.
+   * Polygons both databases answered correctly on the great-circle reading:
+   * a repeated consecutive vertex is a zero-length edge, a hole may sit
+   * between an edge's straight line and its arc, and a ring may go past a
+   * whole turn beside itself.
    */
   test.each([
     {
@@ -550,43 +659,94 @@ describe("GeoArea validation boundary", () => {
       },
     },
     {
-      name: "a hole touching the outer ring at one point",
+      name: "a hole beyond the plane's north edge, inside its great-circle arc",
       polygon: {
-        outer: square,
-        holes: [[point(0, 1), point(1, 2), point(1, 1)]],
+        outer: box,
+        holes: [[point(5, 50.05), point(6, 49), point(4, 49)]],
       },
     },
     {
-      name: "a hole along an outer edge",
+      name: "a hole just inside the great-circle south edge",
       polygon: {
-        outer: square,
-        holes: [[point(0, 1), point(0, 2), point(1, 2), point(1, 1)]],
+        outer: box,
+        holes: [[point(5, 40.2), point(4, 45), point(6, 45)]],
       },
     },
     {
-      name: "a hole touching the outer ring at three points",
+      // Longitudes 0 to 400, rising: 0 to 40 is crossed twice, apart.
+      name: "a band past a whole turn beside itself",
       polygon: {
-        outer: square,
-        holes: [[point(0, 2), point(2, 4), point(4, 2)]],
-      },
-    },
-    {
-      name: "holes touching at one point",
-      polygon: {
-        outer: wide,
-        holes: [
-          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
-          [point(3, 3), point(3, 5), point(5, 5), point(5, 3)],
+        outer: [
+          ...Array.from({ length: 21 }, (_, step) =>
+            point(turn(step * 20), -10 + step / 2)
+          ),
+          ...Array.from({ length: 21 }, (_, step) =>
+            point(turn(400 - step * 20), 2 - step / 2)
+          ),
         ],
       },
     },
     {
-      name: "holes sharing an edge",
+      // Most of the outer ring's vertices lie far from the hole.
+      name: "a hole across a 300-degree band",
+      polygon: {
+        outer: [
+          ...Array.from({ length: 21 }, (_, step) => point(step / 2, -10)),
+          point(60, -10),
+          point(120, -10),
+          point(179.5, -10),
+          point(-120, -10),
+          point(-60, -10),
+          point(-60, 10),
+          point(-120, 10),
+          point(179.5, 10),
+          point(120, 10),
+          point(60, 10),
+          ...Array.from({ length: 21 }, (_, step) => point(10 - step / 2, 10)),
+        ],
+        holes: [
+          [point(-110, -2), point(-110, 2), point(-100, 2), point(-100, -2)],
+        ],
+      },
+    },
+    {
+      // Its closing meridian at 0 and its equator edge from 185 to 175 each
+      // straddle the other's great circle, which they meet at (180, 0) and
+      // (0, 0), each on the other arc.
+      name: "a band whose edges straddle each other's circles far apart",
+      polygon: {
+        outer: [
+          point(0, -5),
+          point(90, -5),
+          point(-175, -5),
+          point(-175, 0),
+          point(175, 0),
+          point(175, 5),
+          point(90, 5),
+          point(0, 5),
+        ],
+      },
+    },
+    {
+      // The meridian from the first hole's first vertex grazes the second
+      // hole's vertex at 0.4, whose arcs both lie west of it.
+      name: "holes where one grazes the other's meridian at a vertex",
       polygon: {
         outer: wide,
         holes: [
-          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
-          [point(3, 1), point(3, 3), point(5, 3), point(5, 1)],
+          [point(0.4, 1), point(0.6, 0.5), point(0.2, 0.5)],
+          [point(0.4, 3), point(0.1, 2.5), point(0.1, 3.5)],
+        ],
+      },
+    },
+    {
+      name: "a square of 1e-6 degrees",
+      polygon: {
+        outer: [
+          point(2.35, 48.85),
+          point(2.350_001, 48.85),
+          point(2.350_001, 48.850_001),
+          point(2.35, 48.850_001),
         ],
       },
     },
@@ -599,7 +759,7 @@ describe("GeoArea validation boundary", () => {
           point(-170, 10),
           point(170, 10),
         ],
-        // Unwrapped from -175, the hole lies a whole turn west of the outer.
+        // Both rings cross the antimeridian.
         holes: [
           [point(-175, 5), point(-175, -5), point(175, -5), point(175, 5)],
         ],

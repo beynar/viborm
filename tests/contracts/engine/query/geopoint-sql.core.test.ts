@@ -655,17 +655,23 @@ describe("GeoPoint query lowering", () => {
   });
 
   /**
-   * Each input below was refused by a VibORM geometry pre-check before
-   * decision D2. PostGIS answers all but one of them silently (only the
-   * 180-degree edge raises), so the ones it answers wrongly, differently from
-   * MySQL, or on an unstated reading are refused again at admission; the rest
-   * reach the adapter emission unchanged, rings closed once. Holes are written
-   * clockwise and outers counterclockwise, so the emitted order is the input
-   * order.
+   * Each refused input below was refused by a VibORM geometry pre-check
+   * before decision D2 or crosses itself on the sphere. PostGIS answers all
+   * but one of them silently (only the 180-degree edge raises), wrongly,
+   * differently from MySQL, or on an unstated reading, so they are refused
+   * again at admission. The admitted ones are valid only on the great-circle
+   * reading both databases share, and reach the adapter emission unchanged,
+   * rings closed once. Holes are written clockwise and outers
+   * counterclockwise, so the emitted order is the input order.
    */
   const g = (longitude: number, latitude: number) => ({ longitude, latitude });
   const square = [g(0, 0), g(4, 0), g(4, 4), g(0, 4)];
   const wide = [g(0, 0), g(10, 0), g(10, 10), g(0, 10)];
+  // Its south edge bows north to about latitude 40.105 at longitude 5, its
+  // north edge to about 50.10.
+  const box = [g(0, 40), g(10, 40), g(10, 50), g(0, 50)];
+  const turn = (longitude: number) =>
+    longitude > 180 ? longitude - 360 : longitude;
   type Polygon = {
     readonly outer: readonly { longitude: number; latitude: number }[];
     readonly holes?: readonly (readonly {
@@ -752,7 +758,7 @@ describe("GeoPoint query lowering", () => {
       name: "a hole outside",
       polygon: { outer: square, holes: [[g(5, 5), g(6, 6), g(6, 5)]] },
       issue: {
-        message: "A GeoPolygon hole must be inside its outer ring",
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
         path: ["holes", 0],
       },
     },
@@ -766,7 +772,7 @@ describe("GeoPoint query lowering", () => {
         ],
       },
       issue: {
-        message: "GeoPolygon holes cannot overlap",
+        message: "GeoPolygon holes cannot touch or overlap",
         path: ["holes", 1],
       },
     },
@@ -780,7 +786,7 @@ describe("GeoPoint query lowering", () => {
         ],
       },
       issue: {
-        message: "GeoPolygon holes cannot overlap",
+        message: "GeoPolygon holes cannot touch or overlap",
         path: ["holes", 1],
       },
     },
@@ -794,7 +800,93 @@ describe("GeoPoint query lowering", () => {
         ],
       },
       issue: {
-        message: "GeoPolygon holes cannot overlap",
+        message: "GeoPolygon holes cannot touch or overlap",
+        path: ["holes", 1],
+      },
+    },
+    {
+      name: "a ring past a whole turn over itself",
+      polygon: {
+        outer: [
+          g(0, 0),
+          g(80, 0),
+          g(160, 0),
+          g(-120, 0),
+          g(-40, 0),
+          g(40, 0),
+          g(40, 2),
+          g(-40, 2),
+          g(-120, 2),
+          g(160, 2),
+          g(80, 2),
+          g(0, 2),
+        ],
+      },
+      issue: {
+        message: "A GeoPolygon ring cannot self-intersect",
+        path: ["outer"],
+      },
+    },
+    {
+      name: "a hole touching",
+      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "a hole along an outer edge",
+      polygon: {
+        outer: square,
+        holes: [[g(0, 1), g(0, 2), g(1, 2), g(1, 1)]],
+      },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "a hole touching a parallel edge in the plane",
+      polygon: { outer: box, holes: [[g(5, 40), g(4, 45), g(6, 45)]] },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "a hole inside the plane's edge but outside the great-circle arc",
+      polygon: { outer: box, holes: [[g(5, 40.05), g(4, 45), g(6, 45)]] },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "holes touching at one point",
+      polygon: {
+        outer: wide,
+        holes: [
+          [g(1, 1), g(1, 3), g(3, 3), g(3, 1)],
+          [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
+        ],
+      },
+      issue: {
+        message: "GeoPolygon holes cannot touch or overlap",
+        path: ["holes", 1],
+      },
+    },
+    {
+      name: "a hole touching another's parallel edge in the plane",
+      polygon: {
+        outer: box,
+        holes: [
+          [g(2, 42), g(2, 44), g(8, 44), g(8, 42)],
+          [g(5, 44), g(4, 46), g(6, 46)],
+        ],
+      },
+      issue: {
+        message: "GeoPolygon holes cannot touch or overlap",
         path: ["holes", 1],
       },
     },
@@ -808,27 +900,19 @@ describe("GeoPoint query lowering", () => {
       polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(0, 0)] },
     },
     {
-      name: "a hole touching",
-      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+      name: "a hole beyond the plane's north edge, inside its great-circle arc",
+      polygon: { outer: box, holes: [[g(5, 50.05), g(6, 49), g(4, 49)]] },
     },
     {
-      name: "a hole along an outer edge",
+      name: "a band past a whole turn beside itself",
       polygon: {
-        outer: square,
-        holes: [[g(0, 1), g(0, 2), g(1, 2), g(1, 1)]],
-      },
-    },
-    {
-      name: "a hole touching the outer ring at three points",
-      polygon: { outer: square, holes: [[g(0, 2), g(2, 4), g(4, 2)]] },
-    },
-    {
-      name: "holes touching at one point",
-      polygon: {
-        outer: wide,
-        holes: [
-          [g(1, 1), g(1, 3), g(3, 3), g(3, 1)],
-          [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
+        outer: [
+          ...Array.from({ length: 21 }, (_, step) =>
+            g(turn(step * 20), -10 + step / 2)
+          ),
+          ...Array.from({ length: 21 }, (_, step) =>
+            g(turn(400 - step * 20), 2 - step / 2)
+          ),
         ],
       },
     },
