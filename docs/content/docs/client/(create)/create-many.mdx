@@ -98,8 +98,9 @@ has a member of an array `$transaction([...])`: there a relation-bearing
 `createMany` runs **without** `skipDuplicates` and VibORM warns once per client
 and model (on the `warning` log channel, or with `console.warn` when logging
 does not route warnings). A duplicate then fails with `UniqueConstraintError`,
-and rows an earlier batch committed stay committed. A scalar `createMany` with
-`skipDuplicates` is unaffected there.
+and rows an earlier batch committed stay committed. A root scalar `createMany` with
+`skipDuplicates` skips in SQL and is unaffected there, except on MySQL inside a
+`$transaction([...])` array, which warns the same way.
 
 Explicit `$transaction([...])` arrays remain one indivisible atomic batch. They do
 not use the progressive fallback and refuse when the dynamic series cannot lower

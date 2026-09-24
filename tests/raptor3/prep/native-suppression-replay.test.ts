@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: the replay helpers assert inside functions that only the test cases below call.
 import assert from "node:assert/strict";
 import type { Schema } from "@client/types";
 import type { AnyDriver } from "@drivers";
@@ -611,7 +612,7 @@ async function runJunctionSuppression(factory: CandidateEngineFactory) {
     assert(duplicateFailure instanceof UniqueConstraintError);
     assert.deepEqual(warn.mock.calls, [
       [
-        `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${factoryDriver.driverName}" (no savepoint available) in shelf.update; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+        `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${factoryDriver.driverName}" (no savepoint in this scope to undo a duplicate) in shelf.update; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
       ],
     ]);
     borrowedFixture.assert(borrowedWorld.observation);
@@ -942,7 +943,7 @@ async function runStandaloneAndBorrowedScopes(factory: CandidateEngineFactory) {
     assert(duplicateFailure instanceof UniqueConstraintError);
     assert.deepEqual(warn.mock.calls, [
       [
-        `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${factoryDriver.driverName}" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+        `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${factoryDriver.driverName}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
       ],
     ]);
     borrowedFixture.assert(borrowedWorld.observation);
@@ -1025,7 +1026,7 @@ async function runStandaloneAndBorrowedScopes(factory: CandidateEngineFactory) {
       assert(scalarFailure instanceof UniqueConstraintError);
       assert.deepEqual(scalarWarn.mock.calls, [
         [
-          `[viborm] createMany skipDuplicates cannot skip duplicate rows on driver "${factoryDriver.driverName}" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+          `[viborm] createMany skipDuplicates cannot skip duplicate rows on driver "${factoryDriver.driverName}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
         ],
       ]);
     }

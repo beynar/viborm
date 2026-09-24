@@ -20,6 +20,12 @@ import {
   vi,
 } from "vitest";
 
+const SAVEPOINT_CONTROL =
+  /^(?:SAVEPOINT|ROLLBACK TO SAVEPOINT|RELEASE SAVEPOINT)\b/;
+const WHITESPACE = /\s+/;
+const SELECT_STATEMENT = /^SELECT\b/i;
+const INSERT_STATEMENT = /^INSERT\b/i;
+
 /**
  * The one warning a borrowed operation without a member rollback region emits
  * when it drops `skipDuplicates` (owner decision 2026-09-24, "Warn, drop
@@ -27,7 +33,7 @@ import {
  */
 function droppedSkipWarning(driver: string, target: string): string[] {
   return [
-    `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint available) in ${target}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+    `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint in this scope to undo a duplicate) in ${target}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
   ];
 }
 
@@ -58,9 +64,7 @@ class ReviewSQLiteDriver extends SQLite3Driver {
     parameters?: unknown[],
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    if (
-      /^(?:SAVEPOINT|ROLLBACK TO SAVEPOINT|RELEASE SAVEPOINT)\b/.test(statement)
-    )
+    if (SAVEPOINT_CONTROL.test(statement))
       this.controlStatements.push(statement);
     return super.executeRaw<T>(client, statement, parameters);
   }
@@ -94,7 +98,7 @@ async function migratedWorld<S extends Record<string, AnyModel>>(
   const driver = new ReviewSQLiteDriver({ client: database });
   const client = createClient({ schema, driver });
   const migration = await syncLiveSchema(client);
-  assert.equal(migration.applied, true);
+  if (!migration.applied) throw new Error("the replay schema did not apply");
   driver.resetObservations();
   return {
     candidate: createCommandEngine({ schema, driver }),
@@ -398,14 +402,14 @@ describe("G3P-04 review regressions", () => {
           context
         ): Promise<QueryResult<T>> => {
           const text = statement.strings.join("?").trim();
-          const operation = text.split(/\s+/, 1)[0];
+          const operation = text.split(WHITESPACE, 1)[0];
           assert(operation);
           tape.push(operation.toUpperCase());
-          if (!hidWinner && /^SELECT\b/i.test(text)) {
+          if (!hidWinner && SELECT_STATEMENT.test(text)) {
             hidWinner = true;
             return { rows: [], rowCount: 0 };
           }
-          if (/^INSERT\b/i.test(text)) throw failure;
+          if (INSERT_STATEMENT.test(text)) throw failure;
           return execute<T>(statement, context);
         };
         try {

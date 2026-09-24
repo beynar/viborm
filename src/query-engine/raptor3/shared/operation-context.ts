@@ -220,7 +220,7 @@ function droppedSkipMessage(
   operation: string,
   rows: string
 ): string {
-  return `createMany skipDuplicates cannot skip ${rows} on driver "${driver}" (no savepoint available) in ${model}.${operation}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
+  return `createMany skipDuplicates cannot skip ${rows} on driver "${driver}" (no savepoint in this scope to undo a duplicate) in ${model}.${operation}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
 }
 
 /** Client lineages (by their engine schema) and the models already warned. */

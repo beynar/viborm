@@ -1150,7 +1150,7 @@ describe("D1 binding provider", () => {
       expect(failure).toBeInstanceOf(UniqueConstraintError);
       expect(warn.mock.calls).toEqual([
         [
-          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
+          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
         ],
       ]);
       await expect(
@@ -1236,7 +1236,7 @@ describe("D1 binding provider", () => {
       // the same model do not repeat it.
       expect(warn.mock.calls).toEqual([
         [
-          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint available) in author.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
+          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint in this scope to undo a duplicate) in author.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
         ],
       ]);
       await expect(
@@ -1315,7 +1315,7 @@ describe("D1 binding provider", () => {
       expect(failure).toBeInstanceOf(UniqueConstraintError);
       expect(warn.mock.calls).toEqual([
         [
-          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint available) in post.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
+          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint in this scope to undo a duplicate) in post.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
         ],
       ]);
       const rows = await env.DB.batch([

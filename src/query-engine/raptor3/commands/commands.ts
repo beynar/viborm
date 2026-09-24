@@ -303,7 +303,9 @@ export function isSeriesOccurrence(
 export class Commands {
   private nextMutation = 0;
   readonly execution: CommandExecution;
-  constructor(readonly context: OperationContext) {
+  readonly context: OperationContext;
+  constructor(context: OperationContext) {
+    this.context = context;
     this.execution = new CommandExecution(this);
   }
 
@@ -1409,9 +1411,10 @@ export class Commands {
   private visitFollowingReads(
     target: CommandOccurrence,
     visit: (read: ReadVisit) => "stop" | void,
-    branch: BranchPath | undefined
+    startBranch: BranchPath | undefined
   ): boolean {
     let current = target;
+    let branch = startBranch;
     while (current.parent) {
       const parent = current.parent;
       const parentBranch =

@@ -13,6 +13,10 @@ import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 
+const SAVEPOINT_CONTROL =
+  /^(?:SAVEPOINT|ROLLBACK TO SAVEPOINT|RELEASE SAVEPOINT)\b/;
+const INSERT_STATEMENT = /^INSERT\b/;
+
 class WitnessSQLiteDriver extends SQLite3Driver {
   readonly statements: { sql: string; context?: QueryExecutionContext }[] = [];
   readonly controlStatements: string[] = [];
@@ -39,12 +43,10 @@ class WitnessSQLiteDriver extends SQLite3Driver {
     client: Database.Database,
     statement: string,
     parameters?: unknown[],
-    context?: QueryExecutionContext
+    _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const isSavepointRollback = statement.startsWith("ROLLBACK TO SAVEPOINT ");
-    if (
-      /^(?:SAVEPOINT|ROLLBACK TO SAVEPOINT|RELEASE SAVEPOINT)\b/.test(statement)
-    )
+    if (SAVEPOINT_CONTROL.test(statement))
       this.controlStatements.push(statement);
     const result = await super.executeRaw<T>(client, statement, parameters);
     if (isSavepointRollback && this.failAfterSavepointRollback) {
@@ -159,7 +161,7 @@ async function migratedWorld<
 >(schema: S, driver: D) {
   const client = createClient({ schema, driver });
   const migration = await syncLiveSchema(client);
-  assert.equal(migration.applied, true);
+  if (!migration.applied) throw new Error("the replay schema did not apply");
   driver.resetObservations();
   return { client, driver, candidate: createCommandEngine({ schema, driver }) };
 }
@@ -540,7 +542,7 @@ describe("G3P-04 exact suppression and replay scopes", () => {
       assert.deepEqual(world.driver.controlStatements, []);
       expect(warn.mock.calls).toEqual([
         [
-          `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${world.driver.driverName}" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+          `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${world.driver.driverName}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
         ],
       ]);
       await expect(
@@ -579,7 +581,7 @@ describe("G3P-04 exact suppression and replay scopes", () => {
       ).rejects.toBeInstanceOf(UniqueConstraintError);
       expect(warn.mock.calls).toEqual([
         [
-          `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${batch.driver.driverName}" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
+          `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${batch.driver.driverName}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
         ],
       ]);
       await expect(
@@ -604,7 +606,7 @@ describe("G3P-04 exact suppression and replay scopes", () => {
       skipDuplicates: true,
     });
     const message = (driver: string) =>
-      `createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint available) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
+      `createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
     const database = new Database(":memory:");
     const world = await migratedWorld(
       rootSeriesSchema(),
@@ -730,7 +732,8 @@ describe("G3P-04 exact suppression and replay scopes", () => {
         "one exact retry must replace one rejected attempt"
       );
       assert.equal(
-        driver.statements.filter(({ sql }) => /^INSERT\b/.test(sql)).length,
+        driver.statements.filter(({ sql }) => INSERT_STATEMENT.test(sql))
+          .length,
         0,
         "skip-to-match must not attempt the missing INSERT"
       );

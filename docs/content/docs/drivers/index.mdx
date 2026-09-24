@@ -84,7 +84,8 @@ warns once per client and model (on the `warning` log channel when logging
 routes warnings, with `console.warn` otherwise), and a duplicate fails with
 `UniqueConstraintError` while the rows an earlier batch committed stay
 committed. A root scalar `createMany` with `skipDuplicates` skips in SQL and is
-unaffected on every driver.
+unaffected, except on MySQL inside a `$transaction([...])` array, where the
+per-row skip needs a savepoint and the same warning applies.
 
 :::info
 A transport with an interactive transaction never leaves a partial nested

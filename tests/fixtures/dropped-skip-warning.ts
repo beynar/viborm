@@ -8,7 +8,7 @@ import { afterAll, beforeAll, type MockInstance, vi } from "vitest";
  * routes no warnings to a logger.
  */
 export function droppedSkipWarning(driver: string, target: string): string {
-  return `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint available) in ${target}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
+  return `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint in this scope to undo a duplicate) in ${target}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
 }
 
 /**
