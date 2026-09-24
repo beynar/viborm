@@ -655,56 +655,81 @@ describe("GeoPoint query lowering", () => {
   });
 
   /**
-   * Polygon validity is the database's execution fact. Each input below was
-   * refused by a VibORM geometry pre-check before decision D2; it now passes
-   * admission and reaches the adapter emission unchanged, rings closed once.
-   * Holes are written clockwise and outers counterclockwise, so the emitted
-   * order is the input order.
+   * Each input below was refused by a VibORM geometry pre-check before
+   * decision D2. PostGIS answers all but one of them silently (only the
+   * 180-degree edge raises), so the ones it answers wrongly, differently from
+   * MySQL, or on an unstated reading are refused again at admission; the rest
+   * reach the adapter emission unchanged, rings closed once. Holes are written
+   * clockwise and outers counterclockwise, so the emitted order is the input
+   * order.
    */
   const g = (longitude: number, latitude: number) => ({ longitude, latitude });
   const square = [g(0, 0), g(4, 0), g(4, 4), g(0, 4)];
   const wide = [g(0, 0), g(10, 0), g(10, 10), g(0, 10)];
-  const formerRefusals: readonly {
+  type Polygon = {
+    readonly outer: readonly { longitude: number; latitude: number }[];
+    readonly holes?: readonly (readonly {
+      longitude: number;
+      latitude: number;
+    }[])[];
+  };
+  const refused: readonly {
     readonly name: string;
-    readonly polygon: {
-      readonly outer: readonly { longitude: number; latitude: number }[];
-      readonly holes?: readonly (readonly {
-        longitude: number;
-        latitude: number;
-      }[])[];
-    };
+    readonly polygon: Polygon;
+    readonly issue: { readonly message: string; readonly path: unknown[] };
   }[] = [
-    {
-      name: "a closed ring",
-      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(0, 0)] },
-    },
     {
       name: "a repeated vertex",
       polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(1, 0)] },
+      issue: {
+        message: "A GeoPolygon ring cannot self-intersect",
+        path: ["outer"],
+      },
     },
     {
       name: "a bowtie",
       polygon: { outer: [g(0, 0), g(1, 1), g(0, 1), g(1, 0)] },
+      issue: {
+        message: "A GeoPolygon ring cannot self-intersect",
+        path: ["outer"],
+      },
     },
     {
       name: "a zero-area ring",
       polygon: { outer: [g(0, 0), g(1, 0), g(2, 0)] },
+      issue: {
+        message: "A GeoPolygon ring must have non-zero area",
+        path: ["outer"],
+      },
     },
     {
       name: "a 180-degree edge",
       polygon: { outer: [g(0, 0), g(180, 0), g(1, 1)] },
+      issue: {
+        message: "A GeoPolygon edge cannot span exactly 180 degrees",
+        path: ["outer", 1],
+      },
     },
     {
       name: "a north pole vertex",
       polygon: { outer: [g(10, 80), g(0, 90), g(-10, 80)] },
+      issue: {
+        message: "A GeoPolygon ring cannot contain a pole",
+        path: ["outer", 1],
+      },
     },
     {
       name: "a south pole vertex",
       polygon: { outer: [g(-10, -80), g(0, -90), g(10, -80)] },
+      issue: {
+        message: "A GeoPolygon ring cannot contain a pole",
+        path: ["outer", 1],
+      },
     },
     {
       name: "a ring winding around a pole",
       polygon: { outer: [g(-120, 80), g(0, 80), g(120, 80)] },
+      issue: { message: "A GeoPolygon cannot contain a pole", path: ["outer"] },
     },
     {
       name: "half the globe",
@@ -718,14 +743,18 @@ describe("GeoPoint query lowering", () => {
           g(-170, 80),
         ],
       },
+      issue: {
+        message: "A GeoPolygon must cover less than half the globe",
+        path: ["outer"],
+      },
     },
     {
       name: "a hole outside",
       polygon: { outer: square, holes: [[g(5, 5), g(6, 6), g(6, 5)]] },
-    },
-    {
-      name: "a hole touching",
-      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+      issue: {
+        message: "A GeoPolygon hole must be inside its outer ring",
+        path: ["holes", 0],
+      },
     },
     {
       name: "overlapping holes",
@@ -735,6 +764,10 @@ describe("GeoPoint query lowering", () => {
           [g(1, 1), g(1, 4), g(4, 4), g(4, 1)],
           [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
         ],
+      },
+      issue: {
+        message: "GeoPolygon holes cannot overlap",
+        path: ["holes", 1],
       },
     },
     {
@@ -746,6 +779,10 @@ describe("GeoPoint query lowering", () => {
           [g(3, 3), g(3, 4), g(4, 4), g(4, 3)],
         ],
       },
+      issue: {
+        message: "GeoPolygon holes cannot overlap",
+        path: ["holes", 1],
+      },
     },
     {
       name: "a hole enclosing a hole",
@@ -756,11 +793,47 @@ describe("GeoPoint query lowering", () => {
           [g(2, 2), g(2, 5), g(5, 5), g(5, 2)],
         ],
       },
+      issue: {
+        message: "GeoPolygon holes cannot overlap",
+        path: ["holes", 1],
+      },
     },
   ];
-  const emittedGeoJson = (
-    polygon: (typeof formerRefusals)[number]["polygon"]
-  ) =>
+  const admitted: readonly {
+    readonly name: string;
+    readonly polygon: Polygon;
+  }[] = [
+    {
+      name: "a closed ring",
+      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(0, 0)] },
+    },
+    {
+      name: "a hole touching",
+      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+    },
+    {
+      name: "a hole along an outer edge",
+      polygon: {
+        outer: square,
+        holes: [[g(0, 1), g(0, 2), g(1, 2), g(1, 1)]],
+      },
+    },
+    {
+      name: "a hole touching the outer ring at three points",
+      polygon: { outer: square, holes: [[g(0, 2), g(2, 4), g(4, 2)]] },
+    },
+    {
+      name: "holes touching at one point",
+      polygon: {
+        outer: wide,
+        holes: [
+          [g(1, 1), g(1, 3), g(3, 3), g(3, 1)],
+          [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
+        ],
+      },
+    },
+  ];
+  const emittedGeoJson = (polygon: Polygon) =>
     JSON.stringify({
       type: "Polygon",
       coordinates: [polygon.outer, ...(polygon.holes ?? [])].map((ring) =>
@@ -770,18 +843,25 @@ describe("GeoPoint query lowering", () => {
         ])
       ),
     });
-  const withinPolygon = (
-    engine: QueryEngine,
-    polygon: (typeof formerRefusals)[number]["polygon"]
-  ) =>
+  const withinPolygon = (engine: QueryEngine, polygon: Polygon) =>
     engine.build(place, "findMany", {
       where: { location: { within: { polygon } } },
       select: { id: true },
     });
 
-  test.each(
-    formerRefusals
-  )("admits $name and lets PostgreSQL and MySQL decide it", ({ polygon }) => {
+  test.each(refused)("refuses $name before any SQL", ({ polygon, issue }) => {
+    expect(validateGeoPolygon(polygon)).toEqual({ issues: [issue] });
+    for (const engine of [
+      createEngine(new PostgresAdapter("public", true), "postgresql"),
+      createEngine(new MySQLAdapter(), "mysql"),
+    ]) {
+      expect(() => withinPolygon(engine, polygon)).toThrow(issue.message);
+    }
+  });
+
+  test.each(admitted)("admits $name and emits it for PostgreSQL and MySQL", ({
+    polygon,
+  }) => {
     const postgres = withinPolygon(
       createEngine(new PostgresAdapter("public", true), "postgresql"),
       polygon

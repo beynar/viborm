@@ -303,7 +303,7 @@ describe("GeoArea validation boundary", () => {
     }
   });
 
-  test("owns the ring shape and leaves geometry to the database", () => {
+  test("walks the ring shape before any geometry", () => {
     const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
     const vertices = "A GeoPolygon ring needs at least 3 vertices";
 
@@ -313,23 +313,300 @@ describe("GeoArea validation boundary", () => {
     expect(
       validateGeoPolygon({ outer: square, holes: [[point(1, 1), point(2, 1)]] })
     ).toEqual({ issues: [{ message: vertices, path: ["holes", 0] }] });
+    // A bowtie with an out-of-range vertex reports the walker's message.
     expect(
-      validateGeoPolygon({ outer: [point(0, 0), point(1, 0), point(1, 91)] })
+      validateGeoPolygon({
+        outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 91)],
+      })
     ).toEqual({
       issues: [
         {
           message: "Latitude must be between -90 and 90",
-          path: ["outer", 2, "latitude"],
+          path: ["outer", 3, "latitude"],
         },
       ],
     });
-    // A self-intersecting ring is shape-valid; PostGIS and MySQL decide it.
-    // The former refusals reach SQL in geopoint-sql.core.test.ts.
-    expect(
-      validateGeoPolygon({
-        outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 0)],
-      }).issues
-    ).toBeUndefined();
+  });
+
+  /**
+   * The polygons PostGIS and MySQL answer silently but wrongly, differently,
+   * or on an unstated reading (the probe in CHANGELOG "Geo"); PostGIS raises
+   * only for the exactly-180-degree edge. Each is refused at admission with
+   * its path.
+   */
+  const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
+  const wide = [point(0, 0), point(10, 0), point(10, 10), point(0, 10)];
+  const selfIntersect = "A GeoPolygon ring cannot self-intersect";
+  const zeroArea = "A GeoPolygon ring must have non-zero area";
+  const edge180 = "A GeoPolygon edge cannot span exactly 180 degrees";
+  const poleVertex = "A GeoPolygon ring cannot contain a pole";
+  const aroundPole = "A GeoPolygon cannot contain a pole";
+  const halfGlobe = "A GeoPolygon must cover less than half the globe";
+  const holeOutside = "A GeoPolygon hole must be inside its outer ring";
+  const holesOverlap = "GeoPolygon holes cannot overlap";
+  test.each([
+    {
+      name: "a bowtie",
+      polygon: { outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 0)] },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a bowtie hole",
+      polygon: {
+        outer: square,
+        holes: [[point(1, 1), point(2, 2), point(1, 2), point(2, 1)]],
+      },
+      issue: { message: selfIntersect, path: ["holes", 0] },
+    },
+    {
+      name: "a ring touching itself at a repeated vertex",
+      polygon: { outer: [point(0, 0), point(1, 0), point(1, 1), point(1, 0)] },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a collinear ring",
+      polygon: { outer: [point(0, 0), point(1, 0), point(2, 0)] },
+      issue: { message: zeroArea, path: ["outer"] },
+    },
+    {
+      name: "a ring of two distinct vertices",
+      polygon: { outer: [point(0, 0), point(1, 0), point(0, 0)] },
+      issue: { message: zeroArea, path: ["outer"] },
+    },
+    {
+      name: "a ring of one distinct vertex",
+      polygon: { outer: [point(1, 1), point(1, 1), point(1, 1)] },
+      issue: { message: zeroArea, path: ["outer"] },
+    },
+    {
+      name: "a 180-degree edge",
+      polygon: { outer: [point(0, 0), point(180, 0), point(1, 1)] },
+      issue: { message: edge180, path: ["outer", 1] },
+    },
+    {
+      name: "a 180-degree closing edge",
+      polygon: { outer: [point(0, 0), point(1, 1), point(180, 0)] },
+      issue: { message: edge180, path: ["outer", 0] },
+    },
+    {
+      name: "a 180-degree hole edge",
+      polygon: {
+        outer: square,
+        holes: [[point(1, 1), point(2, 1), point(-178, 2)]],
+      },
+      issue: { message: edge180, path: ["holes", 0, 2] },
+    },
+    {
+      name: "a north pole vertex",
+      polygon: { outer: [point(10, 80), point(0, 90), point(-10, 80)] },
+      issue: { message: poleVertex, path: ["outer", 1] },
+    },
+    {
+      name: "a south pole vertex",
+      polygon: { outer: [point(-10, -80), point(0, -90), point(10, -80)] },
+      issue: { message: poleVertex, path: ["outer", 1] },
+    },
+    {
+      name: "a ring winding around a pole",
+      polygon: { outer: [point(-120, 80), point(0, 80), point(120, 80)] },
+      issue: { message: aroundPole, path: ["outer"] },
+    },
+    {
+      name: "half the globe",
+      polygon: {
+        outer: [
+          point(-170, -80),
+          point(0, -80),
+          point(170, -80),
+          point(170, 80),
+          point(0, 80),
+          point(-170, 80),
+        ],
+      },
+      issue: { message: halfGlobe, path: ["outer"] },
+    },
+    {
+      name: "a hole outside",
+      polygon: {
+        outer: square,
+        holes: [[point(5, 5), point(6, 6), point(6, 5)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole crossing the outer ring",
+      polygon: {
+        outer: square,
+        holes: [[point(3, 3), point(3, 5), point(5, 5), point(5, 3)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole bridging a notch between two outer vertices",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(4, 0),
+          point(4, 2),
+          point(2, 2),
+          point(2, 4),
+          point(0, 4),
+        ],
+        holes: [[point(1, 1), point(4, 2), point(2, 4)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // Every piece's midpoint is inside; only the crossings show the escape.
+      name: "a hole whose edges cross an outer notch",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(4, 0),
+          point(4, 4),
+          point(2.2, 4),
+          point(2, 2),
+          point(1.8, 4),
+          point(0, 4),
+        ],
+        holes: [[point(0.5, 3), point(3, 3.5), point(3.9, 3)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "overlapping holes",
+      polygon: {
+        outer: [point(0, 0), point(6, 0), point(6, 6), point(0, 6)],
+        holes: [
+          [point(1, 1), point(1, 4), point(4, 4), point(4, 1)],
+          [point(3, 3), point(3, 5), point(5, 5), point(5, 3)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "a hole nested in a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(2, 5), point(5, 5), point(5, 2)],
+          [point(3, 3), point(3, 4), point(4, 4), point(4, 3)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "a hole enclosing a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(3, 3), point(3, 4), point(4, 4), point(4, 3)],
+          [point(2, 2), point(2, 5), point(5, 5), point(5, 2)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      // No edge crosses: the second hole enters the first through two corners.
+      name: "holes overlapping through shared corners",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(4, 4), point(2, 2), point(3, 1)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "the same hole twice",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(2, 5), point(5, 5), point(5, 2)],
+          [point(5, 2), point(2, 2), point(2, 5), point(5, 5)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+  ])("refuses $name", ({ polygon, issue }) => {
+    expect(validateGeoPolygon(polygon)).toEqual({ issues: [issue] });
+  });
+
+  /**
+   * The polygons both databases answered as "inside the outer ring and in no
+   * hole": a repeated consecutive vertex is a zero-length edge, and a hole may
+   * touch the outer ring or another hole at a point or along an edge.
+   */
+  test.each([
+    {
+      name: "a closed ring",
+      polygon: { outer: [point(0, 0), point(1, 0), point(1, 1), point(0, 0)] },
+    },
+    {
+      name: "a repeated consecutive vertex",
+      polygon: {
+        outer: [point(0, 0), point(1, 0), point(1, 0), point(1, 1)],
+      },
+    },
+    {
+      name: "a hole touching the outer ring at one point",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 1), point(1, 2), point(1, 1)]],
+      },
+    },
+    {
+      name: "a hole along an outer edge",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 1), point(0, 2), point(1, 2), point(1, 1)]],
+      },
+    },
+    {
+      name: "a hole touching the outer ring at three points",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 2), point(2, 4), point(4, 2)]],
+      },
+    },
+    {
+      name: "holes touching at one point",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(3, 3), point(3, 5), point(5, 5), point(5, 3)],
+        ],
+      },
+    },
+    {
+      name: "holes sharing an edge",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(3, 1), point(3, 3), point(5, 3), point(5, 1)],
+        ],
+      },
+    },
+    {
+      name: "an antimeridian hole in an antimeridian polygon",
+      polygon: {
+        outer: [
+          point(170, -10),
+          point(-170, -10),
+          point(-170, 10),
+          point(170, 10),
+        ],
+        // Unwrapped from -175, the hole lies a whole turn west of the outer.
+        holes: [
+          [point(-175, 5), point(-175, -5), point(175, -5), point(175, 5)],
+        ],
+      },
+    },
+  ])("admits $name as written", ({ polygon }) => {
+    expect(validateGeoPolygon(polygon)).toEqual({ value: polygon });
   });
 
   test("contains hostile ring and property access", () => {
