@@ -1174,6 +1174,42 @@ describe("GeoArea validation boundary", () => {
     expect(validateGeoPolygon(polygon)).toEqual({ value: polygon });
   });
 
+  test("places rings meeting the antimeridian together near a pole by latitude", () => {
+    // Every ring lies within 2e-7 degrees of the north pole, where a vertex's
+    // z coordinate rounds to 1. The outer ring reaches the antimeridian with
+    // an edge and with its edge over the pole; ordered by z the two tied, the
+    // sweep took the edge as the ring's northernmost, found the second hole
+    // north of it and placed the outer ring inside that hole, and refused the
+    // polygon (holes touching). The rings are 8e-9 degrees apart or more.
+    const polygon = {
+      outer: [
+        point(-65, 89.999_999_83),
+        point(-140, 89.999_999_84),
+        point(174, 89.999_999_92),
+        point(153, 89.999_999_81),
+        point(-27, 89.999_999_84),
+        point(-42, 89.999_999_82),
+        point(-45, 89.999_999_87),
+      ],
+      holes: [
+        [
+          point(-135, 89.999_999_93),
+          point(-141, 89.999_999_92),
+          point(-138, 89.999_999_91),
+          point(-131, 89.999_999_92),
+          point(-134, 89.999_999_92),
+        ],
+        [
+          point(169, 89.999_999_97),
+          point(170, 89.999_999_96),
+          point(-180, 89.999_999_963_020_76),
+          point(174, 89.999_999_97),
+        ],
+      ],
+    };
+    expect(validateGeoPolygon(polygon).issues).toBeUndefined();
+  });
+
   test("admits a 40,000-vertex star with 50 holes in near-linear time", () => {
     // Most spokes' boxes overlap each other and reach toward every hole:
     // comparing boxes took 7 s on a 20,000-vertex star, 98 s on that star

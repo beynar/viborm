@@ -2683,7 +2683,15 @@ met the ring (its own arcs through that point skipped). The ring lies inside
 that arc's ring when the arc has its ring's interior to the south (the
 exact `signedArea` sign gives each ring's orientation), else in the same
 ring as that ring; rings first met on one meridian are listed north to
-south, so the ring an answer depends on is always placed first. Admission
+south, so the ring an answer depends on is always placed first. North is
+latitude, atan2(z, hypot(x, y)), not z (second PR review, 2026-09-24): z
+rounds to ±1 within about 6e-7 degrees of a pole, and there an outer ring
+reaching the antimeridian with an edge and with its edge over the pole
+tied, kept the edge as its northernmost, and was placed inside a hole
+north of it (637 of 3,000 unambiguous polygons with a hole's longitudes
+jittered were refused as holes touching; 0 by latitude; witness "places
+rings meeting the antimeridian together near a pole by latitude", red with
+z). Admission
 is O((N + H) log N): the review's perf script now takes 59 ms for the
 10,000 holes, 61 ms for the star with 2,500. Verdicts, messages, paths and
 values were identical to the pairwise placement on 95,000 random polygons

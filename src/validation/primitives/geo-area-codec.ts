@@ -681,6 +681,15 @@ function polarEvents(
 }
 
 /**
+ * The point's latitude, in radians, which orders points on one meridian. Its
+ * z coordinate alone does not: z rounds to ±1 within about 6e-7 degrees of a
+ * pole, where rings arriving together would tie.
+ */
+function latitude(point: Vector): number {
+  return Math.atan2(point[2], Math.hypot(point[0], point[1]));
+}
+
+/**
  * A ring on the meridian where the sweep first meets it, and the arc of
  * another ring first north of it there, if any.
  */
@@ -743,7 +752,7 @@ function sweep(
     const arrived = [...arrivals].map(([ring, { entry, west }]) => {
       let next = entry.links[0]?.next;
       while (next?.stretch?.placed.ring === ring) next = next.links[0]?.next;
-      return { ring, height: west[2], north: next?.stretch };
+      return { ring, height: latitude(west), north: next?.stretch };
     });
     arrived.sort((left, right) => right.height - left.height);
     // One push per ring: a spread would pass every ring arriving on this
@@ -768,7 +777,10 @@ function sweep(
       if (found) return { meeting: found };
       const { placed, west } = event.slot.stretch;
       const top = arrivals.get(placed.ring);
-      if (!met.has(placed.ring) || (top && west[2] > top.west[2])) {
+      if (
+        !met.has(placed.ring) ||
+        (top && latitude(west) > latitude(top.west))
+      ) {
         met.add(placed.ring);
         arrivals.set(placed.ring, { entry, west });
       }
