@@ -223,7 +223,7 @@
     "@opentelemetry/resources": "^2.4.0",
     "@opentelemetry/sdk-node": "^0.210.0",
     "@opentelemetry/sdk-trace-node": "^2.4.0",
-    "@opentelemetry/semantic-conventions": "^1.39.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
     "@paralleldrive/cuid2": "^3.3.0",
     "@planetscale/database": "^1.19.0",
     "@prisma/adapter-pg": "^7.9.1",
