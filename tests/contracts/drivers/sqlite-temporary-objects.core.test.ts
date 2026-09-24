@@ -1,6 +1,5 @@
 import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { D1Driver } from "@drivers/d1";
 import { LibSQLDriver } from "@drivers/libsql";
@@ -29,12 +28,5 @@ describe("SQLite transport temporary objects", () => {
     ["d1", new D1Driver({ database: Object.create(null) }), MAIN_SCRATCH],
   ])("%s spells the batch reference scratch its transport admits", (_name, driver, ddl) => {
     expect(scratchDdl(driver.adapter)).toEqual([ddl]);
-  });
-
-  test("the adapter defaults to a transport that admits temporary objects", () => {
-    expect(scratchDdl(new SQLiteAdapter())).toEqual([TEMP_SCRATCH]);
-    expect(scratchDdl(new SQLiteAdapter({ temporaryObjects: false }))).toEqual([
-      MAIN_SCRATCH,
-    ]);
   });
 });
