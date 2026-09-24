@@ -2293,26 +2293,536 @@ and an area with neither would reach `geoPolygonJson(undefined)` and throw a
 area record carries no `requiresOneOf`. Falsifier: removing the `!polygon` arm
 fails "discriminates GeoArea exactly".
 
-**Retired: every polygon geometry pre-check** (`geo-area-codec.ts` before
-D2). The open-ring check (closing vertex repeated), the repeated-vertex check,
-ring self-intersection (`segmentsIntersect`, `ringSelfIntersects`,
-`orientation`, `between`, `onSegment`), the zero-area check, the 180-degree
-edge and pole checks inside `unwrapRing`, the pole-vertex check, the spherical
-half-globe test (`sphericalArea`), and hole placement (`shiftRingNear`,
-`locatePoint`, `ringsIntersect`: outside, touching, overlapping, nested).
-Invariant: polygon validity is the database's execution fact; VibORM owns the
-shape, not the geometry. Successor: PostgreSQL (`ST_GeomFromGeoJSON` cast to
-`geography`) and MySQL (`ST_GeomFromGeoJSON(…, 1, 4326)`), which either raise
-or answer; SQLite refuses polygon filtering outright. Reachability witnesses:
-`tests/contracts/engine/query/geopoint-sql.core.test.ts` ("admits … and lets
-PostgreSQL and MySQL decide it", fourteen former refusals, each asserting the
-emitted statement and GeoJSON on PostgreSQL and MySQL and the SQLite
-`FeatureNotSupportedError`); against the pre-D2 codec all fourteen fail.
-`snapshotDenseArray` goes with them: rings are read by `validateArray`, the one
-array reader, which contains throwing `length` and member reads. End-to-end
-falsifiers (Docker lanes): `tests/contracts/drivers/behaviors/geopoint-behavior.ts`
-("includes polygon boundaries and excludes holes") on pg, postgres and mysql2,
-and `tests/providers/docker/mysql2.test.ts`.
+**Retired, then restored: the polygon geometry pre-checks.** D2 retired every
+geometry check on the premise that a malformed polygon becomes a database
+error. **That premise is false on PostgreSQL** (corrected 2026-09-24, lane
+`geo-checks`). Measured with VibORM's exact predicates on PGlite 0.5.8 +
+PostGIS 3.6.2 and on MySQL 8 (docker, 3307), PostGIS raises only for an edge
+between antipodal endpoints ("Antipodal (180 degrees long) edge detected!",
+liblwgeom `edge_calculate_gbox`) and answers every other malformed polygon
+silently:
+
+| Polygon | PostGIS | MySQL 8 |
+| --- | --- | --- |
+| bowtie | both lobes and the crossing point | the same |
+| retracing or collinear ring | its outline only | the same |
+| antipodal endpoints, (0,0) to (180,0) | raises | answers |
+| (0,10) to (180,10), over the pole | (0,80) in | (0,80) out |
+| (0,10) to (179.999999,-10), 1e-6 short of antipodal (review round 3) | (90,30) in, as the sphere | (90,30) out |
+| pole vertex (written at longitude 0) | the polar sector | the equator and the opposite pole |
+| ring winding around a pole | the polar cap | the polar cap |
+| 340-degree band (half globe or more) | the poles and the antimeridian | the band |
+| tropics band, -170 to 170 at ±30 (11.18 sr on the sphere; the old trapezoid sum said under half) (review round 3) | the whole globe | the band |
+| ring with vertices both sides of the equator, the 0/180 and the 90/-90 meridian planes, 27% of half the globe (review round 3) | inside out | as the sphere |
+| hole outside the outer ring | adds the hole's area | ignores the hole |
+| overlapping or nested holes | matches a point in two holes | excludes it |
+| hole touching the outer ring or a hole at a shared vertex or along a meridian | inside the outer ring and in no hole | the same |
+| hole touching a straight parallel edge (box (0,40)-(10,50), hole vertex (5,40)) | matches (5,40.05) and (5,40.08), in the hole | does not |
+| hole B touching hole A's straight lat-44 edge at (5,44) | matches (5,44.01)-(5,44.03), in both holes | does not |
+| ring past a whole turn over itself (0..400 degrees along a band) | (20,1) out | (20,1) in |
+| repeated consecutive or closing vertex | as without the repeat | the same |
+| box (0,40)-(10,50), no hole | (5,40.05) out, (5,50.05) in | the same |
+
+The last row is the edge reading: PostGIS geography draws an edge as the
+great-circle arc between its vertices (within 4e-12 degrees, measured by
+bisection), which bows toward the nearer pole off the equator and the
+meridians; MySQL draws the ellipsoid's path, close enough on this 10-degree box
+to give the same answers (review round 3 corrected "both databases draw arcs";
+the band is under "Remaining gap"). So the geometry is judged on the unit
+sphere (`src/validation/primitives/geo-area-codec.ts`: vertices as unit
+vectors, `crosses`/`onArc`/`meet` on arcs, `sweep` placing each ring by the arc
+first north of it on a meridian). A first restoration judged straight
+longitude/latitude lines in the unwrapped plane (the pre-D2 geometry) and
+admitted touching holes; review round 1 measured PostGIS answering touching
+holes wrongly (the second and third "touching" rows: in the plane they touch,
+on the globe they cross) and a self-overlapping ring past a whole turn that the
+plane could not see. Both are refused now, a touch included, as before D2.
+
+**Owner rule (Arnaud, 2026-09-24).** Asked whether to keep refusing
+continent-scale polygons PostGIS misreads: "it seems a postgis issue, not a us
+issue". VibORM's polygon validation refuses input with NO SINGLE MEANING on
+the great-circle reading (the polygon being the side of its outer ring away
+from both poles): self-intersecting or retracing rings, zero area, holes not
+strictly inside, touching, overlapping or nested holes, a hole equal to its
+ring, walker shape errors; and input outside its stated DOMAIN CHOICES (next
+paragraph): edges between near-antipodal endpoints, a vertex on a pole, a
+ring with no side away from both poles (winding around one, or running over
+both), all judged at the resolution `TOLERANCE`.
+It does NOT refuse a valid polygon because a database computes it differently;
+that difference is stated in `docs/content/docs/schema/scalars/point.mdx`
+("How each database reads a polygon") and CHANGELOG "Geo". Of the table
+above, the pole vertex, pole winding, bowtie, retracing, antipodal, hole and
+self-overlap rows are refused; the 340-degree band, the tropics band and the
+three-planes row are valid polygons PostGIS misreads, and the over-the-pole
+row a valid polygon the databases part on only along the edge itself (second
+pass below): all are admitted.
+
+**Domain choices (second PR review, 2026-09-24).** "No single meaning" alone
+overstated the contract: three rules are VibORM's choices, each with its
+reason, stated as such in the codec's header, `point.mdx`, the CHANGELOG and
+both AGENTS.md (Rule 10, and `src/validation/AGENTS.md`), so a future refusal
+needs a reason of this kind, never an "invalid geometry" label:
+
+- Resolution, `TOLERANCE` = 1e-9 degrees (about 0.1 mm). Reason: exact
+  predicates on float64 unit vectors need a margin for rounding, and one
+  fixed margin serves every ring size. Within it a point is on what it
+  touches, so rings closer than it touch (refused) and an edge shorter than
+  it is a repeated vertex (dropped). Measured exact above twice it (the ring
+  size entry below).
+- Near-antipodal edges, `NEAREST_ANTIPODE` = 0.01 degrees. Reason: float
+  rounding of the great circle. Antipodal points lie on every great circle
+  through them, and near the antipode one float64 step of a written
+  coordinate turns the edge's circle by about 3e-12 / d degrees at d degrees
+  from antipodal; from 0.01 degrees out that stays under a third of
+  `TOLERANCE` (the near-antipodal entry below has the measurements).
+- Poles. A vertex within `TOLERANCE` of a pole is on it and has no
+  longitude, so no meridian for its edges (refused). A ring winding around a
+  pole, or running over both, has no side away from both poles, the side
+  VibORM reads as the polygon (refused). An edge whose longitudes differ by
+  exactly 180 degrees between vertices that are not antipodal runs over the
+  pole on its vertices' side (admitted). Reason: the reading chosen, not a
+  database's.
+
+The owner rule holds alongside them: none of the three is a database's
+reading, and a valid polygon is not refused because a database computes it
+differently.
+
+The refused rows are refused in `validateGeoPolygon`, after the record walker
+admitted the shape (so a shape error keeps the walker's message), with the
+pre-D2 messages word for word and a path. Each guard, its unique coverage, and
+the witness that goes red without it (`geo-area.core.test.ts` "refuses
+…"/"admits …", and the matching `geopoint-sql.core.test.ts` cell), each
+falsified one at a time on 2026-09-24 (the owner-rule pass re-ran every
+falsifier on the final codec; the list is at the end of this addendum):
+
+- Vertex on a pole (`distinctVertices`, `A GeoPolygon ring cannot contain a
+  pole`, the pre-D2 sentence, at the vertex; owner-rule second pass,
+  2026-09-24). A vertex on a pole has no longitude, so its edges have no
+  meridian to leave it by: a domain choice (above). The guard refuses a vertex
+  within `TOLERANCE` (1e-9 degrees) of a pole, VibORM's own resolution, at
+  which a point is on what it touches; nothing about a database sets it.
+  Unique coverage: nothing else looks at a vertex's latitude, and a pole
+  vertex passes the wrap and antipode tests. Witness: "a north pole vertex",
+  "a south pole vertex", "a hole vertex on a pole", "a vertex within 1e-9
+  degrees of a pole" (5e-10 degrees; unit and SQL); admitted "a vertex 1.5e-9
+  degrees from a pole". Falsifiers: guard off, 7 red; bound at `TOLERANCE /
+  10`, 2 red (the 5e-10 cells); the retired 1e-4 bound, 7 red (the
+  admissions below).
+- Retired (owner rule, second pass, 2026-09-24): the pole clearance
+  (`POLE_CLEARANCE`, `A GeoPolygon vertex must be at least 1e-4 degrees from
+  a pole`, review round 4). Why it is not VibORM's to refuse: a vertex off
+  the pole has a longitude, and its ring one meaning; the 1e-4 was the
+  databases' measured clearance, MySQL answering points 70 degrees from
+  rings with two consecutive vertices within about 3e-6 degrees of a pole
+  wrongly, PostGIS from about 6e-7 (its answer changing with the query
+  plan), none of about 1,500 rings from 5.6e-6 out. Stated in `point.mdx`
+  and the CHANGELOG. VibORM's own geometry was measured there rather than
+  assumed: against 60-digit gnomonic geometry taken from the pole (great
+  circles as straight lines; this lane's geo-pole/oracle.mjs, probe.mjs),
+  random rings with vertices 3e-9 to 3.5e-4 degrees from either pole (stars,
+  shuffled rings, rings with holes, rings over the pole), every ring whose
+  edges and clearances exceed twice `TOLERANCE` was judged exactly: verdict,
+  message and winding (seeds and counts in the second-pass falsifier
+  paragraph at the end). Removing the clearance exposed one precision loss,
+  fixed with it: `signedArea` added each south-branch arc's lune (tens of
+  degrees) into the same sum as its triangle, and a ring 1e-7 degrees from
+  the south pole, about 1e-18 steradians, lost its sign to their rounding
+  (wound inside out); the lunes' longitudes now telescope along each run of
+  such arcs, so a ring near the south pole adds exactly none. Its witnesses
+  flip to admissions asserting the value: "an edge between two vertices
+  1e-7 degrees from the south pole", "edges between vertices 1e-6 degrees
+  from the north pole" (unit and SQL), "… 1e-8 …", and "a counterclockwise
+  triangle 1e-7 degrees from the south pole" (red with the lunes summed in
+  the triangle sum, as before, and with them summed arc by arc apart from
+  it).
+- Retired (owner rule, second pass, 2026-09-24): the exact-180-degree edge
+  (`A GeoPolygon edge cannot span exactly 180 degrees`). Why it is not
+  VibORM's to refuse: an edge whose longitudes differ by exactly 180 degrees
+  and whose endpoints are not antipodal lies on one great circle, the
+  meridian plane, and runs over the pole on the side of its endpoints' mean
+  latitude: one meaning. Its antipodal case, (0,0) to (180,0), is refused by
+  `NEAREST_ANTIPODE` below, which covers every such edge within 0.01 degrees
+  of antipodal. The databases read it the same off the edge: 8 named rings
+  over a pole and 140 random ones (5 to 80 degrees from the pole, both
+  poles, PGlite + PostGIS and MySQL 8, table and index scans, about 118,000
+  points at least 0.01 degrees from every edge; geo-pole/dbpole.mjs, seeds
+  4242 and 777) gave no wrong answer on PostGIS and one on MySQL, a point
+  0.02 degrees from a long non-meridian edge, inside MySQL's ellipsoid band;
+  on the edge itself they part (PostGIS matched (0,50), (180,60) and the
+  pole on the edge from (0,10) to (180,20), MySQL did not; the table row
+  above, (0,80), is such a point). Stated in `point.mdx` and the CHANGELOG.
+  Its witnesses flip: "a 180-degree edge" becomes "a 180-degree edge between
+  antipodal vertices" (`NEAREST_ANTIPODE`, unit and SQL); "a 180-degree
+  closing edge" and "… edge over the pole" are admitted as "a closing edge
+  over the north pole" (unit and SQL) and "an edge over the pole between two
+  latitude-10 vertices"; "… hole edge" is "a hole with an edge over the
+  pole", refused as outside its square. New admissions asserting the value:
+  "an edge over the north pole" ((0,10) to (180,20)), "an edge over the
+  south pole", "a hole by the pole inside a ring over it" (unit and SQL), "a
+  ring over the pole across the antimeridian", "a hole 1e-4 degrees from the
+  pole inside a ring over it", "a hole on the meridian where an edge over the
+  south pole ends". Falsifier: the refusal restored, 21 red.
+- An edge over a pole, the geometry (not guards; second pass): the arc keeps
+  its great circle (`Arc.pole` names the pole), goes round whichever way
+  leaves the ring no turn (`ringArcs`: `turn` counts the ring's wraps with
+  the edge as written, and the edge takes the other way when that cancels
+  them; red without it: "a ring over the pole across the antimeridian", "a
+  hole over the pole its outer ring runs over"), and enters the sweep as a
+  walk along each of its meridians from its vertex to the pole with a
+  stretch at the pole between them, beyond every other arc crossing those
+  longitudes (`polarEvents`). The stretch leaves before the stretches
+  starting on its last meridian enter: left last, it sorted a south-pole
+  edge below them and placed the hole starting there in the wrong ring
+  ("a hole on the meridian where an edge over the south pole ends", red;
+  also red with no polar events at all). `apart` excuses an arc from itself,
+  which its walk finds as its own stretch (14 red without it).
+- Ring over both poles (the second-pole test in `ringArcs`, `A GeoPolygon
+  cannot contain a pole`, at the ring): neither side is away from both
+  poles, and no way round leaves the ring no turn. Unique coverage: the
+  ring may wind zero times and cross nothing (it is simple), so neither the
+  wrap test nor the sweep refuses it. Witness: "a ring over both poles" (red
+  without it). A ring over one pole twice needs no test of its own: its two
+  edges cross at the pole, which the sweep finds ("a ring over one pole
+  twice", refused as self-intersecting with the test off).
+- Retired (owner rule, 2026-09-24): the edge of 150 degrees or more
+  (`LONGEST_EDGE_COSINE`, `A GeoPolygon edge must be shorter than 150
+  degrees`, review round 3). Why it is not VibORM's to refuse: an edge short
+  of antipodal has exactly one great circle, so the polygon has one meaning;
+  the divergence is MySQL's ellipsoid path, which left the arc (followed by
+  PostGIS to 4e-12 degrees) by as much as 0.075 degrees at 90 degrees long,
+  0.46 at 150, 1.6 at 170, 2.7 at 174, 8.4 at 178 and 16 at 179 (the largest
+  observed over 30 random edges per length, up to five points along each),
+  and random triangles with an
+  edge 0.000001 to 2 degrees short of antipodal were answered unlike PostGIS
+  and the sphere far from the edge in every one of 32 runs of 30. Stated in
+  `point.mdx` (table to 179 degrees) and the CHANGELOG. Its witnesses flip:
+  "a 151-degree edge" is admitted (unit, and the SQL cell asserts the emitted
+  GeoJSON); "a 149-degree edge" is gone with the bound.
+- Near-antipodal edge (`NEAREST_ANTIPODE`, `A GeoPolygon edge cannot join
+  vertices within 0.01 degrees of antipodal`, at the vertex ending the edge;
+  owner rule, 2026-09-24). Two antipodal points lie on every great circle
+  through them, so near the antipode the edge's circle is fixed by the last
+  digits of its coordinates: moving one written coordinate by one float64
+  step turned VibORM's arc normal by up to about 3e-12 / d degrees at d
+  degrees from antipodal (2,000 random edges per distance: 3.1e-9 at 0.001,
+  9.8e-10 at 0.0032, 3.0e-10 at 0.01; this lane's antijitter.mjs). The bound
+  is where that turn falls to a third of `TOLERANCE` (1e-9 degrees), so the
+  tolerance is justified by the ambiguity of the great circle at VibORM's own
+  resolution, not by any database: nearer, the written coordinates do not
+  decide on which side of the edge a point lies. Unique coverage: the exact
+  180-degree test sees only an exact 180 degrees of longitude, and an edge
+  1e-6 short of antipodal passes every other check. Witness: "a nearly
+  antipodal edge" (unit and SQL), "an edge 0.009 degrees short of
+  antipodal"; admitted "an edge 0.011 degrees short of antipodal".
+  Falsifiers: removing the test reds the three refusals; a bound of 0.001
+  reds "0.009"; a bound of 0.02 reds "0.011".
+- Ring winding around a pole (`wrap !== 0` in `ringArcs`): the ring encloses a
+  pole, so it has no side away from both poles, the side VibORM reads as the
+  polygon (`signedArea` and the sweep's placement read the area on the
+  pole-free side). This is VibORM's own ambiguity, which side is inside, not
+  a database's reading, so it stays under the owner rule. Witness: "a ring
+  winding around a pole", "a ring over a pole winding around the other"
+  (the turn left after the edge over the pole takes either way).
+- Self-intersection (two non-neighbor arcs meet, found by `sweep`): an
+  asymmetric bowtie has area and passes the rest. Witness: "a bowtie", "a
+  bowtie hole", "a ring touching itself at a repeated vertex", "a ring past a
+  whole turn over itself", "a vertex on a meridian edge" (an arc along a
+  meridian is compared by position at its longitude, not by the order), "a
+  bowtie whose crossing arcs a hole keeps apart in the sweep" (the
+  comparison when an arc leaves the sweep; red without it, the polygon then
+  refused for its hole).
+- Self-intersection of neighbors (one arc doubles back along the one before
+  it, in `ringArcs`): `sweep` excuses neighbors, which meet at their
+  shared vertex, and cannot order two arcs that overlap, so it missed the
+  non-neighbor meeting such a spike always makes (13 to 23 per 20,000 random
+  degenerate rings against a comparison of every pair). Witness: "a ring
+  doubling back along an edge".
+- Retired (owner rule, 2026-09-24): the ring size bound (`SMALLEST_RING`,
+  `A GeoPolygon ring must be at least 2e-5 degrees across`, review round 3).
+  Why it is not VibORM's to refuse: a small simple ring has one meaning; the
+  divergence is MySQL's precision, which answers points within about 1e-6
+  degrees of any vertex unlike PostGIS and the sphere, so it misread points
+  in rings a few 1e-6 degrees across (tiny squares, triangles, concave and
+  thin rings at random places, points a tenth of the ring from every edge:
+  0.4% wrong at 5e-6, 9% at 2e-6, 16-32% at 1e-6, 34-56% below; PostGIS
+  none) and none of 16,000 at 1.4e-5. The VibORM-side question, whether
+  VibORM's own geometry can judge a ring that small for self-intersection,
+  zero area and winding, was measured rather than assumed: against 60-digit
+  gnomonic geometry (great circles as straight lines) on 9,000 random rings
+  1e-9 to 1e-4 degrees across (random-order, star, sliver and pinched rings,
+  every latitude, near the poles, on the antimeridian; this lane's
+  tinygen.mjs / tinyjudge.py, seeds 1-3), every ring whose edges and
+  clearances exceed twice `TOLERANCE` was judged exactly: 4,048 simple rings
+  admitted with the right winding, 2,135 crossing rings refused, 0 wrong.
+  Nearer than that a feature reads as a touch (refused) or an edge shorter
+  than `TOLERANCE` as a repeated vertex (19 crossing rings admitted, each
+  only through such an edge). So VibORM's resolution is `TOLERANCE` itself,
+  1e-9 degrees, and no smaller ring bound stays; a ring whose vertices all
+  fall within it of one another has no arc and is refused by the zero-area
+  guard below. Its witnesses flip: the three "a square 1e-5 degrees across
+  …" cells and "a square 1e-8 degrees across" are admitted (the SQL cell
+  asserts the emitted GeoJSON); "a ring of one distinct vertex" now reports
+  `must have non-zero area`.
+- Cross products from vertex differences (`cross`, (a − b) × (a + b) / 2):
+  not a guard but the precision the geometry rests on; the plain a × b loses
+  a 1e-7-degree arc's direction. Witness: "a 1e-7-degree bowtie in a larger
+  ring" (at latitude 45; admitted with the plain product).
+- Zero area (`!first || …` in `ringArcs`, `A GeoPolygon ring must have
+  non-zero area`): a ring of at most three arcs on one great circle has only
+  neighbor arcs, which the self-intersection test skips, and a ring of one
+  distinct vertex (every edge under `TOLERANCE`) has no arc at all. Witness:
+  "a collinear ring" (on the equator), "a ring of two distinct vertices";
+  for the no-arc arm "a ring of one distinct vertex" and "a square 5e-10
+  degrees across" (unit and SQL). Three
+  vertices in a straight line of longitude and latitude off the equator are a
+  thin spherical triangle, admitted, and both databases answered points inside
+  and outside it correctly.
+- Retired (owner rule, 2026-09-24): across all three planes (`across` in
+  `validateGeoPolygon`, `A GeoPolygon cannot reach across the equator and the
+  0/180 and 90/-90 meridians at once`, review round 3). Why it is not
+  VibORM's to refuse: such a ring, pole-free, has one meaning, the side away
+  from both poles; the divergence is PostGIS's. PostGIS tests a point
+  against a reference point outside the polygon's geocentric box, and widens
+  that box to the pole of every axis whose two other coordinates the rings
+  take on both sides of zero (liblwgeom `gbox_check_poles`); with all three
+  it is the whole globe, `gbox_pt_outside` fails, and PostGIS falls back to
+  a guess (`lwpoly_pt_outside_hack`, `circ_tree_get_point_outside`, the
+  latter decided by its incremental merge of the edges' circles). Measured:
+  PostGIS misread 23 of 372 random outer rings reaching across all three
+  planes, one of them 27% of half the globe, and none of 494 reaching across
+  two or fewer; table scans went wrong on 42 of 44 rotations where either
+  fallback point fell inside, none of 436 where both fell outside; MySQL
+  none. Rerun on this lane for the admitted witnesses (400 random points,
+  table and index scans, points within 0.5 degrees of an edge excluded):
+  the tropics band 38 of 394 wrong on PostGIS, "a band with two long edges
+  on each side" 398 of 398 (inside out), "a ring across all three planes"
+  347 of 397, "a band from 180 to 0 through -90" and "the Pacific" none;
+  MySQL none on any. Stated in `point.mdx` with the advice to split such an
+  area into polygons joined with `OR`, each on one side of one plane. Its
+  witnesses flip to admissions asserting the value ("the tropics band", "the
+  Pacific" also as SQL cells asserting the emitted GeoJSON), and "a triangle
+  touching the equator and the 0 meridian" stays admitted.
+- Retired: the half-globe area guard (`sphericalArea`, `A GeoPolygon must
+  cover less than half the globe`), subsumed by the three-planes rule in
+  review round 3 and not restored with its retirement: a pole-free ring
+  larger than half the globe has one meaning.
+- Hole escaping its outer ring, meeting arm (`sweep`'s meeting, reported as
+  a hole outside when the lower ring index of the two arcs is the outer
+  ring's, `validateGeoPolygon`): any crossing or touch, including a hole
+  written against a straight parallel edge. Witness:
+  "a hole crossing the outer ring", "… bridging a notch …", "… whose edges
+  cross an outer notch", the three "a hole touching …"/"along an outer edge"
+  cells, "a hole equal to its outer ring", "a hole touching a parallel edge in
+  the plane", "a hole inside the plane's edge but outside the great-circle
+  arc".
+- Hole escaping its outer ring, outside arm (`!inside`, placed by `sweep`):
+  a hole wholly outside meets nothing. Witness: "a hole outside", "a hole
+  north of a band that crosses its antimeridian".
+- Holes touching or overlapping, meeting arm (`sweep`): "holes touching
+  at one point", "holes sharing an edge", "holes overlapping through shared
+  corners", "a hole touching another's parallel edge in the plane";
+  a later hole inside an earlier one (`RingNode.firstAround`): "a hole
+  nested in a hole"; an earlier hole inside a later one
+  (`RingNode.firstWithin`): "a hole enclosing a hole". A hole is reported at the first index where it lies in
+  or around an earlier hole, as when each hole was tested against every
+  earlier one.
+- Restored (owner rule, 2026-09-24): the antipode test in `crosses`. Review
+  round 3 retired it because every ring then admitted lay on one side of one
+  of the three planes, where two arcs straddling each other's circles share
+  the circle through their antipodal points. Admitted rings may now reach
+  across all three planes, and two of their arcs can straddle each other's
+  circles and meet only at the far one of the two points the circles share.
+  The test: the arcs cross when they hold the same one of the two, the one on
+  the side of each arc's middle (start + end; an arc shorter than half a
+  circle holds a point of its circle exactly when the point is on that side).
+  Against an angle-sum oracle it agreed on 400,000 random arc pairs (49,954
+  antipode-only straddles) and 400,000 pairs of 170 to 179.99-degree arcs
+  (143,131); this lane's crosscheck.mjs / crosscheck-long.mjs. Unique
+  coverage: without it the straddle test calls such arcs crossing, and the
+  ring is refused as self-intersecting. Witness: "a band with two long edges
+  on each side" and "the tropics band" (unit), "the tropics band" (SQL), red
+  without it.
+- Retired with `inside` (review round 4): its behind-the-pole skip and its
+  one offset per shared vertex. The sweep places rings on half meridians
+  from pole to pole and never counts crossings, so neither case arises; their
+  witnesses ("a hole north of a band that crosses its antimeridian", "holes
+  where one grazes the other's meridian at a vertex") keep their verdicts.
+
+Kept output facts, not refusals: an edge shorter than the tolerance, a
+repeated consecutive or closing vertex, is dropped from the geometry (witness
+"admits 'a closed ring'", "admits 'a repeated consecutive vertex'"); the
+emitted GeoJSON is unchanged.
+
+Deleted as unreachable (coverage closure, 2026-09-24): the sweep's comparison
+of the arcs along one meridian among themselves (the "column"). Where two
+such arcs meet, one ends on the other, and the arc continuing its ring from
+that end crosses the meridian there (a ring's consecutive arcs along one
+meridian continue in one direction, since `ringArcs` refuses a ring doubling
+back), so the walk along the other arc meets it first; the continuing arc
+could be excused only as a ring neighbor of the arc it lies on, and a
+neighbor sharing an end with it would itself run along the meridian. Over
+160,000 random polygons (grid-snapped, antimeridian, tiny, star, band and
+across-all-planes rings with holes) the column never found a meeting, and
+verdicts matched a comparison of every pair of arcs on 280,000 (this lane's
+diff.mjs, seeds 1-5 and 11-13). Hole placement now reads each ring's
+`RingNode` (`around`, `inside`, `firstAround`, `firstWithin`) instead of
+parallel arrays, which removes the `?? none` fallbacks every placement
+already covered; `pnpm test:coverage:validation` is at 100% on statements,
+branches, functions and lines.
+
+Not a guard: `sweep` finds whether any
+two arcs meet by a sweep in longitude that keeps the arcs it crosses in
+south-to-north order in a skip list and compares only neighbors in it
+(Shamos and Hoey), all rings in one pass; it agreed with a comparison of every
+pair on 120,000 random rings built to touch, overlap, run along meridians and
+cross the antimeridian. It replaced a sweep over arc boxes that compared every
+pair whose boxes overlapped: on the review's star (spokes from radius 0.5 to
+20 degrees) that took 7.2 s at 20,000 vertices, 33 s at 40,000 and 98 s at
+20,000 with 50 small holes, now 27 ms, 65 ms and 53 ms; every input of the
+review's perf script is under 0.1 s. Witness: "admits a 40,000-vertex star
+with 50 holes in near-linear time" (under 2 s; red with every pair compared).
+
+The skip list's heights are coin flips drawn from `Math.random()` for each
+arc (review round 7). They were Park and Miller's generator at a fixed seed,
+chosen so the same polygon built the same list, but an input can replay a
+fixed sequence: strips that stay in the sweep exactly when both their arcs
+drew height 1 leave the long-lived arcs at the lowest level, and every search
+walks them one by one. Measured on this lane's bundle (review-geo7
+skipadv.mjs, repeated in geo-repair7): 20,004 / 40,004 / 80,004 / 160,004
+arcs took 442 / 1,985 / 7,942 / 56,767 ms against 48 / 50 / 98 / 193 ms for
+the same strips chosen by an independent stream; with drawn heights both take
+40 / 68 / 125 / 250 ms. Heights decide running time, not the verdict: two
+arcs that meet are neighbors in the south-to-north order before their
+westernmost meeting whatever the heights. Messages and paths did not vary
+either: 24,000 random polygons (bands with holes, stars with holes, spirals
+with crossings, stars with reversed spokes), 23,460 of them refused, each
+validated 8 times, never gave two results (geo-repair7 determinism.mjs, seeds
+5 and 6). The review's oracle fuzz (fuzz.mjs, 5,000 each of star, holes,
+spiral, band, long: 0 false refusals, 0 false admissions), msgcheck.mjs
+(19,853, 0 false) and gridneg.mjs (400 grids, all as expected) were rerun on
+the drawn heights. Admission is now expected n log n for any input.
+Witness: "admits strips chosen against predictable skip-list heights in
+near-linear time" (under 2 s; 11.3 s, red, with the fixed seed restored).
+
+Not a guard either: hole placement (review round 4). Testing each hole's
+first vertex against the outer ring and every earlier hole was O(H x N) and
+O(H^2 x hole size): 7.1 s for 10,000 four-vertex holes in a 64-vertex ring,
+1.9 s for a 40,000-vertex star with 2,500 holes. No two rings meet once
+`sweep` has found no meeting, so `sweep` also lists, for each ring, the arc
+first north of the ring's northernmost point on the meridian where it first
+met the ring (its own arcs through that point skipped). The ring lies inside
+that arc's ring when the arc has its ring's interior to the south (the
+exact `signedArea` sign gives each ring's orientation), else in the same
+ring as that ring; rings first met on one meridian are listed north to
+south, so the ring an answer depends on is always placed first. North is
+latitude, atan2(z, hypot(x, y)), not z (second PR review, 2026-09-24): z
+rounds to ±1 within about 6e-7 degrees of a pole, and there an outer ring
+reaching the antimeridian with an edge and with its edge over the pole
+tied, kept the edge as its northernmost, and was placed inside a hole
+north of it (637 of 3,000 unambiguous polygons with a hole's longitudes
+jittered were refused as holes touching; 0 by latitude; witness "places
+rings meeting the antimeridian together near a pole by latitude", red with
+z). Admission
+is O((N + H) log N): the review's perf script now takes 59 ms for the
+10,000 holes, 61 ms for the star with 2,500. Verdicts, messages, paths and
+values were identical to the pairwise placement on 95,000 random polygons
+(80,000 small outer rings with up to 40 nested, overlapping, touching,
+grid-snapped and antimeridian holes; 15,000 bands up to 340 degrees wide
+with up to 30 holes). Witnesses, each red under its mutation: "admits
+10,000 holes in near-linear time" (under 2 s; the pairwise placement took
+7 s), "holes side by side on one meridian" (red when the rings met on one
+meridian are not placed north first), "a hole in another hole's notch, both
+reaching west to one meridian" (red when a ring is placed from its first
+point on the meridian rather than its northernmost), "holes where one grazes
+the other's meridian at a vertex" and "a hole beyond the plane's north edge,
+inside its great-circle arc" (red without skipping the ring's own arcs), and
+every hole cell (red with the orientation rule inverted).
+
+Evidence beyond the witnesses: a differential run of 4,800 random cases
+(holes jittered around a slanted outer edge, judged by PostGIS `ST_Intersects`
+between the rings as geography lines plus a vertex-in-polygon test; random
+quadrilaterals, judged by their non-neighbor edges as geography lines) agreed
+with `validateGeoPolygon` on every verdict; the straight-line restoration
+disagreed on 100 to 200 of every 800. Every admitted probe polygon (69 points,
+table scans on PostGIS and MySQL) answered correctly on both databases.
+`tests/providers/docker/mysql2.test.ts` geo cells stay green.
+
+Remaining gap (measured in review round 3): MySQL draws edges on the ellipsoid,
+PostGIS geography on the sphere. The largest departure of MySQL's edge from
+the great-circle arc observed over 30 random edges per length (up to five
+points each; rerun on 2026-09-24 for 10, 30, 60, 178 and 179 degrees, which
+the lane had sampled on 10 edges) is 0.0007 degrees (about 79 m) on a
+10-degree edge, 0.007 at 30, 0.029 at 60, 0.075 at 90, 0.17 at 120 and 0.46
+at 150, none along the equator or a meridian; at 120 degrees of
+longitude on latitude 40 (an 83-degree edge) the review measured 0.054 at the
+middle. A point, or a hole, inside that band beside an edge can be answered
+differently by the two databases; VibORM refuses touches but admits a hole 1e-9
+degrees clear. Decision (owner rule, 2026-09-24): the band is stated, not
+refused, at every edge length, including from 150 degrees on where MySQL's
+path swings non-locally near the antipode (the retired `LONGEST_EDGE_COSINE`
+entry above has the figures); only the near-antipodal edge VibORM itself
+cannot fix is refused. Below 150 degrees the band is a fraction of the edge
+(0.08% at 90 degrees, 0.3% at 150) that shrinks with the square of the length
+when an edge is split. Separately (review round 4, which corrected
+"edges of 1e-5 degrees or shorter sit up to 2e-7 off": that was measured at
+edge midpoints), MySQL answers points within about 1e-6 degrees of any
+vertex unlike PostGIS and the sphere, whatever the edge length: about 13%
+of such points in random pentagons with edges of 0.001, 0.1, 1 and 5
+degrees (1,240 to 1,332 of about 9,600 per size, the review's
+vertexband.mjs, rerun on this lane), none from 1.8e-6 out, PostGIS none;
+MySQL's SPATIAL index and table scans also disagreed on 152 such points,
+all within 7e-7 of a vertex (idxcheck.mjs). Witness of the effect: the
+admitted 0.001-degree square from (10, 40), where MySQL matched
+(10.0009994, 39.9999994), 6e-7 outside, and missed (10.0000006,
+40.0009994), inside. Decision: stated, not refused; it is a fixed 11 cm
+neighbourhood of the vertices, and in rings a few 1e-6 degrees across it
+covers the whole ring (the retired ring size entry above has the figures),
+which `point.mdx` states with the advice not to rely on MySQL there.
+
+Falsifiers of the owner-rule pass (2026-09-24, final codec, each mutation
+alone, `geo-area.core.test.ts` + `geopoint-sql.core.test.ts`, this lane's
+falsify.py / muts.json): pole clearance off, 8 red; exact 180 off, 5;
+near-antipode off, 3; its bound at 0.001, 1 ("0.009 degrees short"); at
+0.02, 1 ("0.011 degrees short" admitted); pole winding off, 2; zero area
+no-arc arm off, 3; collinear arm off, 3; neighbor doubling back off, 1;
+every sweep meeting off, 27; hole/outer and hole/hole meetings off, 19;
+the meridian walk off, 8; the comparison on leaving off, 1; the antipode
+test in `crosses` off, 3; the outside arm off, 3; `firstAround` off, 2;
+`firstWithin` off, 2; the orientation rule inverted, 17; the plain cross
+product, 1; winding off, 2; repeated vertices kept, 6.
+
+Second pass (owner rule applied to the pole clearance and the exact-180
+edge, 2026-09-24; the file copied aside, mutated, the two geo files run,
+restored from the copy; this lane's geo-pole/falsify.py): pole-vertex guard
+off, 7 red; its bound at `TOLERANCE / 10`, 2; the 1e-4 clearance restored,
+7; the exact-180 refusal restored, 21; no turn choice over a pole, 2; the
+both-poles test off, 1; no polar events, 1; the polar stretch leaving last,
+1; lunes in the triangle sum, 1; lunes summed arc by arc, 1; an arc not
+excused from itself, 14. Oracle runs on the final codec
+(geo-pole/probe.mjs against 60-digit gnomonic geometry from the pole, seeds
+301-306, 150 per kind): 6,190 polygons judged, 3,193 admitted and 2,997
+refused, 0 wrong in verdict, message or winding; 1,664 with a clearance
+within twice `TOLERANCE` left out. Kinds: stars, shuffled rings and rings
+with holes 3.5e-9 to 3.6e-4 degrees from either pole; rings over a pole
+(small, shuffled, with holes by the pole) 3.5e-9 to 1.1e-4 degrees from it
+and 0.02 to 81.6 degrees from it.
+
+Moved from the codec's comments (second PR review, 2026-09-24): the
+measurement history the comments on `TOLERANCE`, `NEAREST_ANTIPODE`,
+`cross`, the hole rules and the self-meeting refusal carried now lives only
+here, and the comments point here: the ring size entry and the second-pass
+paragraph above (9,000 tiny rings, 6,190 polygons by the poles), the
+near-antipodal entry (2,000 edges per distance), the cross-product entry
+(the bowtie at latitude 45), and the table at the top of this addendum
+(holes outside or overlapping; the bowtie, both lobes and its crossing point
+matched on both databases, a parity reading the docs do not state; the ring
+past a whole turn over itself, which split them). The code keeps each
+algorithm and each reason.
+
+Reproduction: `scripts/geo-verification/README.md` keeps the oracles, seeded
+fuzz, performance cases, MySQL departure runs and a verdict corpus behind these
+figures, with seeds, commands and observed output, and lists the lane's scratch
+scripts named above that it does not keep.
 
 **Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
 (`validateRing`). Unique coverage: `closedRing` in
@@ -2323,8 +2833,10 @@ removing it fails "still refuses a ring shorter than three vertices before any
 SQL" (`geopoint-sql.core.test.ts`).
 
 **Kept output normalization: winding (outer counterclockwise, holes
-clockwise)** (`wound` in `validateGeoPolygon`, computed by `signedArea` over
-longitudes unwrapped across the antimeridian). It is not a refusal and judges
+clockwise)** (`wound` in `validateGeoPolygon`, reading the sign of
+`signedArea`, the ring's exact spherical area from the pole side, since
+review round 3; the planar shoelace sum it replaces could disagree with the
+sphere for a ring simple on the globe but not in the plane). It is not a refusal and judges
 nothing, so decision D2 does not retire it. Consumer: the GeoJSON bound by
 `withinPolygon` in `src/adapters/databases/postgres/postgres-adapter.ts` and
 `src/adapters/databases/mysql/mysql-adapter.ts`; that PostGIS `geography` and

@@ -508,9 +508,10 @@ export function runFkIndexPlanBehavior({
       // Plan on real statistics, not on the empty-table defaults.
       await (client as FkIndexClient).$executeRawUnsafe("ANALYZE");
       if (dialect === "postgresql") {
-        // PGlite ships with enable_seqscan=off, which would let the planner
-        // pick an index whatever it costs. Turn it back on so the assertion
-        // below means the index actually won.
+        // PGlite 0.3 starts with enable_seqscan=off (0.5.8 starts it on), which
+        // would let the planner pick an index whatever it costs. Turn it on so
+        // the assertion below means the index actually won, whichever build
+        // runs.
         await (client as FkIndexClient).$executeRawUnsafe(
           "SET enable_seqscan = on"
         );

@@ -655,77 +655,135 @@ describe("GeoPoint query lowering", () => {
   });
 
   /**
-   * Polygon validity is the database's execution fact. Each input below was
-   * refused by a VibORM geometry pre-check before decision D2; it now passes
-   * admission and reaches the adapter emission unchanged, rings closed once.
-   * Holes are written clockwise and outers counterclockwise, so the emitted
-   * order is the input order.
+   * Each refused input below has no single meaning on the great-circle
+   * reading (it crosses or touches itself on the sphere, has zero area, puts
+   * a hole outside or across another) or falls outside the codec's domain
+   * choices (it has a vertex on a pole, or joins nearly antipodal vertices),
+   * and is refused at admission before any SQL. The
+   * admitted ones have one meaning and reach the adapter emission unchanged,
+   * rings closed once, even where a database reads them differently
+   * (point.mdx, "How each database reads a polygon"). Holes are written
+   * clockwise and outers counterclockwise, so the emitted order is the input
+   * order.
    */
   const g = (longitude: number, latitude: number) => ({ longitude, latitude });
   const square = [g(0, 0), g(4, 0), g(4, 4), g(0, 4)];
   const wide = [g(0, 0), g(10, 0), g(10, 10), g(0, 10)];
-  const formerRefusals: readonly {
+  // Its south edge bows north to about latitude 40.105 at longitude 5, its
+  // north edge to about 50.10.
+  const box = [g(0, 40), g(10, 40), g(10, 50), g(0, 50)];
+  const turn = (longitude: number) =>
+    longitude > 180 ? longitude - 360 : longitude;
+  // A ring from latitude 70 to `top`, 240 degrees of longitude wide.
+  const nearPole = (top: number) => [
+    ...[0, 48, 96, 144, -168, -120].map((longitude) => g(longitude, 70)),
+    ...[-120, -168, 144, 96, 48, 0].map((longitude) => g(longitude, top)),
+  ];
+  type Polygon = {
+    readonly outer: readonly { longitude: number; latitude: number }[];
+    readonly holes?: readonly (readonly {
+      longitude: number;
+      latitude: number;
+    }[])[];
+  };
+  const refused: readonly {
     readonly name: string;
-    readonly polygon: {
-      readonly outer: readonly { longitude: number; latitude: number }[];
-      readonly holes?: readonly (readonly {
-        longitude: number;
-        latitude: number;
-      }[])[];
-    };
+    readonly polygon: Polygon;
+    readonly issue: { readonly message: string; readonly path: unknown[] };
   }[] = [
-    {
-      name: "a closed ring",
-      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(0, 0)] },
-    },
     {
       name: "a repeated vertex",
       polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(1, 0)] },
+      issue: {
+        message: "A GeoPolygon ring cannot self-intersect",
+        path: ["outer"],
+      },
     },
     {
       name: "a bowtie",
       polygon: { outer: [g(0, 0), g(1, 1), g(0, 1), g(1, 0)] },
+      issue: {
+        message: "A GeoPolygon ring cannot self-intersect",
+        path: ["outer"],
+      },
     },
     {
       name: "a zero-area ring",
       polygon: { outer: [g(0, 0), g(1, 0), g(2, 0)] },
+      issue: {
+        message: "A GeoPolygon ring must have non-zero area",
+        path: ["outer"],
+      },
     },
     {
-      name: "a 180-degree edge",
+      name: "a 180-degree edge between antipodal vertices",
       polygon: { outer: [g(0, 0), g(180, 0), g(1, 1)] },
+      issue: {
+        message:
+          "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal",
+        path: ["outer", 1],
+      },
     },
     {
       name: "a north pole vertex",
       polygon: { outer: [g(10, 80), g(0, 90), g(-10, 80)] },
+      issue: {
+        message: "A GeoPolygon ring cannot contain a pole",
+        path: ["outer", 1],
+      },
     },
     {
       name: "a south pole vertex",
       polygon: { outer: [g(-10, -80), g(0, -90), g(10, -80)] },
+      issue: {
+        message: "A GeoPolygon ring cannot contain a pole",
+        path: ["outer", 1],
+      },
+    },
+    {
+      name: "a vertex within 1e-9 degrees of a pole",
+      polygon: { outer: [g(10, 80), g(0, 89.999_999_999_5), g(-10, 80)] },
+      issue: {
+        message: "A GeoPolygon ring cannot contain a pole",
+        path: ["outer", 1],
+      },
     },
     {
       name: "a ring winding around a pole",
       polygon: { outer: [g(-120, 80), g(0, 80), g(120, 80)] },
+      issue: { message: "A GeoPolygon cannot contain a pole", path: ["outer"] },
     },
     {
-      name: "half the globe",
+      name: "a nearly antipodal edge",
+      polygon: { outer: [g(0, 10), g(179.999_999, -10), g(90, 40)] },
+      issue: {
+        message:
+          "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal",
+        path: ["outer", 1],
+      },
+    },
+    {
+      name: "a square 5e-10 degrees across, below VibORM's resolution",
       polygon: {
         outer: [
-          g(-170, -80),
-          g(0, -80),
-          g(170, -80),
-          g(170, 80),
-          g(0, 80),
-          g(-170, 80),
+          g(10, 60),
+          g(10.000_000_000_5, 60),
+          g(10.000_000_000_5, 60.000_000_000_5),
+          g(10, 60.000_000_000_5),
         ],
+      },
+      issue: {
+        message: "A GeoPolygon ring must have non-zero area",
+        path: ["outer"],
       },
     },
     {
       name: "a hole outside",
       polygon: { outer: square, holes: [[g(5, 5), g(6, 6), g(6, 5)]] },
-    },
-    {
-      name: "a hole touching",
-      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
     },
     {
       name: "overlapping holes",
@@ -735,6 +793,10 @@ describe("GeoPoint query lowering", () => {
           [g(1, 1), g(1, 4), g(4, 4), g(4, 1)],
           [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
         ],
+      },
+      issue: {
+        message: "GeoPolygon holes cannot touch or overlap",
+        path: ["holes", 1],
       },
     },
     {
@@ -746,6 +808,10 @@ describe("GeoPoint query lowering", () => {
           [g(3, 3), g(3, 4), g(4, 4), g(4, 3)],
         ],
       },
+      issue: {
+        message: "GeoPolygon holes cannot touch or overlap",
+        path: ["holes", 1],
+      },
     },
     {
       name: "a hole enclosing a hole",
@@ -756,11 +822,220 @@ describe("GeoPoint query lowering", () => {
           [g(2, 2), g(2, 5), g(5, 5), g(5, 2)],
         ],
       },
+      issue: {
+        message: "GeoPolygon holes cannot touch or overlap",
+        path: ["holes", 1],
+      },
+    },
+    {
+      name: "a ring past a whole turn over itself",
+      polygon: {
+        outer: [
+          g(0, 0),
+          g(80, 0),
+          g(160, 0),
+          g(-120, 0),
+          g(-40, 0),
+          g(40, 0),
+          g(40, 2),
+          g(-40, 2),
+          g(-120, 2),
+          g(160, 2),
+          g(80, 2),
+          g(0, 2),
+        ],
+      },
+      issue: {
+        message: "A GeoPolygon ring cannot self-intersect",
+        path: ["outer"],
+      },
+    },
+    {
+      name: "a hole touching",
+      polygon: { outer: square, holes: [[g(0, 1), g(1, 2), g(1, 1)]] },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "a hole along an outer edge",
+      polygon: {
+        outer: square,
+        holes: [[g(0, 1), g(0, 2), g(1, 2), g(1, 1)]],
+      },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "a hole touching a parallel edge in the plane",
+      polygon: { outer: box, holes: [[g(5, 40), g(4, 45), g(6, 45)]] },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "a hole inside the plane's edge but outside the great-circle arc",
+      polygon: { outer: box, holes: [[g(5, 40.05), g(4, 45), g(6, 45)]] },
+      issue: {
+        message: "A GeoPolygon hole must be strictly inside its outer ring",
+        path: ["holes", 0],
+      },
+    },
+    {
+      name: "holes touching at one point",
+      polygon: {
+        outer: wide,
+        holes: [
+          [g(1, 1), g(1, 3), g(3, 3), g(3, 1)],
+          [g(3, 3), g(3, 5), g(5, 5), g(5, 3)],
+        ],
+      },
+      issue: {
+        message: "GeoPolygon holes cannot touch or overlap",
+        path: ["holes", 1],
+      },
+    },
+    {
+      name: "a hole touching another's parallel edge in the plane",
+      polygon: {
+        outer: box,
+        holes: [
+          [g(2, 42), g(2, 44), g(8, 44), g(8, 42)],
+          [g(5, 44), g(4, 46), g(6, 46)],
+        ],
+      },
+      issue: {
+        message: "GeoPolygon holes cannot touch or overlap",
+        path: ["holes", 1],
+      },
     },
   ];
-  const emittedGeoJson = (
-    polygon: (typeof formerRefusals)[number]["polygon"]
-  ) =>
+  const admitted: readonly {
+    readonly name: string;
+    readonly polygon: Polygon;
+  }[] = [
+    {
+      name: "a closed ring",
+      polygon: { outer: [g(0, 0), g(1, 0), g(1, 1), g(0, 0)] },
+    },
+    {
+      name: "a hole beyond the plane's north edge, inside its great-circle arc",
+      polygon: { outer: box, holes: [[g(5, 50.05), g(6, 49), g(4, 49)]] },
+    },
+    {
+      name: "edges between vertices 1e-4 degrees from the north pole",
+      polygon: { outer: nearPole(89.9999) },
+    },
+    {
+      // MySQL misreads such rings from about 3e-6 degrees, PostGIS from 6e-7.
+      name: "edges between vertices 1e-6 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999) },
+    },
+    {
+      name: "an edge between two vertices 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          g(-60, -89.999_999_9),
+          g(0, -89.999_999_9),
+          g(60, -89.999_999_9),
+          g(120, -89.999_999_9),
+          g(120, -60),
+          g(60, -60),
+          g(0, -60),
+          g(-60, -60),
+        ],
+      },
+    },
+    {
+      name: "an edge over the north pole",
+      polygon: { outer: [g(0, 10), g(90, 15), g(180, 20)] },
+    },
+    {
+      name: "a closing edge over the north pole",
+      polygon: { outer: [g(0, 80), g(90, 70), g(180, 80)] },
+    },
+    {
+      name: "an edge over the south pole",
+      polygon: { outer: [g(0, -10), g(180, -20), g(90, -15)] },
+    },
+    {
+      name: "a hole by the pole inside a ring over it",
+      polygon: {
+        outer: [g(0, 10), g(90, 15), g(180, 20)],
+        holes: [[g(80, 85), g(90, 86), g(100, 85)]],
+      },
+    },
+    {
+      name: "a band past a whole turn beside itself",
+      polygon: {
+        outer: [
+          ...Array.from({ length: 21 }, (_, step) =>
+            g(turn(step * 20), 10 + step / 2)
+          ),
+          ...Array.from({ length: 21 }, (_, step) =>
+            g(turn(400 - step * 20), 22 - step / 2)
+          ),
+        ],
+      },
+    },
+    {
+      // PostGIS matched the whole globe; the polygon is the band.
+      name: "the tropics band",
+      polygon: {
+        outer: [
+          g(-170, -30),
+          g(0, -30),
+          g(170, -30),
+          g(170, 30),
+          g(0, 30),
+          g(-170, 30),
+        ],
+      },
+    },
+    {
+      name: "the Pacific",
+      polygon: {
+        outer: [
+          g(120, -50),
+          g(150, -55),
+          g(-170, -60),
+          g(-130, -60),
+          g(-90, -55),
+          g(-75, -40),
+          g(-80, -5),
+          g(-105, 20),
+          g(-125, 45),
+          g(-150, 58),
+          g(175, 55),
+          g(145, 40),
+          g(125, 20),
+          g(115, 0),
+          g(115, -25),
+        ],
+      },
+    },
+    {
+      name: "a 151-degree edge",
+      polygon: { outer: [g(0, 0), g(151, 0), g(75, 20)] },
+    },
+    {
+      // MySQL misplaces points within about 1e-6 degrees of its vertices.
+      name: "a square 1e-5 degrees across",
+      polygon: {
+        outer: [
+          g(10, 60),
+          g(10.000_01, 60),
+          g(10.000_01, 60.000_01),
+          g(10, 60.000_01),
+        ],
+      },
+    },
+  ];
+  const emittedGeoJson = (polygon: Polygon) =>
     JSON.stringify({
       type: "Polygon",
       coordinates: [polygon.outer, ...(polygon.holes ?? [])].map((ring) =>
@@ -770,18 +1045,25 @@ describe("GeoPoint query lowering", () => {
         ])
       ),
     });
-  const withinPolygon = (
-    engine: QueryEngine,
-    polygon: (typeof formerRefusals)[number]["polygon"]
-  ) =>
+  const withinPolygon = (engine: QueryEngine, polygon: Polygon) =>
     engine.build(place, "findMany", {
       where: { location: { within: { polygon } } },
       select: { id: true },
     });
 
-  test.each(
-    formerRefusals
-  )("admits $name and lets PostgreSQL and MySQL decide it", ({ polygon }) => {
+  test.each(refused)("refuses $name before any SQL", ({ polygon, issue }) => {
+    expect(validateGeoPolygon(polygon)).toEqual({ issues: [issue] });
+    for (const engine of [
+      createEngine(new PostgresAdapter("public", true), "postgresql"),
+      createEngine(new MySQLAdapter(), "mysql"),
+    ]) {
+      expect(() => withinPolygon(engine, polygon)).toThrow(issue.message);
+    }
+  });
+
+  test.each(admitted)("admits $name and emits it for PostgreSQL and MySQL", ({
+    polygon,
+  }) => {
     const postgres = withinPolygon(
       createEngine(new PostgresAdapter("public", true), "postgresql"),
       polygon

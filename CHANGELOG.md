@@ -5,6 +5,22 @@ Versioning.
 
 ## Unreleased
 
+- **PGlite runs the full GeoPoint tier with PostGIS.** The optional
+  `@electric-sql/pglite` peer now admits 0.4 and 0.5 besides 0.3
+  (`^0.3.2 || ^0.4.0 || ^0.5.0`), and VibORM is tested on 0.5.8 (PostgreSQL
+  18.3). With `@electric-sql/pglite-postgis` 0.2.8 (PostGIS 3.6, which requires
+  PGlite 0.5.8 exactly) loaded through PGlite's own `extensions` option,
+  `CREATE EXTENSION postgis` run by the caller, and `postgis: true`, the PGlite
+  driver passes the same GeoPoint contracts as `pg` and postgres.js — bounds,
+  polygons, distance, `_distance`, the generated migration estate and GiST
+  index planning — in process, with no server. The driver gains no option:
+  the extension is PGlite's to load and the caller's to install, and
+  `postgis: true` stays an assertion that migrations prove. On PGlite 0.5,
+  pgvector is its own package, `@electric-sql/pglite-pgvector`, where 0.3 and
+  0.4 exported `@electric-sql/pglite/vector`; and 0.5.8 starts with
+  `enable_seqscan` on, where 0.3 started with it off. A persistent `dataDir`
+  does not cross a PostgreSQL major: moving one from PGlite 0.3 to 0.5 is a
+  dump and restore.
 - **Behaviour change on batch-only drivers: `createMany` with `skipDuplicates`
   warns and runs instead of refusing.** Where no savepoint can isolate one
   member — D1 Workers bindings, Neon HTTP, a native array batch, and a member of
@@ -261,7 +277,8 @@ A `GeoPoint`, `GeoBounds` or `GeoArea` argument is now read by the same record
 walker as every other object operand, not by a bespoke reader. For points and
 bounds the accepted values are unchanged for ordinary input; what changes is
 the posture toward unusual objects and the wording of refusals. Polygons are
-checked for their shape only, and the database judges their geometry.
+checked for their shape first and their geometry second; the geometry refused
+is what the databases were measured to answer wrongly or differently.
 
 - Refusals name the key: `{ longitude, latitude, latitdue }` fails with
   `Unknown key: latitdue` at path `latitdue` (was `Expected GeoPoint with
@@ -298,17 +315,161 @@ checked for their shape only, and the database judges their geometry.
   propagate, as every other `v.object` schema already did, and so does `s.point().default(…)`, whose value is the
   developer's own declaration: a throwing getter there is that raw error at
   declaration time instead of a `ValidationError`.
-- A `GeoPolygon` is checked for its shape only: exactly `outer` and optional
+- A `GeoPolygon` is checked for its shape first: exactly `outer` and optional
   `holes`, finite in-range vertices, at least three vertices per ring
-  (`A GeoPolygon ring needs at least 3 vertices`, kept). Geometric validity is
-  the database's execution fact, so twelve former refusals are gone: a closing
-  vertex repeated at the end, a repeated vertex, a self-intersecting ring, a
-  zero-area ring, an exactly 180-degree edge, a pole vertex, a ring winding
-  around a pole, a polygon covering half the globe or more, and a hole outside
-  its outer ring, touching it, overlapping another hole, or nested in one.
-  Those polygons now reach PostgreSQL or MySQL as written (a repeated closing
-  vertex is closed once more); the outcome is that database's error or answer.
-  SQLite-family providers still refuse polygon filtering, now after admission.
+  (`A GeoPolygon ring needs at least 3 vertices`, kept), all reported by the
+  record walker. Its geometry is checked second, on the great-circle reading:
+  a polygon is refused when it has no single meaning there, or when it falls
+  outside one of three stated domain choices (next entry); a valid polygon a
+  database computes differently is admitted (below). Measured with
+  VibORM's own predicates on PostGIS 3.6.2 and MySQL 8, PostGIS raises only
+  for an edge between antipodal endpoints and answers every other malformed
+  polygon silently: a hole reaching outside the outer ring adds its own area,
+  a point inside two holes matches, a bowtie matches both lobes, and MySQL
+  answers a pole vertex with the equator and the opposite pole. Those polygons
+  are refused at admission, the same on every dialect, with the pre-D2
+  messages word for word: `A
+  GeoPolygon ring cannot self-intersect` (a crossing or touching ring,
+  including one that repeats a vertex further on or goes past a whole turn
+  over itself), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
+  ring cannot contain a pole` (a vertex on a pole), `A GeoPolygon cannot
+  contain a pole` (a ring winding around one, or running over both), `A
+  GeoPolygon hole must be strictly inside its outer ring` and `GeoPolygon
+  holes cannot touch or overlap`. Each is reported at its ring (`outer` or
+  `holes.<i>`), except the vertex and edge refusals (`ring cannot contain a
+  pole`, `cannot join vertices within 0.01 degrees of antipodal`), reported
+  at the offending vertex (`outer.<j>` or `holes.<i>.<j>`, the vertex ending
+  the edge).
+- Three of those refusals are VibORM's own domain choices, each for its
+  stated reason, not properties every valid polygon lacks: the resolution,
+  1e-9 degrees (about 0.1 mm), a fixed margin for floating-point rounding
+  within which a point is on what it touches, so closer rings touch and a
+  shorter edge is a repeated vertex; near-antipodal edges, refused within
+  0.01 degrees of opposite points, where one float64 step of a written
+  coordinate turns the edge's great circle by more than a third of that
+  resolution; and the poles, where a vertex within the resolution of a pole
+  has no longitude, and a ring winding around a pole or running over both
+  has no side away from both, while an edge of exactly 180 degrees of
+  longitude runs over the pole and is admitted. The entries below give
+  each one's figures.
+- A vertex on a pole has no longitude and is refused with `A GeoPolygon ring
+  cannot contain a pole`, at the vertex, as before D2; a vertex within 1e-9
+  degrees of a pole, VibORM's resolution, counts as on it. A vertex any
+  further off is admitted, however near (the databases' reading of such
+  rings is below). A ring winding around a pole, or running over both poles,
+  has no side away from both and is refused with `A GeoPolygon cannot
+  contain a pole`.
+- The geometry reads each edge as PostgreSQL does, as the great-circle arc
+  between its vertices on the sphere, not as a straight line of longitude and
+  latitude. MySQL reads the edge on the ellipsoid instead: the largest
+  departure from the arc observed over 30 random edges per length (measured
+  by bisection) is 0.0007 degrees (about 79 m) on a 10-degree edge, 0.007 at
+  30, 0.029 at 60, 0.075 at 90, 0.17 at 120 and 0.46 at 150, none along the
+  equator or a meridian, so
+  points within that band beside an edge can be answered differently by the two
+  databases (stated, not refused: below); a long edge split into shorter ones
+  narrows the band with the square of the length.
+  Around every vertex, whatever the edge length, MySQL also answers points
+  within about 1e-6 degrees (about 11 cm) unlike PostgreSQL and the sphere:
+  about 13% of such points in random pentagons with edges of 0.001 to 5
+  degrees (1,240 to 1,332 of about 9,600 per size), none from 1.8e-6 out,
+  PostGIS none; there MySQL's SPATIAL index and table scans can also
+  answer differently (152 points in the review's run, all within 7e-7 of a
+  vertex). In the 0.001-degree square from (10, 40), MySQL matched
+  (10.0009994, 39.9999994), outside, and missed (10.0000006, 40.0009994),
+  inside.
+  In the box from (0, 40) to (10, 50) both databases put (5, 40.05) outside and
+  (5, 50.05) inside, because the south edge bows north to about latitude
+  40.105 and the north edge to about 50.10. So a hole drawn touching or just
+  inside a straight parallel edge crosses the edge's arc and is refused
+  (PostGIS matched points in the hole beside it), a hole between the straight
+  line and the arc on the inner side is accepted, and three vertices in a
+  straight line of longitude and latitude off the equator form a thin
+  triangle, not a zero-area ring. A touch is refused even where it is exact,
+  as before D2: it is where the two databases' edges (sphere, ellipsoid) and
+  tolerances part. A differential run of 4,800 random holes and
+  quadrilaterals against PostGIS geography agreed on every verdict.
+- Newly accepted, because both databases answer them correctly: a closing
+  vertex repeated at the end, or any vertex repeated consecutively (it is sent
+  as written and closed once more), a ring that goes past a whole turn of
+  longitude beside itself. SQLite-family providers still refuse polygon
+  filtering, now after admission.
+- Admitted, the database's reading stated instead of refused (owner decision,
+  2026-09-24: VibORM refuses a polygon with no single meaning, or outside
+  its stated domain choices, never a valid one because a database computes
+  it differently; `point.mdx`, "How each
+  database reads a polygon", has the figures and the advice):
+  - Rings reaching across the equator, the 0/180 meridian and the 90/-90
+    meridian at once, every ring of half the globe or more among them.
+    PostGIS then has no reference point outside the polygon's box and falls
+    back to one it derives from the first edge sent or from its internal
+    circle tree over the edges, so its answer depends on vertex order and
+    query path: table scans went wrong on 42 of 44 random ring rotations
+    where either fallback point fell inside the ring and on none of 436 where
+    both fell outside; 23 of 372 random such rings were misread, one of them
+    27% of half the globe, and none of 494 reaching across two planes or
+    fewer. Rerun on the admitted witnesses (400 random points each, table and
+    index scans): the tropics band from -170 to 170 at ±30 (11.18 steradians
+    on the great-circle reading) 38 points wrong on PostGIS, a band with two
+    175-degree edges on each side 398 of 398, a random ring across all three
+    planes 347 of 397, the Pacific from 115 to -75 degrees none; MySQL none
+    on any. Splitting such an area into polygons joined with `OR`, each on
+    one side of one of those planes, avoids it. `A GeoPolygon cannot reach
+    across the equator and the 0/180 and 90/-90 meridians at once` and
+    `A GeoPolygon must cover less than half the globe` are gone.
+  - Edges of any length short of the antipodal bound below. MySQL's
+    ellipsoid edge was observed to leave the great-circle arc by as much as
+    0.46 degrees on 150-degree edges, 1.6 at 170, 2.7 at 174, 8.4 at 178 and
+    16 at 179 (the largest over 30 random edges per length), and
+    in every run of 30 random triangles with an edge up to 2 degrees short
+    of antipodal it answered some points far from the edge unlike PostGIS and
+    the sphere. `A GeoPolygon edge must be shorter than 150 degrees` is gone.
+  - Rings of any size above VibORM's resolution. MySQL answers points within
+    about 1e-6 degrees of a vertex unlike the sphere, so it misplaced points
+    a tenth of the ring from every edge in rings a few 1e-6 degrees across
+    (0.4% at 5e-6, 9% at 2e-6, 16 to 32% at 1e-6, 34 to 56% below) and none
+    of 16,000 in rings 1.4e-5 across; PostGIS answered all of them. `A
+    GeoPolygon ring must be at least 2e-5 degrees across` is gone.
+  - Vertices near a pole. With two consecutive vertices a few 1e-6 degrees
+    from a pole, MySQL (from about 3e-6 degrees down) and PostGIS (from about
+    6e-7 down) answered points 70 degrees from the ring wrongly: in the ring
+    from (-60, -89.9999999) east to (120, -89.9999999) and back along latitude
+    -60, MySQL matched (30, 70) and missed (30, -70), and PostGIS's answer
+    changed with its query plan on another. None of about 1,500 such rings
+    from 5.6e-6 degrees out was answered wrongly. `A GeoPolygon vertex must
+    be at least 1e-4 degrees from a pole` is gone.
+  - An edge 180 degrees of longitude long between vertices that are not
+    antipodal, such as (0, 10) to (180, 20): it lies on one great circle and
+    runs over the pole on its vertices' side, the pole on the ring. Both
+    databases read it so away from the edge (8 named and 140 random such
+    rings, about 118,000 points at least 0.01 degrees from every edge: none
+    wrong on PostGIS, one on MySQL, inside its ellipsoid band beside another
+    edge); on the edge itself they part: PostGIS matched (0, 50), (180, 60)
+    and the pole on the edge from (0, 10) to (180, 20), MySQL did not, and
+    for (0, 10) to (180, 10) they answered (0, 80) differently. `A
+    GeoPolygon edge cannot span exactly 180 degrees` is gone.
+- An edge whose end lies within 0.01 degrees of its start's antipode is
+  refused with `A GeoPolygon edge cannot join vertices within 0.01 degrees of
+  antipodal`, at the vertex ending it: two antipodal points lie on every great
+  circle through them, and near the antipode a one-step float64 move of a
+  written coordinate turns the edge's circle by up to about 3e-12 / d degrees
+  at d degrees from antipodal (3.1e-9 at 0.001, 3.0e-10 at 0.01, over 2,000
+  random edges per distance), so nearer than 0.01 the written coordinates do
+  not fix the edge to VibORM's 1e-9-degree resolution. An edge between
+  exactly antipodal endpoints, such as (0, 0) to (180, 0), which PostGIS
+  raises for, is refused by it.
+- Points within 1e-9 degrees, about 0.1 mm, of an edge count as on it, and an
+  edge shorter than that is a repeated vertex. That is VibORM's resolution at
+  every ring size: against 60-digit geometry on 9,000 random rings 1e-9 to
+  1e-4 degrees across, every ring whose edges and clearances exceed twice it
+  was judged exactly (4,048 simple rings admitted with the right winding,
+  2,135 crossing ones refused), and so was every one of 6,190 polygons with
+  vertices 3.5e-9 to 3.6e-4 degrees from a pole, over it or with holes by
+  it. A ring whose vertices all lie within it of
+  one another, one distinct vertex included, is refused with `A GeoPolygon
+  ring must have non-zero area`. Cross products are taken from vertex
+  differences, so a 1e-7-degree bowtie inside a larger ring is refused at any
+  latitude (the plain product admitted it at latitude 45).
 - A polygon without `outer` fails with `Missing required field: outer` (was
   `Expected GeoPolygon with outer and optional holes`), and a ring that is not
   an array with `Expected array` (was `Expected outer ring array`). A ring is

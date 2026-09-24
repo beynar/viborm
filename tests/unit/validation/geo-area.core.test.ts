@@ -303,7 +303,7 @@ describe("GeoArea validation boundary", () => {
     }
   });
 
-  test("owns the ring shape and leaves geometry to the database", () => {
+  test("walks the ring shape before any geometry", () => {
     const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
     const vertices = "A GeoPolygon ring needs at least 3 vertices";
 
@@ -313,23 +313,1014 @@ describe("GeoArea validation boundary", () => {
     expect(
       validateGeoPolygon({ outer: square, holes: [[point(1, 1), point(2, 1)]] })
     ).toEqual({ issues: [{ message: vertices, path: ["holes", 0] }] });
+    // A bowtie with an out-of-range vertex reports the walker's message.
     expect(
-      validateGeoPolygon({ outer: [point(0, 0), point(1, 0), point(1, 91)] })
+      validateGeoPolygon({
+        outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 91)],
+      })
     ).toEqual({
       issues: [
         {
           message: "Latitude must be between -90 and 90",
-          path: ["outer", 2, "latitude"],
+          path: ["outer", 3, "latitude"],
         },
       ],
     });
-    // A self-intersecting ring is shape-valid; PostGIS and MySQL decide it.
-    // The former refusals reach SQL in geopoint-sql.core.test.ts.
-    expect(
-      validateGeoPolygon({
-        outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 0)],
-      }).issues
-    ).toBeUndefined();
+  });
+
+  /**
+   * The polygons with no single meaning on the great-circle reading (a ring
+   * crossing, touching or retracing itself, zero area, a hole not strictly
+   * inside, touching or overlapping holes) and those outside the codec's
+   * domain choices (a vertex on a pole, an edge too nearly antipodal to fix
+   * its circle, a ring with no side away from both poles). Each is refused at
+   * admission with its path.
+   */
+  const square = [point(0, 0), point(4, 0), point(4, 4), point(0, 4)];
+  const wide = [point(0, 0), point(10, 0), point(10, 10), point(0, 10)];
+  const selfIntersect = "A GeoPolygon ring cannot self-intersect";
+  const zeroArea = "A GeoPolygon ring must have non-zero area";
+  const poleVertex = "A GeoPolygon ring cannot contain a pole";
+  const aroundPole = "A GeoPolygon cannot contain a pole";
+  const nearAntipode =
+    "A GeoPolygon edge cannot join vertices within 0.01 degrees of antipodal";
+  // A square `side` degrees on each side, from (longitude, latitude).
+  const tiny = (longitude: number, latitude: number, side: number) => [
+    point(longitude, latitude),
+    point(longitude + side, latitude),
+    point(longitude + side, latitude + side),
+    point(longitude, latitude + side),
+  ];
+  // A ring from latitude 70 to `top`, 240 degrees of longitude wide.
+  const nearPole = (top: number) => [
+    ...[0, 48, 96, 144, -168, -120].map((longitude) => point(longitude, 70)),
+    ...[-120, -168, 144, 96, 48, 0].map((longitude) => point(longitude, top)),
+  ];
+  const holeOutside =
+    "A GeoPolygon hole must be strictly inside its outer ring";
+  const holesOverlap = "GeoPolygon holes cannot touch or overlap";
+  // PostGIS reads an edge as a great-circle arc, MySQL within 0.0005 degrees
+  // of it on this box (the ellipsoid's path): the south edge of this
+  // box bows north to about latitude 40.105 at longitude 5, its north edge to
+  // about 50.10.
+  const box = [point(0, 40), point(10, 40), point(10, 50), point(0, 50)];
+  const turn = (longitude: number) =>
+    longitude > 180 ? longitude - 360 : longitude;
+  test.each([
+    {
+      name: "a bowtie",
+      polygon: { outer: [point(0, 0), point(1, 1), point(0, 1), point(1, 0)] },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a bowtie hole",
+      polygon: {
+        outer: square,
+        holes: [[point(1, 1), point(2, 2), point(1, 2), point(2, 1)]],
+      },
+      issue: { message: selfIntersect, path: ["holes", 0] },
+    },
+    {
+      // The hole lies between the crossing arcs from where the second one
+      // starts, so the sweep first compares them when the hole leaves it,
+      // at longitude 3.
+      name: "a bowtie whose crossing arcs a hole keeps apart in the sweep",
+      polygon: {
+        outer: [point(1, 2), point(10, 8), point(10, 2), point(1.5, 8)],
+        holes: [
+          [point(1.4, 4.5), point(3, 4.5), point(3, 5.5), point(1.4, 5.5)],
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a ring touching itself at a repeated vertex",
+      polygon: { outer: [point(0, 0), point(1, 0), point(1, 1), point(1, 0)] },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a collinear ring",
+      polygon: { outer: [point(0, 0), point(1, 0), point(2, 0)] },
+      issue: { message: zeroArea, path: ["outer"] },
+    },
+    {
+      name: "a ring of two distinct vertices",
+      polygon: { outer: [point(0, 0), point(1, 0), point(0, 0)] },
+      issue: { message: zeroArea, path: ["outer"] },
+    },
+    {
+      name: "a ring of one distinct vertex",
+      polygon: { outer: [point(1, 1), point(1, 1), point(1, 1)] },
+      issue: { message: zeroArea, path: ["outer"] },
+    },
+    {
+      // Every edge is shorter than VibORM's 1e-9-degree resolution, a
+      // repeated vertex: the ring has one distinct vertex.
+      name: "a square 5e-10 degrees across",
+      polygon: { outer: tiny(10, 60, 5e-10) },
+      issue: { message: zeroArea, path: ["outer"] },
+    },
+    {
+      // A plain start × end loses the direction of a 1e-7-degree arc there.
+      name: "a 1e-7-degree bowtie in a larger ring",
+      polygon: {
+        outer: [
+          point(9.999, 44.999),
+          point(10.001, 44.999),
+          point(10, 45),
+          point(10.000_000_1, 45.000_000_1),
+          point(10.000_000_1, 45),
+          point(10, 45.000_000_1),
+          point(10.001, 45.001),
+          point(9.999, 45.001),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a vertex on a meridian edge",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(0, 4),
+          point(3, 4),
+          point(0, 2),
+          point(3, 0),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a ring doubling back along an edge",
+      polygon: {
+        outer: [
+          point(1, 2),
+          point(0, 1),
+          point(1, 0),
+          point(2, 0),
+          point(1, 0),
+          point(2, 1),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      // 180 degrees of longitude apart on the equator: antipodal.
+      name: "a 180-degree edge between antipodal vertices",
+      polygon: { outer: [point(0, 0), point(180, 0), point(1, 1)] },
+      issue: { message: nearAntipode, path: ["outer", 1] },
+    },
+    {
+      // 1e-6 degrees from antipodal, the edge's circle turns by about 3e-6
+      // degrees with the last digit of a coordinate.
+      name: "a nearly antipodal edge",
+      polygon: {
+        outer: [point(0, 10), point(179.999_999, -10), point(90, 40)],
+      },
+      issue: { message: nearAntipode, path: ["outer", 1] },
+    },
+    {
+      name: "an edge 0.009 degrees short of antipodal",
+      polygon: { outer: [point(0, 0), point(179.991, 0), point(90, 30)] },
+      issue: { message: nearAntipode, path: ["outer", 1] },
+    },
+    {
+      // The hole runs over the north pole, far outside the square.
+      name: "a hole with an edge over the pole",
+      polygon: {
+        outer: square,
+        holes: [[point(1, 1), point(2, 1), point(-178, 2)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a north pole vertex",
+      polygon: { outer: [point(10, 80), point(0, 90), point(-10, 80)] },
+      issue: { message: poleVertex, path: ["outer", 1] },
+    },
+    {
+      name: "a south pole vertex",
+      polygon: { outer: [point(-10, -80), point(0, -90), point(10, -80)] },
+      issue: { message: poleVertex, path: ["outer", 1] },
+    },
+    {
+      name: "a hole vertex on a pole",
+      polygon: {
+        outer: square,
+        holes: [[point(1, 1), point(2, 1), point(1, 90)]],
+      },
+      issue: { message: poleVertex, path: ["holes", 0, 2] },
+    },
+    {
+      // 5e-10 degrees from the pole, within VibORM's resolution: on it.
+      name: "a vertex within 1e-9 degrees of a pole",
+      polygon: {
+        outer: [point(10, 80), point(0, 89.999_999_999_5), point(-10, 80)],
+      },
+      issue: { message: poleVertex, path: ["outer", 1] },
+    },
+    {
+      // After the edge over the north pole the ring goes once more round the
+      // globe westward: it winds around the south pole.
+      name: "a ring over a pole winding around the other",
+      polygon: {
+        outer: [
+          point(0, 10),
+          point(180, 20),
+          point(60, 10),
+          point(-60, 10),
+          point(180, 10),
+          point(60, 5),
+          point(-60, 5),
+        ],
+      },
+      issue: { message: aroundPole, path: ["outer"] },
+    },
+    {
+      // Both poles on the ring: neither side is away from both.
+      name: "a ring over both poles",
+      polygon: {
+        outer: [
+          point(0, 10),
+          point(180, 20),
+          point(90, 0),
+          point(180, -20),
+          point(0, -10),
+        ],
+      },
+      issue: { message: aroundPole, path: ["outer"] },
+    },
+    {
+      // The sweep finds its two edges over the north pole crossing there.
+      name: "a ring over one pole twice",
+      polygon: {
+        outer: [point(0, 10), point(180, 20), point(90, 30), point(-90, 40)],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      // The hole's edge over the pole crosses the outer ring's there.
+      name: "a hole over the pole its outer ring runs over",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(45, 80), point(-135, 80), point(90, 70)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // The ring runs over the pole along longitudes 0 and 180; the hole
+      // lies by the pole on the ring's other side.
+      name: "a hole by the pole outside a ring over it",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(-80, 85), point(-100, 85), point(-90, 86)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole touching a ring's edge over the pole",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(0, 50), point(10, 50), point(10, 60)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a ring winding around a pole",
+      polygon: { outer: [point(-120, 80), point(0, 80), point(120, 80)] },
+      issue: { message: aroundPole, path: ["outer"] },
+    },
+    {
+      name: "a hole outside",
+      polygon: {
+        outer: square,
+        holes: [[point(5, 5), point(6, 6), point(6, 5)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // The meridian from (-110, 30) to the north pole meets no edge; the
+      // band's edges across longitude 70 lie on its great circle's far half.
+      name: "a hole north of a band that crosses its antimeridian",
+      polygon: {
+        outer: [
+          point(-130, -40),
+          point(-80, -40),
+          point(-30, -40),
+          point(20, -40),
+          point(80, -40),
+          point(80, -20),
+          point(20, -20),
+          point(-30, -20),
+          point(-80, -20),
+          point(-130, -20),
+        ],
+        holes: [
+          [point(-110, 30), point(-110, 31), point(-109, 31), point(-109, 30)],
+        ],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole crossing the outer ring",
+      polygon: {
+        outer: square,
+        holes: [[point(3, 3), point(3, 5), point(5, 5), point(5, 3)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole bridging a notch between two outer vertices",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(4, 0),
+          point(4, 2),
+          point(2, 2),
+          point(2, 4),
+          point(0, 4),
+        ],
+        holes: [[point(1, 1), point(4, 2), point(2, 4)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // Every piece's midpoint is inside; only the crossings show the escape.
+      name: "a hole whose edges cross an outer notch",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(4, 0),
+          point(4, 4),
+          point(2.2, 4),
+          point(2, 2),
+          point(1.8, 4),
+          point(0, 4),
+        ],
+        holes: [[point(0.5, 3), point(3, 3.5), point(3.9, 3)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "overlapping holes",
+      polygon: {
+        outer: [point(0, 0), point(6, 0), point(6, 6), point(0, 6)],
+        holes: [
+          [point(1, 1), point(1, 4), point(4, 4), point(4, 1)],
+          [point(3, 3), point(3, 5), point(5, 5), point(5, 3)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "a hole nested in a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(2, 5), point(5, 5), point(5, 2)],
+          [point(3, 3), point(3, 4), point(4, 4), point(4, 3)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "a hole enclosing a hole",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(3, 3), point(3, 4), point(4, 4), point(4, 3)],
+          [point(2, 2), point(2, 5), point(5, 5), point(5, 2)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      // No edge crosses: the second hole enters the first through two corners.
+      name: "holes overlapping through shared corners",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(4, 4), point(2, 2), point(3, 1)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "the same hole twice",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(2, 5), point(5, 5), point(5, 2)],
+          [point(5, 2), point(2, 2), point(2, 5), point(5, 5)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      // Longitudes 0 to 400 along a band: 0 to 40 is covered twice.
+      name: "a ring past a whole turn over itself",
+      polygon: {
+        outer: [
+          point(0, 0),
+          point(80, 0),
+          point(160, 0),
+          point(-120, 0),
+          point(-40, 0),
+          point(40, 0),
+          point(40, 2),
+          point(-40, 2),
+          point(-120, 2),
+          point(160, 2),
+          point(80, 2),
+          point(0, 2),
+        ],
+      },
+      issue: { message: selfIntersect, path: ["outer"] },
+    },
+    {
+      name: "a hole touching the outer ring at one point",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 1), point(1, 2), point(1, 1)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole along an outer edge",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 1), point(0, 2), point(1, 2), point(1, 1)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole touching the outer ring at three points",
+      polygon: {
+        outer: square,
+        holes: [[point(0, 2), point(2, 4), point(4, 2)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole equal to its outer ring",
+      polygon: { outer: square, holes: [square] },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      // PostGIS matched (5, 40.05) and (5, 40.08), MySQL did not.
+      name: "a hole touching a parallel edge in the plane",
+      polygon: {
+        outer: box,
+        holes: [[point(5, 40), point(4, 45), point(6, 45)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "a hole inside the plane's edge but outside the great-circle arc",
+      polygon: {
+        outer: box,
+        holes: [[point(5, 40.05), point(4, 45), point(6, 45)]],
+      },
+      issue: { message: holeOutside, path: ["holes", 0] },
+    },
+    {
+      name: "holes touching at one point",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(3, 3), point(3, 5), point(5, 5), point(5, 3)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      name: "holes sharing an edge",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(1, 1), point(1, 3), point(3, 3), point(3, 1)],
+          [point(3, 1), point(3, 3), point(5, 3), point(5, 1)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+    {
+      // PostGIS matched (5, 44.01) to (5, 44.03), in both holes; MySQL did not.
+      name: "a hole touching another's parallel edge in the plane",
+      polygon: {
+        outer: box,
+        holes: [
+          [point(2, 42), point(2, 44), point(8, 44), point(8, 42)],
+          [point(5, 44), point(4, 46), point(6, 46)],
+        ],
+      },
+      issue: { message: holesOverlap, path: ["holes", 1] },
+    },
+  ])("refuses $name", ({ polygon, issue }) => {
+    expect(validateGeoPolygon(polygon)).toEqual({ issues: [issue] });
+  });
+
+  /**
+   * Polygons with one meaning on the great-circle reading, admitted as
+   * written even where a database reads them differently (point.mdx, "How
+   * each database reads a polygon"): a repeated consecutive vertex is a
+   * zero-length edge, a hole may sit between an edge's straight line and its
+   * arc, a ring may go past a whole turn beside itself, edges may be long and
+   * rings continent-sized or tiny.
+   */
+  test.each([
+    {
+      name: "a closed ring",
+      polygon: { outer: [point(0, 0), point(1, 0), point(1, 1), point(0, 0)] },
+    },
+    {
+      name: "a repeated consecutive vertex",
+      polygon: {
+        outer: [point(0, 0), point(1, 0), point(1, 0), point(1, 1)],
+      },
+    },
+    {
+      name: "a hole beyond the plane's north edge, inside its great-circle arc",
+      polygon: {
+        outer: box,
+        holes: [[point(5, 50.05), point(6, 49), point(4, 49)]],
+      },
+    },
+    {
+      name: "a hole just inside the great-circle south edge",
+      polygon: {
+        outer: box,
+        holes: [[point(5, 40.2), point(4, 45), point(6, 45)]],
+      },
+    },
+    {
+      // Longitudes 0 to 400, rising: 0 to 40 is crossed twice, apart.
+      name: "a band past a whole turn beside itself",
+      polygon: {
+        outer: [
+          ...Array.from({ length: 21 }, (_, step) =>
+            point(turn(step * 20), 10 + step / 2)
+          ),
+          ...Array.from({ length: 21 }, (_, step) =>
+            point(turn(400 - step * 20), 22 - step / 2)
+          ),
+        ],
+      },
+    },
+    {
+      // Most of the outer ring's vertices lie far from the hole.
+      name: "a hole across a 300-degree band",
+      polygon: {
+        outer: [
+          ...Array.from({ length: 21 }, (_, step) => point(step / 2, 20)),
+          point(60, 20),
+          point(120, 20),
+          point(179.5, 20),
+          point(-120, 20),
+          point(-60, 20),
+          point(-60, 40),
+          point(-120, 40),
+          point(179.5, 40),
+          point(120, 40),
+          point(60, 40),
+          ...Array.from({ length: 21 }, (_, step) => point(10 - step / 2, 40)),
+        ],
+        holes: [
+          [point(-110, 28), point(-110, 32), point(-100, 32), point(-100, 28)],
+        ],
+      },
+    },
+    {
+      // On the equator and the 0 meridian, not across them: PostGIS widens its
+      // box to a pole only past zero, and answered every point correctly.
+      name: "a triangle touching the equator and the 0 meridian",
+      polygon: { outer: [point(0, 0), point(100, 0), point(50, 50)] },
+    },
+    {
+      name: "edges between vertices 1e-4 degrees from the north pole",
+      polygon: { outer: nearPole(89.9999) },
+    },
+    // A vertex off a pole has a longitude, and VibORM judges its ring down to
+    // its 1e-9-degree resolution; MySQL (from about 3e-6 degrees) and PostGIS
+    // (from about 6e-7) answer some points far from such rings wrongly.
+    {
+      name: "edges between vertices 1e-6 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999) },
+    },
+    {
+      name: "edges between vertices 1e-8 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999_99) },
+    },
+    {
+      name: "an edge between two vertices 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          point(-60, -89.999_999_9),
+          point(0, -89.999_999_9),
+          point(60, -89.999_999_9),
+          point(120, -89.999_999_9),
+          point(120, -60),
+          point(60, -60),
+          point(0, -60),
+          point(-60, -60),
+        ],
+      },
+    },
+    {
+      // Its area, about 1e-18 steradians, is far below the rounding of the
+      // lunes between its arcs' meridians, summed arc by arc; they cancel.
+      name: "a counterclockwise triangle 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          point(-35.486, -89.999_999_9),
+          point(-15.743, -89.999_999_9),
+          point(-31.495, -89.999_999_8),
+        ],
+      },
+    },
+    {
+      name: "a vertex 1.5e-9 degrees from a pole",
+      polygon: {
+        outer: [point(10, 80), point(0, 89.999_999_998_5), point(-10, 80)],
+      },
+    },
+    // An edge whose longitudes differ by exactly 180 degrees runs over a
+    // pole along one great circle; the pole is on the ring.
+    {
+      name: "an edge over the north pole",
+      polygon: { outer: [point(0, 10), point(90, 15), point(180, 20)] },
+    },
+    {
+      name: "a closing edge over the north pole",
+      polygon: { outer: [point(0, 80), point(90, 70), point(180, 80)] },
+    },
+    {
+      name: "an edge over the pole between two latitude-10 vertices",
+      polygon: { outer: [point(90, -10), point(180, 10), point(0, 10)] },
+    },
+    {
+      name: "an edge over the south pole",
+      polygon: { outer: [point(0, -10), point(180, -20), point(90, -15)] },
+    },
+    {
+      // Its edge over the pole goes round through longitude 180.
+      name: "a ring over the pole across the antimeridian",
+      polygon: { outer: [point(90, 10), point(180, 15), point(-90, 20)] },
+    },
+    {
+      name: "a hole by the pole inside a ring over it",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(80, 85), point(90, 86), point(100, 85)]],
+      },
+    },
+    {
+      // The hole starts on longitude 90, where the edge over the south pole
+      // ends: that edge leaves the sweep before the hole enters, so the hole
+      // is placed under the edge from (120, 10) across longitude 90.
+      name: "a hole on the meridian where an edge over the south pole ends",
+      polygon: {
+        outer: [
+          point(-90, -10),
+          point(90, -20),
+          point(120, -20),
+          point(120, 10),
+          point(0, 10),
+        ],
+        holes: [[point(90, 0), point(100, 5), point(100, -5)]],
+      },
+    },
+    {
+      name: "a hole 1e-4 degrees from the pole inside a ring over it",
+      polygon: {
+        outer: [point(0, 10), point(90, 15), point(180, 20)],
+        holes: [[point(80, 89.9999), point(100, 89.9999), point(90, 89.9998)]],
+      },
+    },
+    {
+      // MySQL's ellipsoid edge leaves the arc by about 0.46 degrees here.
+      name: "a 151-degree edge",
+      polygon: { outer: [point(0, 0), point(151, 0), point(75, 20)] },
+    },
+    {
+      name: "an edge 0.011 degrees short of antipodal",
+      polygon: { outer: [point(0, 0), point(179.989, 0), point(90, 30)] },
+    },
+    {
+      // True area 11.18 steradians, beyond half the globe: PostGIS matched
+      // the whole globe, MySQL the band.
+      name: "the tropics band",
+      polygon: {
+        outer: [
+          point(-170, -30),
+          point(0, -30),
+          point(170, -30),
+          point(170, 30),
+          point(0, 30),
+          point(-170, 30),
+        ],
+      },
+    },
+    {
+      // Each 175-degree edge straddles the great circle of the one across
+      // the band, which it meets only at the antipode of their meeting.
+      name: "a band with two long edges on each side",
+      polygon: {
+        outer: [
+          point(0, -30),
+          point(175, -30),
+          point(-10, -30),
+          point(-10, 30),
+          point(175, 30),
+          point(0, 30),
+        ],
+      },
+    },
+    {
+      name: "a band from 180 to 0 through -90",
+      polygon: {
+        outer: [
+          point(180, -40),
+          point(-90, -40),
+          point(0, -40),
+          point(0, 40),
+          point(-90, 40),
+          point(180, 40),
+        ],
+      },
+    },
+    {
+      // 27% of half the globe; PostGIS read it inside out, MySQL did not.
+      name: "a ring across all three planes",
+      polygon: {
+        outer: [
+          point(8.655_273, -4.888_118),
+          point(9.783_711, -16.851_44),
+          point(-9.977_974, -5.122_148),
+          point(-43.180_112, 0.414_428),
+          point(-57.786_262, -12.058_979),
+          point(-44.864_831, -32.086_311),
+          point(-14.135_991, -40.606_621),
+          point(7.226_503, -34.495_989),
+          point(9.873_38, -44.518_988),
+          point(37.572_842, -71.070_42),
+          point(102.183_743, -63.731_592),
+          point(92.037_682, -46.942_718),
+          point(50.468_332, -31.985_418),
+          point(31.937_986, -23.462_884),
+          point(31.748_745, -18.138_909),
+          point(51.595_083, 4.804_735),
+          point(54.301_739, 29.233_064),
+          point(40.878_021, 45.271_161),
+          point(14.791_082, 25.676_286),
+        ],
+      },
+    },
+    {
+      // Both databases answered 600 of 600 points correctly in 5 rotations.
+      name: "the Pacific",
+      polygon: {
+        outer: [
+          point(120, -50),
+          point(150, -55),
+          point(-170, -60),
+          point(-130, -60),
+          point(-90, -55),
+          point(-75, -40),
+          point(-80, -5),
+          point(-105, 20),
+          point(-125, 45),
+          point(-150, 58),
+          point(175, 55),
+          point(145, 40),
+          point(125, 20),
+          point(115, 0),
+          point(115, -25),
+        ],
+      },
+    },
+    {
+      // The meridian from the first hole's first vertex grazes the second
+      // hole's vertex at 0.4, whose arcs both lie west of it.
+      name: "holes where one grazes the other's meridian at a vertex",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(0.4, 1), point(0.6, 0.5), point(0.2, 0.5)],
+          [point(0.4, 3), point(0.1, 2.5), point(0.1, 3.5)],
+        ],
+      },
+    },
+    {
+      // Both holes reach west to longitude 2, where the sweep first meets
+      // them; the northern one must be placed first.
+      name: "holes side by side on one meridian",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(2, 3), point(3, 3), point(3, 2)],
+          [point(2, 4), point(2, 5), point(3, 5), point(3, 4)],
+        ],
+      },
+    },
+    {
+      // On longitude 2 the second hole lies between the first hole's two
+      // points there: the first is placed from its northern point.
+      name: "a hole in another hole's notch, both reaching west to one meridian",
+      polygon: {
+        outer: wide,
+        holes: [
+          [point(2, 2), point(4, 4), point(2, 6), point(5, 6), point(5, 2)],
+          [point(2, 4), point(3, 4.3), point(3, 3.7)],
+        ],
+      },
+    },
+    // MySQL answers points within about 1e-6 degrees of a vertex unlike the
+    // sphere, so it misplaces points in rings this small; VibORM judges them
+    // down to its 1e-9-degree resolution, at every latitude.
+    {
+      name: "a square 1e-5 degrees across on the equator",
+      polygon: { outer: tiny(10, 0, 1e-5) },
+    },
+    {
+      name: "a square 1e-5 degrees across at latitude 60",
+      polygon: { outer: tiny(10, 60, 1e-5) },
+    },
+    {
+      name: "a square 1e-5 degrees across at latitude 89.9",
+      polygon: { outer: tiny(-120, 89.9, 1e-5) },
+    },
+    {
+      name: "a square 1e-8 degrees across",
+      polygon: { outer: tiny(10, 60, 1e-8) },
+    },
+    {
+      name: "an antimeridian hole in an antimeridian polygon",
+      polygon: {
+        outer: [
+          point(170, -10),
+          point(-170, -10),
+          point(-170, 10),
+          point(170, 10),
+        ],
+        // Both rings cross the antimeridian.
+        holes: [
+          [point(-175, 5), point(-175, -5), point(175, -5), point(175, 5)],
+        ],
+      },
+    },
+  ])("admits $name as written", ({ polygon }) => {
+    expect(validateGeoPolygon(polygon)).toEqual({ value: polygon });
+  });
+
+  test("places rings meeting the antimeridian together near a pole by latitude", () => {
+    // Every ring lies within 2e-7 degrees of the north pole, where a vertex's
+    // z coordinate rounds to 1. The outer ring reaches the antimeridian with
+    // an edge and with its edge over the pole; ordered by z the two tied, the
+    // sweep took the edge as the ring's northernmost, found the second hole
+    // north of it and placed the outer ring inside that hole, and refused the
+    // polygon (holes touching). The rings are 8e-9 degrees apart or more.
+    const polygon = {
+      outer: [
+        point(-65, 89.999_999_83),
+        point(-140, 89.999_999_84),
+        point(174, 89.999_999_92),
+        point(153, 89.999_999_81),
+        point(-27, 89.999_999_84),
+        point(-42, 89.999_999_82),
+        point(-45, 89.999_999_87),
+      ],
+      holes: [
+        [
+          point(-135, 89.999_999_93),
+          point(-141, 89.999_999_92),
+          point(-138, 89.999_999_91),
+          point(-131, 89.999_999_92),
+          point(-134, 89.999_999_92),
+        ],
+        [
+          point(169, 89.999_999_97),
+          point(170, 89.999_999_96),
+          point(-180, 89.999_999_963_020_76),
+          point(174, 89.999_999_97),
+        ],
+      ],
+    };
+    expect(validateGeoPolygon(polygon).issues).toBeUndefined();
+  });
+
+  test("admits a 40,000-vertex star with 50 holes in near-linear time", () => {
+    // Most spokes' boxes overlap each other and reach toward every hole:
+    // comparing boxes took 7 s on a 20,000-vertex star, 98 s on that star
+    // with these holes and 33 s on this star alone; the sweep takes under
+    // 0.1 s. The bound leaves a slow machine a wide margin, a quadratic
+    // pass none.
+    const spokes = 40_000;
+    const outer = Array.from({ length: spokes }, (_, index) => {
+      const angle = (2 * Math.PI * index) / spokes;
+      const radius = index % 2 === 1 ? 0.5 : 20;
+      return point(radius * Math.cos(angle), radius * Math.sin(angle));
+    });
+    const holes = Array.from({ length: 50 }, (_, index) =>
+      Array.from({ length: 8 }, (__, step) => {
+        const angle = (-2 * Math.PI * step) / 8;
+        return point(
+          Math.cos(index) * 0.2 + 0.001 * Math.cos(angle),
+          Math.sin(index) * 0.2 + 0.001 * Math.sin(angle)
+        );
+      })
+    );
+    const started = performance.now();
+    const result = validateGeoPolygon({ outer, holes });
+    const elapsed = performance.now() - started;
+    expect(result.issues).toBeUndefined();
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  test("admits 10,000 holes in near-linear time", () => {
+    // Testing each hole against the outer ring and every earlier hole took
+    // 7 s here; the sweep places every hole in one pass, in under 0.1 s.
+    const outer = Array.from({ length: 64 }, (_, index) => {
+      const angle = (2 * Math.PI * index) / 64;
+      return point(12.8 * Math.cos(angle), 12.8 * Math.sin(angle));
+    });
+    const holes = Array.from({ length: 10_000 }, (_, index) => {
+      const longitude = -9 + 0.18 * Math.floor(index / 100);
+      const latitude = -9 + 0.18 * (index % 100);
+      return [
+        point(longitude, latitude),
+        point(longitude, latitude + 0.1),
+        point(longitude + 0.1, latitude + 0.1),
+        point(longitude + 0.1, latitude),
+      ];
+    });
+    const started = performance.now();
+    const result = validateGeoPolygon({ outer, holes });
+    const elapsed = performance.now() - started;
+    expect(result.issues).toBeUndefined();
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  test("admits 130,000 holes that reach the sweep on one meridian", () => {
+    // Every hole starts at the same longitude, so the sweep places them all
+    // at once. Spreading them into one push call threw RangeError: a call
+    // cannot take that many arguments.
+    const outer = [point(0, 0), point(4, 0), point(4, 40), point(0, 40)];
+    const holes = Array.from({ length: 130_000 }, (_, index) => {
+      const latitude = 1 + index * 0.0001;
+      return [
+        point(1, latitude),
+        point(1.000_01, latitude + 0.000_01),
+        point(1.000_01, latitude - 0.000_01),
+      ];
+    });
+    const result = validateGeoPolygon({ outer, holes });
+    expect(result.issues).toBeUndefined();
+    if (result.issues) return;
+    expect(result.value.holes).toHaveLength(130_000);
+  });
+
+  test("admits strips chosen against predictable skip-list heights in near-linear time", () => {
+    // The sweep's order is a skip list. Its heights once came from Park and
+    // Miller's generator at a fixed seed, which anyone can replay: a strip
+    // runs to longitude 0.1, and so stays in the sweep, exactly when both of
+    // its arcs drew height 1, so the long-lived arcs were the ones every
+    // search walks one by one. That took 8 s here and 44 s at twice the
+    // strips, against 0.1 s for the same strips chosen at random; heights
+    // the input cannot know take 0.1 s for both.
+    const strips = 20_000;
+    let seed = 1;
+    const heights = Array.from({ length: 2 * strips + 2 }, () => {
+      seed = (seed * 16_807) % 2_147_483_647;
+      return 1 + Math.floor(-Math.log2(seed / 2_147_483_647));
+    });
+    const outer = [
+      point(-0.01, -0.6),
+      point(0.11, -0.6),
+      point(0.11, 0.6),
+      point(-0.01, 0.6),
+    ];
+    const holes = Array.from({ length: strips }, (_, index) => {
+      const west = index * (0.1 / strips);
+      const south = -0.5 + index / strips;
+      const north = south + 0.3 / strips;
+      const lasting =
+        heights[2 + 2 * index] === 1 && heights[3 + 2 * index] === 1;
+      const east = lasting ? 0.1 : west + 0.05 / strips;
+      return [
+        point(west, south),
+        point(east, south),
+        point(east, north),
+        point(west, north),
+      ];
+    });
+    const started = performance.now();
+    const result = validateGeoPolygon({ outer, holes });
+    const elapsed = performance.now() - started;
+    expect(result.issues).toBeUndefined();
+    expect(elapsed).toBeLessThan(2000);
   });
 
   test("contains hostile ring and property access", () => {

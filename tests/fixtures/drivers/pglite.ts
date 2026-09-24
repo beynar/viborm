@@ -3,9 +3,10 @@ import type { Schema } from "@client/types";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { isVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import type { ProviderFixture } from "@tests/contracts/contract";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, beforeEach } from "vitest";
 
@@ -89,8 +90,8 @@ export interface PGliteSchemaFamily<S extends Schema> {
 }
 
 /**
- * ONE PGlite per worker process, shared by every suite that uses this fixture,
- * with a private Postgres schema per suite.
+ * ONE PGlite per test file, shared by every suite in it that uses this
+ * fixture, with a private Postgres schema per suite.
  *
  * A PGlite instance is a whole Postgres compiled to Wasm and costs a measured
  * ~1.3 GiB. Creating one PER SUITE meant a process could hold only one suite,
@@ -102,12 +103,20 @@ export interface PGliteSchemaFamily<S extends Schema> {
  * A suite that must NOT share - one that condemns its session, manipulates
  * schemas directly, or asserts cluster-global state - should keep building its
  * own `new PGlite()` instead of using this fixture.
+ *
+ * The worker process outlives the file, but this module does not: Vitest
+ * isolates each file's module graph, so this binding is evaluated afresh per
+ * file and a database made here serves that file alone. It is closed when the
+ * file ends, after every suite has dropped its schema. Abandoning it instead
+ * left each file's Wasm memory to the garbage collector, and on PGlite 0.5.8
+ * a packed shard of these files measured past the isolated-provider ceiling
+ * (3772-4198 MiB where 0.3.2 had peaked at 1343-2044).
  */
 let workerDatabase: PGlite | undefined;
 let suiteCounter = 0;
 
 function sharedWorkerDatabase(): PGlite {
-  workerDatabase ??= new PGlite();
+  workerDatabase ??= openTestPGlite();
   return workerDatabase;
 }
 

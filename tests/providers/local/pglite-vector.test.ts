@@ -1,5 +1,5 @@
 import { PGliteDriver } from "@drivers/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
 
 function createPGliteVectorDriver(): PGliteDriver {
