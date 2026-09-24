@@ -339,7 +339,8 @@ describe("GeoArea validation boundary", () => {
   const selfIntersect = "A GeoPolygon ring cannot self-intersect";
   const zeroArea = "A GeoPolygon ring must have non-zero area";
   const edge180 = "A GeoPolygon edge cannot span exactly 180 degrees";
-  const poleVertex = "A GeoPolygon ring cannot contain a pole";
+  const poleVertex =
+    "A GeoPolygon vertex must be at least 1e-4 degrees from a pole";
   const aroundPole = "A GeoPolygon cannot contain a pole";
   const across =
     "A GeoPolygon cannot reach across the equator and the 0/180 and 90/-90 meridians at once";
@@ -351,6 +352,11 @@ describe("GeoArea validation boundary", () => {
     point(longitude + side, latitude),
     point(longitude + side, latitude + side),
     point(longitude, latitude + side),
+  ];
+  // A ring from latitude 70 to `top`, 240 degrees of longitude wide.
+  const nearPole = (top: number) => [
+    ...[0, 48, 96, 144, -168, -120].map((longitude) => point(longitude, 70)),
+    ...[-120, -168, 144, 96, 48, 0].map((longitude) => point(longitude, top)),
   ];
   const holeOutside =
     "A GeoPolygon hole must be strictly inside its outer ring";
@@ -503,6 +509,31 @@ describe("GeoArea validation boundary", () => {
       name: "a south pole vertex",
       polygon: { outer: [point(-10, -80), point(0, -90), point(10, -80)] },
       issue: { message: poleVertex, path: ["outer", 1] },
+    },
+    {
+      // MySQL matched (30, 70) and (30, 0) and missed (30, -70), inside;
+      // PostGIS answered all three correctly.
+      name: "an edge between two vertices 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          point(-60, -89.999_999_9),
+          point(0, -89.999_999_9),
+          point(60, -89.999_999_9),
+          point(120, -89.999_999_9),
+          point(120, -60),
+          point(60, -60),
+          point(0, -60),
+          point(-60, -60),
+        ],
+      },
+      issue: { message: poleVertex, path: ["outer", 0] },
+    },
+    {
+      // PostGIS matched (30.37, 0.11) and (30.37, -19.89), 70 degrees from
+      // the ring; MySQL did not.
+      name: "an edge between two vertices 1e-6 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999) },
+      issue: { message: poleVertex, path: ["outer", 6] },
     },
     {
       name: "a ring winding around a pole",
@@ -888,6 +919,10 @@ describe("GeoArea validation boundary", () => {
       // box to a pole only past zero, and answered every point correctly.
       name: "a triangle touching the equator and the 0 meridian",
       polygon: { outer: [point(0, 0), point(100, 0), point(50, 50)] },
+    },
+    {
+      name: "edges between vertices 1e-4 degrees from the north pole",
+      polygon: { outer: nearPole(89.9999) },
     },
     {
       name: "a 149-degree edge",

@@ -152,7 +152,8 @@ answer wrongly, or differently from each other, instead of raising:
   MySQL misplaces points;
 - an edge exactly 180 degrees of longitude long (it runs over a pole or joins
   opposite points of the globe), an edge 150 degrees long or longer, a vertex
-  at a pole, and a ring winding around a pole;
+  closer than 1e-4 degrees (about 11 m) to a pole, where both databases
+  answered points far from the ring wrongly, and a ring winding around a pole;
 - an outer ring with vertices on both sides of the equator, of the 0/180
   meridian and of the 90/-90 meridian at once, for which PostGIS guesses which
   side is inside (every ring of half the globe or more is one);

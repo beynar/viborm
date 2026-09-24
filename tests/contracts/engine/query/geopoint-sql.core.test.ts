@@ -673,6 +673,11 @@ describe("GeoPoint query lowering", () => {
   const box = [g(0, 40), g(10, 40), g(10, 50), g(0, 50)];
   const turn = (longitude: number) =>
     longitude > 180 ? longitude - 360 : longitude;
+  // A ring from latitude 70 to `top`, 240 degrees of longitude wide.
+  const nearPole = (top: number) => [
+    ...[0, 48, 96, 144, -168, -120].map((longitude) => g(longitude, 70)),
+    ...[-120, -168, 144, 96, 48, 0].map((longitude) => g(longitude, top)),
+  ];
   type Polygon = {
     readonly outer: readonly { longitude: number; latitude: number }[];
     readonly holes?: readonly (readonly {
@@ -721,7 +726,8 @@ describe("GeoPoint query lowering", () => {
       name: "a north pole vertex",
       polygon: { outer: [g(10, 80), g(0, 90), g(-10, 80)] },
       issue: {
-        message: "A GeoPolygon ring cannot contain a pole",
+        message:
+          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
         path: ["outer", 1],
       },
     },
@@ -729,8 +735,38 @@ describe("GeoPoint query lowering", () => {
       name: "a south pole vertex",
       polygon: { outer: [g(-10, -80), g(0, -90), g(10, -80)] },
       issue: {
-        message: "A GeoPolygon ring cannot contain a pole",
+        message:
+          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
         path: ["outer", 1],
+      },
+    },
+    {
+      name: "an edge between two vertices 1e-7 degrees from the south pole",
+      polygon: {
+        outer: [
+          g(-60, -89.999_999_9),
+          g(0, -89.999_999_9),
+          g(60, -89.999_999_9),
+          g(120, -89.999_999_9),
+          g(120, -60),
+          g(60, -60),
+          g(0, -60),
+          g(-60, -60),
+        ],
+      },
+      issue: {
+        message:
+          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
+        path: ["outer", 0],
+      },
+    },
+    {
+      name: "an edge between two vertices 1e-6 degrees from the north pole",
+      polygon: { outer: nearPole(89.999_999) },
+      issue: {
+        message:
+          "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
+        path: ["outer", 6],
       },
     },
     {
@@ -927,6 +963,10 @@ describe("GeoPoint query lowering", () => {
     {
       name: "a hole beyond the plane's north edge, inside its great-circle arc",
       polygon: { outer: box, holes: [[g(5, 50.05), g(6, 49), g(4, 49)]] },
+    },
+    {
+      name: "edges between vertices 1e-4 degrees from the north pole",
+      polygon: { outer: nearPole(89.9999) },
     },
     {
       name: "a band past a whole turn beside itself",

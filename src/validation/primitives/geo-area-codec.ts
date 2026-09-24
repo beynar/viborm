@@ -189,6 +189,15 @@ const SMALLEST_RING = 2e-5 * RADIANS;
  * the cosine of 150 degrees.
  */
 const LONGEST_EDGE_COSINE = Math.cos(150 * RADIANS);
+/**
+ * The nearest a vertex may come to a pole, about 11 m. With two consecutive
+ * vertices a few 1e-6 degrees from a pole, MySQL (from 3e-6 down) and PostGIS
+ * (from 6e-7 down) answered points 70 degrees from the ring wrongly, and none
+ * of about 1,500 such rings from 5.6e-6 out; a vertex on the pole has no
+ * longitude, and PostGIS drew its edges along meridians while MySQL matched
+ * the equator and the opposite pole.
+ */
+const POLE_CLEARANCE = 1e-4;
 const AXES: readonly (0 | 1 | 2)[] = [0, 1, 2];
 
 function toVector(longitude: number, latitude: number): Vector {
@@ -258,10 +267,11 @@ function ringArcs(
   let from: UnwrappedPoint | undefined;
   for (const [index, vertex] of [...ring, ...ring.slice(0, 1)].entries()) {
     const at = [...path, index % ring.length];
-    // A pole has no longitude of its own: PostGIS drew this ring's edges along
-    // meridians while MySQL matched the equator and the opposite pole.
-    if (Math.abs(vertex.latitude) === GEO_LATITUDE_MAX) {
-      return fail("A GeoPolygon ring cannot contain a pole", at);
+    if (GEO_LATITUDE_MAX - Math.abs(vertex.latitude) < POLE_CLEARANCE) {
+      return fail(
+        "A GeoPolygon vertex must be at least 1e-4 degrees from a pole",
+        at
+      );
     }
     if (previous) {
       const delta = vertex.longitude - previous.longitude;

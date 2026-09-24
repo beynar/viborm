@@ -2346,9 +2346,22 @@ that goes red without it (`geo-area.core.test.ts` "refuses …"/"admits …", an
 the matching `geopoint-sql.core.test.ts` cell), each falsified one at a time
 on 2026-09-24:
 
-- Pole vertex (`A GeoPolygon ring cannot contain a pole`, at the vertex): such
-  a ring passes every other check. Witness: "a north pole vertex", "a south
-  pole vertex".
+- Vertex near a pole (`POLE_CLEARANCE`, `A GeoPolygon vertex must be at
+  least 1e-4 degrees from a pole`, at the vertex; review round 4 widened the
+  exact-pole guard, `A GeoPolygon ring cannot contain a pole`, which it
+  replaces). A vertex on the pole has no longitude (PostGIS drew its edges
+  along meridians, MySQL matched the equator and the opposite pole); an edge
+  between two vertices a few 1e-6 degrees from a pole passes every other
+  check, and MySQL (from 3e-6 degrees down) and PostGIS (from 6e-7 down, its
+  answer changing with the query plan) answered points 70 degrees from such
+  rings wrongly, none of about 1,500 rings from 5.6e-6 out (the review's
+  nearpole2/3 runs over five seeds and this lane's two over 1e-4.5 to
+  1e-2). Neither the exact-pole test nor the wrap test sees such an edge.
+  Witness: "a north pole vertex", "a south pole vertex", "an edge between
+  two vertices 1e-7 degrees from the south pole" (MySQL), "… 1e-6 degrees
+  from the north pole" (PostGIS); admitted "edges between vertices 1e-4
+  degrees from the north pole" (both databases answered 600 of 600 points
+  correctly, on table and index scans).
 - Exactly 180 degrees of longitude (at the vertex ending the edge): the edge
   has no short way round; it joins antipodal endpoints, which PostGIS raises
   for, or runs over a pole, where the databases part (table), however short.
