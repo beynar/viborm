@@ -4,7 +4,7 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { MigrationError, VibORMErrorCode } from "@errors";
 import { introspect as introspectClient } from "@migrations/push/planner";
 import { PG, s } from "@schema";
