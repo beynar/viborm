@@ -202,9 +202,10 @@ PostGIS 3.6 (PGlite 0.5.8) and on MySQL 8, table and index scans:
   347 of 397 wrong), while the Pacific from longitude 115 to -75 was answered
   correctly. MySQL answered all of these as VibORM reads them.
 - **MySQL (SRID 4326)** reads each edge as the shortest path on the ellipsoid,
-  which leaves the great-circle arc by at most:
+  which leaves the great-circle arc. The largest departure observed over 30
+  sampled edges per length (not a bound):
 
-  | Edge length | Largest departure from the arc |
+  | Edge length | Largest observed departure from the arc |
   | --- | --- |
   | 10 degrees | 0.0007 degrees (about 75 m) |
   | 30 degrees | 0.007 degrees |

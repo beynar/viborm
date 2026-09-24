@@ -349,7 +349,7 @@ is what the databases were measured to answer wrongly or differently.
 - The geometry reads each edge as PostgreSQL does, as the great-circle arc
   between its vertices on the sphere, not as a straight line of longitude and
   latitude. MySQL reads the edge on the ellipsoid instead: its edge leaves the
-  arc by at most 0.0007 degrees (about 75 m) on a 10-degree edge, 0.007 at 30,
+  arc by as much as 0.0007 degrees (about 75 m, the largest observed) on a 10-degree edge, 0.007 at 30,
   0.019 at 60, 0.075 at 90, 0.17 at 120 and 0.46 at 150 (30 random edges per
   length, measured by bisection), none along the equator or a meridian, so
   points within that band beside an edge can be answered differently by the two
@@ -403,7 +403,7 @@ is what the databases were measured to answer wrongly or differently.
     across the equator and the 0/180 and 90/-90 meridians at once` and
     `A GeoPolygon must cover less than half the globe` are gone.
   - Edges of any length short of the antipodal bound below. MySQL's
-    ellipsoid edge leaves the great-circle arc by at most 0.46 degrees on
+    ellipsoid edge was observed to leave the great-circle arc by up to 0.46 degrees on
     150-degree edges, 1.6 at 170, 2.7 at 174, 8.4 at 178 and 17 at 179, and
     in every run of 30 random triangles with an edge up to 2 degrees short
     of antipodal it answered some points far from the edge unlike PostGIS and

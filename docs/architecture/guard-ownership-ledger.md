@@ -2459,7 +2459,7 @@ falsifier on the final codec; the list is at the end of this addendum):
   degrees`, review round 3). Why it is not VibORM's to refuse: an edge short
   of antipodal has exactly one great circle, so the polygon has one meaning;
   the divergence is MySQL's ellipsoid path, which left the arc (followed by
-  PostGIS to 4e-12 degrees) by at most 0.075 degrees at 90 degrees long,
+  PostGIS to 4e-12 degrees) by up to 0.075 degrees (largest observed) at 90 degrees long,
   0.46 at 150, 1.6 at 170, 2.7 at 174, 8.4 at 178 and 17 at 179 (30 random
   edges per length, five points along each), and random triangles with an
   edge 0.000001 to 2 degrees short of antipodal were answered unlike PostGIS
