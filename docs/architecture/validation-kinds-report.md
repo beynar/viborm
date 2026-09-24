@@ -79,10 +79,12 @@ PostGIS 3.6.2 and MySQL 8. PostGIS raised only for the exactly-180-degree edge
 and answered the rest silently, several wrongly (a hole outside adds its area,
 a point in two holes matches) or unlike MySQL (half globe, pole vertex). D2's
 premise that a malformed polygon becomes a database error was false on
-PostgreSQL, so those polygons are refused again at admission; the touching
-holes and repeated consecutive vertices both databases answer correctly stay
-admitted. Evidence and the guard list: the ledger addendum "geographic values
-as ordinary records"; the D2 entry of `validation-elegance-plan.md` (branch
+PostgreSQL, so those polygons are refused again at admission, judged on the
+great-circle arcs both databases draw (a hole touching a straight parallel
+edge crosses its arc, and PostGIS matched points beside it, so touches are
+refused as before D2); repeated consecutive vertices stay admitted. Evidence
+and the guard list: the ledger addendum "geographic values as ordinary
+records"; the D2 entry of `validation-elegance-plan.md` (branch
 `footprint-safe-scope`) needs the same amendment.
 
 ## Lines (production, excluding tests; `wc -l` on `git show`)

@@ -306,25 +306,40 @@ is what the databases were measured to answer wrongly or differently.
   MySQL actually answer. Measured with VibORM's own predicates on PostGIS 3.6.2
   and MySQL 8, PostGIS raises only for an edge exactly 180 degrees of
   longitude long and answers every other malformed polygon silently: a hole
-  outside the outer ring adds its own area, a point inside two holes matches, a
-  bowtie matches both lobes, a ring covering half the globe means opposite
-  regions on the two databases, and MySQL answers a pole vertex with the
-  equator and the opposite pole. Those polygons are refused at admission, the
-  same on every dialect, with the former messages: `A GeoPolygon ring cannot
-  self-intersect` (a crossing or touching ring, including one that repeats a
-  vertex further on), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
-  edge cannot span exactly 180 degrees` and `A GeoPolygon ring cannot contain a
-  pole` (both at the offending vertex), `A GeoPolygon cannot contain a pole` (a
-  ring winding around one), and `A GeoPolygon must cover less than half the
-  globe`; two are reworded, `A GeoPolygon hole must be inside its outer ring`
-  (was `… strictly inside …`) and `GeoPolygon holes cannot overlap` (was
-  `… cannot touch or overlap`). Each is reported at its ring (`outer` or
-  `holes.<i>`).
+  reaching outside the outer ring adds its own area, a point inside two holes
+  matches, a bowtie matches both lobes, a ring covering half the globe means
+  opposite regions on the two databases, and MySQL answers a pole vertex with
+  the equator and the opposite pole. Those polygons are refused at admission,
+  the same on every dialect, with the pre-D2 messages word for word: `A
+  GeoPolygon ring cannot self-intersect` (a crossing or touching ring,
+  including one that repeats a vertex further on or goes past a whole turn
+  over itself), `A GeoPolygon ring must have non-zero area`, `A GeoPolygon
+  edge cannot span exactly 180 degrees` and `A GeoPolygon ring cannot contain
+  a pole` (both at the offending vertex), `A GeoPolygon cannot contain a pole`
+  (a ring winding around one), `A GeoPolygon must cover less than half the
+  globe`, `A GeoPolygon hole must be strictly inside its outer ring` and
+  `GeoPolygon holes cannot touch or overlap`. Each is reported at its ring
+  (`outer` or `holes.<i>`).
+- The geometry reads each edge as both databases do, as the great-circle arc
+  between its vertices, not as a straight line of longitude and latitude. In
+  the box from (0, 40) to (10, 50) both databases put (5, 40.05) outside and
+  (5, 50.05) inside, because the south edge bows north to about latitude
+  40.105 and the north edge to about 50.10. So a hole drawn touching or just
+  inside a straight parallel edge crosses the edge's arc and is refused
+  (PostGIS matched points in the hole beside it), a hole between the straight
+  line and the arc on the inner side is accepted, and three vertices in a
+  straight line of longitude and latitude off the equator form a thin
+  triangle, not a zero-area ring. A touch is refused even where it is exact,
+  as before D2: it is where the two databases' arcs (sphere, ellipsoid) and
+  tolerances part. A differential run of 4,800 random holes and
+  quadrilaterals against PostGIS geography agreed on every verdict.
 - Newly accepted, because both databases answer them correctly: a closing
   vertex repeated at the end, or any vertex repeated consecutively (it is sent
-  as written and closed once more), and a hole touching its outer ring or
-  another hole, at a point or along an edge. SQLite-family providers still
-  refuse polygon filtering, now after admission.
+  as written and closed once more), a ring that goes past a whole turn of
+  longitude beside itself, and very small polygons (a square of 1e-6 degrees,
+  about 11 cm; VibORM treats points within 1e-9 degrees, about 0.1 mm, of an
+  edge as on it). SQLite-family providers still refuse polygon filtering, now
+  after admission.
 - A polygon without `outer` fails with `Missing required field: outer` (was
   `Expected GeoPolygon with outer and optional holes`), and a ring that is not
   an array with `Expected array` (was `Expected outer ring array`). A ring is

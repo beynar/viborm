@@ -2311,64 +2311,99 @@ detected!") and answers every other malformed polygon silently:
 | 340-degree band (half globe or more) | the poles and the antimeridian | the band |
 | hole outside the outer ring | adds the hole's area | ignores the hole |
 | overlapping or nested holes | matches a point in two holes | excludes it |
-| hole touching the outer ring or a hole (point, edge, three points) | inside the outer ring and in no hole | the same |
+| hole touching the outer ring or a hole at a shared vertex or along a meridian | inside the outer ring and in no hole | the same |
+| hole touching a straight parallel edge (box (0,40)-(10,50), hole vertex (5,40)) | matches (5,40.05) and (5,40.08), in the hole | does not |
+| hole B touching hole A's straight lat-44 edge at (5,44) | matches (5,44.01)-(5,44.03), in both holes | does not |
+| ring past a whole turn over itself (0..400 degrees along a band) | (20,1) out | (20,1) in |
 | repeated consecutive or closing vertex | as without the repeat | the same |
+| box (0,40)-(10,50), no hole | (5,40.05) out, (5,50.05) in | the same |
+
+The last row is the edge reading: both databases draw an edge as the
+great-circle arc between its vertices, which bows toward the nearer pole off
+the equator and the meridians. So the geometry is judged on the unit sphere
+(`src/validation/primitives/geo-area-codec.ts`: vertices as unit vectors,
+`crosses`/`onArc`/`meet` on arcs, `inside` casting the meridian from a point
+to the north pole). A first restoration judged straight longitude/latitude
+lines in the unwrapped plane (the pre-D2 geometry) and admitted touching
+holes; review round 1 measured PostGIS answering touching holes wrongly (the
+second and third "touching" rows: in the plane they touch, on the globe they
+cross) and a self-overlapping ring past a whole turn that the plane could not
+see. Both are refused now, a touch included, as before D2.
 
 The rows answered wrongly, differently, or on a reading the docs do not state
-are refused again in `validateGeoPolygon`, after the record walker admitted
-the shape (so a shape error keeps the walker's message), with the pre-D2
-messages and a path. The geometry is judged in the plane of longitudes
-unwrapped across the antimeridian (`ringEdges`), the pre-D2 geometry reused.
-Each guard, its unique coverage, and the witness that goes red without it
-(`geo-area.core.test.ts` "refuses …", and the matching
-`geopoint-sql.core.test.ts` "refuses … before any SQL" cell):
+are refused in `validateGeoPolygon`, after the record walker admitted the
+shape (so a shape error keeps the walker's message), with the pre-D2 messages
+word for word and a path. Each guard, its unique coverage, and the witness
+that goes red without it (`geo-area.core.test.ts` "refuses …"/"admits …", and
+the matching `geopoint-sql.core.test.ts` cell), each falsified one at a time
+on 2026-09-24:
 
 - Pole vertex (`A GeoPolygon ring cannot contain a pole`, at the vertex): such
-  a ring unwraps and passes every other check. Witness: "a north pole vertex",
-  "a south pole vertex".
+  a ring passes every other check. Witness: "a north pole vertex", "a south
+  pole vertex".
 - Exactly 180-degree edge (at the vertex ending the edge): PostGIS raises, and
-  the plane has no short way round. Witness: "a 180-degree edge", "… closing
+  the arc has no short way round. Witness: "a 180-degree edge", "… closing
   edge", "… hole edge".
-- Ring winding around a pole (`wrap !== 0`): without it the ring unwraps into
-  a collinear band and is misreported as zero area. Witness: "a ring winding
-  around a pole".
-- Self-intersection (two non-neighbor edges meet, `selfIntersects`): an
+- Ring winding around a pole (`wrap !== 0` in `ringArcs`): the ring encloses a
+  pole on an unstated "smaller side" reading, and `inside` casts its meridian
+  to the north pole on the premise that no admitted ring encloses one.
+  Witness: "a ring winding around a pole".
+- Self-intersection (two non-neighbor arcs meet, `selfIntersects`): an
   asymmetric bowtie has area and passes the rest. Witness: "a bowtie", "a
-  bowtie hole", "a ring touching itself at a repeated vertex".
-- Zero area: a collinear ring of three or fewer distinct vertices has only
-  neighbor edges, which the self-intersection test skips. Witness: "a
-  collinear ring", "a ring of two distinct vertices", "a ring of one distinct
-  vertex".
+  bowtie hole", "a ring touching itself at a repeated vertex", "a ring past a
+  whole turn over itself".
+- Zero area: a ring of at most three arcs on one great circle has only
+  neighbor arcs, which the self-intersection test skips. Witness: "a collinear
+  ring" (on the equator), "a ring of two distinct vertices"; a ring of one
+  distinct vertex has no arc at all ("a ring of one distinct vertex"). Three
+  vertices in a straight line of longitude and latitude off the equator are a
+  thin spherical triangle, admitted, and both databases answered points inside
+  and outside it correctly.
 - Half the globe or more (`sphericalArea`): Witness: "half the globe".
-- Hole escaping its outer ring, crossing arm (`ringsCross`): a hole edge that
-  crosses an outer notch and back keeps every piece midpoint inside. Witness:
-  "a hole whose edges cross an outer notch".
-- Hole escaping its outer ring, outside-piece arm (`sides`): a hole outside,
-  or bridging a notch between two outer vertices without crossing. Witness: "a
-  hole outside", "a hole bridging a notch between two outer vertices".
-- Holes overlapping, crossing arm: "overlapping holes" (its piece midpoints
-  fall on the other hole's boundary). First-within-second arm: "a hole
-  enclosing a hole", "the same hole twice". Second-enters-first arm: "a hole
-  nested in a hole", "holes overlapping through shared corners". A fourth arm,
-  "the first enters the second", was dropped: a partial overlap also has the
-  second entering the first, and a nesting is caught by the other two.
+- Hole escaping its outer ring, meeting arm (`ringsMeet`): any crossing or
+  touch, including a hole written against a straight parallel edge. Witness:
+  "a hole crossing the outer ring", "… bridging a notch …", "… whose edges
+  cross an outer notch", the three "a hole touching …"/"along an outer edge"
+  cells, "a hole equal to its outer ring", "a hole touching a parallel edge in
+  the plane", "a hole inside the plane's edge but outside the great-circle
+  arc".
+- Hole escaping its outer ring, outside arm (`!inside`): a hole wholly
+  outside meets nothing. Witness: "a hole outside".
+- Holes touching or overlapping (`holesTouch`), meeting arm: "holes touching
+  at one point", "holes sharing an edge", "holes overlapping through shared
+  corners", "a hole touching another's parallel edge in the plane";
+  first-in-second arm: "a hole enclosing a hole"; second-in-first arm: "a hole
+  nested in a hole".
+- The antipode sign in `crosses`: two arcs that straddle each other's great
+  circles meet only if the near meeting point is on both. Witness: "admits 'a
+  band whose edges straddle each other's circles far apart'".
+- The behind-the-pole skip in `inside`: an arc crossing the point's
+  antimeridian meets the meridian circle behind the pole. Witness: "admits 'a
+  hole across a 300-degree band'".
+- One offset per shared vertex in `inside` (not `start + delta`): a meridian
+  grazing a vertex otherwise counts once by rounding. Witness: "admits 'holes
+  where one grazes the other's meridian at a vertex'".
 
-Kept output facts, not refusals: a zero-length edge is dropped from the
-geometry (without it a closing vertex reads as a self-intersection; witness
-"admits 'a closed ring'"), and a hole is moved by whole turns beside its outer
-ring before placement (`shiftNear`; witness "admits 'an antimeridian hole in an
-antimeridian polygon'"). Admitted on evidence: a hole touching at a point or
-along an edge, and repeated consecutive vertices (the last two table rows).
-The emitted GeoJSON is unchanged. `tests/providers/docker/mysql2.test.ts` geo
-cells stay green.
+Kept output facts, not refusals: an edge shorter than the tolerance, a
+repeated consecutive or closing vertex, is dropped from the geometry (witness
+"admits 'a closed ring'", "admits 'a repeated consecutive vertex'"); the
+emitted GeoJSON is unchanged. Not guards: the arc boxes in `meet` and the
+sweep in `anyMeet` only skip pairs that cannot meet, and every witness stays
+green without them; they keep a 20,000-vertex ring at about 0.3 s where the
+straight-line restoration took 20 s on the same loaded machine.
 
-Known gap: both databases draw edges as great-circle arcs (measured: a point
-0.01 degrees inside a latitude-5 edge, below the arc, is outside on both),
-while this geometry reads straight edges. A hole drawn along or within the
-arc's bow of an outer edge that is neither a meridian nor the equator crosses
-it on the globe, and PostGIS then matches the sliver of hole left outside
-(MySQL does not). Pre-D2 had the same gap; closing it needs great-circle
-predicates. The docs state the edge reading and the advice.
+Evidence beyond the witnesses: a differential run of 4,800 random cases
+(holes jittered around a slanted outer edge, judged by PostGIS `ST_Intersects`
+between the rings as geography lines plus a vertex-in-polygon test; random
+quadrilaterals, judged by their non-neighbor edges as geography lines) agreed
+with `validateGeoPolygon` on every verdict; the straight-line restoration
+disagreed on 100 to 200 of every 800. Every admitted probe polygon (69 points,
+table scans on PostGIS and MySQL) answered correctly on both databases.
+`tests/providers/docker/mysql2.test.ts` geo cells stay green.
+
+Remaining gap: MySQL draws arcs on the ellipsoid, PostGIS geography on the
+sphere, so a hole within that small difference of an edge may be read
+differently; VibORM refuses touches but admits a hole 1e-9 degrees clear.
 
 **Kept guard: at least `GEO_POLYGON_MIN_RING_POINTS` vertices per ring**
 (`validateRing`). Unique coverage: `closedRing` in
@@ -2380,7 +2415,7 @@ SQL" (`geopoint-sql.core.test.ts`).
 
 **Kept output normalization: winding (outer counterclockwise, holes
 clockwise)** (`wound` in `validateGeoPolygon`, reading the sign of
-`planarArea` over the ring's unwrapped edges). It is not a refusal and judges
+`planarArea` over the ring's unwrapped vertices). It is not a refusal and judges
 nothing, so decision D2 does not retire it. Consumer: the GeoJSON bound by
 `withinPolygon` in `src/adapters/databases/postgres/postgres-adapter.ts` and
 `src/adapters/databases/mysql/mysql-adapter.ts`; that PostGIS `geography` and

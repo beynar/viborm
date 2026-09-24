@@ -147,23 +147,26 @@ with a validation error naming the ring, the polygons PostgreSQL and MySQL
 answer wrongly, or differently from each other, instead of raising:
 
 - a ring that crosses or touches itself, including one that repeats a vertex
-  further on, and a ring with no area;
+  further on or goes past a whole turn of longitude over itself, and a ring
+  with no area;
 - an edge exactly 180 degrees of longitude long, a vertex at a pole, and a ring
   winding around a pole;
 - a ring covering half the globe or more;
-- a hole that leaves its outer ring, and holes that overlap or nest.
+- a hole that is not strictly inside its outer ring, and holes that touch,
+  overlap or nest.
 
-A repeated consecutive vertex is harmless and accepted. A hole may touch its
-outer ring or another hole, at a point or along an edge. Use ordinary `OR` for
+A repeated consecutive vertex is harmless and accepted. Use ordinary `OR` for
 disjoint polygons.
 
-Both databases draw each edge as the shortest path on the globe (a great-circle
-arc, bowing toward the nearer pole), while VibORM's checks read edges as
-straight lines of longitude and latitude. Along a meridian or the equator the
-two agree; elsewhere they differ, by about 0.02 degrees at the middle of a
-ten-degree edge at latitude 5 and by more at higher latitudes. A hole drawn along, or within that margin of, such an outer edge can
-cross it on the globe, and PostgreSQL then matches points in the sliver of the
-hole left outside, so keep holes clear of those edges.
+Both databases draw each edge as the shortest path on the globe, a great-circle
+arc, and VibORM checks the polygon on the same arcs. Along a meridian or the
+equator an arc is the straight line of longitude and latitude; elsewhere it
+bows toward the nearer pole, by about 0.02 degrees at the middle of a
+ten-degree edge at latitude 5 and about 0.1 degrees at latitude 40. So in the
+box from (0, 40) to (10, 50), (5, 40.05) is outside and (5, 50.05) inside, a
+hole touching or just above the straight south edge crosses its arc and is
+refused, and a hole may reach just above the straight north edge. Points
+closer than 1e-9 degrees (about 0.1 mm) to an edge count as on it.
 
 SQLite-family providers refuse polygon compilation before cache lookup or
 provider execution.
