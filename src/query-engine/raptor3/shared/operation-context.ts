@@ -2400,30 +2400,18 @@ export class OperationContext {
         limit
       );
       if (identities.length === 0) return this.published([], single);
-      const statement = adapter.mutations.update(
-        q.table(model),
-        sql.join(assignments, ", "),
-        this.capturedTarget(model, selector, identities)
-      );
-      const changed = () =>
-        new TransactionError(
-          "updateMany selected-row cardinality changed during its locked mutation.",
-          { meta: this.errorMeta }
-        );
-      await this.requireCapturedSet(
+      await this.capturedMutation(
         model,
         selector,
         identities,
         limit,
-        changed
-      );
-      await this.capturedMutation(
-        statement,
-        this.statementContext(model, this.operation),
-        (response) => {
-          if (response.rowCount !== identities.length)
-            throw this.failure(changed(), "result");
-        }
+        (target) =>
+          adapter.mutations.update(
+            q.table(model),
+            sql.join(assignments, ", "),
+            target
+          ),
+        "updateMany"
       );
       return this.finishTerminals(
         this.seriesQueries(
@@ -2476,28 +2464,13 @@ export class OperationContext {
       const rows: Input[] = [];
       for (const query of this.seriesQueries(projection, identities))
         rows.push(...(await this.read(query, false, false, model)));
-      const changed = () =>
-        new TransactionError(
-          "deleteMany selected-row cardinality changed during its locked mutation.",
-          { meta: this.errorMeta }
-        );
-      await this.requireCapturedSet(
+      await this.capturedMutation(
         model,
         selector,
         identities,
         limit,
-        changed
-      );
-      await this.capturedMutation(
-        adapter.mutations.delete(
-          q.table(model),
-          this.capturedTarget(model, selector, identities)
-        ),
-        this.statementContext(model, this.operation),
-        (response) => {
-          if (response.rowCount !== identities.length)
-            throw this.failure(changed(), "result");
-        }
+        (target) => adapter.mutations.delete(q.table(model), target),
+        "deleteMany"
       );
       return this.published(rows, single);
     }
@@ -2591,17 +2564,24 @@ export class OperationContext {
     );
   }
   /**
-   * The captured mutation's own statement and the row count it affected, on
-   * either transport. On the batch route it rides the same batch its premises
-   * are in, so the write never runs when a premise disagrees.
+   * A root selected UPDATE/DELETE over the set {@link captureMutationIdentities}
+   * captured: the premises that set owes, its own statement, and the one
+   * judgement of the row count it affected, on either transport. On the batch
+   * route the statement rides the same batch its premises are in, so the write
+   * never runs when a premise disagrees. What the two verbs do NOT share stays
+   * with them: an UPDATE reads its final rows after this returns, a DELETE
+   * read them before calling it.
    *
    * ONE fact at two positions, and the count is how the second one is read.
    * The premises {@link requireCapturedSet} queues ahead of the write say the
    * captured rows are still the selection AS THE UNIT BEGINS; the write's own
-   * selector ({@link capturedTarget}) says it AT THE EFFECT (D-65). A captured
-   * row this statement did not match is a row the operation was asked to
-   * change and did not — the registered cardinality sentence its caller
-   * supplies (`changed`), never a silent success publishing the captured rows.
+   * selector ({@link capturedTarget}, handed to the verb's `mutation`) says it
+   * AT THE EFFECT (D-65). A captured row this statement did not match is a row
+   * the operation was asked to change and did not — the verb's registered
+   * cardinality sentence, never a silent success publishing the captured rows.
+   * The verb is named, not read from {@link operation}: a root `delete` that
+   * captures answers with `deleteMany`'s sentence, as it always has. The statement is built after the premises, where a lowered
+   * target's aliases continue the last premise statement's scope.
    *
    * Failure and commit stay separate facts there. On an operation-owned
    * interactive transaction the owner rolls back; on a batch that already
@@ -2610,24 +2590,40 @@ export class OperationContext {
    * operation's committed segments). It replays nothing and erases no
    * progress, because a check after dispatch cannot undo the batch it judges.
    *
-   * The caller states that count as `answered`, and it is stated HERE, INSIDE
-   * {@link settleSubmitted}, because this is the boundary at which the
-   * operation's answer to its batch is known. Read one statement later it would
-   * be read after the hold was already released: the batch acknowledged, a
-   * write-outcome listener that failed while it did is HELD, and a settlement
-   * that saw only the decoded response would call that an answer that SUCCEEDED
-   * and publish the listener's failure alone — losing both the operation's own
-   * failure and the progress attached to it. Transport success is not result
-   * success, and a settlement region holds every judgement that can still turn
-   * this operation's answer into a failure (repair prompt §3). The verb keeps
-   * its own sentence, which it also owes {@link requireCapturedSet}; what this
-   * owns is the POSITION at which the answer is stated.
+   * The count is judged HERE, INSIDE {@link settleSubmitted}, because this is
+   * the boundary at which the operation's answer to its batch is known. Read
+   * one statement later it would be read after the hold was already released:
+   * the batch acknowledged, a write-outcome listener that failed while it did
+   * is HELD, and a settlement that saw only the decoded response would call
+   * that an answer that SUCCEEDED and publish the listener's failure alone —
+   * losing both the operation's own failure and the progress attached to it.
+   * Transport success is not result success, and a settlement region holds
+   * every judgement that can still turn this operation's answer into a failure
+   * (repair prompt §3). The premises {@link requireCapturedSet} states owe the
+   * same sentence.
    */
   private async capturedMutation(
-    statement: Sql,
-    context: QueryExecutionContext,
-    answered: (response: QueryResult<unknown>) => void
+    model: AnyModel,
+    selector: PreparedSelector,
+    identities: readonly Input[],
+    limit: number | undefined,
+    mutation: (target: Sql | undefined) => Sql,
+    verb: "updateMany" | "deleteMany"
   ): Promise<void> {
+    const changed = () =>
+      new TransactionError(
+        `${verb} selected-row cardinality changed during its locked mutation.`,
+        { meta: this.errorMeta }
+      );
+    await this.requireCapturedSet(model, selector, identities, limit, changed);
+    const statement = mutation(
+      this.capturedTarget(model, selector, identities)
+    );
+    const context = this.statementContext(model, this.operation);
+    const answered = (response: QueryResult<unknown>) => {
+      if (response.rowCount !== identities.length)
+        throw this.failure(changed(), "result");
+    };
     if (!this.usesBatch) {
       answered(
         await this.dispatch(1, false, () =>

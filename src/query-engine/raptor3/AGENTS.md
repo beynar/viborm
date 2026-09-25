@@ -639,9 +639,11 @@ success. The settlement therefore called a shortfall an answer that SUCCEEDED
 and published the listener's failure alone, losing both the registered
 cardinality sentence and the `atomicity: "segment"` progress attached to it —
 measured on both verbs by the closure review. The SEMANTIC answer now lives
-inside the settlement: `capturedMutation` takes the caller's own answer as
-`answered` — the verb keeps its own sentence — and states it INSIDE
-`settleSubmitted`'s region, so what follows is the composition this paragraph
+inside the settlement: `capturedMutation` owns the captured set's premises
+(`requireCapturedSet`), its statement and the row-count comparison against the
+captured identities — the verb supplies only its statement shape and its own
+cardinality sentence — and states that judgement INSIDE `settleSubmitted`'s
+region (on the interactive route, right after the dispatch), so what follows is the composition this paragraph
 already describes — the operation's failure primary, the listener's retained
 beside it — while a successful answer beside a failed listener still publishes
 the listener's alone. The rule generalises: a settlement region must contain

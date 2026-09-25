@@ -4,8 +4,8 @@
  *
  * The repair prompt §3 states the rule: a settlement region contains every
  * judgement that can still turn this operation's answer into a failure, not
- * only the decode. `OperationContext.capturedMutation` takes the caller's own
- * answer and states it INSIDE `settleSubmitted`, so a captured mutation whose
+ * only the decode. `OperationContext.capturedMutation` judges its own row
+ * count INSIDE `settleSubmitted`, so a captured mutation whose
  * row count falls short of the set it captured composes with the write-outcome
  * listener failure the batch HELD while it acknowledged, instead of being read
  * one statement after the hold was already released.
@@ -22,12 +22,13 @@
  * settlement owns: a shortfall the premises cannot see, discovered by the row
  * count, on a transport that has already acknowledged.
  *
- * The last cell is the INTERACTIVE half of the same method. A transactional
- * provider without RETURNING captures too, `requireCapturedSet` returns at once
- * there (an interactive session captured `FOR UPDATE`), and the row count is
- * the only reader of the window between the capture and the write. That arm has
- * no hold to release, which is why it is not a composition cell — it is the
- * cell that makes the interactive `answered` call load-bearing.
+ * The last two cells are the INTERACTIVE half of the same method, one per
+ * verb. A transactional provider without RETURNING captures too,
+ * `requireCapturedSet` returns at once there (an interactive session captured
+ * `FOR UPDATE`), and the row count is the only reader of the window between
+ * the capture and the write. That arm has no hold to release, which is why
+ * they are not composition cells — they are the cells that make the
+ * interactive arm of `capturedMutation`'s count judgement load-bearing.
  */
 
 import {
@@ -388,7 +389,7 @@ describe("a captured mutation's answer is settled before its listener failure is
     // There is no hold on this route — `heldOutcomeFailure` is set only where
     // `submit` acknowledges — so the answer is the operation's own failure,
     // published alone. What this cell pins is that the answer is STATED: the
-    // same `answered` closure, on the arm that dispatches rather than submits.
+    // same count judgement, on the arm that dispatches rather than submits.
     expect(driver?.drifted).toBe(true);
     expect(outcome.value).toBeUndefined();
     expect(messageOf(outcome.error)).toContain(CHANGED("deleteMany"));
@@ -396,6 +397,31 @@ describe("a captured mutation's answer is settled before its listener failure is
     // The interactive capture and its write are one region, so the failure
     // takes the whole unit — including the drift applied on its own connection
     // — back with it. Nothing was published and nothing was written.
+    expect(await rows(client)).toEqual([
+      ["n1", "one", true],
+      ["n2", "two", true],
+      ["n3", "three", false],
+    ]);
+  });
+
+  test("interactive route: a captured row that stops matching before the UPDATE is answered by the cardinality sentence", async () => {
+    const client = await world(() => new CapturingSQLite3Driver());
+    driver?.driftBeforeWrite(deactivateFirst);
+
+    const outcome = await settle(() =>
+      client.note.updateMany({
+        where: { active: true },
+        data: { label: "renamed" },
+        select: { id: true, label: true },
+      })
+    );
+
+    // The UPDATE's half of the same interactive check: its read-back comes
+    // after the answer, so a shortfall publishes no row at all.
+    expect(driver?.drifted).toBe(true);
+    expect(outcome.value).toBeUndefined();
+    expect(messageOf(outcome.error)).toContain(CHANGED("updateMany"));
+    expect(outcome.error).not.toBeInstanceOf(AggregateError);
     expect(await rows(client)).toEqual([
       ["n1", "one", true],
       ["n2", "two", true],
