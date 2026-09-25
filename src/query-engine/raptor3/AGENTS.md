@@ -1163,6 +1163,28 @@ reader, no scalar switch outside `decodeScalar`. A cost in the decoder is
 answered inside that visitor. What the lifetime costs is a fixed per-batch
 compilation: a one-row read pays it and gains nothing back (CD-04 measured a
 nested one-row read at +4.7 % CPU, +2.3 % wall on SQLite).
+**A list leaf's element descriptor has the same lifetime**
+(`docs/architecture/raptor3-compiled-list-decoder-report.md`). `compileReader`
+compiles a list leaf's container reader, `Queries.compileList`, beside the
+physical slot's provider continuation: the decimal whole-list codec or the one
+container, chosen once, and the member's non-null leaf (`list: undefined`,
+`nullable: false`), derived once per list placement of a decoded batch. It
+used to be spread and frozen per returned LIST. `decodeScalar` still answers
+NULL and absence on the raw value, then runs the provider continuation once for
+the whole container, then the compiled container reader; every member is a
+CARRIED value decoded by `decodeScalar` itself, so no member re-enters the
+provider chain and no scalar switch is copied into the list reader. The reader
+is the batch's, like every other: never on the prepared shape, never on
+`Queries`, never per row. Like the rest of the lifetime, it is a fixed
+per-batch cost: a batch that returns ONE list per placement pays about 112
+heap bytes per placement for the reader and gains nothing back; from the second
+list on, the batch is ahead. **Sparse provider lists are PRESERVED** — `map` skips
+holes, so the own-index refusal inside the member callback cannot fire;
+`tests/raptor3/result-decoder-lists.test.ts` pins that as baseline parity, not
+as a refusal, and whether a sparse list should be refused is an open policy
+question the plan records (`docs/architecture/raptor3-compiled-list-decoder-plan.md`
+§ "Known baseline issue"). Do not change it as a side effect of a decoder
+edit.
 **And a `json` FIELD's own output schema runs at that same boundary** (Arnaud's
 D-33): `s.json().schema(…)` is a Standard Schema the caller wrote, the engine
 replaced ran it on every read (`result/ResultParser.ts:721` into

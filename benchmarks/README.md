@@ -31,6 +31,13 @@ benchmark runner (tinybench: warmup, mean/p75/p99, relative comparison).
   counts and result digests only. Build `dist/` in both trees, then run
   `node benchmarks/result-decoder.mjs --base <tree> --candidate <tree>`;
   evidence in `docs/architecture/raptor3-compiled-decoder-report.md`.
+- **`result-decoder-lists.mjs`** — the same fresh-process, alternating A/B
+  for list-valued columns: physical (root) and carried (to-many) string and
+  int lists of 0/4/32 members at 0/1/20/1,000 rows, parse-only and full, with
+  non-list controls on the same tables; wall, CPU, the heap-growth proxy, cold
+  first operation, and per-cell statements, provider-chain asks and result
+  digests. `--cells <regex>` and `--scale <n>` narrow and lengthen a run.
+  Evidence in `docs/architecture/raptor3-compiled-list-decoder-report.md`.
 - **`validation.bench.ts`** — the validation engine vs valibot, zod, and
   arktype through the StandardSchema interface (all JIT-less, matching edge
   runtimes).
