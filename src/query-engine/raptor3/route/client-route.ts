@@ -21,6 +21,7 @@ import { CacheConfigurationError, UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
+import type { CacheResultCodec } from "../../cache-flow";
 import {
   arrayCodec,
   booleanCodec,
@@ -44,16 +45,6 @@ import { EngineInvariantError } from "../shared/invariant";
 import type { WriteOutcomeSeam } from "../shared/operation-context";
 import type { Leaf, ProjectionShape } from "../shared/query";
 import type { ResolvedSchemaViews } from "../shared/schema";
-
-/**
- * The detached cache representation of one read result. Structural on purpose:
- * the official cache owns this contract, and the candidate must not import the
- * shipped result engine to name it.
- */
-export interface RouteCacheResultCodec {
-  snapshot(value: unknown): unknown;
-  materialize(snapshot: unknown): unknown;
-}
 
 /** What the existing pending-operation lifecycle knows when it executes. */
 export interface RoutedOperationExecution {
@@ -86,7 +77,7 @@ export interface RoutedCandidateOperation {
    * driver-prepared queries rather than an `Sql`.
    */
   buildStatement(): Sql | undefined;
-  cacheResultCodec(): RouteCacheResultCodec;
+  cacheResultCodec(): CacheResultCodec;
   /**
    * The prepared package when this operation prepares to it synchronously —
    * a read, whose preparation reaches no driver. It is the SAME package
@@ -186,7 +177,7 @@ export function createCandidateRoute(
       // read stay lazy inside it (LX-01); every consumer below reads the same
       // construction, so nothing is admitted or projected twice.
       const prepared = engine.prepare(modelName, operation, args);
-      let codec: RouteCacheResultCodec | undefined;
+      let codec: CacheResultCodec | undefined;
       return {
         get preparedArgs(): Record<string, unknown> {
           return prepared.args;
@@ -194,7 +185,7 @@ export function createCandidateRoute(
         buildStatement(): Sql | undefined {
           return prepared.read?.statement;
         },
-        cacheResultCodec(): RouteCacheResultCodec {
+        cacheResultCodec(): CacheResultCodec {
           // KEPT as a capability boundary (N4, plan §4). It alone owns "the
           // cache layer asked this engine to encode a verb this engine
           // publishes no prepared read for" — a boundary between two
@@ -265,7 +256,7 @@ export function createCandidateRoute(
 function cacheCodec(
   read: PreparedRead,
   requestedOperation: string
-): RouteCacheResultCodec {
+): CacheResultCodec {
   // The read owner's own publication for zero rows says whether the public
   // value may be absent: `null` for a located row, `[]`/`{}`/`0`/`false` for
   // the shapes that always publish a value.
@@ -355,9 +346,7 @@ function shapeCodec(
  * The leaves with no declaring scalar are the read owner's OWN values, not a
  * column's meaning: `_count` (including a relation count), `exist`, and the
  * number a non-decimal `_avg` or a `_distance` publishes. Naming those three is
- * not a second scalar authority — it is the same classification the shipped
- * compiler makes in `compileAggregateLeafCodec` and in `compileRootCodec`'s
- * `existence`/`count` carriers.
+ * not a second scalar authority.
  *
  * Those three exhaust the scalar-less leaves `Queries` constructs, so the last
  * arm names a state this engine cannot be in when it is right: an INVARIANT,

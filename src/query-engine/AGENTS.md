@@ -149,9 +149,10 @@ unexpected columns and invalid counts raise typed errors; result code never
 substitutes a plausible empty object, array, count or null for malformed
 provider output. Middleware caches stay isolated per driver.
 
-What survives in `result/` outside the route is the CACHE boundary —
-`cache-result-codec.ts`, `cache-value-codecs.ts`, `cache-json-codec.ts`,
-`cache-snapshot-structure.ts` — plus the result-shape vocabulary
+What survives in `result/` outside the route is the CACHE boundary's value
+codecs — `cache-value-codecs.ts`, `cache-json-codec.ts`,
+`cache-snapshot-structure.ts`, which the route's `cacheCodec` composes into the
+`CacheResultCodec` that `cache-flow.ts` declares — plus the result-shape vocabulary
 (`result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts`) that
 `client/typescript-type-renderer.ts` reads. `ExpectedResultShape` remains the
 one runtime source for public TypeScript result rendering: a selected computed

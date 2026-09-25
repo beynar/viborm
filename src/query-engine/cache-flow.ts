@@ -22,9 +22,8 @@ import type { WriteOutcomeRegistration } from "@extensions/query";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import { isError } from "../errors/diagnostic-safety";
-import type { CacheResultCodec } from "./result/cache-result-codec";
-import type { PrepareOptions } from "./types";
 import { isWriteOperation } from "./routed-operations";
+import type { PrepareOptions } from "./types";
 
 const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "findFirst",
@@ -253,6 +252,16 @@ export function createCacheExecutionOptions(
     waitUntil,
     dbAttributes,
   };
+}
+
+/**
+ * The detached cache representation of one read result. The official cache is
+ * the consumer that defines it, so it is declared here, at the boundary that
+ * hands it to the cache driver; the Raptor 3 route's `cacheCodec` produces it.
+ */
+export interface CacheResultCodec {
+  snapshot(value: unknown): unknown;
+  materialize(snapshot: unknown): unknown;
 }
 
 /** Execute an official read through the detached result representation. */

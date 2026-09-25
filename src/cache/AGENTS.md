@@ -34,8 +34,7 @@ Never restore `cache`, `cacheVersion`, or `waitUntil` to `createClient()`.
 | `key.ts` | Canonical keys, official namespace encoding, legacy key helpers |
 | `schema.ts` | Per-read cache options and mutation invalidation options |
 | `cache-instrumentation.ts` | Cache presentation facts consumed by protected instrumentation |
-| `query-engine/result/cache-result-codec.ts` | The `CacheResultCodec` contract (`compileCacheResultCodec` has no caller); the live codec is composed by the Raptor 3 route's `shapeCodec` (`query-engine/raptor3/route/client-route.ts`) from `query-engine/result/cache-value-codecs.ts`, including `recursiveRelationCodec` for a recursive relation slot |
-| `query-engine/cache-flow.ts` | Official inner-core read attachment and detached snapshot execution |
+| `query-engine/cache-flow.ts` | Official inner-core read attachment and detached snapshot execution, and the `CacheResultCodec` contract it hands the driver; the codec is composed by the Raptor 3 route's `cacheCodec`/`shapeCodec` (`query-engine/raptor3/route/client-route.ts`) from `query-engine/result/cache-value-codecs.ts`, including `recursiveRelationCodec` for a recursive relation slot |
 | `drivers/*` | Backend-only get/set/delete/clear primitives |
 | `client/client.ts` | Authenticated capability lookup and the irreducible client-view/cache trigger points |
 | `src/extensions/query.ts` | The single ordered write-outcome rail used for durability-bound invalidation |

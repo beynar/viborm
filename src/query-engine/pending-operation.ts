@@ -17,7 +17,7 @@ import {
 } from "@extensions/query";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import { isCacheManagedExecution } from "./cache-flow";
+import { type CacheResultCodec, isCacheManagedExecution } from "./cache-flow";
 import {
   createPendingOperationContext,
   createPendingOperationInstrumentationFacts,
@@ -31,7 +31,6 @@ import type {
   ClientOperationRoute,
   RoutedCandidateOperation,
 } from "./raptor3/route/client-route";
-import type { CacheResultCodec } from "./result/cache-result-codec";
 import { isReadOperation, ROUTED_OPERATIONS } from "./routed-operations";
 import {
   registerTransactionOperationOwner,
