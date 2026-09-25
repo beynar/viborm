@@ -138,26 +138,32 @@ export type ProjectionShape =
   | {
       kind: "object";
       /**
-       * `false` where the statement ALWAYS builds this document — a `_count`
-       * carrier, an aggregate carrier. A provider `null` there is a malformed
+       * `false` where the statement ALWAYS builds this document and says so —
+       * a relation `_count` carrier. A provider `null` there is a malformed
        * row, not an absent relation. Left unset (nullable) everywhere a row
-       * may genuinely be absent: a to-one relation, a variant arm.
+       * may genuinely be absent: a to-one relation, a variant arm. An
+       * aggregate carrier (`_count`/`_sum`/`_avg`/`_min`/`_max` of
+       * `aggregate`/`groupBy`) is always built too but is left unset, so a
+       * provider `null` there publishes `null`: a compatibility answer
+       * `tests/raptor3/result-decoder.test.ts` pins, not a stated contract.
        */
       nullable?: boolean;
       fields: Record<string, ProjectionShape | Leaf>;
     }
-  | {
-      kind: "collection";
-      /** A negative `take` runs a reversed window; the decoder restores it. */
-      reversed?: boolean;
-      row: ProjectionShape;
-    }
+  | CollectionShape
   | {
       kind: "variants";
       /** The public slot, for the refusal that names it. */
       relation: string;
-      many: boolean;
+      many: false;
       arms: Record<string, ProjectionShape>;
+    }
+  | {
+      kind: "variants";
+      relation: string;
+      /** A junction-carried slot: each arm is a collection of its rows. */
+      many: true;
+      arms: Record<string, CollectionShape>;
     }
   | {
       kind: "recursive";
@@ -169,6 +175,24 @@ export type ProjectionShape =
       identity: readonly Leaf[];
     };
 type Shape = ProjectionShape;
+/** A to-many relation's rows. */
+type CollectionShape = {
+  kind: "collection";
+  /** A negative `take` runs a reversed window; the decoder restores it. */
+  reversed?: boolean;
+  row: ProjectionShape;
+};
+/**
+ * A physical value's provider continuation ({@link Queries.fieldReader}),
+ * bound to one execution's driver and adapter.
+ */
+type FieldReader = (value: unknown) => unknown;
+/**
+ * One placement of the projection language, compiled for one decoded batch
+ * ({@link Queries.compileReader}): it reads the provider's value there and
+ * answers the public one.
+ */
+type Reader = (value: unknown) => unknown;
 type RelationProjectionArguments = Pick<
   Partial<Arguments>,
   "orderBy" | "take" | "skip" | "cursor" | "distinct"
@@ -417,12 +441,38 @@ function distanceUpperBound(value: unknown): number | undefined {
 function orphanedArm(carrier: unknown, arm: ProjectionShape): boolean {
   if (arm.kind !== "object" || carrier === null || carrier === undefined)
     return false;
-  const document: unknown =
-    typeof carrier === "string" ? JSON.parse(carrier) : carrier;
+  const document = providerJson(carrier);
   if (typeof document !== "object" || document === null) return false;
   return (
     Object.keys(document).length === 0 && Object.keys(arm.fields).length > 0
   );
+}
+/**
+ * A structured value — a document, a collection, a variant slot, a recursive
+ * carrier, or a vector or point scalar — as the provider handed it: a driver
+ * that does not parse JSON itself hands back the value's TEXT, which is parsed
+ * here once, and any other value is already the parsed structure.
+ */
+function providerJson(value: unknown): unknown {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+/**
+ * The ONE reading of a provider DOCUMENT, whatever carries it: a root row, a
+ * relation, `_count` or aggregate carrier, a collection row, a variant slot,
+ * its integrity entry and each of its arms, a recursive node row, the
+ * recursive carrier and each of its node and edge entries. A document is an
+ * object that is not an array, and its members are then read by {@link own}.
+ * `null` is answered as itself, because only the placement knows whether its
+ * shape permits it; anything else is no document (`undefined`), which the
+ * placement refuses in its own registered sentence. The one placement that
+ * may be ABSENT is the integrity entry, which a slot without junction
+ * memberships does not carry; a present one is refused like any other.
+ */
+function providerDocument(value: unknown): Input | null | undefined {
+  if (value === null) return null;
+  return typeof value === "object" && !Array.isArray(value)
+    ? record(value)
+    : undefined;
 }
 /**
  * One member of a provider document, read with OWN-key semantics. An omitted
@@ -688,34 +738,50 @@ export class Queries {
     this.result = result;
   }
   /**
-   * One row value, through the provider chain the estate already declares:
-   * the driver first (it owns the transport's own spellings), then the
-   * adapter (it owns the dialect's), then the engine's strict codec, which is
-   * the caller of this function.
+   * The ONE provider continuation for a physical value of `type`, bound to
+   * THIS execution's driver and adapter: the driver first (it owns the
+   * transport's own spellings), then the adapter (it owns the dialect's), then
+   * the engine's strict codec, which is the caller of the reader this returns.
+   *
+   * The driver's `next(value, type)` hands the adapter its value only: the
+   * adapter is always asked about the leaf's own `type`. The adapter's `next()`
+   * — or `next(undefined)` — answers the value the ADAPTER was handed, which is
+   * the driver's transformed one, and either leg may answer without calling
+   * `next` at all.
    *
    * A provider that raises the library's own error has already said what went
    * wrong, and that error reaches the caller intact; only a FOREIGN throw is
    * reported as a malformed scalar.
+   *
+   * The reader holds a driver's parser, so it belongs to the execution that
+   * built this `Queries`, never to a shared leaf or projection: a borrowed
+   * transaction may bind a different driver to the same prepared shape.
    */
-  private providerValue(type: string, value: unknown): unknown {
-    const adapterDecode = (input: unknown): unknown =>
-      this.adapter.result.parseField(input, type, (transformed?: unknown) =>
+  private fieldReader(type: string): FieldReader {
+    const adapter = this.adapter.result;
+    const adapterLeg = (input: unknown): unknown =>
+      adapter.parseField(input, type, (transformed?: unknown) =>
         transformed === undefined ? input : transformed
       );
     const driverParse = this.result?.parseField;
-    try {
-      return driverParse
-        ? driverParse(value, type, (input: unknown) => adapterDecode(input))
-        : adapterDecode(value);
-    } catch (error) {
-      if (error instanceof InvalidScalarResult || error instanceof VibORMError)
-        throw error;
-      throw new InvalidScalarResult(type, "provider scalar decoding failed");
-    }
+    return (value) => {
+      try {
+        return driverParse
+          ? driverParse(value, type, adapterLeg)
+          : adapterLeg(value);
+      } catch (error) {
+        if (
+          error instanceof InvalidScalarResult ||
+          error instanceof VibORMError
+        )
+          throw error;
+        throw new InvalidScalarResult(type, "provider scalar decoding failed");
+      }
+    };
   }
   /**
    * ONE operation's raw result, through the same provider chain at the RESULT
-   * boundary that {@link providerValue} walks at the row-value boundary: the
+   * boundary that {@link fieldReader} walks at the row-value boundary: the
    * driver first (it owns what its own TRANSPORT answers for a verb), then the
    * adapter (it owns what its DIALECT answers for one), then the engine's
    * decoder, which is the caller of this function and the one authority on what
@@ -3641,7 +3707,10 @@ export class Queries {
         const many = resolved.edge.kind === "variantJunctionCarrier";
         const configuration = selection === true ? {} : record(selection);
         const only = configuration.only as string[] | undefined;
-        const arms: Record<string, Shape> = {};
+        // A junction-carried slot's arm is a collection of its rows; a row
+        // carrier's arm is the target's document.
+        const collections: Record<string, CollectionShape> = {};
+        const documents: Record<string, Shape> = {};
         const preparedArms: ({
           readonly variant: string;
         } & PreparedRelationProjection)[] = [];
@@ -3669,17 +3738,27 @@ export class Queries {
             bindMembership(this.schema, model, name, member.variant),
             arm === undefined ? true : arm
           );
-          arms[member.variant] = this.relationShape(nested);
+          if (many) collections[member.variant] = this.collectionShape(nested);
+          else documents[member.variant] = this.relationShape(nested);
           preparedArms.push(
             Object.freeze({ variant: member.variant, ...nested })
           );
         }
-        fields[name] = Object.freeze({
-          kind: "variants",
-          relation: name,
-          many,
-          arms: Object.freeze(arms),
-        });
+        fields[name] = Object.freeze(
+          many
+            ? {
+                kind: "variants",
+                relation: name,
+                many,
+                arms: Object.freeze(collections),
+              }
+            : {
+                kind: "variants",
+                relation: name,
+                many,
+                arms: Object.freeze(documents),
+              }
+        );
         prepared.push(
           Object.freeze({
             kind: "variants",
@@ -3752,6 +3831,10 @@ export class Queries {
       });
     }
     if (!nested.edge.many) return nested.projection.shape;
+    return this.collectionShape(nested);
+  }
+  /** A to-many relation's rows, in the window its `take` requested. */
+  private collectionShape(nested: PreparedRelationProjection): CollectionShape {
     const take = nested.arguments.take;
     return Object.freeze({
       kind: "collection",
@@ -4659,25 +4742,24 @@ export class Queries {
     rows: Input[],
     internal = false
   ): Input[] {
-    return rows.map((row) => this.decodeValue(shape, row, internal) as Input);
+    // An empty batch — a filter that matched nothing — reads nothing, so it
+    // compiles nothing.
+    if (rows.length === 0) return [];
+    const read = this.compileReader(shape, internal, false);
+    return rows.map((row) => record(read(row)));
   }
   private decodeRecursiveCarrier(
     shape: Extract<Shape, { kind: "recursive" }>,
     value: unknown,
-    internal: boolean
+    readRow: Reader,
+    readIdentity: readonly Reader[]
   ): unknown {
-    const decodedCarrier =
-      typeof value === "string" ? JSON.parse(value) : value;
-    if (
-      decodedCarrier === null ||
-      typeof decodedCarrier !== "object" ||
-      Array.isArray(decodedCarrier)
-    )
+    const carrier = providerDocument(providerJson(value));
+    if (!carrier)
       throw new InvalidScalarResult(
         "recursive carrier",
         "the carrier is not an object"
       );
-    const carrier = record(decodedCarrier);
     const root = own(carrier, RECURSIVE_CARRIER.root);
     const rawNodes = own(carrier, RECURSIVE_CARRIER.nodes);
     const rawEdges = own(carrier, RECURSIVE_CARRIER.edges);
@@ -4699,23 +4781,24 @@ export class Queries {
           "recursive identity",
           "an identity is not a tuple of the key's width"
         );
-      for (let index = 0; index < tuple.length; index += 1)
-        this.decodeScalar(shape.identity[index]!, tuple[index], true, true);
+      // A counted walk: `entries()` allocated an iterator and a pair per
+      // member on every identity — root, node key and both edge endpoints.
+      let index = 0;
+      for (const read of readIdentity) {
+        read(tuple[index]);
+        index += 1;
+      }
       return JSON.stringify(tuple);
     };
     const rootKey = identity(root);
     const nodes = new Map<string, unknown>();
     for (const rawNode of rawNodes) {
-      if (
-        rawNode === null ||
-        typeof rawNode !== "object" ||
-        Array.isArray(rawNode)
-      )
+      const node = providerDocument(rawNode);
+      if (!node)
         throw new InvalidScalarResult(
           "recursive node",
           "a node entry is not an object"
         );
-      const node = record(rawNode);
       const key = identity(own(node, RECURSIVE_CARRIER.key));
       if (nodes.has(key))
         throw new InvalidScalarResult(
@@ -4729,16 +4812,12 @@ export class Queries {
     const edges = new Map<string, Edge[]>();
     const facts = new Set<string>();
     for (const rawEdge of rawEdges) {
-      if (
-        rawEdge === null ||
-        typeof rawEdge !== "object" ||
-        Array.isArray(rawEdge)
-      )
+      const edge = providerDocument(rawEdge);
+      if (!edge)
         throw new InvalidScalarResult(
           "recursive edge",
           "an edge entry is not an object"
         );
-      const edge = record(rawEdge);
       const parent = identity(own(edge, RECURSIVE_CARRIER.parent));
       const child = identity(own(edge, RECURSIVE_CARRIER.child));
       if (!nodes.has(child))
@@ -4916,12 +4995,7 @@ export class Queries {
         if (shape.recurrence.cycles === "prevent") return;
       }
       active.add(key);
-      const decoded = this.decodeValue(
-        shape.row,
-        nodes.get(key),
-        internal,
-        true
-      );
+      const decoded = readRow(nodes.get(key));
       if (decoded === null)
         throw new InvalidScalarResult("recursive row", "a node's row is null");
       const depth = from + 1;
@@ -4957,109 +5031,194 @@ export class Queries {
     }
     return collapse(rootRows);
   }
-  private decodeValue(
+  /**
+   * The ONE decoder of the projection language, compiled for one decoded
+   * batch — a result window, a RETURNING answer, an internal read — and
+   * dropped with it. Every invariant decision of a placement is taken here,
+   * once: an object's member list and each member's placement, a variant
+   * slot's arms, a collection's and a recursive carrier's row reader, and —
+   * for a PHYSICAL scalar slot only — this execution's provider continuation
+   * ({@link fieldReader}). The returned reader then does only what depends on
+   * the provider's value, through the one scalar decoder
+   * ({@link decodeScalar}) and the one carrier validator
+   * ({@link decodeRecursiveCarrier}).
+   *
+   * `carried` is a fact of the PLACEMENT, never of the shape: a to-one
+   * relation's shape is its target's shared default projection, read as the
+   * root row of one statement and inside a JSON document of another. Only a
+   * scalar member of a physical row crosses the provider chain; a JSON window
+   * already decoded everything under it.
+   *
+   * The reader holds a driver's parser, so it lives no longer than the batch
+   * it was compiled for and is never stored on the prepared shape, which
+   * `EngineSchema` shares across executions and driver bindings.
+   */
+  private compileReader(
     shape: Shape | Leaf,
-    value: unknown,
     internal: boolean,
-    carried = false
-  ): unknown {
-    if (shape.kind === "scalar")
-      return this.decodeScalar(shape, value, internal, carried);
-    if (shape.kind === "recursive")
-      return this.decodeRecursiveCarrier(shape, value, internal);
-    const decoded: unknown =
-      typeof value === "string" ? JSON.parse(value) : value;
+    carried: boolean
+  ): Reader {
+    if (shape.kind === "scalar") {
+      const provider = carried ? undefined : this.fieldReader(shape.type);
+      return (value) => this.decodeScalar(shape, value, internal, provider);
+    }
+    if (shape.kind === "recursive") {
+      const readRow = this.compileReader(shape.row, internal, true);
+      // An identity is validated as the stored key it is (an INTERNAL read),
+      // never published.
+      const readIdentity = shape.identity.map((leaf) =>
+        this.compileReader(leaf, true, true)
+      );
+      return (value) =>
+        this.decodeRecursiveCarrier(shape, value, readRow, readIdentity);
+    }
     if (shape.kind === "variants") {
-      const variants = record(decoded);
-      // The integrity probe first, and before any arm: a membership whose row
-      // is gone is a fact about the SLOT, so `only` — which selects what is
-      // read — cannot make it unobservable (Arnaud's D-26). One refusal, from
-      // the decoder arm that already owns the sentence.
-      const orphans = own(variants, POLYMORPHIC_COLLECTION_ORPHANS_KEY);
-      if (orphans !== null && typeof orphans === "object")
+      const slot = (value: unknown): Input => {
+        // The slot is a provider document the statement always builds, read
+        // by the one document rule: a NULL or non-object slot is a malformed
+        // result, refused at the slot before any arm is asked (Arnaud,
+        // 2026-09-25).
+        const variants = providerDocument(providerJson(value));
+        if (!variants)
+          throw new InvalidScalarResult(
+            "polymorphic slot",
+            "the slot is not an object"
+          );
+        // The integrity probe first, and before any arm: a membership whose
+        // row is gone is a fact about the SLOT, so `only` — which selects what
+        // is read — cannot make it unobservable (Arnaud's D-26). One refusal,
+        // from the decoder arm that already owns the sentence. Its entry is a
+        // document of the slot, read by the same rule: a slot with no
+        // junction membership carries none, and a PRESENT entry that is no
+        // document is the slot's malformed result — never "no memberships".
+        const evidence = own(variants, POLYMORPHIC_COLLECTION_ORPHANS_KEY);
+        if (evidence === undefined) return variants;
+        const orphans = providerDocument(evidence);
+        if (!orphans)
+          throw new InvalidScalarResult(
+            "polymorphic slot",
+            "the integrity entry is not an object"
+          );
         for (const [type, count] of Object.entries(orphans))
           if (Number(count) > 0)
             throw new QueryEngineError(
               `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
             );
-      const values: unknown[] = [];
-      for (const [type, arm] of Object.entries(shape.arms)) {
-        const carrier = own(variants, type);
-        if (orphanedArm(carrier, arm))
-          throw new QueryEngineError(
-            `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
-          );
-        const rows = this.decodeValue(arm, carrier, internal, true);
-        if (shape.many) {
-          for (const data of rows as unknown[]) values.push({ type, data });
-        } else if (rows !== null) return { type, data: rows };
+        return variants;
+      };
+      // Its arms, compiled once, in `shape.arms` order. A junction-carried
+      // slot's arm is a collection, so its reader answers the arm's rows.
+      if (shape.many) {
+        const arms = Object.entries(shape.arms).map(([type, arm]) => ({
+          type,
+          read: this.compileCollection(arm, internal),
+        }));
+        return (value) => {
+          const variants = slot(value);
+          const values: unknown[] = [];
+          for (const { type, read } of arms)
+            for (const data of read(own(variants, type)))
+              values.push({ type, data });
+          return values;
+        };
       }
-      return shape.many ? values : null;
+      const arms = Object.entries(shape.arms).map(([type, arm]) => ({
+        type,
+        arm,
+        read: this.compileReader(arm, internal, true),
+      }));
+      return (value) => {
+        const variants = slot(value);
+        for (const { type, arm, read } of arms) {
+          const carrier = own(variants, type);
+          if (orphanedArm(carrier, arm))
+            throw new QueryEngineError(
+              `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
+            );
+          const data = read(carrier);
+          if (data !== null) return { type, data };
+        }
+        return null;
+      };
     }
-    if (shape.kind === "collection") {
+    if (shape.kind === "collection")
+      return this.compileCollection(shape, internal);
+    // The document's MEMBER LIST is a fact of the PREPARED PROJECTION, stated
+    // once by {@link prepareProjection} and frozen on the shape; a row carries
+    // only the values for it. It is read here, once per batch — the shape's
+    // OWN keys, exactly as {@link own} reads the provider's — and never again
+    // per row: materialising it per row as pairs (`Object.entries` read back
+    // by `Object.fromEntries`) made this decoder allocate 2.5x the shipped
+    // engine's bytes per row (`g4/release/p1/note.md`).
+    const members = Object.entries(shape.fields).map(([field, nested]) => ({
+      field,
+      read: this.compileReader(
+        nested,
+        internal,
+        carried || nested.kind !== "scalar"
+      ),
+    }));
+    return (value) => {
+      const source = providerDocument(providerJson(value));
+      if (source === null) {
+        if (shape.nullable === false)
+          throw new InvalidScalarResult(
+            "row",
+            "a document the statement always builds is null"
+          );
+        return null;
+      }
+      if (source === undefined)
+        throw new InvalidScalarResult(
+          "row",
+          "a requested document is not a provider row"
+        );
+      // OWN-key semantics ({@link own}): a plain member read on a
+      // `JSON.parse` result finds `Object.prototype`'s own members, so a
+      // field named `toString` the provider OMITTED would inherit a function
+      // instead of failing closed. The write is a plain assignment because
+      // the destination key is a schema identifier — `schema/identifier.ts`
+      // refuses every `Object.prototype` own name, `__proto__` among them, at
+      // hydration — or one of this engine's own carrier names, which is the
+      // same write the shape owners take to build `fields`.
+      const document: Input = {};
+      for (const { field, read } of members)
+        document[field] = read(own(source, field));
+      return document;
+    };
+  }
+  /**
+   * A collection's reader, compiled by {@link compileReader} for a to-many
+   * relation and for each arm of a junction-carried variant slot: its rows
+   * are carried documents, restored to the requested order.
+   */
+  private compileCollection(
+    shape: CollectionShape,
+    internal: boolean
+  ): (value: unknown) => unknown[] {
+    const readRow = this.compileReader(shape.row, internal, true);
+    return (value) => {
+      const decoded = providerJson(value);
       if (!Array.isArray(decoded))
         throw new InvalidScalarResult(
           "collection",
           "a requested relation is not a provider array"
         );
-      const rows = decoded.map((row) =>
-        this.decodeValue(shape.row, row, internal, true)
-      );
+      const rows = decoded.map(readRow);
       return shape.reversed ? rows.reverse() : rows;
-    }
-    if (decoded === null) {
-      if (shape.nullable === false)
-        throw new InvalidScalarResult(
-          "row",
-          "a document the statement always builds is null"
-        );
-      return null;
-    }
-    if (typeof decoded !== "object" || Array.isArray(decoded))
-      throw new InvalidScalarResult(
-        "row",
-        "a requested document is not a provider row"
-      );
-    // OWN-key semantics. A plain member read on a `JSON.parse` result finds
-    // `Object.prototype`'s own members, so a field named `toString` that the
-    // provider OMITTED inherited a function instead of failing closed.
-    const source = record(decoded);
-    // The document's MEMBER LIST is a fact of the PREPARED PROJECTION, stated
-    // once by {@link prepareProjection} and frozen on the shape; a row carries
-    // only the values for it. Materialising it again per ROW — `Object.entries`
-    // plus one two-element array per field, read back by `Object.fromEntries` —
-    // re-derived that fact once per row and made this decoder allocate 2.5x the
-    // shipped engine's bytes per row, which is where the D-28 cell's CPU went
-    // (`g4/release/p1/note.md`). The shape the decoder already holds is read
-    // directly instead. `Object.keys`, never `for…in`: the member list is the
-    // shape's OWN keys, exactly as {@link own} reads the provider's. And the
-    // write is a plain assignment because the destination key is a schema
-    // identifier — `schema/identifier.ts` refuses every `Object.prototype` own
-    // name, `__proto__` among them, at hydration — or one of this engine's own
-    // carrier names, which is the same write the shape owners take to build
-    // `fields`.
-    const document: Input = {};
-    for (const field of Object.keys(shape.fields)) {
-      const nested = shape.fields[field]!;
-      document[field] = this.decodeValue(
-        nested,
-        own(source, field),
-        internal,
-        carried || nested.kind !== "scalar"
-      );
-    }
-    return document;
+    };
   }
   /**
-   * One strict scalar decode per physical leaf, through the existing codec
-   * owners. A value outside the column's declared domain is a malformed
-   * provider row, never a value to coerce.
+   * One strict scalar decode per leaf, through the existing codec owners. A
+   * value outside the column's declared domain is a malformed provider row,
+   * never a value to coerce. `provider` is the physical value's continuation;
+   * a CARRIED value — one a JSON document already holds — has none.
    */
   private decodeScalar(
     leaf: Leaf,
     raw: unknown,
     internal: boolean,
-    carried = false
+    provider?: FieldReader
   ): unknown {
     // The SQL NULL and the absent column are facts about the ROW, answered
     // before any representation rule: a provider that decodes `'null'` into
@@ -5087,7 +5246,7 @@ export class Queries {
     // A carried value came out of a JSON document the provider already
     // decoded; asking the transport about it a second time is what turned
     // `"just a json string"` into a `SyntaxError`.
-    const value = carried ? raw : this.providerValue(leaf.type, raw);
+    const value = provider === undefined ? raw : provider(raw);
     if (leaf.list) return this.decodeList(leaf, value, internal);
     // An identifier column hands back its PHYSICAL value — bytes, their hex
     // transport, a `uuid`'s text, or the stored text — and the codec turns it
@@ -5262,7 +5421,7 @@ export class Queries {
       case "blob":
         return decodeBlob(value);
       case "vector": {
-        const decoded = typeof value === "string" ? JSON.parse(value) : value;
+        const decoded = providerJson(value);
         if (
           !Array.isArray(decoded) ||
           decoded.some(
@@ -5281,7 +5440,7 @@ export class Queries {
         return [...decoded];
       }
       case "point": {
-        const decoded = typeof value === "string" ? JSON.parse(value) : value;
+        const decoded = providerJson(value);
         const point = validateGeoPoint(decoded);
         if (point.issues)
           throw new InvalidScalarResult(
@@ -5336,7 +5495,7 @@ export class Queries {
           leaf.type,
           "a list scalar returned a sparse array"
         );
-      return this.decodeScalar(member, item, internal, true);
+      return this.decodeScalar(member, item, internal);
     });
   }
   /**

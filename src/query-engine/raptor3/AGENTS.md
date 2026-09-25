@@ -128,8 +128,8 @@ the same decoder rather than by a second reversal site.
 
 `Queries.fieldValue` is the single destination-aware operand owner for filters,
 cursors, identities and assignments, and `decodeScalar` — reached only through
-`decodeValue` from `decodeQuery`/`decodeProjection` — is the single leaf
-decoder. Both reuse the existing validation codecs; neither may be duplicated
+the readers `compileReader` builds for `decodeQuery`/`decodeProjection` — is
+the single leaf decoder. Both reuse the existing validation codecs; neither may be duplicated
 per verb or per storage.
 
 *Addendum (R2b, 2026-09-21).* A single value bound against a LIST field is one
@@ -1089,7 +1089,11 @@ Stating the scalar spelling for both is a `numeric[]` arriving as the array
 literal `{1.00,2.00}`, which the list codec refuses. **The transport is asked about a value exactly once, at the row
 boundary** (Arnaud's D-17): `Queries` holds the driver's `DriverResultParser`
 and `decodeScalar` runs driver → adapter → codec for a value the provider
-handed over directly, and never for one a JSON window already decoded.
+handed over directly, and never for one a JSON window already decoded. The
+driver → adapter leg has ONE owner, `Queries.fieldReader`, which binds it once
+per PHYSICAL scalar slot of a compiled batch (see the decoder lifetime below);
+a carried member gets no continuation at all, which is how `decodeScalar`
+knows it is carried.
 **And about a RESULT exactly once, at the operation's own boundary** (Arnaud's
 D-28, the other half of the same contract): `Queries.decodeResult` runs the same
 chain one level up — driver `parseResult` → adapter `parseResult` → this
@@ -1121,25 +1125,44 @@ statement always builds cannot decode as `null` — members are read with
 `InvalidScalarResult`, which `run` publishes as the public `QueryEngineError`.
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
 row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once and
-freezes it, so `decodeValue` writes the document by walking the shape it already
-holds — `Object.keys(shape.fields)`, OWN keys only, exactly as it READS the
-provider's — and never rebuilds the members as PAIRS, nor the document around
-them, per row. Exactly one array is still allocated per decoded document, the
-shape's own key list (FC-05's correction of P1's claim); giving a shape its own
-frozen member list would remove that one too, and it is an unmeasured candidate,
-not a rule, because no `{ kind: "object" }` shape owns such a list today and
-adding one is a mirror at every shape builder. The member write is a plain
-assignment because the destination key is a schema identifier
-(`schema/identifier.ts`'s `isValidSchemaIdentifier` refuses every own property
-name of `Object.prototype`, `__proto__` among them, and `schema/hydration.ts`
-asserts it over a model's whole shape at hydration) or one of this engine's own
-`_`-prefixed carrier names — the same write the shape BUILDERS take. Rebuilding
-the list per row through `Object.entries` + `Object.fromEntries` carried 49 % of
-the D-28 cell's CPU and 2.5x the shipped engine's bytes per row
-(`docs/architecture/raptor3-evidence/g4/release/p1/note.md`). Do not put it
-back, and do not answer a decoder cost by compiling a per-shape decoder beside
-the shape: that is a second authority on the projection, which is what this
-engine replaced.
+freezes it, and the decoder reads it — `Object.entries(shape.fields)`, OWN
+keys only, exactly as it READS the provider's — once per decoded BATCH, never
+per row, and never rebuilds the members as PAIRS, nor the document around them,
+per row. The member write is a plain assignment because the destination key is
+a schema identifier (`schema/identifier.ts`'s `isValidSchemaIdentifier`
+refuses every own property name of `Object.prototype`, `__proto__` among them,
+and `schema/hydration.ts` asserts it over a model's whole shape at hydration)
+or one of this engine's own `_`-prefixed carrier names — the same write the
+shape BUILDERS take. Rebuilding the list per row through `Object.entries` +
+`Object.fromEntries` carried 49 % of the D-28 cell's CPU and 2.5x the shipped
+engine's bytes per row (`docs/architecture/raptor3-evidence/g4/release/p1/note.md`).
+Do not put it back.
+**The decoder is compiled once per decoded batch, and lives no longer**
+(`docs/architecture/raptor3-compiled-decoder-report.md`). `decodeProjection` —
+the entry of every read, RETURNING answer, terminal window, reference
+projection, prepared array member and recursive read, below `decodeResult` —
+calls `Queries.compileReader` once over the prepared shape and maps the rows
+through the reader it returns. That ONE visitor takes every invariant decision
+of a placement before the first row: an object's member list and each member's
+carried/physical placement, a variant slot's arms, a collection's and a
+recursive carrier's row reader and identity readers, and, for a physical scalar
+slot only, THIS execution's `fieldReader` continuation. Each reader then does
+only what depends on the provider's value, through the one scalar decoder
+(`decodeScalar`), the one document rule (`providerDocument` + `own`, which
+reads a variant slot and its integrity entry too, so a NULL or non-object slot,
+or a PRESENT integrity entry that is no object, is the malformed-result error at
+the slot — Arnaud, 2026-09-25; only an ABSENT entry means no membership) and the one
+carrier validator (`decodeRecursiveCarrier`, which receives the compiled row
+and identity readers instead of walking the shape itself). An empty batch
+compiles nothing. The reader holds a driver's parser, so it is never stored on
+the prepared shape, which `EngineSchema` shares across executions and across
+driver bindings (a borrowed transaction may bind another driver to the same
+shape), and it is never cached on `Queries` either. There is no second
+decoder: no flat fast path beside the visitor, no per-verb or per-placement
+reader, no scalar switch outside `decodeScalar`. A cost in the decoder is
+answered inside that visitor. What the lifetime costs is a fixed per-batch
+compilation: a one-row read pays it and gains nothing back (CD-04 measured a
+nested one-row read at +4.7 % CPU, +2.3 % wall on SQLite).
 **And a `json` FIELD's own output schema runs at that same boundary** (Arnaud's
 D-33): `s.json().schema(…)` is a Standard Schema the caller wrote, the engine
 replaced ran it on every read (`result/ResultParser.ts:721` into

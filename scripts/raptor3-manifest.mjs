@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: this manifest asserts its own load-time invariants and campaign receipts with node:assert; they are not test-framework assertions.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -492,19 +493,36 @@ export const RQ06_CARRIER_BOUNDARY_COUNTS = Object.freeze({
 export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
   Object.keys(RQ06_CARRIER_BOUNDARY_COUNTS)
 );
+/**
+ * The result decoder's public-client contract (compiled-decoder plan CD-00):
+ * the provider `parseField` chain's order and boundary, failure identity, row
+ * facts before the chain, the execution's own parser binding, and the
+ * baseline's recorded compatibility choices; with CD-01, the one bound
+ * continuation's exact asks and either leg's failure identity, and the one
+ * document rule at every object placement and the recursive carrier's
+ * entries; with CD-02, the carried boundary at a variant arm and at a
+ * recursive node row and identity; with CD-03, every codec and rule at its
+ * later placements (carried to-one, reversed and nested to-many, variant arm,
+ * recursive node row, aggregate carrier; RETURNING, selected series, packaged
+ * and borrowed routes, cached reads, concurrent parser bindings). SQLite and
+ * scripted transports.
+ */
+export const RESULT_DECODER_COUNTS = Object.freeze({
+  "tests/raptor3/result-decoder.test.ts": 26,
+  "tests/raptor3/result-decoder-placements.test.ts": 11,
+});
+export const RESULT_DECODER_TESTS = Object.freeze(
+  Object.keys(RESULT_DECODER_COUNTS)
+);
 export const RQ01_SQLITE_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/provider-sql-sqlite.test.ts": 15,
 });
-export const RQ01_SQLITE_TESTS = Object.freeze(
-  Object.keys(RQ01_SQLITE_COUNTS)
-);
+export const RQ01_SQLITE_TESTS = Object.freeze(Object.keys(RQ01_SQLITE_COUNTS));
 export const RQ05_CACHE_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/cache-codec.test.ts": 10,
   "tests/raptor3/recursive-query/cache-lifecycle.test.ts": 7,
 });
-export const RQ05_CACHE_TESTS = Object.freeze(
-  Object.keys(RQ05_CACHE_COUNTS)
-);
+export const RQ05_CACHE_TESTS = Object.freeze(Object.keys(RQ05_CACHE_COUNTS));
 export const RQ06_COMPOSITION_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/composition.test.ts": 13,
   "tests/raptor3/recursive-query/campaign-sqlite.test.ts": 7,
@@ -524,9 +542,7 @@ export const RQ06_NATIVE_COUNTS = Object.freeze({
 export const RQ01_PGLITE_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/provider-sql-pglite.test.ts": 14,
 });
-export const RQ01_PGLITE_TESTS = Object.freeze(
-  Object.keys(RQ01_PGLITE_COUNTS)
-);
+export const RQ01_PGLITE_TESTS = Object.freeze(Object.keys(RQ01_PGLITE_COUNTS));
 export const RQ01_NATIVE_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/provider-sql-native.test.ts": 3,
 });
@@ -939,6 +955,9 @@ export const G0_FALSIFIERS = Object.freeze([
   "stale-evidence",
 ]);
 
+/** What the identity fingerprint counts as a source file. */
+const SOURCE_FILE = /\.(?:ts|mts|mjs|js|json)$/;
+
 function sourceFiles(root, directory) {
   const files = [];
   for (const entry of readdirSync(resolve(root, directory), {
@@ -946,7 +965,7 @@ function sourceFiles(root, directory) {
   })) {
     const path = `${directory}/${entry.name}`;
     if (entry.isDirectory()) files.push(...sourceFiles(root, path));
-    else if (/\.(?:ts|mts|mjs|js|json)$/.test(entry.name)) files.push(path);
+    else if (SOURCE_FILE.test(entry.name)) files.push(path);
   }
   return files;
 }
@@ -1518,6 +1537,7 @@ export const RAPTOR3_DETERMINISTIC_TESTS = Object.freeze([
   ...RQ05_CACHE_TESTS,
   ...RQ06_COMPOSITION_TESTS,
   ...RQ07_FOLLOWUP_TESTS,
+  ...RESULT_DECODER_TESTS,
   ...G4_GENERATION_SELFTEST_TESTS,
   ...G4_UNIT01_AUTHOR_TESTS,
   ...G4_UNIT01_REVIEW_TESTS,
