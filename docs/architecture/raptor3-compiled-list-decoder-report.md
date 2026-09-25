@@ -85,7 +85,9 @@ The runs below gave the same answers on both trees:
 - `provider-pg`, `provider-postgres` and `provider-mysql2`;
 - `raptor3-live-provider`.
 
-Every red is pre-existing and identical on `544ab9465`.
+Every red is pre-existing and identical on `544ab9465`: the named files and
+counts per lane, and the raw benchmark records, are in
+[`list-decoder-evidence/README.md`](list-decoder-evidence/README.md).
 
 **This harness adds a second check.** For each cell it compares:
 - the number of provider statements;
@@ -253,9 +255,13 @@ freshly built `dist/`.
 ## Sparse lists
 
 **The known baseline issue is preserved, not resolved.** `items.map` skips
-holes, so the own-index check (`a list scalar returned a sparse array`, :5511)
-cannot fire. A sparse provider list is therefore published with its holes, on
-both trees.
+holes, so a plain hole never reaches the own-index check
+(`a list scalar returned a sparse array`, :5511), and a sparse provider list
+is published with its holes, on both trees. The check is NOT dead: an index
+that is present on the array's prototype chain but not own is visited by
+`map` and refused there, on both trees. That is the guard's unique coverage,
+pinned as parity in `tests/raptor3/result-decoder-lists.test.ts`
+("the own-index guard's one reachable input"). Do not delete it.
 - `tests/raptor3/result-decoder-lists.test.ts:341` pins this as **baseline
   parity**.
 - This harness checks it in every worker.

@@ -387,6 +387,38 @@ describe("the list container at a physical root cell", () => {
   });
 });
 
+describe("the own-index guard's one reachable input", () => {
+  it("refuses a list whose member is inherited, not own — the sparse-array guard fires there, on both trees (baseline parity)", async () => {
+    // `map` skips a plain hole, so a hole never reaches the callback. An index
+    // that is present on the PROTOTYPE is visited (`HasProperty` walks the
+    // chain) but is not own, and that is the input the own-index guard
+    // refuses. Only a driver parser can hand such an array to a cell.
+    const inherited = (): string[] => {
+      const list = new Array<string>(3);
+      list[0] = "a";
+      list[1] = "b";
+      Object.setPrototypeOf(
+        list,
+        Object.create(Array.prototype, {
+          2: { value: "ghost", enumerable: false, configurable: true },
+        })
+      );
+      return list;
+    };
+    const client = scripted([boxRow({ tags: "[]" })], {
+      parseField: (value, type, next) =>
+        next(type === "string" ? inherited() : value, type),
+    });
+    const failure = await rejection(
+      client.box.findMany({ select: { id: true, tags: true } })
+    );
+    expect(failure.message).toBe(
+      malformed("string", "a list scalar returned a sparse array")
+    );
+    await client.$disconnect();
+  });
+});
+
 describe("the list representations an adapter declares", () => {
   it("reads a PostgreSQL enum list from the array's own text, and a JSON-container enum list from JSON", () => {
     const postgres = decoderOver(new PostgresAdapter(), { levels: true });

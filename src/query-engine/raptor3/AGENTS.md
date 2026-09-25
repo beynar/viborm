@@ -1179,7 +1179,9 @@ is the batch's, like every other: never on the prepared shape, never on
 per-batch cost: a batch that returns ONE list per placement pays about 112
 heap bytes per placement for the reader and gains nothing back; from the second
 list on, the batch is ahead. **Sparse provider lists are PRESERVED** — `map` skips
-holes, so the own-index refusal inside the member callback cannot fire;
+plain holes, so they never reach the own-index refusal inside the member
+callback; that refusal still fires for an index present on the array's
+prototype chain but not own (its unique coverage, pinned as parity);
 `tests/raptor3/result-decoder-lists.test.ts` pins that as baseline parity, not
 as a refusal, and whether a sparse list should be refused is an open policy
 question the plan records (`docs/architecture/raptor3-compiled-list-decoder-plan.md`
