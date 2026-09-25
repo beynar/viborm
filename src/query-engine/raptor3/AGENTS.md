@@ -1148,7 +1148,9 @@ carried/physical placement, a variant slot's arms, a collection's and a
 recursive carrier's row reader and identity readers, and, for a physical scalar
 slot only, THIS execution's `fieldReader` continuation. Each reader then does
 only what depends on the provider's value, through the one scalar decoder
-(`decodeScalar`), the one document rule (`providerDocument` + `own`) and the one
+(`decodeScalar`), the one document rule (`providerDocument` + `own`, which
+reads a variant slot and its integrity entry too, so a NULL or non-object slot
+is the malformed-result error at the slot — Arnaud, 2026-09-25) and the one
 carrier validator (`decodeRecursiveCarrier`, which receives the compiled row
 and identity readers instead of walking the shape itself). An empty batch
 compiles nothing. The reader holds a driver's parser, so it is never stored on
