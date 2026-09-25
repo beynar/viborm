@@ -19,7 +19,8 @@
  * published sentence (`544ab9465`). Two answers are BASELINE PARITY rather
  * than a stated contract, and are named so where they are pinned:
  *
- *  - a SPARSE provider list keeps its holes. `decodeList` checks each index
+ *  - a SPARSE provider list keeps its holes. The list reader (`decodeList`
+ *    at `544ab9465`, `compileList`'s reader since) checks each index
  *    with `Object.hasOwn` inside `items.map`, and `map` never visits a hole,
  *    so that check cannot fire. The plan records the policy question
  *    separately; this is a parity pin, not proof that sparse lists are
