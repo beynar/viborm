@@ -501,10 +501,15 @@ export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
  * continuation's exact asks and either leg's failure identity, and the one
  * document rule at every object placement and the recursive carrier's
  * entries; with CD-02, the carried boundary at a variant arm and at a
- * recursive node row and identity. SQLite and scripted transports.
+ * recursive node row and identity; with CD-03, every codec and rule at its
+ * later placements (carried to-one, reversed and nested to-many, variant arm,
+ * recursive node row, aggregate carrier; RETURNING, selected series, packaged
+ * and borrowed routes, cached reads, concurrent parser bindings). SQLite and
+ * scripted transports.
  */
 export const RESULT_DECODER_COUNTS = Object.freeze({
   "tests/raptor3/result-decoder.test.ts": 25,
+  "tests/raptor3/result-decoder-placements.test.ts": 10,
 });
 export const RESULT_DECODER_TESTS = Object.freeze(
   Object.keys(RESULT_DECODER_COUNTS)
