@@ -23,6 +23,14 @@ benchmark runner (tinybench: warmup, mean/p75/p99, relative comparison).
   `VIBORM_FIRST_OPERATION_RETAINED_ONLY=1` for the first operation after the
   initialized client and add
   `VIBORM_FIRST_OPERATION_RETAINED_WORKLOAD=raw` for its raw-driver control.
+- **`result-decoder.mjs`** — fresh-process, alternating A/B of the Raptor 3
+  result decoder in two built source trees (flat, nested, variant and
+  recursive reads at 0/1/20/1,000 rows; wall, CPU, a labelled heap-growth
+  proxy, cold first operation, statement counts and result digests; Drizzle
+  as an external flat reference). `--provider pg|mysql` checks statement
+  counts and result digests only. Build `dist/` in both trees, then run
+  `node benchmarks/result-decoder.mjs --base <tree> --candidate <tree>`;
+  evidence in `docs/architecture/raptor3-compiled-decoder-report.md`.
 - **`validation.bench.ts`** — the validation engine vs valibot, zod, and
   arktype through the StandardSchema interface (all JIT-less, matching edge
   runtimes).
