@@ -448,10 +448,10 @@ function orphanedArm(carrier: unknown, arm: ProjectionShape): boolean {
   );
 }
 /**
- * A structured value — a document, a collection, a variant slot or a
- * recursive carrier — as the provider handed it: a driver that does not parse
- * JSON itself hands back the carrier's TEXT, which is parsed here once, and
- * any other value is already the parsed structure.
+ * A structured value — a document, a collection, a variant slot, a recursive
+ * carrier, or a vector or point scalar — as the provider handed it: a driver
+ * that does not parse JSON itself hands back the value's TEXT, which is parsed
+ * here once, and any other value is already the parsed structure.
  */
 function providerJson(value: unknown): unknown {
   return typeof value === "string" ? JSON.parse(value) : value;
@@ -5415,7 +5415,7 @@ export class Queries {
       case "blob":
         return decodeBlob(value);
       case "vector": {
-        const decoded = typeof value === "string" ? JSON.parse(value) : value;
+        const decoded = providerJson(value);
         if (
           !Array.isArray(decoded) ||
           decoded.some(
@@ -5434,7 +5434,7 @@ export class Queries {
         return [...decoded];
       }
       case "point": {
-        const decoded = typeof value === "string" ? JSON.parse(value) : value;
+        const decoded = providerJson(value);
         const point = validateGeoPoint(decoded);
         if (point.issues)
           throw new InvalidScalarResult(
