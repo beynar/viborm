@@ -14,8 +14,8 @@ cost is reproducible but stays below the plan's 5% review trigger.
 | `shared/query.ts` sha256/16 | `88df750542027a47` | `a1d4b4d8cbe0753c` |
 | `pnpm-lock.yaml` sha256/16 | `703a982935c98760` | `703a982935c98760` |
 
-Both trees were clean and ran on Node v24.21.0. The candidate adds only the
-harness and this report.
+Both trees were clean and ran on Node v24.21.0. Later commits change no
+production source: they add the harness, this report and guide text.
 
 ## The decoder
 
