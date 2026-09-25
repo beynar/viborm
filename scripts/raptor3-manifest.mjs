@@ -504,12 +504,17 @@ export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
  * recursive node row and identity; with CD-03, every codec and rule at its
  * later placements (carried to-one, reversed and nested to-many, variant arm,
  * recursive node row, aggregate carrier; RETURNING, selected series, packaged
- * and borrowed routes, cached reads, concurrent parser bindings). SQLite and
- * scripted transports.
+ * and borrowed routes, cached reads, concurrent parser bindings); and, with
+ * the compiled-list-decoder plan's work unit 1, the list leaf itself
+ * (container null, absence, emptiness, malformed and sparse answers, member
+ * refusals, the enum and decimal list representations, the chain asked once
+ * per physical list, fresh containers, and the real-database placements).
+ * SQLite and scripted transports.
  */
 export const RESULT_DECODER_COUNTS = Object.freeze({
   "tests/raptor3/result-decoder.test.ts": 26,
   "tests/raptor3/result-decoder-placements.test.ts": 11,
+  "tests/raptor3/result-decoder-lists.test.ts": 11,
 });
 export const RESULT_DECODER_TESTS = Object.freeze(
   Object.keys(RESULT_DECODER_COUNTS)
