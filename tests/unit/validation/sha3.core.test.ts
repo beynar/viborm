@@ -113,7 +113,7 @@ describe("sha3-512", () => {
         );
       }
     }
-  });
+  }, 120_000); // 10,000 SHA3-512 digests: over 30 s under coverage instrumentation on a hosted runner
 
   test("matches the reference implementation at every rate boundary", () => {
     // 72 bytes is the rate. A message of exactly `rate - 1` puts both pad10*1
