@@ -449,12 +449,14 @@ function providerJson(value: unknown): unknown {
 }
 /**
  * The ONE reading of a provider DOCUMENT, whatever carries it: a root row, a
- * relation, `_count` or aggregate carrier, a collection row, a variant arm, a
- * recursive node row, the recursive carrier and each of its node and edge
- * entries. A document is an object that is not an array, and its members are
- * then read by {@link own}. `null` is answered as itself, because only the
- * placement knows whether its shape permits it; anything else is no document
- * (`undefined`), which the placement refuses in its own registered sentence.
+ * relation, `_count` or aggregate carrier, a collection row, a variant slot,
+ * its integrity entry and each of its arms, a recursive node row, the
+ * recursive carrier and each of its node and edge entries. A document is an
+ * object that is not an array, and its members are then read by {@link own}.
+ * `null` is answered as itself, because only the placement knows whether its
+ * shape permits it; anything else is no document (`undefined`), which the
+ * placement refuses in its own registered sentence — except the integrity
+ * entry, which a slot without junction memberships does not carry.
  */
 function providerDocument(value: unknown): Input | null | undefined {
   if (value === null) return null;
@@ -5051,19 +5053,26 @@ export class Queries {
         read: this.compileReader(arm, internal, true),
       }));
       return (value) => {
-        // The slot is read by own key WITHOUT {@link providerDocument}'s
-        // rule: the statement always builds it, and a NULL slot escapes as
-        // the raw `TypeError` of `Object.hasOwn`.
-        // `tests/raptor3/result-decoder.test.ts` pins that published failure;
-        // applying the document rule here changes it, which needs a ruling
-        // rather than a refactor.
-        const variants = record(providerJson(value));
+        // The slot is a provider document the statement always builds, read
+        // by the one document rule: a NULL or non-object slot is a malformed
+        // result, refused at the slot before any arm is asked (Arnaud,
+        // 2026-09-25).
+        const variants = providerDocument(providerJson(value));
+        if (!variants)
+          throw new InvalidScalarResult(
+            "polymorphic slot",
+            "the slot is not an object"
+          );
         // The integrity probe first, and before any arm: a membership whose
         // row is gone is a fact about the SLOT, so `only` — which selects what
         // is read — cannot make it unobservable (Arnaud's D-26). One refusal,
-        // from the decoder arm that already owns the sentence.
-        const orphans = own(variants, POLYMORPHIC_COLLECTION_ORPHANS_KEY);
-        if (orphans !== null && typeof orphans === "object")
+        // from the decoder arm that already owns the sentence. Its entry is a
+        // document of the slot, read by the same rule; a slot with no
+        // junction membership carries none.
+        const orphans = providerDocument(
+          own(variants, POLYMORPHIC_COLLECTION_ORPHANS_KEY)
+        );
+        if (orphans)
           for (const [type, count] of Object.entries(orphans))
             if (Number(count) > 0)
               throw new QueryEngineError(

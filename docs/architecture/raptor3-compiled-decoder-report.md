@@ -63,6 +63,21 @@ Both repairs were found by this harness.
   had cost 4–5% CPU and about 8 KB before. `fieldReader` now uses one closure
   per slot instead of two.
 
+## Compatibility
+
+CD-01 raised three baseline answers that were compatibility choices, not
+stated contracts. Arnaud ruled on them on 2026-09-25.
+
+| Choice | Ruling | Answer now |
+| --- | --- | --- |
+| A NULL or non-object **variant slot** | Changed: the slot follows the one document rule. | The malformed-result `QueryEngineError` at the slot: `polymorphic slot`, "the slot is not an object". A NULL slot used to escape as the raw `TypeError` of `Object.hasOwn`, and any other non-object was refused at its first arm, in that arm's sentence. A **public error-surface change**, recorded in `CHANGELOG.md` (Unreleased). The slot's integrity entry is read by the same rule. |
+| A NULL **aggregate carrier** | Kept. | Published as `null`: the carrier's shape states no nullability. |
+| An empty-array **singular variant arm** | Kept. | The orphan refusal "references a missing … record": the empty array is read as the empty document the claimed-but-gone arm lowers to. |
+
+`tests/raptor3/result-decoder.test.ts` pins the first two, beside the
+root-row and relation-text answers the baseline also gives, and
+`tests/raptor3/result-decoder-placements.test.ts` pins the third.
+
 ## Production cost
 
 `git diff e836bbd15 ad30855e6 -- src` touches one file,

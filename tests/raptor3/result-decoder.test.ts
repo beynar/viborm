@@ -12,10 +12,14 @@
  * read by own key; and the chain that runs is the one of the EXECUTION's
  * driver, on the live, borrowed-transaction and packaged routes alike.
  *
- * The last group pins four baseline answers that are compatibility choices
- * rather than stated contracts. They are preserved, not endorsed: changing any
- * of them is an observable contract change that needs a ruling, not a side
- * effect of a faster decoder.
+ * The last group pins four answers that were compatibility choices rather
+ * than stated contracts, as Arnaud ruled them on 2026-09-25: the NULL
+ * aggregate carrier, the NULL and JSON-text root row and the malformed
+ * relation text keep the baseline's answer; the variant SLOT now follows the
+ * one document rule, so a NULL or non-object slot is the malformed-result
+ * error instead of a raw `TypeError`. Changing any of them again is an
+ * observable contract change that needs a ruling, not a side effect of a
+ * faster decoder.
  */
 
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
@@ -919,7 +923,7 @@ describe("a variant arm and a recursive node are carried at every depth", () => 
   });
 });
 
-describe("compatibility choices the baseline answers (preserved, not revised)", () => {
+describe("compatibility choices, as ruled on 2026-09-25", () => {
   it("publishes a NULL aggregate carrier as null, unlike a relation count carrier", async () => {
     // The `_count` relation carrier is `nullable: false` and refuses a NULL
     // (`parity-decoding.core.test.ts`); an aggregate carrier's shape states no
@@ -962,15 +966,21 @@ describe("compatibility choices the baseline answers (preserved, not revised)", 
     await client.$disconnect();
   });
 
-  it("lets a NULL variant slot escape as a TypeError, not the malformed-row error", async () => {
-    // A row-carried variant slot is a document the statement always builds;
-    // the baseline reads a NULL one with `Object.hasOwn`, which throws.
-    const client = scripted([{ id: 1, subject: null }]);
-    const failure = await rejection(
-      client.remark.findMany({ select: { id: true, subject: true } })
-    );
-    expect(failure).toBeInstanceOf(TypeError);
-    expect(failure).not.toBeInstanceOf(QueryEngineError);
-    await client.$disconnect();
+  it("refuses a NULL or non-object variant slot at the slot, as a malformed result", async () => {
+    // A row-carried variant slot is a document the statement always builds.
+    // The baseline read a NULL one with `Object.hasOwn`, which escaped as a
+    // raw `TypeError`, and a non-object one arm by arm. The ruling puts the
+    // slot under the one document rule: one refusal, at the slot.
+    for (const slot of [null, 5, [], "[]", '"text"']) {
+      const client = scripted([{ id: 1, subject: slot }]);
+      const failure = await rejection(
+        client.remark.findMany({ select: { id: true, subject: true } })
+      );
+      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure.message).toBe(
+        'Driver "scripted" returned a malformed polymorphic slot scalar for operation "findMany": the slot is not an object.'
+      );
+      await client.$disconnect();
+    }
   });
 });
