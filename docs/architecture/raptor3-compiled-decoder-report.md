@@ -233,6 +233,8 @@ No wall time is reported or inferred for these providers.
   - `g4/parity` passes, driver-result-parser included.
   - `layer-query-engine` (739) and `layer-write-engine` (50, dead-symbol gate)
     pass.
+  - The native PostgreSQL and MySQL recursive and read-envelope suites pass
+    (see [Native qualification](#native-qualification)).
 - **1,000-row flat.** CPU is −14.6% and wall −15.0% (paired). Heap growth is
   −44%. Every round showed a win.
 - **Structural 1,000-row reads:**
@@ -335,12 +337,31 @@ count is unchanged at 36. The integrity-entry repair adds a second
 "polymorphic slot" site: 207 in all, 79 inherited, and still 36 candidate
 sentences. No new candidate sentence appears.
 
+## Native qualification
+
+The three `raptor3-live-provider` suites ran on the candidate `6f6fdd92b`
+(the integrity-entry repair included) against throwaway containers:
+`postgres:16` with trust authentication and `mysql:8` with an empty root
+password, each with a `raptor3_g2` database, on 127.0.0.1. Node v24.21.0.
+Each file ran alone:
+
+```
+VIBORM_RAPTOR3_PROVIDER=<pg|mysql> VIBORM_RAPTOR3_PROVIDER_PORT=<port> \
+  pnpm exec vitest run --workspace vitest.workspace.ts \
+  --project raptor3-live-provider <file>
+```
+
+| Suite | PostgreSQL 16 | MySQL 8 |
+| --- | --- | --- |
+| `recursive-query/provider-sql-native` | pass, 3/3 | pass, 3/3 |
+| `recursive-query/campaign-native` | pass, 4/4 (3 × 100 saved cases) | pass, 4/4 (3 × 100 saved cases) |
+| `g4/native/read-envelope-native` | pass, 5/5 | pass, 5/5 |
+
+Nothing was skipped and nothing failed, so no file needed a baseline run to
+classify a failure. The containers were removed afterwards.
+
 ## Not established
 
-- **Native recursive and read-envelope suites**
-  (`recursive-query/provider-sql-native`, `campaign-native`,
-  `g4/native/read-envelope-native`) have not run. Their harness needs a
-  `raptor3_g2` database with an empty password (CD-03).
 - **libsql** skipped 668 of its 677 tests.
 - **Transient allocation only.** The allocation numbers are transient heap
   growth. They make no claim about retained RAM.
