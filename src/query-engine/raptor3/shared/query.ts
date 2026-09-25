@@ -5036,8 +5036,9 @@ export class Queries {
    * batch — a result window, a RETURNING answer, an internal read — and
    * dropped with it. Every invariant decision of a placement is taken here,
    * once: an object's member list and each member's placement, a variant
-   * slot's arms, a collection's and a recursive carrier's row reader, and —
-   * for a PHYSICAL scalar slot only — this execution's provider continuation
+   * slot's arms, a collection's and a recursive carrier's row reader, a list
+   * leaf's container reader ({@link compileList}), and — for a PHYSICAL
+   * scalar slot only — this execution's provider continuation
    * ({@link fieldReader}). The returned reader then does only what depends on
    * the provider's value, through the one scalar decoder
    * ({@link decodeScalar}) and the one carrier validator
@@ -5060,7 +5061,9 @@ export class Queries {
   ): Reader {
     if (shape.kind === "scalar") {
       const provider = carried ? undefined : this.fieldReader(shape.type);
-      return (value) => this.decodeScalar(shape, value, internal, provider);
+      const list = shape.list ? this.compileList(shape, internal) : undefined;
+      return (value) =>
+        this.decodeScalar(shape, value, internal, provider, list);
     }
     if (shape.kind === "recursive") {
       const readRow = this.compileReader(shape.row, internal, true);
@@ -5212,13 +5215,16 @@ export class Queries {
    * One strict scalar decode per leaf, through the existing codec owners. A
    * value outside the column's declared domain is a malformed provider row,
    * never a value to coerce. `provider` is the physical value's continuation;
-   * a CARRIED value — one a JSON document already holds — has none.
+   * a CARRIED value — one a JSON document already holds — has none. `list` is
+   * a list leaf's compiled container reader, and a list MEMBER's leaf is no
+   * list.
    */
   private decodeScalar(
     leaf: Leaf,
     raw: unknown,
     internal: boolean,
-    provider?: FieldReader
+    provider?: FieldReader,
+    list?: Reader
   ): unknown {
     // The SQL NULL and the absent column are facts about the ROW, answered
     // before any representation rule: a provider that decodes `'null'` into
@@ -5247,7 +5253,7 @@ export class Queries {
     // decoded; asking the transport about it a second time is what turned
     // `"just a json string"` into a `SyntaxError`.
     const value = provider === undefined ? raw : provider(raw);
-    if (leaf.list) return this.decodeList(leaf, value, internal);
+    if (list) return list(value);
     // An identifier column hands back its PHYSICAL value — bytes, their hex
     // transport, a `uuid`'s text, or the stored text — and the codec turns it
     // into the canonical PUBLIC string, prefix re-applied. A TEXT column's
@@ -5456,47 +5462,57 @@ export class Queries {
         );
     }
   }
-  /** One list container, then each member through the element's own codec. */
-  private decodeList(leaf: Leaf, value: unknown, internal: boolean): unknown[] {
-    if (leaf.type === "decimal") {
-      const members = decodeDecimalList(
-        value,
-        leaf.decimal!,
-        internal,
-        this.adapter.result
-      );
-      if (members === undefined)
-        throw new InvalidScalarResult(
-          leaf.type,
-          "the value is not an exact decimal list in this column's declared domain"
+  /**
+   * A list leaf's container reader, compiled with its placement by
+   * {@link compileReader}: the decimal whole-list codec or one container, then
+   * each member through the element's own codec. The member's non-null leaf
+   * is derived here, once per list placement of a decoded batch, never per
+   * returned list. The reader runs after the NULL and absence checks and the
+   * provider continuation, and each member is a carried value.
+   */
+  private compileList(leaf: Leaf, internal: boolean): Reader {
+    if (leaf.type === "decimal")
+      return (value) => {
+        const members = decodeDecimalList(
+          value,
+          leaf.decimal!,
+          internal,
+          this.adapter.result
         );
-      return members;
-    }
-    let items: unknown = value;
-    if (typeof items === "string")
-      items =
-        leaf.type === "enum" &&
-        this.adapter.result.enumListRepresentation === "arrayText"
-          ? providerArrayMembers(items)
-          : JSON.parse(items);
-    if (!Array.isArray(items))
-      throw new InvalidScalarResult(
-        leaf.type,
-        "a list scalar did not return an array"
-      );
+        if (members === undefined)
+          throw new InvalidScalarResult(
+            leaf.type,
+            "the value is not an exact decimal list in this column's declared domain"
+          );
+        return members;
+      };
     const member: Leaf = Object.freeze({
       ...leaf,
       list: undefined,
       nullable: false,
     });
-    return items.map((item, index) => {
-      if (!Object.hasOwn(items as unknown[], index))
+    return (value) => {
+      const items: unknown =
+        typeof value !== "string"
+          ? value
+          : leaf.type === "enum" &&
+              this.adapter.result.enumListRepresentation === "arrayText"
+            ? providerArrayMembers(value)
+            : JSON.parse(value);
+      if (!Array.isArray(items))
         throw new InvalidScalarResult(
           leaf.type,
-          "a list scalar returned a sparse array"
+          "a list scalar did not return an array"
         );
-      return this.decodeScalar(member, item, internal);
-    });
+      return items.map((item, index) => {
+        if (!Object.hasOwn(items, index))
+          throw new InvalidScalarResult(
+            leaf.type,
+            "a list scalar returned a sparse array"
+          );
+        return this.decodeScalar(member, item, internal);
+      });
+    };
   }
   /**
    * The JSON value domain, normalized once.
