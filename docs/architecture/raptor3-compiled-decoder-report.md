@@ -5,7 +5,22 @@ Decision: **accepted**. There is one decoder and one provider-chain owner. The
 1,000-row flat read shows a material CPU and allocation win. The small-read
 cost is reproducible and sits at the plan's 5% review trigger: +4.7% CPU for
 a nested one-row read in the full run, +5.7% in a later re-run of the same
-source.
+source. The review accepted that cost as a documented trade-off
+([Accepted trade-off](#accepted-trade-off)).
+
+**Complete cost against `main` `e836bbd15`**, at `6f6fdd92b` with the
+integrity-entry repair: `shared/query.ts` is the only production code file.
+
+- It grows by **+75 printed SLOC, +428 TypeScript tokens and +7,285 source
+  bytes**.
+- The `pg-representative` client bundle grows by **+660 B raw, +216 B gzip
+  and +487 B brotli**.
+- At the reviewed head `8119393bd`, the figures were +71 / +404 / +6,905 and
+  +558 / +194 / +416 B.
+- The +34 and +37 quoted earlier were partial: +34 is the CD-04 candidate
+  `ad30855e6` alone, and +37 is the post-review follow-ups alone.
+
+See [Complete change against main](#complete-change-against-main).
 
 ## Source identity
 
@@ -104,6 +119,9 @@ build the entry as a JSON document, so only a driver or middleware that
 rewrites results can observe this.
 
 ## Production cost
+
+This section measures the CD-04 candidate `ad30855e6` only. The complete
+change is in [Complete change against main](#complete-change-against-main).
 
 `git diff e836bbd15 ad30855e6 -- src` touches one file,
 `src/query-engine/raptor3/shared/query.ts`: 228 lines added and 136 deleted.
@@ -250,8 +268,9 @@ No wall time is reported or inferred for these providers.
       wall;
     - variant/1 costs +2.5% CPU;
     - one-row heap growth rises 4.5–5% (2.6–5.5 KB).
-  - This is reproducible but below the plan's 5% review trigger. **It is the
-    cell a reviewer should weigh.**
+  - This is reproducible and sits at the plan's 5% review trigger. The
+    review weighed it and accepted it
+    ([Accepted trade-off](#accepted-trade-off)).
 - **Authority.** There is one decoder: no flat path, no second scalar switch
   and no second provider chain.
 
@@ -300,9 +319,10 @@ reverting it.
 `shared/query.ts` `68b8da1c683c7276`; same lockfile and Node.
 
 **Cost.** Measured with the method of [Production cost](#production-cost).
-The bundle was not re-measured.
+The bundle is measured in
+[Complete change against main](#complete-change-against-main).
 
-| `shared/query.ts` | `ad30855e6` | `eaada04aa` | Delta | Against baseline |
+| `shared/query.ts` | `ad30855e6` | `eaada04aa` | Follow-ups alone | Complete, against `e836bbd15` |
 | --- | ---: | ---: | ---: | ---: |
 | Printed SLOC | 3,202 | 3,239 | +37 | +71 |
 | TypeScript tokens | 29,116 | 29,341 | +225 | +404 |
@@ -336,6 +356,55 @@ Both runs returned identical public results in both trees.
 count is unchanged at 36. The integrity-entry repair adds a second
 "polymorphic slot" site: 207 in all, 79 inherited, and still 36 candidate
 sentences. No new candidate sentence appears.
+
+## Complete change against main
+
+`git diff e836bbd15 6f6fdd92b -- src` touches two files:
+
+- `shared/query.ts`: 310 lines added and 151 deleted. This is the only
+  production code.
+- the Raptor 3 guide, `src/query-engine/raptor3/AGENTS.md`: 45 added and 22
+  deleted, all prose.
+
+The method is the one in [Production cost](#production-cost):
+
+- **Printed SLOC** counts the non-blank lines of the TypeScript printer's
+  output, with comments removed.
+- **Tokens** counts the leaf nodes of the parsed tree.
+- **Bundle** comes from `scripts/measure-bundle.mjs` on each revision's own
+  `dist/`, built at that revision with the same lockfile and esbuild. The
+  baseline figures come from the read-only baseline tree.
+
+| Measure | `e836bbd15` | `8119393bd` (reviewed) | `6f6fdd92b` (repair) | Complete delta |
+| --- | ---: | ---: | ---: | ---: |
+| Printed SLOC | 3,168 | 3,239 (+71) | 3,243 | **+75** |
+| TypeScript tokens | 28,937 | 29,341 (+404) | 29,365 | **+428** |
+| Source bytes | 211,778 | 218,683 (+6,905) | 219,063 | **+7,285** |
+| `measure-bundle` code lines, `src/query-engine` | 16,879 | 16,947 (+68) | 16,951 | +72 |
+| `pg-representative` raw / gzip / brotli | 543,413 / 159,362 / 134,984 | 543,971 / 159,556 / 135,400 (+558 / +194 / +416) | 544,073 / 159,578 / 135,471 | **+660 / +216 / +487** |
+| `full` raw / gzip / brotli | 911,373 / 265,291 / 218,979 | 911,931 / 265,486 / 219,299 (+558 / +195 / +320) | 912,033 / 265,503 / 219,441 | +660 / +212 / +462 |
+
+The integrity-entry repair costs +4 SLOC, +24 tokens, +380 bytes and +102 B
+of raw bundle.
+
+## Accepted trade-off
+
+The review accepted the design with its small-read cost:
+
+- A one-row nested read costs about **+3.7 µs CPU**: 0.0907 → 0.0944 ms,
+  +4.7% in the full run, and +5.7% in one re-run.
+- Larger reads gain materially. At 1,000 rows, flat is −14.6% CPU and −44%
+  heap; nested is −4.3% and variant −2.7% CPU, both about −40% heap.
+
+This is a documented choice, not an open finding. **No second, small-row
+execution path is to be added**: it would be the parallel decoder the plan
+forbids.
+
+**Bounded future optimization (not a blocker).** `orphanedArm()`
+(`shared/query.ts:441`) reads the arm's prepared field keys
+(`Object.keys(arm.fields).length`) for every occurrence of a singular arm.
+That count is invariant for a compiled arm. It could be taken once when the
+slot is compiled, leaving only the per-value `Object.keys(document)` test.
 
 ## Native qualification
 
