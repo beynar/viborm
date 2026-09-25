@@ -752,12 +752,11 @@ export class Queries {
         transformed === undefined ? input : transformed
       );
     const driverParse = this.result?.parseField;
-    const chain: FieldReader = driverParse
-      ? (value) => driverParse(value, type, adapterLeg)
-      : adapterLeg;
     return (value) => {
       try {
-        return chain(value);
+        return driverParse
+          ? driverParse(value, type, adapterLeg)
+          : adapterLeg(value);
       } catch (error) {
         if (
           error instanceof InvalidScalarResult ||
@@ -4714,6 +4713,9 @@ export class Queries {
     rows: Input[],
     internal = false
   ): Input[] {
+    // An empty batch — a filter that matched nothing — reads nothing, so it
+    // compiles nothing.
+    if (rows.length === 0) return [];
     const read = this.compileReader(shape, internal, false);
     return rows.map((row) => record(read(row)));
   }
