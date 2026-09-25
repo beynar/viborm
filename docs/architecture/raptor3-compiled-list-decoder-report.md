@@ -10,10 +10,18 @@ It extends PR #50's batch compilation boundary
 - **One authority.** There is still one decoder authority, and the per-list
   construction site is deleted.
 - **List-heavy gain.** List-heavy reads show a CPU and heap-growth benefit
-  that repeats in every round (table below).
+  that repeats in most rounds: 12/12 rounds below one for the root parse-only
+  1000-row cells at every list length, 9 to 11 of 12 for the full-client
+  1000-row cells (table below, with the per-cell counts).
 - **Controls.** The non-list controls show no material regression. The
   largest repeatable control cost is **+1.4%** on a parse-only scalar read of
   one row (about 5 ns per op). The same read through the full client is flat.
+  Two fixed heap costs come with the change and are disclosed rather than
+  hidden by the medians: every scalar leaf's compiled reader now closes over
+  the (usually absent) list reader, a deterministic **+32 B** per one-row
+  scalar-only read (5,200 → 5,232 B parse-only; 36,232 → 36,264 B through the
+  client), and a list placement whose values are all NULL still builds its
+  element descriptor once per batch although no element is decoded.
 
 **Complete production cost** against `544ab9465`. `shared/query.ts` is the
 only production file changed.

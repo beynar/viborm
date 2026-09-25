@@ -1,6 +1,6 @@
 # Batch-compiled list decoding — bounded implementation plan
 
-Status: proposed after a throwaway experiment, 2026-09-25. Not implemented on main.
+Status: implemented on branch `compiled-list-decoder` (2026-09-25), measured and accepted in [`raptor3-compiled-list-decoder-report.md`](raptor3-compiled-list-decoder-report.md); proposed after a throwaway experiment the same day.
 
 ## Decision and scope
 
