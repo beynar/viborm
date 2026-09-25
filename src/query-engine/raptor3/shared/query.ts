@@ -4750,7 +4750,13 @@ export class Queries {
           "recursive identity",
           "an identity is not a tuple of the key's width"
         );
-      for (const [index, read] of readIdentity.entries()) read(tuple[index]);
+      // A counted walk: `entries()` allocated an iterator and a pair per
+      // member on every identity — root, node key and both edge endpoints.
+      let index = 0;
+      for (const read of readIdentity) {
+        read(tuple[index]);
+        index += 1;
+      }
       return JSON.stringify(tuple);
     };
     const rootKey = identity(root);
