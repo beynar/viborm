@@ -509,7 +509,7 @@ export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
  */
 export const RESULT_DECODER_COUNTS = Object.freeze({
   "tests/raptor3/result-decoder.test.ts": 25,
-  "tests/raptor3/result-decoder-placements.test.ts": 10,
+  "tests/raptor3/result-decoder-placements.test.ts": 11,
 });
 export const RESULT_DECODER_TESTS = Object.freeze(
   Object.keys(RESULT_DECODER_COUNTS)

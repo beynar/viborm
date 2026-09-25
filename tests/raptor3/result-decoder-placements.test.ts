@@ -23,7 +23,8 @@
  *    two clients with different driver parsers over the same model
  *    definitions decode concurrently;
  *  - the own-key and document rules at the variant arm and the recursive
- *    node row, and a to-one relation document that is no document.
+ *    node row, a to-one relation document that is no document, and the
+ *    recursive carrier's refusal of an edge no level can consume.
  *
  * Every expected value is the value the test WROTE (the public round-trip
  * contract) or the baseline's published sentence; the parser's mark is what
@@ -1004,5 +1005,46 @@ describe("the document and own-key rules at the later placements", () => {
     );
     assert.ok(failure instanceof QueryEngineError);
     assert.equal(failure.message, ABSENT_TITLE);
+  });
+
+  it("refuses a bounded edge no level of the walk can consume", async () => {
+    // k1 is reached at level 1 only, so its hop to k2 is consumable at depth
+    // 2 and at no other. The same hop recorded at depth 1 is a distinct fact
+    // (not a duplicate) that every other check admits, and only the
+    // consumption count can refuse it.
+    const node = (id: string) => ({ __rq_key: [id], __rq_row: { id } });
+    const edge = (parent: string, child: string, depth: number) => ({
+      __rq_parent: [parent],
+      __rq_child: [child],
+      __rq_depth: depth,
+    });
+    const failure = await scriptedFailure(
+      [
+        {
+          id: "r",
+          kids: {
+            __rq_root: ["r"],
+            __rq_nodes: [node("k1"), node("k2")],
+            __rq_edges: [
+              edge("r", "k1", 1),
+              edge("k1", "k2", 2),
+              edge("k1", "k2", 1),
+            ],
+          },
+        },
+      ],
+      "full",
+      {
+        select: {
+          id: true,
+          kids: { recurse: { depth: 2 }, select: { id: true } },
+        },
+      }
+    );
+    assert.ok(failure instanceof QueryEngineError);
+    assert.equal(
+      failure.message,
+      'Driver "scripted" returned a malformed recursive depth scalar for operation "findMany": an edge is not reachable at its recorded depth.'
+    );
   });
 });
