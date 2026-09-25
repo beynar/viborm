@@ -14,7 +14,7 @@
  * JSON field per row read):
  *  1. a transforming schema's OUTPUT is what `findMany`, `findUnique` and
  *     `create … select` publish — on the live route and on the prepared/batch
- *     route, which decode through the same `decodeValue`/`decodeScalar` owner;
+ *     route, which decode through the same `compileReader`/`decodeScalar` owner;
  *  2. the schema runs EXACTLY ONCE per decoded value — never twice for one
  *     value, and never at all for a field the projection did not select;
  *  3. a stored document the schema REFUSES raises the restored public

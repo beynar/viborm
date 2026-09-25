@@ -862,6 +862,63 @@ describe("one document rule for the recursive carrier and its entries", () => {
   });
 });
 
+describe("a variant arm and a recursive node are carried at every depth", () => {
+  const counting = (asked: string[]): DriverResultParser => ({
+    parseField: (value, type, next) => {
+      asked.push(type);
+      return next(value, type);
+    },
+  });
+
+  it("never offers a variant arm's members to the chain, object or text", async () => {
+    const asked: string[] = [];
+    const client = scripted(
+      [
+        { id: 1, subject: { article: { id: 3, title: "A" }, clip: null } },
+        { id: 2, subject: { article: null, clip: '{"id":4,"title":"C"}' } },
+      ],
+      counting(asked)
+    );
+    expect(
+      await client.remark.findMany({ select: { id: true, subject: true } })
+    ).toEqual([
+      { id: 1, subject: { type: "article", data: { id: 3, title: "A" } } },
+      { id: 2, subject: { type: "clip", data: { id: 4, title: "C" } } },
+    ]);
+    expect(asked).toEqual(["int", "int"]);
+    await client.$disconnect();
+  });
+
+  it("never offers a recursive node row or identity to the chain", () => {
+    const asked: string[] = [];
+    const queries = new Queries(
+      new EngineSchema({ branch }),
+      new SQLiteAdapter(),
+      counting(asked)
+    );
+    const { shape } = queries.prepareProjection(branch, {
+      select: {
+        id: true,
+        children: {
+          recurse: { depth: 2, cycles: "reject" },
+          select: { id: true },
+        },
+      },
+    });
+    const carrier = {
+      __rq_root: ["root"],
+      __rq_nodes: [{ __rq_key: ["child"], __rq_row: { id: "child" } }],
+      __rq_edges: [
+        { __rq_parent: ["root"], __rq_child: ["child"], __rq_depth: 1 },
+      ],
+    };
+    expect(
+      queries.decodeProjection(shape, [{ id: "root", children: carrier }])
+    ).toEqual([{ id: "root", children: [{ id: "child", children: [] }] }]);
+    expect(asked).toEqual(["string"]);
+  });
+});
+
 describe("compatibility choices the baseline answers (preserved, not revised)", () => {
   it("publishes a NULL aggregate carrier as null, unlike a relation count carrier", async () => {
     // The `_count` relation carrier is `nullable: false` and refuses a NULL
