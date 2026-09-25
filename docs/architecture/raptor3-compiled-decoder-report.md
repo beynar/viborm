@@ -3,7 +3,9 @@
 Plan: [`raptor3-compiled-decoder-plan.md`](raptor3-compiled-decoder-plan.md).
 Decision: **accepted**. There is one decoder and one provider-chain owner. The
 1,000-row flat read shows a material CPU and allocation win. The small-read
-cost is reproducible but stays below the plan's 5% review trigger.
+cost is reproducible and sits at the plan's 5% review trigger: +4.7% CPU for
+a nested one-row read in the full run, +5.7% in a later re-run of the same
+source.
 
 ## Source identity
 
@@ -14,32 +16,36 @@ cost is reproducible but stays below the plan's 5% review trigger.
 | `shared/query.ts` sha256/16 | `88df750542027a47` | `a1d4b4d8cbe0753c` |
 | `pnpm-lock.yaml` sha256/16 | `703a982935c98760` | `703a982935c98760` |
 
-Both trees were clean and ran on Node v24.21.0. Later commits change no
-production source: they add the harness, this report and guide text.
+Both trees were clean and ran on Node v24.21.0. The measurements below are
+of that candidate. The post-review commits change production source again;
+[Post-review follow-ups](#post-review-follow-ups) gives their identity, cost
+and re-measured cells.
 
 ## The decoder
 
-All of the decoder lives in `src/query-engine/raptor3/shared/query.ts`:
+All of the decoder lives in `src/query-engine/raptor3/shared/query.ts`
+(line numbers at `eaada04aa`):
 
-- **`compileReader` (:5027)** is the one visitor over the prepared
+- **`compileReader` (:5055)** is the one visitor over the prepared
   `ProjectionShape`. It runs once per decoded batch, from `decodeProjection`
-  (:4711).
+  (:4739). A collection, and each arm of a junction-carried variant slot, is
+  read by `compileCollection` (:5189).
   - It takes each placement's invariant decisions before the first row: the
     member list, carried or physical placement, variant arms, row readers and
     recursive identity readers, and the physical slot's provider continuation.
   - It returns a reader that only does per-value work.
 - **Shared rules.** Every reader goes through the same owners:
-  - one scalar decoder, `decodeScalar` (:5150);
-  - one document rule, `providerJson` (:447), `providerDocument` (:459) and
-    `own` (:470);
-  - one carrier validator, `decodeRecursiveCarrier` (:4722), which now takes
+  - one scalar decoder, `decodeScalar` (:5211);
+  - one document rule, `providerJson` (:456), `providerDocument` (:470) and
+    `own` (:481);
+  - one carrier validator, `decodeRecursiveCarrier` (:4750), which now takes
     the compiled row and identity readers.
-- **One provider continuation.** `fieldReader` (:748) runs the driver, then
+- **One provider continuation.** `fieldReader` (:759) runs the driver, then
   the adapter, then translates errors. It is bound once per physical scalar
   slot. A carried value gets none.
 - **Lifetime.** A reader holds the execution's driver parser. It is never
   stored on a shared shape or on `Queries`, and an empty batch compiles
-  nothing (:4718).
+  nothing (:4746).
 
 Each new concept, and the decision it deletes:
 
@@ -47,8 +53,9 @@ Each new concept, and the decision it deletes:
 | --- | --- |
 | `compileReader` | The per-value `shape.kind` dispatch.<br>Per-row `Object.keys(shape.fields)` and `Object.entries(shape.arms)`.<br>The per-member carried-status derivation.<br>`decodeValue` itself. |
 | `fieldReader` | `providerValue` and the provider chain it rebuilt for every physical cell (3 closures per cell). |
-| `providerDocument` | Four inline "object, not array" checks: the document, the recursive carrier, a node entry and an edge entry. |
-| `providerJson` | Three spellings of `typeof v === "string" ? JSON.parse(v) : v`. |
+| `providerDocument` | Five inline object checks: the document, the recursive carrier, a node entry, an edge entry and the variant slot's integrity entry. |
+| `providerJson` | Five spellings of `typeof v === "string" ? JSON.parse(v) : v`: three in the shape walk, and the vector and point codecs'. |
+| `CollectionShape` / `compileCollection` | The `rows as unknown[]` assertion on a junction-carried slot's arm, and the per-arm, per-row `shape.many` test. |
 | `decodeScalar(..., provider?)` | The `carried` boolean. A carried slot with a continuation can no longer be written. |
 | Empty-batch return | Compiling readers for a batch with no rows. |
 
@@ -227,6 +234,86 @@ No wall time is reported or inferred for these providers.
     cell a reviewer should weigh.**
 - **Authority.** There is one decoder: no flat path, no second scalar switch
   and no second provider chain.
+
+## Post-review follow-ups
+
+After the reviews, the rulings above and the reviewers' minor findings changed
+production source again:
+
+- `4cbf77aa0` reads the variant slot, and its integrity entry, by
+  `providerDocument` (the ruling).
+- `4e6d10862` removes the `rows as unknown[]` assertion. A `many: true`
+  variants node now carries `CollectionShape` arms, built by
+  `collectionShape`, and `compileCollection` answers `unknown[]` by type. No
+  runtime guard was added.
+- `adb4f5064` makes the vector and point codecs call `providerJson`.
+- `adfb0ebb5` adds the missing witness for "an edge is not reachable at its
+  recorded depth".
+- `eaada04aa` adds the ruling to the Raptor 3 guide. The sweep found no
+  stale per-row decoder sentence there.
+
+**The two perf commits, re-reviewed.** `e8517eb8b` and `ad30855e6` add no
+assertion, no second decoder and no cache on a shared shape or on `Queries`.
+`fieldReader` still reads the driver's parser once, when the slot is
+compiled. The 0-row return keeps the empty-batch semantics:
+
+- it sits inside `decodeProjection`, so `decodeQuery`'s `assertExpectedRows`
+  still runs first;
+- `rows.map` over an empty batch returned a fresh `[]`, and so does the
+  return;
+- compiling a reader has no side effect.
+
+Existing tests already reach both 0-row paths, so none was added:
+
+- a write RETURNING with 0 rows: "carries the shipped meta for a missing
+  root delete on a batch-only driver"
+  (`g4/unit02/phase2-envelope-and-arithmetic`), and the selected
+  `deleteMany` of `g4/parity/batch-captured-bulk`;
+- a batched `flushQueued` window with 0 rows:
+  `g4/parity/series-member-premise` and
+  `g4/parity/blind-premise-attribution`.
+
+This was confirmed by instrumenting the return during one run, then
+reverting it.
+
+**Identity.** Commit `eaada04aa`; `dist/**.mjs` `6195c0c84c3dad09`;
+`shared/query.ts` `68b8da1c683c7276`; same lockfile and Node.
+
+**Cost.** Measured with the method of [Production cost](#production-cost).
+The bundle was not re-measured.
+
+| `shared/query.ts` | `ad30855e6` | `eaada04aa` | Delta | Against baseline |
+| --- | ---: | ---: | ---: | ---: |
+| Printed SLOC | 3,202 | 3,239 | +37 | +71 |
+| TypeScript tokens | 29,116 | 29,341 | +225 | +404 |
+| Source bytes | 216,579 | 218,683 | +2,104 | +6,905 |
+
+Most of the growth is the typed collection arm: one reader per variant
+cardinality, and the builder's two arm records.
+
+**Re-measured cells.** These are the same harness and baseline (`e836bbd15`),
+with 8 time rounds and 4 allocation rounds. The load average was about 6 for
+the first run and 10.7 for the second.
+
+| Cell | Metric | Before (`1dfe39dbf`) | After (`eaada04aa`) |
+| --- | --- | --- | --- |
+| flat / 1,000 | CPU paired | 0.850 [0.770–0.859] | 0.833 [0.801–0.910] |
+| flat / 1,000 | Wall paired | 0.843 [0.738–0.854] | 0.827 [0.740–0.917] |
+| flat / 1,000 | Heap, candidate bytes | 1,201,652 (0.545) | 1,200,654 (0.559) |
+| nested / 1 | CPU paired | 1.057 [1.012–1.211] | 1.037 [0.993–1.088] |
+| nested / 1 | Wall paired | 1.033 [0.989–1.256] | 1.005 [0.954–1.055] |
+| nested / 1 | Heap, candidate bytes | 114,992 (1.048) | 115,000 (1.048) |
+
+- The follow-ups did not move either cell materially. The candidate's heap
+  growth is unchanged to within 1 KB.
+- The nested/1 CPU cost is noisy. It was +4.7% in the full run and +5.7% in
+  the re-run of the unchanged source, so it sits at the 5% review trigger.
+
+Both runs returned identical public results in both trees.
+
+**Census.** One more site, 206 in all, now also 78 inherited sites. The new
+"polymorphic slot" refusal matches the old-engine corpus, and the candidate
+count is unchanged at 36.
 
 ## Not established
 
