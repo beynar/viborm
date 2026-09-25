@@ -78,7 +78,6 @@ export interface RecordCommand {
 export interface RecordSeriesCommand {
   readonly kind: "series";
   readonly records: CommandOccurrence<RecordCommand>[];
-  readonly select?: Input;
 }
 export interface MembershipRequirement {
   readonly selection: Selection;
@@ -1723,12 +1722,10 @@ export class Commands {
         const series: RecordSeriesCommand = {
           kind: "series",
           records: occurrences,
-          select: args.select,
         };
         return {
           single: false,
-          run: () =>
-            this.execution.records(series.records, series.select, series),
+          run: () => this.execution.records(occurrences, args.select, series),
         };
       }
       const projection = bulkProjection(ctx, model, args);
@@ -1949,11 +1946,11 @@ export class Commands {
     return {
       single: false,
       run: async () => {
-        if (args.select)
+        if (projection)
           return this.execution.series(
             occurrence,
             series.selection,
-            args.select
+            projection
           );
         return { count: await this.execution.series(occurrence) };
       },

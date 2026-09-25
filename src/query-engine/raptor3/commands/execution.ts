@@ -12,7 +12,11 @@ import type {
   MembershipParent,
   ObservationPremise,
 } from "../shared/operation-context";
-import type { PreparedSelector, Query } from "../shared/query";
+import type {
+  PreparedProjection,
+  PreparedSelector,
+  Query,
+} from "../shared/query";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import {
   type Membership,
@@ -22,11 +26,6 @@ import {
 import type { TransportAttempt } from "../shared/transport-attempt";
 import type { Assignments } from "./assignments";
 import { CommandAttempt } from "./command-attempt";
-import {
-  isRecordOccurrence,
-  isSeriesOccurrence,
-  membershipRaceFailure,
-} from "./commands";
 import type {
   Choose,
   Command,
@@ -36,6 +35,11 @@ import type {
   RecordCommand,
   SelectedSeriesMember,
   SeriesOccurrence,
+} from "./commands";
+import {
+  isRecordOccurrence,
+  isSeriesOccurrence,
+  membershipRaceFailure,
 } from "./commands";
 import {
   type BoundMembership,
@@ -49,10 +53,12 @@ type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 
 /** Interprets the prepared command tree through one replaceable execution attempt. */
 export class CommandExecution {
+  readonly commands: Commands;
   readonly context;
   private currentAttempt: CommandAttempt;
   private readonly entered = new Set<CommandOccurrence>();
-  constructor(readonly commands: Commands) {
+  constructor(commands: Commands) {
+    this.commands = commands;
     this.context = commands.context;
     this.currentAttempt = new CommandAttempt(this.context.transportAttempt);
     this.context.attachRecovery(() => this.replaceRegions());
@@ -620,7 +626,7 @@ export class CommandExecution {
    */
   private foundFailure(
     command: Choose,
-    requirement: MembershipRequirement | undefined,
+    requirement: MembershipRequirement | undefined
   ): DeferredFailure {
     const conditional = command.conditions;
     return conditional
@@ -628,8 +634,7 @@ export class CommandExecution {
       : (requirement?.failure ??
           command.lookup.retained ??
           command.lookup.required ??
-          (() =>
-            new NotFoundError(command.model["~"].names.ts!, "update")));
+          (() => new NotFoundError(command.model["~"].names.ts!, "update")));
   }
   /**
    * The narrow FOUND shape whose consuming UPDATE proves its own premise.
@@ -645,7 +650,7 @@ export class CommandExecution {
   private mutationConfirmationFailure(
     command: Choose,
     requirement: MembershipRequirement | undefined,
-    found: CommandOccurrence<RecordCommand> | undefined,
+    found: CommandOccurrence<RecordCommand> | undefined
   ): DeferredFailure | undefined {
     const update = found?.command;
     const lookup = command.lookup;
@@ -664,10 +669,10 @@ export class CommandExecution {
       update.fields.demands.size === 0 ||
       update.fields.consumes(lookup.fields) ||
       [...lookup.fields.demands].some(
-        (field) => !update.fields.demands.has(field),
+        (field) => !update.fields.demands.has(field)
       ) ||
       [...command.fields.demands].some(
-        (field) => !update.fields.demands.has(field),
+        (field) => !update.fields.demands.has(field)
       )
     )
       return undefined;
@@ -676,7 +681,7 @@ export class CommandExecution {
   private async confirmFound(
     command: Choose,
     requirement: MembershipRequirement | undefined,
-    captured: Input,
+    captured: Input
   ): Promise<Input> {
     const ctx = this.context;
     const lookup = command.lookup;
@@ -743,12 +748,13 @@ export class CommandExecution {
   async run(
     occurrence: CommandOccurrence,
     member: Member = occurrence.command,
-    confirmationFailure?: DeferredFailure,
+    confirmationFailure?: DeferredFailure
   ): Promise<void> {
     const ctx = this.context;
     const attempt = this.attempt;
     const command = occurrence.command;
     this.entered.add(occurrence);
+    // biome-ignore lint/style/useDefaultSwitchClause: the command-kind union is exhaustive; a default would be dead code.
     switch (command.kind) {
       case "record": {
         command.fields.activate();
@@ -811,7 +817,7 @@ export class CommandExecution {
                 member,
                 command.operation,
                 command.fields.demands,
-                confirmationFailure,
+                confirmationFailure
               )
             : await ctx.insert(
                 command.model,
@@ -970,7 +976,7 @@ export class CommandExecution {
           const confirmationFailure = this.mutationConfirmationFailure(
             command,
             requirement,
-            found,
+            found
           );
           const current = confirmationFailure
             ? captured
@@ -985,8 +991,8 @@ export class CommandExecution {
                 command.lookup.fields,
                 attempt.select(
                   found.command.fields,
-                  command.lookup.fields.demands,
-                ),
+                  command.lookup.fields.demands
+                )
               );
             attempt.bind(command.fields, {
               ...current,
@@ -1092,8 +1098,7 @@ export class CommandExecution {
       case "series": {
         await this.executeRecords(
           occurrence.children.filter(isRecordOccurrence),
-          member,
-          command.select
+          member
         );
         return;
       }
@@ -1106,6 +1111,14 @@ export class CommandExecution {
         return;
     }
   }
+  /**
+   * A relation-bearing createMany's result. Its selection is prepared HERE,
+   * from the identities the members produced, and not at construction: a
+   * selection that refuses does so after the writes it follows, and a series
+   * whose every member was skipped publishes `[]` without preparing it. That
+   * timing is observable, so it is kept (unlike updateMany's, whose
+   * construction already prepared the selection before any write).
+   */
   async records(
     records: CommandOccurrence<RecordCommand>[],
     select: Input | undefined,
@@ -1114,7 +1127,7 @@ export class CommandExecution {
     const { count, identities } = await this.executeRecords(
       records,
       member,
-      select
+      select !== undefined
     );
     if (!select) return this.context.finishValue({ count });
     if (identities.length === 0) return this.context.finishMany([]);
@@ -1130,7 +1143,7 @@ export class CommandExecution {
   private async executeRecords(
     records: CommandOccurrence<RecordCommand>[],
     member: Member,
-    select: Input | undefined
+    identified = false
   ): Promise<{ readonly count: number; readonly identities: Input[] }> {
     const ctx = this.context;
     const members = ctx.prepareMembers(() => records, member);
@@ -1138,19 +1151,20 @@ export class CommandExecution {
     let count = 0;
     for (const record of members) {
       const command = record.command;
-      const completed = command.suppression
-        ? await ctx.executeSkippableMember(
-            () => this.run(record),
-            command.fields,
-            command
-          )
-        : (await ctx.executeMember(() => this.run(record), command), true);
+      let completed = true;
+      if (command.suppression)
+        completed = await ctx.executeSkippableMember(
+          () => this.run(record),
+          command.fields,
+          command
+        );
+      else await ctx.executeMember(() => this.run(record), command);
       if (!completed) {
         await ctx.executeMember(() => this.adoptSuppressed(record), command);
         continue;
       }
       count++;
-      if (select) identities.push(this.identity(command.fields));
+      if (identified) identities.push(this.identity(command.fields));
     }
     return { count, identities };
   }
@@ -1243,37 +1257,30 @@ export class CommandExecution {
   async series(
     occurrence: CommandOccurrence<SeriesOccurrence>,
     member: Member,
-    select: Input
+    projection: PreparedProjection
   ): Promise<Input[]>;
   async series(
     occurrence: CommandOccurrence<SeriesOccurrence>,
     member: Member = occurrence.command.series.selection,
-    select?: Input
+    projection?: PreparedProjection
   ): Promise<number | Input[]> {
     const prepared = await this.captureSeries(occurrence, member);
-    // Only the admitted updateMany boundary supplies select, so captureSeries
-    // has constructed record members for this terminal readback.
+    // Only the admitted updateMany boundary supplies a projection, so
+    // captureSeries has constructed record members for this terminal readback.
     const updatedMembers =
       prepared.members as CommandOccurrence<RecordCommand>[];
-    const identityFields = select
+    const identityFields = projection
       ? updatedMembers.map(({ command }) => command.fields)
       : [];
     const count = await this.executeSeries(occurrence);
     const identities = identityFields.map((fields) => this.identity(fields));
-    if (!select) {
+    if (!projection) {
       await this.context.finish();
       return count;
     }
     if (identities.length === 0) return this.context.finishMany([]);
     return this.context.finishMany(
-      this.context.seriesQueries(
-        this.context.queries.prepareProjection(
-          occurrence.command.series.selection.model,
-          { select }
-        ),
-        identities,
-        "updateMany"
-      )
+      this.context.seriesQueries(projection, identities, "updateMany")
     );
   }
   /**

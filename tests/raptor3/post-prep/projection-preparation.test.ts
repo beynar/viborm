@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { Sql } from "@sql";
 import { Decimal } from "@src/index";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
-import { describe, it, vi } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 
 const LEFT_SOURCE = /"left_source"/;
 const RIGHT_SOURCE = /"right_source"/;
@@ -17,6 +21,8 @@ const INVALID_PROVIDER_DECIMAL = /Invalid provider decimal/;
 const INSERT_STATEMENT = /^INSERT\b/;
 const SELECT_ANYWHERE = /SELECT\b/;
 const LEADING_WORD = /^\w+/;
+const EMPTY_SELECT =
+  "The 'select' statement for model 'parent' needs at least one truthy value.";
 
 const selectAssembly = vi.hoisted(() => ({ calls: 0 }));
 
@@ -384,5 +390,173 @@ describe("post-G3 projection preparation", () => {
       await driver.disconnect();
       database.close();
     }
+  });
+});
+
+function bulkRelationSchema() {
+  const parent = s
+    .model({
+      id: s.int().id(),
+      label: s.string(),
+      children: s.toMany(() => child),
+    })
+    .map("post_g3_projection_bulk_parents");
+  const child = s
+    .model({
+      id: s.int().id().increment(),
+      label: s.string(),
+      parentId: s.int(),
+      parent: s
+        .toOne(() => parent)
+        .fields("parentId")
+        .references("id"),
+    })
+    .map("post_g3_projection_bulk_children");
+  return { parent, child };
+}
+
+/**
+ * A relation-bearing bulk verb against a real SQLite database, with every
+ * projection preparation stamped by the number of statements the driver had
+ * executed when it ran — the timing the verb's refusals inherit.
+ */
+async function bulkRelationWorld() {
+  const schema = bulkRelationSchema();
+  const database = new Database(":memory:");
+  const driver = new ProjectionRecordingSQLiteDriver({ client: database });
+  const client = createClient({ schema, driver });
+  const migration = await syncLiveSchema(client);
+  if (!migration.applied)
+    throw new Error("the bulk relation schema was not applied");
+  database.exec(
+    "INSERT INTO post_g3_projection_bulk_parents(id, label) VALUES (1, 'one'), (2, 'two')"
+  );
+  driver.statements.length = 0;
+  const prepare = Queries.prototype.prepareProjection;
+  const preparations: { readonly select: unknown; readonly after: number }[] =
+    [];
+  vi.spyOn(Queries.prototype, "prepareProjection").mockImplementation(function (
+    this: Queries,
+    model,
+    args
+  ) {
+    if (model === schema.parent)
+      preparations.push({
+        select: args.select,
+        after: driver.statements.length,
+      });
+    return prepare.call(this, model, args);
+  });
+  /** When the caller's own selection was prepared, in executed statements. */
+  const prepared = (select: unknown) =>
+    preparations
+      .filter((preparation) => isDeepStrictEqual(preparation.select, select))
+      .map((preparation) => preparation.after);
+  const engine = createCommandEngine({ schema, driver });
+  const writes = () =>
+    driver.statements
+      .map((statement) => statement.match(LEADING_WORD)?.[0])
+      .filter((word) => word === "INSERT" || word === "UPDATE");
+  const parents = () =>
+    database
+      .prepare("SELECT id, label FROM post_g3_projection_bulk_parents")
+      .all();
+  const children = () =>
+    database
+      .prepare("SELECT label, parentId FROM post_g3_projection_bulk_children")
+      .all();
+  return {
+    children,
+    client,
+    database,
+    engine,
+    parents,
+    prepared,
+    writes,
+  };
+}
+
+describe("relation-bearing bulk projection preparation", () => {
+  let world: Awaited<ReturnType<typeof bulkRelationWorld>> | undefined;
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await world?.client.$disconnect();
+    world?.database.close();
+    world = undefined;
+  });
+
+  it("prepares updateMany's requested output once, at construction, and publishes it for every member", async () => {
+    world = await bulkRelationWorld();
+    // Not a selection the engine prepares for itself (the stored row is
+    // `{ id, label }`, the identity `{ id }`).
+    const select = { label: true };
+    const updated = await world.engine.execute("parent", "updateMany", {
+      where: {},
+      data: { label: "updated", children: { create: { label: "created" } } },
+      select,
+    });
+
+    assert.deepEqual(updated, [{ label: "updated" }, { label: "updated" }]);
+    // Once, before the first statement: the members' identities are the only
+    // part of the result that waits for execution.
+    assert.deepEqual(world.prepared(select), [0]);
+    assert.deepEqual(world.children(), [
+      { label: "created", parentId: 1 },
+      { label: "created", parentId: 2 },
+    ]);
+  });
+
+  it("refuses updateMany's empty selection before any write", async () => {
+    world = await bulkRelationWorld();
+    await assert.rejects(
+      world.engine.execute("parent", "updateMany", {
+        where: {},
+        data: { label: "updated", children: { create: { label: "created" } } },
+        select: { id: false },
+      }),
+      { message: EMPTY_SELECT }
+    );
+    assert.deepEqual(world.writes(), []);
+    assert.deepEqual(world.prepared({ id: false }), [0]);
+  });
+
+  it("refuses createMany's empty selection only after its writes, which roll back", async () => {
+    world = await bulkRelationWorld();
+    await assert.rejects(
+      world.engine.execute("parent", "createMany", {
+        data: [
+          { id: 3, label: "three", children: { create: { label: "created" } } },
+        ],
+        select: { id: false },
+      }),
+      { message: EMPTY_SELECT }
+    );
+    // createMany prepares its output from the identities its members
+    // produced, so the refusal follows the member's two INSERTs.
+    assert.deepEqual(world.writes(), ["INSERT", "INSERT"]);
+    const [after, ...again] = world.prepared({ id: false });
+    assert.deepEqual(again, []);
+    assert.ok(after !== undefined && after >= 2);
+    assert.deepEqual(world.parents(), [
+      { id: 1, label: "one" },
+      { id: 2, label: "two" },
+    ]);
+    assert.deepEqual(world.children(), []);
+  });
+
+  it("never prepares createMany's selection when every member was skipped", async () => {
+    world = await bulkRelationWorld();
+    const created = await world.engine.execute("parent", "createMany", {
+      data: [
+        { id: 1, label: "again", children: { create: { label: "created" } } },
+      ],
+      skipDuplicates: true,
+      select: { id: false },
+    });
+
+    assert.deepEqual(created, []);
+    assert.deepEqual(world.prepared({ id: false }), []);
+    assert.deepEqual(world.children(), []);
   });
 });
