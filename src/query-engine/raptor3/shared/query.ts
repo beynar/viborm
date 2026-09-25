@@ -150,18 +150,20 @@ export type ProjectionShape =
       nullable?: boolean;
       fields: Record<string, ProjectionShape | Leaf>;
     }
-  | {
-      kind: "collection";
-      /** A negative `take` runs a reversed window; the decoder restores it. */
-      reversed?: boolean;
-      row: ProjectionShape;
-    }
+  | CollectionShape
   | {
       kind: "variants";
       /** The public slot, for the refusal that names it. */
       relation: string;
-      many: boolean;
+      many: false;
       arms: Record<string, ProjectionShape>;
+    }
+  | {
+      kind: "variants";
+      relation: string;
+      /** A junction-carried slot: each arm is a collection of its rows. */
+      many: true;
+      arms: Record<string, CollectionShape>;
     }
   | {
       kind: "recursive";
@@ -173,6 +175,13 @@ export type ProjectionShape =
       identity: readonly Leaf[];
     };
 type Shape = ProjectionShape;
+/** A to-many relation's rows. */
+type CollectionShape = {
+  kind: "collection";
+  /** A negative `take` runs a reversed window; the decoder restores it. */
+  reversed?: boolean;
+  row: ProjectionShape;
+};
 /**
  * A physical value's provider continuation ({@link Queries.fieldReader}),
  * bound to one execution's driver and adapter.
@@ -3697,7 +3706,10 @@ export class Queries {
         const many = resolved.edge.kind === "variantJunctionCarrier";
         const configuration = selection === true ? {} : record(selection);
         const only = configuration.only as string[] | undefined;
-        const arms: Record<string, Shape> = {};
+        // A junction-carried slot's arm is a collection of its rows; a row
+        // carrier's arm is the target's document.
+        const collections: Record<string, CollectionShape> = {};
+        const documents: Record<string, Shape> = {};
         const preparedArms: ({
           readonly variant: string;
         } & PreparedRelationProjection)[] = [];
@@ -3725,17 +3737,27 @@ export class Queries {
             bindMembership(this.schema, model, name, member.variant),
             arm === undefined ? true : arm
           );
-          arms[member.variant] = this.relationShape(nested);
+          if (many) collections[member.variant] = this.collectionShape(nested);
+          else documents[member.variant] = this.relationShape(nested);
           preparedArms.push(
             Object.freeze({ variant: member.variant, ...nested })
           );
         }
-        fields[name] = Object.freeze({
-          kind: "variants",
-          relation: name,
-          many,
-          arms: Object.freeze(arms),
-        });
+        fields[name] = Object.freeze(
+          many
+            ? {
+                kind: "variants",
+                relation: name,
+                many,
+                arms: Object.freeze(collections),
+              }
+            : {
+                kind: "variants",
+                relation: name,
+                many,
+                arms: Object.freeze(documents),
+              }
+        );
         prepared.push(
           Object.freeze({
             kind: "variants",
@@ -3808,6 +3830,10 @@ export class Queries {
       });
     }
     if (!nested.edge.many) return nested.projection.shape;
+    return this.collectionShape(nested);
+  }
+  /** A to-many relation's rows, in the window its `take` requested. */
+  private collectionShape(nested: PreparedRelationProjection): CollectionShape {
     const take = nested.arguments.take;
     return Object.freeze({
       kind: "collection",
@@ -5046,13 +5072,7 @@ export class Queries {
         this.decodeRecursiveCarrier(shape, value, readRow, readIdentity);
     }
     if (shape.kind === "variants") {
-      // Its arms, compiled once, in `shape.arms` order.
-      const arms = Object.entries(shape.arms).map(([type, arm]) => ({
-        type,
-        arm,
-        read: this.compileReader(arm, internal, true),
-      }));
-      return (value) => {
+      const slot = (value: unknown): Input => {
         // The slot is a provider document the statement always builds, read
         // by the one document rule: a NULL or non-object slot is a malformed
         // result, refused at the slot before any arm is asked (Arnaud,
@@ -5078,34 +5098,45 @@ export class Queries {
               throw new QueryEngineError(
                 `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
               );
-        const values: unknown[] = [];
+        return variants;
+      };
+      // Its arms, compiled once, in `shape.arms` order. A junction-carried
+      // slot's arm is a collection, so its reader answers the arm's rows.
+      if (shape.many) {
+        const arms = Object.entries(shape.arms).map(([type, arm]) => ({
+          type,
+          read: this.compileCollection(arm, internal),
+        }));
+        return (value) => {
+          const variants = slot(value);
+          const values: unknown[] = [];
+          for (const { type, read } of arms)
+            for (const data of read(own(variants, type)))
+              values.push({ type, data });
+          return values;
+        };
+      }
+      const arms = Object.entries(shape.arms).map(([type, arm]) => ({
+        type,
+        arm,
+        read: this.compileReader(arm, internal, true),
+      }));
+      return (value) => {
+        const variants = slot(value);
         for (const { type, arm, read } of arms) {
           const carrier = own(variants, type);
           if (orphanedArm(carrier, arm))
             throw new QueryEngineError(
               `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
             );
-          const rows = read(carrier);
-          if (shape.many) {
-            for (const data of rows as unknown[]) values.push({ type, data });
-          } else if (rows !== null) return { type, data: rows };
+          const data = read(carrier);
+          if (data !== null) return { type, data };
         }
-        return shape.many ? values : null;
+        return null;
       };
     }
-    if (shape.kind === "collection") {
-      const readRow = this.compileReader(shape.row, internal, true);
-      return (value) => {
-        const decoded = providerJson(value);
-        if (!Array.isArray(decoded))
-          throw new InvalidScalarResult(
-            "collection",
-            "a requested relation is not a provider array"
-          );
-        const rows = decoded.map(readRow);
-        return shape.reversed ? rows.reverse() : rows;
-      };
-    }
+    if (shape.kind === "collection")
+      return this.compileCollection(shape, internal);
     // The document's MEMBER LIST is a fact of the PREPARED PROJECTION, stated
     // once by {@link prepareProjection} and frozen on the shape; a row carries
     // only the values for it. It is read here, once per batch — the shape's
@@ -5148,6 +5179,27 @@ export class Queries {
       for (const { field, read } of members)
         document[field] = read(own(source, field));
       return document;
+    };
+  }
+  /**
+   * A collection's reader, compiled by {@link compileReader} for a to-many
+   * relation and for each arm of a junction-carried variant slot: its rows
+   * are carried documents, restored to the requested order.
+   */
+  private compileCollection(
+    shape: CollectionShape,
+    internal: boolean
+  ): (value: unknown) => unknown[] {
+    const readRow = this.compileReader(shape.row, internal, true);
+    return (value) => {
+      const decoded = providerJson(value);
+      if (!Array.isArray(decoded))
+        throw new InvalidScalarResult(
+          "collection",
+          "a requested relation is not a provider array"
+        );
+      const rows = decoded.map(readRow);
+      return shape.reversed ? rows.reverse() : rows;
     };
   }
   /**
