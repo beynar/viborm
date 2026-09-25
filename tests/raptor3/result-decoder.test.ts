@@ -17,7 +17,8 @@
  * aggregate carrier, the NULL and JSON-text root row and the malformed
  * relation text keep the baseline's answer; the variant SLOT now follows the
  * one document rule, so a NULL or non-object slot is the malformed-result
- * error instead of a raw `TypeError`. Changing any of them again is an
+ * error instead of a raw `TypeError`, and so is a PRESENT integrity entry
+ * that is no document. Changing any of them again is an
  * observable contract change that needs a ruling, not a side effect of a
  * faster decoder.
  */
@@ -33,6 +34,7 @@ import {
   Queries,
 } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { POLYMORPHIC_COLLECTION_ORPHANS_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { describe, expect, it } from "vitest";
 
@@ -515,7 +517,13 @@ const remark = s
     subject: s.toOne({ article: () => article, clip: () => clip }).optional(),
   })
   .map("decoder_remarks");
-const scriptedSchema = { tag, item, article, clip, remark };
+const shelf = s
+  .model({
+    id: s.int().id(),
+    subject: s.toMany({ article: () => article, clip: () => clip }),
+  })
+  .map("decoder_shelves");
+const scriptedSchema = { tag, item, article, clip, remark, shelf };
 
 function scripted(rows: unknown[], result?: DriverResultParser) {
   const driver = new ScriptedDriver(rows, result);
@@ -982,5 +990,61 @@ describe("compatibility choices, as ruled on 2026-09-25", () => {
       );
       await client.$disconnect();
     }
+  });
+
+  it("refuses a present integrity entry that is no document, and reads an absent one as no membership", async () => {
+    // A junction-carried slot's integrity entry is a document of the slot. The
+    // baseline iterated an ARRAY's entries, so positive evidence given as
+    // `[5]` was the orphan refusal; reading it as "no document" would publish
+    // `subject: []` instead. Present evidence that is no document is the
+    // slot's malformed result; only an ABSENT entry means no membership.
+    for (const evidence of [[5], 5, "text", "[5]", null]) {
+      const client = scripted([
+        {
+          id: 1,
+          subject: {
+            [POLYMORPHIC_COLLECTION_ORPHANS_KEY]: evidence,
+            article: [],
+            clip: [],
+          },
+        },
+      ]);
+      const failure = await rejection(
+        client.shelf.findMany({ select: { id: true, subject: true } })
+      );
+      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure.message).toBe(
+        'Driver "scripted" returned a malformed polymorphic slot scalar for operation "findMany": the integrity entry is not an object.'
+      );
+      await client.$disconnect();
+    }
+
+    const absent = scripted([
+      { id: 1, subject: { article: [{ id: 3, title: "A" }], clip: [] } },
+    ]);
+    expect(
+      await absent.shelf.findMany({ select: { id: true, subject: true } })
+    ).toEqual([
+      { id: 1, subject: [{ type: "article", data: { id: 3, title: "A" } }] },
+    ]);
+    await absent.$disconnect();
+
+    const orphaned = scripted([
+      {
+        id: 1,
+        subject: {
+          [POLYMORPHIC_COLLECTION_ORPHANS_KEY]: { article: 0, clip: 2 },
+          article: [],
+          clip: [],
+        },
+      },
+    ]);
+    const failure = await rejection(
+      orphaned.shelf.findMany({ select: { id: true, subject: true } })
+    );
+    expect(failure.message).toBe(
+      "Polymorphic relation 'subject' references a missing 'clip' record."
+    );
+    await orphaned.$disconnect();
   });
 });

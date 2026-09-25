@@ -464,8 +464,9 @@ function providerJson(value: unknown): unknown {
  * object that is not an array, and its members are then read by {@link own}.
  * `null` is answered as itself, because only the placement knows whether its
  * shape permits it; anything else is no document (`undefined`), which the
- * placement refuses in its own registered sentence — except the integrity
- * entry, which a slot without junction memberships does not carry.
+ * placement refuses in its own registered sentence. The one placement that
+ * may be ABSENT is the integrity entry, which a slot without junction
+ * memberships does not carry; a present one is refused like any other.
  */
 function providerDocument(value: unknown): Input | null | undefined {
   if (value === null) return null;
@@ -5087,17 +5088,22 @@ export class Queries {
         // row is gone is a fact about the SLOT, so `only` — which selects what
         // is read — cannot make it unobservable (Arnaud's D-26). One refusal,
         // from the decoder arm that already owns the sentence. Its entry is a
-        // document of the slot, read by the same rule; a slot with no
-        // junction membership carries none.
-        const orphans = providerDocument(
-          own(variants, POLYMORPHIC_COLLECTION_ORPHANS_KEY)
-        );
-        if (orphans)
-          for (const [type, count] of Object.entries(orphans))
-            if (Number(count) > 0)
-              throw new QueryEngineError(
-                `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
-              );
+        // document of the slot, read by the same rule: a slot with no
+        // junction membership carries none, and a PRESENT entry that is no
+        // document is the slot's malformed result — never "no memberships".
+        const evidence = own(variants, POLYMORPHIC_COLLECTION_ORPHANS_KEY);
+        if (evidence === undefined) return variants;
+        const orphans = providerDocument(evidence);
+        if (!orphans)
+          throw new InvalidScalarResult(
+            "polymorphic slot",
+            "the integrity entry is not an object"
+          );
+        for (const [type, count] of Object.entries(orphans))
+          if (Number(count) > 0)
+            throw new QueryEngineError(
+              `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`
+            );
         return variants;
       };
       // Its arms, compiled once, in `shape.arms` order. A junction-carried

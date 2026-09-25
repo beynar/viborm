@@ -77,13 +77,31 @@ stated contracts. Arnaud ruled on them on 2026-09-25.
 
 | Choice | Ruling | Answer now |
 | --- | --- | --- |
-| A NULL or non-object **variant slot** | Changed: the slot follows the one document rule. | The malformed-result `QueryEngineError` at the slot: `polymorphic slot`, "the slot is not an object". A NULL slot used to escape as the raw `TypeError` of `Object.hasOwn`, and any other non-object was refused at its first arm, in that arm's sentence. A **public error-surface change**, recorded in `CHANGELOG.md` (Unreleased). The slot's integrity entry is read by the same rule. |
+| A NULL or non-object **variant slot** | Changed: the slot follows the one document rule. | The malformed-result `QueryEngineError` at the slot: `polymorphic slot`, "the slot is not an object". A NULL slot used to escape as the raw `TypeError` of `Object.hasOwn`, and any other non-object was refused at its first arm, in that arm's sentence. A **public error-surface change**, recorded in `CHANGELOG.md` (Unreleased). The slot's integrity entry is read by the same rule: absent means no membership, and a present entry that is not an object (NULL, an array, a number, a string) is refused at the slot, "the integrity entry is not an object" (see below). |
 | A NULL **aggregate carrier** | Kept. | Published as `null`: the carrier's shape states no nullability. |
 | An empty-array **singular variant arm** | Kept. | The orphan refusal "references a missing … record": the empty array is read as the empty document the claimed-but-gone arm lowers to. |
 
 `tests/raptor3/result-decoder.test.ts` pins the first two, beside the
 root-row and relation-text answers the baseline also gives, and
 `tests/raptor3/result-decoder-placements.test.ts` pins the third.
+
+**The integrity entry, repaired after review.** `4cbf77aa0` read the
+junction-carried slot's integrity entry through `providerDocument` and
+treated its `undefined` as absent. An array is no document, so malformed
+present evidence such as `[5]` was read as "no membership" and the read
+published `subject: []`. The baseline had iterated the array's entries and
+thrown the orphan refusal. The slot now refuses present evidence that is not
+an object, with the same `InvalidScalarResult("polymorphic slot", …)` it
+raises two lines above for the slot itself: both are a malformed provider
+document at the same slot, and the operation owns the public sentence.
+`Driver "<driver>" returned a malformed polymorphic slot scalar for operation
+"<operation>": the integrity entry is not an object.` An absent entry still
+means no membership, and a well-formed positive count is still the orphan
+`QueryEngineError`. The witness in `result-decoder.test.ts` covers `[5]`, `5`,
+`"text"`, `"[5]"` and NULL, the absent entry and a positive count. It fails
+on the pre-repair source (`[5]` resolves). The statements VibORM issues always
+build the entry as a JSON document, so only a driver or middleware that
+rewrites results can observe this.
 
 ## Production cost
 
@@ -313,7 +331,9 @@ Both runs returned identical public results in both trees.
 
 **Census.** One more site, 206 in all, now also 78 inherited sites. The new
 "polymorphic slot" refusal matches the old-engine corpus, and the candidate
-count is unchanged at 36.
+count is unchanged at 36. The integrity-entry repair adds a second
+"polymorphic slot" site: 207 in all, 79 inherited, and still 36 candidate
+sentences. No new candidate sentence appears.
 
 ## Not established
 

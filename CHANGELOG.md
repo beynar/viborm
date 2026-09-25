@@ -14,8 +14,13 @@ Versioning.
   every other provider document raises:
   `Driver "<driver>" returned a malformed polymorphic slot scalar for
   operation "<operation>": the slot is not an object.` (`meta.scalarType` is
-  `"polymorphic slot"`). The statements VibORM issues always build that
-  document, so only a driver or middleware that rewrites results can observe
+  `"polymorphic slot"`). The same holds for a polymorphic to-many slot's
+  orphan-integrity entry: when it is present but is not an object (NULL, an
+  array, a number or a string), the read fails with `...: the integrity entry
+  is not an object.` It used to be ignored (NULL, number, string) or have its
+  array entries read as orphan counts. An absent entry still means no
+  orphaned membership. The statements VibORM issues always build these
+  documents, so only a driver or middleware that rewrites results can observe
   the change; well-formed results are unchanged.
 - **PGlite runs the full GeoPoint tier with PostGIS.** The optional
   `@electric-sql/pglite` peer now admits 0.4 and 0.5 besides 0.3
