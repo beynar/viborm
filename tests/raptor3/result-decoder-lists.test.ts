@@ -751,3 +751,96 @@ describe("every placement of a real SQLite database", () => {
     }
   });
 });
+
+describe("placements and bindings the list reader is compiled for", () => {
+  it("reads a physical and a carried placement of the same list leaves in one decoded batch, each by its own reader", async () => {
+    const { driver, client } = await seededWorld();
+    try {
+      const asks: [string, unknown][] = [];
+      Object.defineProperty(driver, "result", {
+        configurable: true,
+        value: recording(asks),
+      });
+      const select = { id: true, tags: true, counts: true } as const;
+      const [row] = await client.box.findMany({
+        where: { id: 1 },
+        select: {
+          ...select,
+          crate: {
+            select: { boxes: { select, orderBy: { id: "asc" } } },
+          },
+        },
+      });
+      const lists = ({
+        id,
+        tags,
+        counts,
+      }: typeof FULL_BOX | typeof EMPTY_BOX) => ({
+        id,
+        tags,
+        counts,
+      });
+      expect(row).toEqual({
+        ...lists(FULL_BOX),
+        crate: { boxes: [lists(FULL_BOX), lists(EMPTY_BOX)] },
+      });
+      // The physical row asks once per cell, each list as its whole stored
+      // text; the carried document's lists never reach the chain.
+      expect(asks.map(([type]) => type)).toEqual(["int", "string", "int"]);
+      expect(
+        asks.slice(1).every(([, value]) => typeof value === "string")
+      ).toBe(true);
+      expect(row?.tags).not.toBe(row?.crate?.boxes[0]?.tags);
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  it("decodes two clients' concurrent reads through each one's own result parser, into fresh containers", async () => {
+    const asks: Record<"plain" | "marked", string[]> = {
+      plain: [],
+      marked: [],
+    };
+    /** Records each ask; `marked` hands its own array for every string list. */
+    const parser = (name: "plain" | "marked"): DriverResultParser => ({
+      parseField: (value, type, next) => {
+        asks[name].push(type);
+        return next(
+          name === "marked" && type === "string" ? ["marked"] : value,
+          type
+        );
+      },
+    });
+    const rows = [
+      boxRow({ id: 1, tags: '["a","b"]', counts: "[1,2]" }),
+      boxRow({ id: 2 }),
+    ];
+    const plain = scripted(rows, parser("plain"));
+    const marked = scripted(rows, parser("marked"));
+    const select = { id: true, tags: true, counts: true } as const;
+    const reads = await Promise.all(
+      [plain, marked, plain, marked, plain, marked].map((reader) =>
+        reader.box.findMany({ select })
+      )
+    );
+    for (const [index, read] of reads.entries())
+      expect(read).toEqual(
+        index % 2 === 0
+          ? [
+              { id: 1, tags: ["a", "b"], counts: [1, 2] },
+              { id: 2, tags: [], counts: [] },
+            ]
+          : [
+              { id: 1, tags: ["marked"], counts: [1, 2] },
+              { id: 2, tags: ["marked"], counts: [] },
+            ]
+      );
+    const perRead = ["int", "string", "int", "int", "string", "int"];
+    expect(asks.plain).toEqual([...perRead, ...perRead, ...perRead]);
+    expect(asks.marked).toEqual([...perRead, ...perRead, ...perRead]);
+    const published = reads.flatMap((read) => read.map((row) => row.tags));
+    expect(new Set(published).size).toBe(published.length);
+    await plain.$disconnect();
+    await marked.$disconnect();
+  });
+});

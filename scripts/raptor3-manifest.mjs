@@ -508,17 +508,28 @@ export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
  * the compiled-list-decoder plan's work unit 1, the list leaf itself
  * (container null, absence, emptiness, malformed and sparse answers, member
  * refusals, the enum and decimal list representations, the chain asked once
- * per physical list, fresh containers, and the real-database placements).
+ * per physical list, fresh containers, and the real-database placements),
+ * with work unit 3's physical-and-carried placement of one list leaf in one
+ * batch and two clients' list bindings read concurrently.
  * SQLite and scripted transports.
  */
 export const RESULT_DECODER_COUNTS = Object.freeze({
   "tests/raptor3/result-decoder.test.ts": 26,
   "tests/raptor3/result-decoder-placements.test.ts": 11,
-  "tests/raptor3/result-decoder-lists.test.ts": 11,
+  "tests/raptor3/result-decoder-lists.test.ts": 13,
 });
 export const RESULT_DECODER_TESTS = Object.freeze(
   Object.keys(RESULT_DECODER_COUNTS)
 );
+/**
+ * The list leaf on native PostgreSQL and MySQL (compiled-list-decoder plan,
+ * work unit 3): every list kind at physical, RETURNING, borrowed and carried
+ * placements, malformed native members, and concurrent parser bindings. It
+ * needs a live provider, so it runs in both native read-envelope modes.
+ */
+export const RESULT_DECODER_NATIVE_COUNTS = Object.freeze({
+  "tests/raptor3/result-decoder-lists-native.test.ts": 4,
+});
 export const RQ01_SQLITE_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/provider-sql-sqlite.test.ts": 15,
 });
@@ -681,6 +692,7 @@ export const G4_NATIVE_PROVIDER_COUNTS = Object.freeze({
   "tests/raptor3/g4/native/read-envelope-native.test.ts": 5,
   ...RQ01_NATIVE_COUNTS,
   ...RQ06_NATIVE_COUNTS,
+  ...RESULT_DECODER_NATIVE_COUNTS,
 });
 export const G4_NATIVE_PG_COUNTS = G4_NATIVE_PROVIDER_COUNTS;
 export const G4_NATIVE_PG_TESTS = Object.freeze(
