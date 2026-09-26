@@ -214,7 +214,7 @@ const renderSentences = (node, at) => {
     }
   }
   // A named constant (`CURSOR_ORDER_REFUSAL`) is the sentence it is bound to,
-  // and so is one this file imports (`DISTANCE_NAME_COLLISION`).
+  // and so is one this file imports (`DISTANCE_SELECTED_TWICE`).
   if (ts.isIdentifier(node) && at) {
     const local = localBinding(at, node.text);
     const bound = local === undefined ? importedConstant(at, node.text) : local;

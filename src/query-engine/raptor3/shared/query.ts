@@ -9,7 +9,6 @@ import {
   VibORMError,
 } from "@errors";
 import {
-  DISTANCE_NAME_COLLISION,
   DISTANCE_SELECTED_TWICE,
   emptySelectRefusal,
   selectedArm,
@@ -3677,13 +3676,8 @@ export class Queries {
         if (distance !== undefined) {
           if (distanceSelected)
             throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
-          // The OTHER registered collision (`result/result-shape.ts`
-          // `buildModelShape`, the guard after every producer): the output key
-          // `_distance` is the distance's, and a model that owns a field of
-          // that name: scalar, relation or variant slot, cannot publish both
-          // under it.
-          if (fields[DISTANCE_FIELD])
-            throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+          // The output key `_distance` is the distance's alone: schema
+          // validation refuses a member of that name (F010).
           distanceSelected = true;
           prepared.push(
             Object.freeze({
@@ -3697,13 +3691,6 @@ export class Queries {
           continue;
         }
       }
-      // The output key `_distance` has ONE producer. A distance prepared
-      // earlier in this projection owns it; a scalar OR a relation of that
-      // name prepared after it — a recursive slot included — would otherwise
-      // overwrite the leaf silently and publish under one key at some levels
-      // and the other at the rest.
-      if (name === DISTANCE_FIELD && distanceSelected)
-        throw new QueryEngineError(DISTANCE_NAME_COLLISION);
       if (!model["~"].state.relations[name]) {
         prepared.push(Object.freeze({ kind: "scalar", name }));
         fields[name] = this.scalarShape(model, name);
@@ -3808,12 +3795,6 @@ export class Queries {
    */
   private relationShape(nested: PreparedRelationProjection): Shape {
     if (nested.recurrence) {
-      // The repeated slot publishes under the relation's name inside its own
-      // node. Admission refuses that name there, so a field of it in the node
-      // is a distance: `_distance` would have two producers — the slot at every
-      // level before the cutoff, the distance at the cutoff.
-      if (nested.projection.shape.fields[nested.edge.name])
-        throw new QueryEngineError(DISTANCE_NAME_COLLISION);
       const resolved = this.schema.index
         .get(nested.edge.source)!
         .get(nested.edge.name)!;

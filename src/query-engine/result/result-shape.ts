@@ -42,20 +42,16 @@ const MODEL_ROW_OPERATIONS = new Set<Operation>([
 ]);
 
 /**
- * The registered sentence for the output key `_distance` claimed twice, stated
- * once for both result views: this schema-only shape and Raptor 3's prepared
+ * The registered refusal for a second `_distance` in one select, stated once
+ * for both result views: this schema-only shape and Raptor 3's prepared
  * projection (`raptor3/shared/query.ts`) raise it.
  */
-export const DISTANCE_NAME_COLLISION =
-  "A distance result cannot be selected together with a model field named '_distance'.";
-
-/** The registered refusal for a second `_distance` in one select, shared the same way. */
 export const DISTANCE_SELECTED_TWICE =
   "Distance select supports only one _distance field per select.";
 
 /**
  * The registered refusal for a written `select` that keeps nothing, stated once
- * for both result views like {@link DISTANCE_NAME_COLLISION}: this schema-only
+ * for both result views like {@link DISTANCE_SELECTED_TWICE}: this schema-only
  * shape and Raptor 3's prepared projection name the model by its schema key.
  */
 export function emptySelectRefusal(model: Model<any>): string {
@@ -153,7 +149,6 @@ function buildModelShape(
   const rawKeys: string[] = [];
   const relations = new Map<string, ExpectedRelationResultShape>();
   const polymorphic = new Map<string, ExpectedPolymorphicResultShape>();
-  const selectedOutputKeys = new Set<string>();
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const modelRelations = model["~"].state.relations;
   const selectValue = getOwnValue(args, "select");
@@ -169,7 +164,6 @@ function buildModelShape(
       if (!scalar) continue;
       if (value === true) {
         rawKeys.push(fieldName);
-        selectedOutputKeys.add(fieldName);
         continue;
       }
       if (isRecord(value) && Object.hasOwn(value, "_distance")) {
@@ -184,7 +178,6 @@ function buildModelShape(
   } else {
     for (const fieldName of projectableScalarNames(model)) {
       rawKeys.push(fieldName);
-      selectedOutputKeys.add(fieldName);
     }
   }
 
@@ -194,17 +187,9 @@ function buildModelShape(
     select,
     rawKeys,
     relations,
-    selectedOutputKeys,
     index
   );
-  addSelectedPolymorphicRelations(
-    model,
-    select,
-    rawKeys,
-    polymorphic,
-    selectedOutputKeys,
-    index
-  );
+  addSelectedPolymorphicRelations(model, select, rawKeys, polymorphic, index);
 
   addSelectedRelations(
     model,
@@ -212,24 +197,9 @@ function buildModelShape(
     include,
     rawKeys,
     relations,
-    selectedOutputKeys,
     index
   );
-  addSelectedPolymorphicRelations(
-    model,
-    include,
-    rawKeys,
-    polymorphic,
-    selectedOutputKeys,
-    index
-  );
-  // The output key `_distance` has ONE producer: the distance, or a model
-  // field of that name — scalar or relation, selected or included. The guard
-  // sits after every producer has been gathered so an included relation named
-  // `_distance` is refused exactly as a selected one is.
-  if (hasDistance && selectedOutputKeys.has("_distance")) {
-    throw new QueryEngineError(DISTANCE_NAME_COLLISION);
-  }
+  addSelectedPolymorphicRelations(model, include, rawKeys, polymorphic, index);
   const relationCountSelections = [
     getOwnValue(select, "_count"),
     getOwnValue(include, "_count"),
@@ -293,7 +263,6 @@ function addSelectedRelations(
   selection: Record<string, unknown> | undefined,
   rawKeys: string[],
   relations: Map<string, ExpectedRelationResultShape>,
-  selectedOutputKeys: Set<string>,
   index: ResolvedRelationIndex
 ): void {
   for (const [relationName, value] of selectedEntries(selection)) {
@@ -306,7 +275,6 @@ function addSelectedRelations(
     if (!relation || isVariantRelationState(relation["~"].state)) continue;
     const targetModel = relation["~"].settleTarget() as Model<any>;
     rawKeys.push(relationName);
-    selectedOutputKeys.add(relationName);
     const shape = buildModelShape(
       targetModel,
       getNestedSelection(value),
@@ -314,12 +282,6 @@ function addSelectedRelations(
     );
     const resolved = index.get(model)?.get(relationName);
     const recurrence = admittedRecurrence(value);
-    // A recursive `_distance` slot whose repeated node selects a distance
-    // gives that node's key two producers (`Queries.relationShape` refuses
-    // the same pair for the engine).
-    if (recurrence && relationName === "_distance" && shape.distanceScalar) {
-      throw new QueryEngineError(DISTANCE_NAME_COLLISION);
-    }
     relations.set(relationName, {
       model: targetModel,
       shape,
@@ -339,7 +301,6 @@ function addSelectedPolymorphicRelations(
   selection: Record<string, unknown> | undefined,
   rawKeys: string[],
   polymorphic: Map<string, ExpectedPolymorphicResultShape>,
-  selectedOutputKeys: Set<string>,
   index: ResolvedRelationIndex
 ): void {
   const modelRelations = model["~"].state.relations;
@@ -365,7 +326,6 @@ function addSelectedPolymorphicRelations(
     }
 
     rawKeys.push(relationName);
-    selectedOutputKeys.add(relationName);
     const resolved = index.get(model)?.get(relationName);
     polymorphic.set(relationName, {
       // CARDINALITY is the declaration's own fact — the slot the factory was
