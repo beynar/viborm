@@ -9,7 +9,6 @@ export {
   createQueryScope,
   getColumnName,
   getCompoundIdConstraint,
-  getDefaultScalarFieldNames,
   getPrimaryKeyFields,
   getRelationNames,
   getScalarFieldNames,

@@ -28,6 +28,24 @@ const shelfSchema = { article, clip, shelf };
 const blank = s.model({});
 const blankSchema = { blank };
 
+const vault = s
+  .model({
+    id: s.string().id(),
+    label: s.string(),
+    secret: s.string(),
+    notes: s.toMany(() => note),
+  })
+  .omit({ secret: true });
+const note = s.model({
+  id: s.string().id(),
+  vaultId: s.string(),
+  vault: s
+    .toOne(() => vault)
+    .fields("vaultId")
+    .references("id"),
+});
+const vaultSchema = { vault, note };
+
 describe("TypeScript renderer degenerate domains", () => {
   test("renders an enum declaring no member as an uninhabited field", () => {
     const ticket = s.model({ state: s.enum([]) });
@@ -61,6 +79,31 @@ describe("TypeScript renderer degenerate domains", () => {
     ).toThrow(
       "The 'select' statement for model 'record' needs at least one truthy value."
     );
+  });
+
+  test("leaves a model-level omitted scalar out of every default projection", () => {
+    // The default projection has one owner, `projectableScalarNames`
+    // (validation/model/core/projection.ts), which the engine's prepared
+    // projection reads too: without a written `select` the row is every
+    // projectable scalar, whether or not an include adds relations beside it.
+    expect(
+      renderOperationResultType(vaultSchema, "vault", "findMany", {})
+    ).toBe(`Array<{
+  id: string;
+  label: string;
+}>`);
+    expect(
+      renderOperationResultType(vaultSchema, "vault", "findMany", {
+        include: { notes: true },
+      })
+    ).toBe(`Array<{
+  id: string;
+  label: string;
+  notes: Array<{
+    id: string;
+    vaultId: string;
+  }>;
+}>`);
   });
 
   test("renders a row carrying no readable column as an empty object", () => {

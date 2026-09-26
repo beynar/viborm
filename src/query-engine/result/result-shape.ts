@@ -7,9 +7,9 @@ import {
 } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
+import { projectableScalarNames } from "@validation/model/core/projection";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { isRecord } from "@validation/value-guards";
-import { getDefaultScalarFieldNames } from "../context";
 import {
   type AggregateResultName,
   DISTANCE_RESULT_KEY,
@@ -153,7 +153,7 @@ function buildModelShape(
       }
     }
   } else {
-    for (const fieldName of getDefaultScalarFieldNames(model)) {
+    for (const fieldName of projectableScalarNames(model)) {
       rawKeys.push(fieldName);
       selectedOutputKeys.add(fieldName);
     }

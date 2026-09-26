@@ -33,6 +33,7 @@ import type { NativeType } from "@schema/scalars/native-types";
 import { Sql, sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
+import { projectableScalarNames } from "@validation/model/core/projection";
 import {
   type DateTimePhysicalForm,
   decodePhysicalDateTime,
@@ -3627,9 +3628,7 @@ export class Queries {
     const selected = {
       ...(args.select ??
         Object.fromEntries(
-          model["~"].scalarFieldNames
-            .filter((field) => !model["~"].state.omit?.[field])
-            .map((field) => [field, true])
+          projectableScalarNames(model).map((field) => [field, true])
         )),
       ...args.include,
     };
