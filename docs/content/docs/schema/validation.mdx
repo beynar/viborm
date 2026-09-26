@@ -13,7 +13,9 @@ Client construction always runs the **structural gate** — the schema-wide
 relation resolver that pairs every slot, decides foreign-key ownership,
 uniqueness and junction topology, and materializes private variant storage —
 plus the model-identity checks a client needs to address a model at all
-(duplicate model name, duplicate table). Advice about how a schema is *spelled*
+(duplicate model name, duplicate table) and the selector checks every query
+relies on (a compound key name that reuses a member name, a member named
+`_count`). Advice about how a schema is *spelled*
 — a missing ID field, a reserved model name, an index shape — belongs to the
 boundary that writes DDL, so it runs on `push` and `migrate` rather than at
 client construction.

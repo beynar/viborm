@@ -2912,3 +2912,36 @@ combined-depth-stress,nested-create-context-grandchild,create-many-skip-depth}.t
 `tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts`.
 The logger route and the `notice` key are pinned by "routes the dropped-skip
 warning through the client's logger once …" (`suppression-replay.test.ts`).
+
+---
+
+## Addendum — `_count` is a reserved member name (2026-09-26)
+
+**Owner ruling (Arnaud, 2026-09-26): "_count is a reserved word."** A model
+member named `_count` — scalar, relation or variant slot — is refused where
+the schema is validated: F010, `memberNamesAreNotReserved`
+(`src/schema/validation/rules/model.ts`), in `validateSchema`'s model rules and
+in the selector rules every effect-capable boundary runs beside the relation
+gate (`SELECTOR_RULES`, `src/schema/validation/validator.ts`). Commit
+`945aaf8b2`. The one sentence:
+`Model '<model>' declares a member named '_count'; '_count' is reserved for
+relation counts. Rename it, and use .map("_count") on a renamed scalar to keep
+its column name.`
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `result/result-shape.ts` `buildModelShape` · `Relation counts cannot be selected together with a model field named '_count'.` (`QueryEngineError`) | The output key `_count` has one producer. | Schema validation: the only second producer was a model member named `_count`. | **DELETED.** Coverage moved to F010. It had no test of its own before the known-defect file (2ebadbc46); restoring it leaves layer-client and layer-query-engine green (1295 cells), because no admitted selection can put `_count` among the projected member names. |
+| `raptor3/shared/query.ts` `Queries.prepareProjection` · `name === "_count" && !model["~"].state.scalars[name]` | same | same | **DELETED** (the conjunct; not a guard, the model lookup that made the engine publish the member). Restoring it changes no result: 204 cells over the new contract, the sqlite3 behaviour file and the raptor3 projection/count files stay green. |
+| `validation/model/args/aggregate.ts` `groupByCollisions` · `Aggregate '_count' cannot be selected together with a model field named '_count'.` | A grouped column and a selected aggregate never share an output key. | Schema validation, for `_count` only. | **NARROWED**: `_count` left `GROUP_AGGREGATE_KEYS`; the refusal stays for `_avg`, `_sum`, `_min`, `_max` (pins: aggregate-args.core.test.ts, four cells). |
+| `validation/model/args/bulk-write-projection.ts` `findProjectedRelation` · `'select._count' is not supported on '<verb>' …` | A bulk write projects scalars only. | Admission. | **KEPT**: live on every model (without it `_count` falls to `Unknown key: _count`); it never depended on a member of that name. |
+
+Falsifiers: `tests/contracts/public-client/count-reserved-member.core.test.ts`
+(six refusal cells, one per member kind at `validateSchema` and at client
+construction) and aggregate-args.core.test.ts "a model field named _count never
+reaches groupBy"; disabling F010 turns those seven red. The runtime witness of
+what remains is the "a scalar mapped to the column `_count`" section of
+`tests/contracts/drivers/behaviors/relation-read-aggregate-behavior.ts`. The
+Raptor 3 refusal census is unmoved in counts (it matches sentences thrown under
+`raptor3/**`; the deleted renderer guard sits outside it): only line numbers
+after `query.ts:3651` shift by two.
+

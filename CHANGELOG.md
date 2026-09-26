@@ -5,6 +5,21 @@ Versioning.
 
 ## Unreleased
 
+- **Breaking: `_count` is a reserved member name.** A schema whose model
+  declares a scalar, a relation or a polymorphic slot named `_count` is now
+  refused where the schema is validated — client construction, migrations and
+  `validateSchema` — with `[F010] Model '<model>' declares a member named
+  '_count'; '_count' is reserved for relation counts. Rename it, and use
+  .map("_count") on a renamed scalar to keep its column name.` Before, such a
+  schema was accepted and `_count` had no single meaning: admission and the
+  type renderer read `select._count` / `include._count` as relation counts,
+  while the runtime published the member (even when `omit`, or the model's own
+  `.omit()`, had excluded it) and the static result type intersected the member
+  with the counts. `_count` in `select` and `include` is now relation counts
+  everywhere. To keep the column, rename the member and map it:
+  `tally: s.int().map("_count")`. A `groupBy` can no longer group by a field
+  named `_count`, since none exists; the grouped-field collision refusal for
+  `_avg`, `_sum`, `_min` and `_max` is unchanged.
 - **A singular polymorphic slot reads every arm.** A `select` that named only
   some arms of a required or optional to-one variant slot used to return
   `null` for a row whose target belongs to an unnamed arm; the documented

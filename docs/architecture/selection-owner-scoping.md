@@ -2,8 +2,9 @@
 
 Status: first written as a reader-only scoping at `f250df80a` (2026-09-26), then
 corrected and brought up to date after the consolidation round on branch
-`engine-consolidation` (PR #52). Line numbers below are at that branch's tip
-unless a revision is named.
+`engine-consolidation` (PR #52), then after the owner's `_count` ruling
+(`945aaf8b2`, B2 below). Line numbers below are at that commit unless a
+revision is named.
 
 Each section labels its claims:
 - **Measured**: observed by running code or counting lines, with the command or probe named.
@@ -11,9 +12,9 @@ Each section labels its claims:
 - **Judgement**: a design opinion. Another reviewer can reasonably disagree.
 
 The question: two interpreters read one selection.
-- `Queries.prepareProjection` is the SQL preparer: src/query-engine/raptor3/shared/query.ts:3629-3801.
+- `Queries.prepareProjection` is the SQL preparer: src/query-engine/raptor3/shared/query.ts:3629-3803.
 - `buildExpectedResultShape` is the schema-only shape that the TypeScript renderer reads:
-  src/query-engine/result/result-shape.ts:148-381.
+  src/query-engine/result/result-shape.ts:148-376.
 
 Which of their decisions are one meaning spelled twice? Which can share one owner?
 
@@ -50,34 +51,34 @@ E = src/query-engine/raptor3/shared/query.ts. R = src/query-engine/result/result
 | 1 | Default projection = scalars minus the model's `.omit()` | 721-729 `defaultSelection`, 3641 | 185 | **ONE OWNER**: both call validation/model/core/projection.ts:52 `projectableScalarNames` (966d42c97, b05a13454) |
 | 2 | select and include merged into one output | 3640-3643 (spread, caller order) | 166-225 (scalars, select relations, select variants, include relations, include variants, `_count`) | Same key set. **Presentation order differs**; each consumer owns its own order (see below) |
 | 3 | A falsy entry is skipped | 3648 | 131-136 `selectedEntries`, 170 | Twice, agree |
-| 4 | Key `_count` means relation counts | 3649 (only when the model has no scalar `_count`, hidden or not, so a model-hidden `_count` leaks) | 233-257 (reads the value's shape) | **DIVERGENT: B2, deferred** |
-| 5 | An empty count list publishes no `_count` | 3655 | 264 | Twice, agree |
-| 6 | Counted relations = the truthy entries of `_count.select` | 3880-3890 | 238-257 (re-guards at 247 and 252, which admission already enforces; see count-filter.ts:56) | Twice, agree |
-| 7 | A non-relation entry with a `_distance` record is the distance | 3672-3674 | 175 | Twice, agree |
-| 8 | At most one distance per select | 3676-3677 | 176-177 | Twice, agree; **sentence shared** as `DISTANCE_SELECTED_TWICE` (R:53, bd6e17af2) |
-| 9 | Output key `_distance` has one producer | 3682-3684 and 3703-3704 (two order-dependent checks) | 230-232 (one check after gathering) | Twice, agree; two algorithms; sentence shared (`DISTANCE_NAME_COLLISION`, R:49) |
-| 10 | A recursive `_distance` slot vs a distance inside its node | 3813-3814 | 325-327 | Twice, agree |
-| 11 | Ordinary relation vs variant slot | 3710-3715 (resolved edge kind) | 311, 358 (declaration state) | Twice, agree: one fact read from two sources |
-| 12 | Nested node: `true` becomes `{}`, otherwise its select/include | 3858-3859 | 138-146 `getNestedSelection` | Twice, agree |
-| 13 | Recurrence read from the admitted `recurse` | 3873 | 290-293 (an `as` assertion at 292) | Twice, agree |
-| 14 | To-one vs to-many | 3832 `edge.many` | 331 `state.cardinality` | Twice, agree: one fact read from two sources |
-| 15 | A negative take means reversed | 3836-3841 (the decoder reads it) | — | **ONE SPELLING**: the unread renderer copy was deleted (53a1bc2dd) |
-| 16 | A slot may be empty (optional) | 3822 (recursive only) | 332, 381 | Owned by the renderer, except for recursive slots |
-| 17 | Collection arms = `only`, else every arm | 3736 | 363 | **ONE OWNER**: `selectedArm` (R:79-90, 03ad902bc). An arm that `only` excludes is no longer recorded |
-| 18 | Arm node = `variants[type]` / `configuration[type]`, default `true` | 3736 | 363 | **ONE OWNER**: `selectedArm` |
-| 19 | Singular carrier: every arm is read, and an unnamed arm at its default projection | 3736 | 363 | **ONE OWNER**: `selectedArm`. The runtime now agrees (B1, 357dd412a) |
-| 20 | Empty projection: refuse if `select` was written, else the sentinel | 3787-3792 | 268-273 | Twice, agree; **sentence shared** as `emptySelectRefusal` (R:61, B3, 5ca72ba37) |
-| 21 | Relation counts beside a scalar `_count` are refused | none | 259-263 | Renderer only; part of B2. Now executed by the known-defect file |
+| 4 | Key `_count` means relation counts | 3651 (`name === "_count"`) | 233-257 (reads the value's shape) | **ONE MEANING, owned by the schema**: F010 refuses a member named `_count` (src/schema/validation/rules/model.ts `memberNamesAreNotReserved`, 945aaf8b2), so admission, the engine and the renderer all read `_count` as counts. B2 resolved |
+| 5 | An empty count list publishes no `_count` | 3657 | 259 | Twice, agree |
+| 6 | Counted relations = the truthy entries of `_count.select` | 3882-3892 | 238-257 (re-guards at 247 and 252, which admission already enforces; see count-filter.ts:56) | Twice, agree |
+| 7 | A non-relation entry with a `_distance` record is the distance | 3674-3676 | 175 | Twice, agree |
+| 8 | At most one distance per select | 3678-3679 | 176-177 | Twice, agree; **sentence shared** as `DISTANCE_SELECTED_TWICE` (R:53, bd6e17af2) |
+| 9 | Output key `_distance` has one producer | 3684-3686 and 3705-3706 (two order-dependent checks) | 230-232 (one check after gathering) | Twice, agree; two algorithms; sentence shared (`DISTANCE_NAME_COLLISION`, R:49) |
+| 10 | A recursive `_distance` slot vs a distance inside its node | 3815-3816 | 320-322 | Twice, agree |
+| 11 | Ordinary relation vs variant slot | 3712-3717 (resolved edge kind) | 306, 353 (declaration state) | Twice, agree: one fact read from two sources |
+| 12 | Nested node: `true` becomes `{}`, otherwise its select/include | 3860-3861 | 138-146 `getNestedSelection` | Twice, agree |
+| 13 | Recurrence read from the admitted `recurse` | 3875 | 285-288 (an `as` assertion at 287) | Twice, agree |
+| 14 | To-one vs to-many | 3834 `edge.many` | 326 `state.cardinality` | Twice, agree: one fact read from two sources |
+| 15 | A negative take means reversed | 3838-3843 (the decoder reads it) | — | **ONE SPELLING**: the unread renderer copy was deleted (53a1bc2dd) |
+| 16 | A slot may be empty (optional) | 3824 (recursive only) | 327, 376 | Owned by the renderer, except for recursive slots |
+| 17 | Collection arms = `only`, else every arm | 3738 | 358 | **ONE OWNER**: `selectedArm` (R:79-90, 03ad902bc). An arm that `only` excludes is no longer recorded |
+| 18 | Arm node = `variants[type]` / `configuration[type]`, default `true` | 3738 | 358 | **ONE OWNER**: `selectedArm` |
+| 19 | Singular carrier: every arm is read, and an unnamed arm at its default projection | 3738 | 358 | **ONE OWNER**: `selectedArm`. The runtime now agrees (B1, 357dd412a) |
+| 20 | Empty projection: refuse if `select` was written, else the sentinel | 3789-3794 | 263-268 | Twice, agree; **sentence shared** as `emptySelectRefusal` (R:61, B3, 5ca72ba37) |
+| 21 | Relation counts beside a scalar `_count` are refused | none | none (deleted, 945aaf8b2) | **RETIRED**: unreachable once F010 refuses the member; the coverage moved to schema validation (guard-ownership ledger addendum, 2026-09-26) |
 | 22 | Duplicate output columns are refused | none | 115-119 | Renderer only; no test; no admitted payload found that reaches it |
-| 23 | Distance nullability = a nullable point | 3845-3852 `distanceLeaf` | src/client/typescript-type-renderer.ts:336-340 | Twice, agree |
+| 23 | Distance nullability = a nullable point | 3847-3854 `distanceLeaf` | src/client/typescript-type-renderer.ts:336-340 | Twice, agree |
 
 Decisions that exist only in the engine:
-- the default-projection cache (3633-3637, 3799);
-- count filters, tagged arms and `countedMemberships` (3941-);
+- the default-projection cache (3633-3637, 3801);
+- count filters, tagged arms and `countedMemberships` (3943-);
 - integrity memberships;
 - leaf descriptors;
 - the distance specification;
-- relation arguments (3860-3871);
+- relation arguments (3862-3873);
 - recursive identity.
 
 Decisions that exist only in the renderer:
@@ -99,9 +100,9 @@ entries: it counted #4 and #21 as one, and it left out #16 and #22. The correcte
 | One side only | 16, 21, 22 | 3 |
 | **Total** | | **23** |
 
-The same entries at the branch tip:
+The same entries after the consolidation round (`c245bb319`):
 
-| Category at the tip | Entries | Count |
+| Category at `c245bb319` | Entries | Count |
 |---|---|---:|
 | One owner, both views call it | 1, 17, 18, 19 | 4 |
 | One spelling (the dead copy was deleted) | 15 | 1 |
@@ -112,16 +113,32 @@ The same entries at the branch tip:
 | One side only | 16, 21, 22 | 3 |
 | **Total** | | **23** |
 
+And after the `_count` ruling (`945aaf8b2`):
+
+| Category after the ruling | Entries | Count |
+|---|---|---:|
+| One owner, both views call it | 1, 17, 18, 19 | 4 |
+| One meaning owned by the schema (every view reads `_count` as counts) | 4 | 1 |
+| One spelling (the dead copy was deleted) | 15 | 1 |
+| Twice; agree; sentence shared, guard in each view | 8, 9, 20 | 3 |
+| Twice, agree, maintained independently | 3, 5, 6, 7, 10, 11, 12, 13, 14, 23 | 10 |
+| Same key set; presentation order is per consumer | 2 | 1 |
+| Twice, disagree | — | 0 |
+| One side only | 16, 22 | 2 |
+| Retired (unreachable guard deleted; coverage at schema validation) | 21 | 1 |
+| **Total** | | **23** |
+
 This plainly answers whether the smaller sharing left semantic decisions maintained
 independently. It did:
 - 10 decisions still agree only because two independent spellings happen to agree.
 - 3 more share a sentence but keep a guard in each view.
-- #4 still disagrees.
 
 What changed is narrower:
 - the decisions where the views disagreed (#19, #20) or where a leaf function suffices
   (#1, #17, #18) now have one owner;
-- dead renderer state (#15, and the excluded-arm record behind #17) is gone.
+- #4 no longer disagrees: the schema owns the fact that makes `_count` one meaning, and
+  the engine's model lookup behind the disagreement is gone;
+- dead renderer state (#15, the excluded-arm record behind #17, and #21's guard) is gone.
 
 ## B1, B2, B3: status on this branch
 
@@ -139,71 +156,52 @@ What changed is narrower:
 - **B3: fixed.** The renderer's empty-select refusal named model `'undefined'`.
   - Fix: commit 5ca72ba37. One sentence, `emptySelectRefusal`, shared by both views.
   - Test: typescript-renderer-closure.core.test.ts:80.
-- **B2: not fixed; deferred on purpose.** It is pinned as a known defect in
-  tests/contracts/public-client/count-member-collision-known-defect.test.ts (2ebadbc46). That
-  file's eight tests say "documents the defect" and record today's answers from four surfaces:
-  admission, the renderer, the SQLite runtime and, through tsc, the static types. Two of them
-  record the model-level leak below.
-  - It is deferred because the public contracts conflict. There is nothing yet to implement
-    against.
-  - The documentation (selecting.mdx:221-238), admission's runtime, the renderer and the retired
-    V1 engine read `_count` in select/include as relation counts.
-  - The engine decides by model and publishes the scalar. It does so even when `omit` removed it,
-    which is a plain bug on any reading.
-  - **The leak through a model-level `.omit()`.** E:3649 tests `state.scalars[name]`, and that
-    record includes the scalars the model hides. On a model declared
-    `.omit({ _count: true })` beside a to-many, `select: { _count: true }`, the explicit count
-    object, `include: { _count: true }` and a nested `include: { tally: { include: { _count:
-    true } } }` each publish the stored column, while admission and the renderer answer
-    counts (measured on SQLite at this head; the reviewer measured the same on main, so the bug
-    predates this branch). This breaks the hard exclusion that
-    src/validation/model/core/projection.ts:9-13 promises for schema-hidden columns, the
-    `passwordHash` case. Without counts in the selection the column stays hidden. The known-defect file pins it:
-    - "a model-level `.omit()`ted scalar `_count` is published by every counts spelling";
-    - "a nested include of counts publishes the model-hidden scalar `_count`".
-
-    Replacing the E:3649 test with the projectable-scalar test (`projectableScalarNames`) fails
-    exactly those two cells (measured by mutation, restored from a scratch copy).
-  - The static types intersect the two answers. For `select: { _count: true }` on the hiding
-    model they still merge the hidden scalar's number members into the counts.
-
-### B2 follow-up scope (bounded)
-
-B2 needs an explicit collision contract before any implementation. The owner rules between
-two candidate rules. **Judgement:** the audit leaned toward (iii).
-- **(iii)** The member wins wherever it exists, and relation counts are not offered as a
-  projection on that model.
-- **(iv)** One producer per output key, with the input's meaning read from the value's shape,
-  as in the `_distance` precedent.
-
-Once ruled, the work is one change set across four owners, plus tests on each side:
-1. **Admission:**
-   - src/validation/model/core/select.ts, near :303-327 and :369;
-   - the omit desugar, src/validation/model/args/omit.ts:76-89;
-   - the nested synthesized select, src/validation/relations/select-include.ts:49-55;
-   - the bulk projection admission, bulk-write-projection.ts:107.
-2. **Execution:** E:3649, which decides by model today. Under either rule it must stop reading
-   a scalar `_count` that the model hides: a hidden scalar is not a member any query can
-   project, so the test becomes "is `_count` among `projectableScalarNames(model)`", not
-   `state.scalars[name]`. Beyond that, under (iii) the projectable member wins, and under (iv)
-   it reads the value's shape.
-3. **Rendering:** R:233-263. Under (iii) the pair refusal at R:259-263 becomes unreachable and is
-   deleted, with a guard-ownership-ledger entry.
-4. **Types:** src/client/result-types.ts `InferSelectedFields` (:869-884),
-   `InferRelationCountSelection` (:1004-1018), and the intersections in `InferSelectResult` /
-   `InferIncludeResult` (:846-857, :1023-1043). The select input type must match admission.
-5. **Tests:** the known-defect file is replaced by the ruled contract. It needs:
-   - a runtime cell in tests/contracts/drivers/behaviors/, so it runs on every provider, that
-     includes a model hiding `_count` with `.omit()` and proves the hidden column never leaves;
-   - a renderer pin;
-   - a static pin.
-
-   The `@ts-expect-error` in the known-defect file fails tsc as soon as the select input type
-   changes, which forces the replacement.
-6. **Docs:** one paragraph in selecting.mdx, with the rename-and-`.map("_count")` remedy.
-
-A sibling case sits in the same scope: a RELATION named `_count`. Under (iii) the member wins, so
-it returns the relation. Under (iv) the rule does not extend to it.
+- **B2: resolved by the owner's ruling (Arnaud, 2026-09-26: "_count is a reserved
+  word").** Commit 945aaf8b2.
+  - The defect: a model member named `_count` gave `select._count` / `include._count` two
+    producers. Admission and the renderer read counts; the engine decided by model and
+    published the member, even against `omit` and against the model's own `.omit()`; the
+    static result type intersected the two. It was pinned as a known defect in
+    count-member-collision-known-defect.test.ts (2ebadbc46, 48f434ae8), now deleted: its
+    eight cells asserted answers the refusal makes unreachable.
+  - The rule: schema validation refuses a member named `_count` (scalar, relation or
+    variant slot) with one sentence, F010 (`memberNamesAreNotReserved`,
+    src/schema/validation/rules/model.ts). It runs in `validateSchema` and in the selector
+    rules of every effect-capable boundary (client construction, the standalone registry,
+    migrations). A column keeps the name through `.map("_count")` on a renamed scalar.
+    Only `_count` is reserved; `_distance` and the aggregate names are not.
+  - Deleted because the invariant makes them dead:
+    - The `!model["~"].state.scalars[name]` conjunct that stood beside E:3651's test. Restoring it changes no
+      result (measured: 204 cells over the new contract, the sqlite3 behaviour file and
+      the raptor3 projection/count files).
+    - R's "Relation counts cannot be selected together with a model field named '_count'."
+      guard (#21). Restoring it leaves layer-client and layer-query-engine green (1295
+      cells). Ledger: guard-ownership-ledger.md, addendum of 2026-09-26.
+    - The `_count` entry of groupBy's grouped-column collision list
+      (src/validation/model/args/aggregate.ts `GROUP_AGGREGATE_KEYS`).
+  - Unchanged, with reason: admission's count schema (select.ts `getSelectSchema`,
+    `getIncludeSchema`) no longer overwrites anything, so there is nothing to delete; the
+    omit desugar and the nested synthesized select produce `_count: true` only for a scalar
+    of that name, which no longer exists; the bulk-write `select._count` refusal
+    (bulk-write-projection.ts:107) is live on every model (it names the relation-derived
+    projection instead of "Unknown key: _count"); the client result and input types were
+    generic and only intersected because a scalar `_count` could exist.
+  - Tests:
+    - tests/contracts/public-client/count-reserved-member.core.test.ts: the exact F010
+      issue from `validateSchema` and from client construction, for each member kind; a
+      member mapped to the `_count` column is admitted, and admission and the renderer
+      read `_count` beside it as counts (renderer pin). Disabling the refusal turns 7
+      cells red (6 there, 1 in aggregate-args.core.test.ts).
+    - tests/contracts/drivers/behaviors/relation-read-aggregate-behavior.ts, "a scalar
+      mapped to the column `_count`" (sqlite3, libsql, PGlite, pg, postgres.js, mysql2):
+      the column read under its member name beside the counts, `omit` of that member with
+      counts included, orderBy count vs column, where on the column, a filtered count,
+      groupBy by the column, and a model-hidden member in the `_count` column that no
+      counts spelling publishes (the P09 and hidden-leak witnesses under the ruling).
+    - tests/types/client/count-reserved-member.core.types.ts: the static pin; select
+      `_count` is `true` or the count object (`false` refused), results are counts only.
+  - The B2 follow-up scope (the four-owner change set that either candidate rule would
+    have needed) is closed: the ruling needed only the schema rule and the deletions above.
 
 ## What this round shared, and why each deletion is safe
 
@@ -298,7 +296,7 @@ Two alternatives are equally open:
 
 What still decides the question:
 1. **Unresolved observable behaviour.**
-   - #4/#21 (B2) have no contract yet. A shared owner would have to pick one answer.
+   - #4 and #21 are settled by the ruling: `_count` is counts in every view.
    - #2 is not a divergence of meaning: both views agree on the key set, and the order is
      presentation. The engine's runtime key order follows the caller's selection. The rendered
      type's field order follows the renderer's passes. A shared owner must either carry an order
@@ -352,8 +350,10 @@ no line threshold decides whether an abstraction is justified. The criteria are 
 - polymorphic-collection-read-behavior.ts: :325 and :341 (#17).
 - result-aliases.core.test.ts (the sentinel alias).
 
-**Known defect:** count-member-collision-known-defect.test.ts pins today's answers for #4 and #21,
-including the leak of a model-hidden scalar `_count`.
+**Both sides (#4, #21):** count-reserved-member.core.test.ts (schema refusal, admission and
+renderer), the "a scalar mapped to the column `_count`" section of
+relation-read-aggregate-behavior.ts (runtime, every registered provider) and
+count-reserved-member.core.types.ts (static).
 
 **Untested:**
 - #2: the interleaved order, on either side;

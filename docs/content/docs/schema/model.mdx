@@ -19,6 +19,16 @@ const user = s.model({
 });
 ```
 
+### Reserved member name
+
+`_count` is reserved for [relation counts](/docs/client/selecting#count-relations):
+in `select` and `include` it always means the counts of the model's relations.
+A model that declares a member named `_count` — a scalar, a relation or a
+polymorphic slot — is refused when the schema is validated, at client
+construction and by `validateSchema` (`F010`). To keep an existing `_count`
+column, give the scalar another name and map it: `tally: s.int().map("_count")`
+reads and writes the column `_count` as the member `tally`.
+
 ## Table Name
 
 By default, VibORM uses the variable name. Use `.map()` to set a custom table name:

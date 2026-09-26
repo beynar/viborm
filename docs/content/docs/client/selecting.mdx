@@ -238,6 +238,9 @@ const users = await client.user.findMany({
 // user._count.followers: number
 ```
 
+`_count` means relation counts and nothing else: a model member cannot be
+named `_count` (see [Reserved member name](/docs/schema/model#reserved-member-name)).
+
 ## Examples
 
 ### Public Profile
