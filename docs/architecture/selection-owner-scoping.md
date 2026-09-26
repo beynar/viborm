@@ -287,10 +287,12 @@ What changed is narrower:
     `validateSchema`, `EngineSchema` and `createClient` (no statement); :195 and :223 the
     pair's four spellings under the renamed relation keep both keys in the engine and the
     renderer; :272 each producer alone.
-  - geopoint-behavior.ts: :440 the column read and written under the member name (every
-    tier: sqlite3, libsql, PGlite, pg, postgres.js, mysql2); :467 a distance selected and
-    ordered beside it (full tier: PGlite with PostGIS, mysql2 pass; pg and postgres.js fail on
-    the docker container's missing PostGIS, as every GeoPoint cell there does).
+  - geopoint-behavior.ts: :448 the column read and written under the member name (every
+    tier: sqlite3, libsql, D1, PGlite, pg, postgres.js, mysql2); :475 a distance selected and
+    ordered beside it at the top level; :519 the same pair in a nested node (ordered by the
+    distance) and in a recursive node, where both keys repeat at every level (full tier for
+    :475 and :519: PGlite with PostGIS, mysql2 pass; pg and postgres.js fail on the docker
+    container's missing PostGIS, as every GeoPoint cell there does).
   - count-reserved-member.core.types.ts: the four `@ts-expect-error` refusals and the static
     result `{ score: number; _distance: number }`.
 
@@ -459,8 +461,9 @@ count-reserved-member.core.types.ts (static).
 
 **Both sides (#9, #10, retired):** the F010 refusal pins in count-reserved-member.core.test.ts
 and distance-key-collision.test.ts:179; distance-key-collision.test.ts:195 and :223 (the old
-pair's spellings keep both keys, engine and renderer); geopoint-behavior.ts:440 and :467
-(runtime); count-reserved-member.core.types.ts (static).
+pair's spellings keep both keys, engine and renderer); geopoint-behavior.ts:448, :475 and
+:519 (runtime: top level, nested and recursive nodes); count-reserved-member.core.types.ts
+(static).
 
 **Untested:**
 - #2: the interleaved order, on either side;

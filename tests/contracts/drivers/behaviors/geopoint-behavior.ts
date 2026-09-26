@@ -67,13 +67,21 @@ const marker = s
  * `_distance` is a reserved member name (F010): the key belongs to a selected
  * distance. The COLUMN name does not: `rank` reads and writes the column
  * `_distance`, and a distance selected beside it still publishes under the
- * output key `_distance`.
+ * output key `_distance`, at the top level, in a nested node and in a
+ * recursive node.
  */
 const landmark = s
   .model({
     id: s.string().id(),
     location: s.point(),
     rank: s.int().map("_distance"),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => landmark)
+      .fields("parentId")
+      .references("id")
+      .name("geopointLandmarkTree"),
+    children: s.toMany(() => landmark).name("geopointLandmarkTree"),
   })
   .map("geopoint_behavior_landmarks");
 const schema = { article, landmark, marker, place, route, stop, video };
@@ -447,9 +455,9 @@ export function runGeoPointBehavior({
       await expect(
         active().landmark.findMany({ orderBy: { rank: "asc" } })
       ).resolves.toEqual([
-        { id: "new-york", location: NEW_YORK, rank: 2 },
-        { id: "london", location: LONDON, rank: 3 },
-        { id: "paris", location: PARIS, rank: 11 },
+        { id: "new-york", location: NEW_YORK, rank: 2, parentId: null },
+        { id: "london", location: LONDON, rank: 3, parentId: null },
+        { id: "paris", location: PARIS, rank: 11, parentId: null },
       ]);
       await expect(
         active().landmark.findMany({
@@ -506,6 +514,80 @@ export function runGeoPointBehavior({
         expect(byRank.map((row) => row.rank)).toEqual([3, 1]);
         expect(byRank[0]?._distance).toBeCloseTo(0, 6);
         expect(byRank[1]?._distance).toBeCloseTo(toParis, 3);
+      });
+
+      test("selects a distance beside a member mapped to the `_distance` column in nested and recursive nodes", async () => {
+        await active().landmark.createMany({ data: [...LANDMARKS] });
+        await active().landmark.updateMany({
+          where: { id: { in: ["london", "new-york"] } },
+          data: { parentId: "paris" },
+        });
+        const toParis = sphericalDistance(LONDON, PARIS);
+        const toNewYork = sphericalDistance(LONDON, NEW_YORK);
+        const node = {
+          id: true,
+          rank: true,
+          location: { _distance: { to: LONDON } },
+        } as const;
+
+        // A nested node: distance order (london, new-york) and rank order
+        // (new-york, london) disagree, so each node's key is read from its
+        // own source.
+        const nested = await active().landmark.findUnique({
+          where: { id: "paris" },
+          select: {
+            ...node,
+            children: {
+              select: node,
+              orderBy: { location: { _distance: { to: LONDON, sort: "asc" } } },
+            },
+          },
+        });
+        expect(nested).toEqual({
+          id: "paris",
+          rank: 1,
+          _distance: expect.closeTo(toParis, 3),
+          children: [
+            { id: "london", rank: 3, _distance: expect.closeTo(0, 6) },
+            {
+              id: "new-york",
+              rank: 2,
+              _distance: expect.closeTo(toNewYork, 3),
+            },
+          ],
+        });
+
+        // A recursive node repeats the column and the distance at every level.
+        const recursive = await active().landmark.findUnique({
+          where: { id: "paris" },
+          select: {
+            ...node,
+            children: {
+              recurse: { depth: false },
+              select: node,
+              orderBy: { rank: "asc" },
+            },
+          },
+        });
+        expect(recursive).toEqual({
+          id: "paris",
+          rank: 1,
+          _distance: expect.closeTo(toParis, 3),
+          children: [
+            {
+              id: "new-york",
+              rank: 2,
+              _distance: expect.closeTo(toNewYork, 3),
+              children: [],
+            },
+            {
+              id: "london",
+              rank: 3,
+              _distance: expect.closeTo(0, 6),
+              children: [],
+            },
+          ],
+        });
       });
 
       test("uses the fixed-radius metric for filtering, selection, and ordering", async () => {
