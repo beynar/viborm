@@ -50,7 +50,7 @@ E = src/query-engine/raptor3/shared/query.ts. R = src/query-engine/result/result
 | 1 | Default projection = scalars minus the model's `.omit()` | 721-729 `defaultSelection`, 3641 | 185 | **ONE OWNER**: both call validation/model/core/projection.ts:52 `projectableScalarNames` (966d42c97, b05a13454) |
 | 2 | select and include merged into one output | 3640-3643 (spread, caller order) | 166-225 (scalars, select relations, select variants, include relations, include variants, `_count`) | Same key set. **Presentation order differs**; each consumer owns its own order (see below) |
 | 3 | A falsy entry is skipped | 3648 | 131-136 `selectedEntries`, 170 | Twice, agree |
-| 4 | Key `_count` means relation counts | 3649 (only when the model has no scalar `_count`) | 233-257 (reads the value's shape) | **DIVERGENT: B2, deferred** |
+| 4 | Key `_count` means relation counts | 3649 (only when the model has no scalar `_count`, hidden or not, so a model-hidden `_count` leaks) | 233-257 (reads the value's shape) | **DIVERGENT: B2, deferred** |
 | 5 | An empty count list publishes no `_count` | 3655 | 264 | Twice, agree |
 | 6 | Counted relations = the truthy entries of `_count.select` | 3880-3890 | 238-257 (re-guards at 247 and 252, which admission already enforces; see count-filter.ts:56) | Twice, agree |
 | 7 | A non-relation entry with a `_distance` record is the distance | 3672-3674 | 175 | Twice, agree |
@@ -141,15 +141,31 @@ What changed is narrower:
   - Test: typescript-renderer-closure.core.test.ts:80.
 - **B2: not fixed; deferred on purpose.** It is pinned as a known defect in
   tests/contracts/public-client/count-member-collision-known-defect.test.ts (2ebadbc46). That
-  file's six tests say "documents the defect" and record today's answers from four surfaces:
-  admission, the renderer, the SQLite runtime and, through tsc, the static types.
+  file's eight tests say "documents the defect" and record today's answers from four surfaces:
+  admission, the renderer, the SQLite runtime and, through tsc, the static types. Two of them
+  record the model-level leak below.
   - It is deferred because the public contracts conflict. There is nothing yet to implement
     against.
   - The documentation (selecting.mdx:221-238), admission's runtime, the renderer and the retired
     V1 engine read `_count` in select/include as relation counts.
   - The engine decides by model and publishes the scalar. It does so even when `omit` removed it,
     which is a plain bug on any reading.
-  - The static types intersect the two answers.
+  - **The leak through a model-level `.omit()`.** E:3649 tests `state.scalars[name]`, and that
+    record includes the scalars the model hides. On a model declared
+    `.omit({ _count: true })` beside a to-many, `select: { _count: true }`, the explicit count
+    object, `include: { _count: true }` and a nested `include: { tally: { include: { _count:
+    true } } }` each publish the stored column, while admission and the renderer answer
+    counts (measured on SQLite at this head; the reviewer measured the same on main, so the bug
+    predates this branch). This breaks the hard exclusion that
+    src/validation/model/core/projection.ts:9-13 promises for schema-hidden columns, the
+    `passwordHash` case. Without counts in the selection the column stays hidden. The known-defect file pins it:
+    - "a model-level `.omit()`ted scalar `_count` is published by every counts spelling";
+    - "a nested include of counts publishes the model-hidden scalar `_count`".
+
+    Replacing the E:3649 test with the projectable-scalar test (`projectableScalarNames`) fails
+    exactly those two cells (measured by mutation, restored from a scratch copy).
+  - The static types intersect the two answers. For `select: { _count: true }` on the hiding
+    model they still merge the hidden scalar's number members into the counts.
 
 ### B2 follow-up scope (bounded)
 
@@ -166,7 +182,10 @@ Once ruled, the work is one change set across four owners, plus tests on each si
    - the omit desugar, src/validation/model/args/omit.ts:76-89;
    - the nested synthesized select, src/validation/relations/select-include.ts:49-55;
    - the bulk projection admission, bulk-write-projection.ts:107.
-2. **Execution:** E:3649, which decides by model today. Under (iii) it is unchanged; under (iv)
+2. **Execution:** E:3649, which decides by model today. Under either rule it must stop reading
+   a scalar `_count` that the model hides: a hidden scalar is not a member any query can
+   project, so the test becomes "is `_count` among `projectableScalarNames(model)`", not
+   `state.scalars[name]`. Beyond that, under (iii) the projectable member wins, and under (iv)
    it reads the value's shape.
 3. **Rendering:** R:233-263. Under (iii) the pair refusal at R:259-263 becomes unreachable and is
    deleted, with a guard-ownership-ledger entry.
@@ -174,7 +193,8 @@ Once ruled, the work is one change set across four owners, plus tests on each si
    `InferRelationCountSelection` (:1004-1018), and the intersections in `InferSelectResult` /
    `InferIncludeResult` (:846-857, :1023-1043). The select input type must match admission.
 5. **Tests:** the known-defect file is replaced by the ruled contract. It needs:
-   - a runtime cell in tests/contracts/drivers/behaviors/, so it runs on every provider;
+   - a runtime cell in tests/contracts/drivers/behaviors/, so it runs on every provider, that
+     includes a model hiding `_count` with `.omit()` and proves the hidden column never leaves;
    - a renderer pin;
    - a static pin.
 
@@ -332,7 +352,8 @@ no line threshold decides whether an abstraction is justified. The criteria are 
 - polymorphic-collection-read-behavior.ts: :325 and :341 (#17).
 - result-aliases.core.test.ts (the sentinel alias).
 
-**Known defect:** count-member-collision-known-defect.test.ts pins today's answers for #4 and #21.
+**Known defect:** count-member-collision-known-defect.test.ts pins today's answers for #4 and #21,
+including the leak of a model-hidden scalar `_count`.
 
 **Untested:**
 - #2: the interleaved order, on either side;

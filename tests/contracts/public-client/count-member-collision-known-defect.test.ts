@@ -18,6 +18,14 @@
  * - the static select input accepts only the scalar spelling, and the result
  *   type intersects the scalar with the counts.
  *
+ * The same runtime branch leaks a scalar `_count` that the MODEL hides with
+ * `.omit({ _count: true })`. There admission and the renderer answer counts
+ * (the hidden scalar is in no select or omit schema), the static result type
+ * answers counts (merged with the scalar's number members for `_count: true`),
+ * and the runtime publishes the stored value, against the hard exclusion
+ * src/validation/model/core/projection.ts promises ("No client option and no
+ * query argument can put it back").
+ *
  * No single public promise exists yet (docs/architecture/selection-owner-scoping.md,
  * "B2"). The owner rules on the collision contract first; the implementation
  * that follows REPLACES these assertions with the ruled contract. Until then a
@@ -55,7 +63,23 @@ const thing = s.model({
     .fields("tallyId")
     .references("id"),
 });
-const schema = { tally, thing };
+// The same pair, with the scalar `_count` hidden by the model itself.
+const hiddenTally = s
+  .model({
+    id: s.string().id(),
+    _count: s.int(),
+    things: s.toMany(() => hiddenThing),
+  })
+  .omit({ _count: true });
+const hiddenThing = s.model({
+  id: s.string().id(),
+  hiddenTallyId: s.string(),
+  hiddenTally: s
+    .toOne(() => hiddenTally)
+    .fields("hiddenTallyId")
+    .references("id"),
+});
+const schema = { tally, thing, hiddenTally, hiddenThing };
 
 const RENDERER_PAIR_REFUSAL =
   "Relation counts cannot be selected together with a model field named '_count'.";
@@ -79,6 +103,9 @@ beforeAll(async () => {
       { id: "b", tallyId: "t1" },
     ],
   });
+  // `create` writes the hidden column; only reads exclude it.
+  await client.hiddenTally.create({ data: { id: "h1", _count: 42 } });
+  await client.hiddenThing.create({ data: { id: "c", hiddenTallyId: "h1" } });
 });
 
 afterAll(async () => {
@@ -196,5 +223,100 @@ describe("KNOWN DEFECT B2: a scalar `_count` beside a to-many (documents a defec
         select: { id: true, _count: true },
       })
     ).rejects.toThrow(refusal);
+  });
+  test("documents the defect: a model-level `.omit()`ted scalar `_count` is published by every counts spelling", async () => {
+    // The exclusion holds where counts are not asked for.
+    await expect(client.hiddenTally.findMany()).resolves.toEqual([
+      { id: "h1" },
+    ]);
+    expect(() =>
+      validateOperationPayload(schema, "hiddenTally", "findMany", {
+        omit: { _count: true },
+      })
+    ).toThrow("Unknown key: _count");
+
+    const hiddenCounts = `Array<{
+  id: string;
+  _count: {
+    things: number;
+  };
+}>`;
+    const selectTrue = { select: { id: true, _count: true } } as const;
+    const selectObject = {
+      select: { id: true, _count: { select: { things: true } } },
+    } as const;
+    const includeTrue = { include: { _count: true } } as const;
+    // Admission and the renderer read counts ...
+    for (const payload of [selectTrue, selectObject, includeTrue]) {
+      expect(
+        validateOperationPayload(schema, "hiddenTally", "findMany", payload)
+      ).toEqual(
+        "select" in payload
+          ? { select: { id: true, _count: ADMITTED_COUNTS } }
+          : { include: { _count: ADMITTED_COUNTS } }
+      );
+      expect(
+        renderOperationResultType(schema, "hiddenTally", "findMany", payload)
+      ).toBe(hiddenCounts);
+    }
+    const bySelectTrue = await client.hiddenTally.findMany(selectTrue);
+    const bySelectObject = await client.hiddenTally.findMany(selectObject);
+    const byInclude = await client.hiddenTally.findMany(includeTrue);
+    // The static result of `_count: true` merges the hidden scalar's number
+    // members into the counts, as it does on the unhidden model above.
+    expectTypeOf<
+      (typeof bySelectTrue)[number]["_count"]["things"]
+    >().toEqualTypeOf<number>();
+    expectTypeOf<(typeof bySelectTrue)[number]["_count"]>().toHaveProperty(
+      "toFixed"
+    );
+    expectTypeOf<(typeof bySelectObject)[number]["_count"]>().toEqualTypeOf<{
+      things: number;
+    }>();
+    expectTypeOf<(typeof byInclude)[number]["_count"]>().toEqualTypeOf<{
+      things: number;
+    }>();
+    // ... and the runtime publishes the column the model hides.
+    for (const rows of [bySelectTrue, bySelectObject, byInclude]) {
+      expect(rows).toEqual([{ id: "h1", _count: 42 }]);
+    }
+  });
+
+  test("documents the defect: a nested include of counts publishes the model-hidden scalar `_count`", async () => {
+    const payload = {
+      include: { hiddenTally: { include: { _count: true } } },
+    } as const;
+
+    expect(
+      validateOperationPayload(schema, "hiddenThing", "findMany", payload)
+    ).toEqual({
+      include: {
+        hiddenTally: {
+          include: { _count: ADMITTED_COUNTS },
+          select: { id: true },
+        },
+      },
+    });
+    expect(
+      renderOperationResultType(schema, "hiddenThing", "findMany", payload)
+    ).toBe(`Array<{
+  id: string;
+  hiddenTallyId: string;
+  hiddenTally: {
+    id: string;
+    _count: {
+      things: number;
+    };
+  };
+}>`);
+    await expect(client.hiddenThing.findMany(payload)).resolves.toEqual([
+      { id: "c", hiddenTallyId: "h1", hiddenTally: { id: "h1", _count: 42 } },
+    ]);
+    // Without counts the nested default projection keeps it hidden.
+    await expect(
+      client.hiddenThing.findMany({ include: { hiddenTally: true } })
+    ).resolves.toEqual([
+      { id: "c", hiddenTallyId: "h1", hiddenTally: { id: "h1" } },
+    ]);
   });
 });
