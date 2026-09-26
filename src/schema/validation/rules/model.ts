@@ -2,8 +2,8 @@
 
 import { validateSchema } from "../../../validation/primitives/helpers";
 import { isValidSchemaIdentifier } from "../../identifier";
-import { getAmbiguousPublicSelectorNames } from "../../model/keys";
 import type { Model, ModelState } from "../../model";
+import { getAmbiguousPublicSelectorNames } from "../../model/keys";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
 
@@ -406,6 +406,34 @@ export function compoundConstraintsNonEmpty(
   return errors;
 }
 
+/**
+ * F010: `_count` is a reserved member name (owner ruling, 2026-09-26).
+ *
+ * `_count` in `select` and `include` is the relation-count projection. A model
+ * member of that name — a scalar, a relation or a variant slot — would give
+ * the one output key two producers, and every reader of a selection (admission,
+ * the engine's projection, the schema-only renderer, the static types) then
+ * needs its own answer to which one wins. Refusing the name here leaves `_count`
+ * one meaning everywhere downstream. The column name stays available: a
+ * renamed scalar keeps it with `.map("_count")`.
+ */
+export function memberNamesAreNotReserved(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): SchemaValidationIssue[] {
+  if (!Object.hasOwn(model["~"].state.shape, "_count")) return [];
+  return [
+    {
+      code: "F010",
+      message: `Model '${name}' declares a member named '_count'; '_count' is reserved for relation counts. Rename it, and use .map("_count") on a renamed scalar to keep its column name.`,
+      severity: "error",
+      model: name,
+      field: "_count",
+    },
+  ];
+}
+
 /** I006: one model-local public unique-where name has one meaning. */
 export function publicSelectorNamesAreUnambiguous(
   _s: Schema,
@@ -572,6 +600,7 @@ export const modelRules = [
   // Compound key checks
   compoundConstraintsNonEmpty,
   publicSelectorNamesAreUnambiguous,
+  memberNamesAreNotReserved,
   decimalListsAreNotKeyMembers,
   geoPointRolesArePortable,
 ];

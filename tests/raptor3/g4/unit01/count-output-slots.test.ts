@@ -8,12 +8,13 @@ import { describe, it } from "vitest";
 const counter = s
   .model({
     id: s.int().id(),
-    _count: s.int().nullable(),
+    // The member name `_count` is reserved (F010); the column name is not.
+    tally: s.int().nullable().map("_count"),
   })
   .map("g4_count_output_slots");
 
 describe("G4-01 count output slots", () => {
-  it("distinguishes a selected _count field from the synthetic count slot", async () => {
+  it("distinguishes a selected field stored in the _count column from the synthetic count slot", async () => {
     const database = new Database(":memory:");
     database.exec(`
       CREATE TABLE g4_count_output_slots(
@@ -29,15 +30,15 @@ describe("G4-01 count output slots", () => {
     try {
       assert.deepEqual(
         await engine.execute("counter", "count", {
-          select: { _all: true, _count: true },
+          select: { _all: true, tally: true },
         }),
-        { _all: 2, _count: 1 },
+        { _all: 2, tally: 1 }
       );
       assert.equal(await engine.execute("counter", "count", {}), 2);
       assert.equal(await engine.execute("counter", "exist", {}), true);
       assert.equal(
         await engine.execute("counter", "exist", { where: { id: 99 } }),
-        false,
+        false
       );
     } finally {
       await driver.disconnect();

@@ -15,7 +15,10 @@ import {
   resolveSchemaRelations,
 } from "./relation-resolution";
 import { allRules } from "./rules";
-import { publicSelectorNamesAreUnambiguous } from "./rules/model";
+import {
+  memberNamesAreNotReserved,
+  publicSelectorNamesAreUnambiguous,
+} from "./rules/model";
 import type {
   Schema,
   SchemaValidationIssue,
@@ -197,6 +200,17 @@ export function validateResolvedSchemaOrThrow(
 }
 
 /**
+ * The rules every effect-capable boundary runs beside the relation gate: each
+ * gives one admitted selector one meaning — a compound selector never reuses a
+ * member name (I006), and no member takes the relation-count key `_count`
+ * (F010).
+ */
+const SELECTOR_RULES: ValidationRule[] = [
+  publicSelectorNamesAreUnambiguous,
+  memberNamesAreNotReserved,
+];
+
+/**
  * The mandatory structural gate, for every boundary that can produce effects:
  * client construction, standalone registry construction, and migration
  * serialization/generation/push — including `push({ skipValidation: true })`,
@@ -208,9 +222,7 @@ export function validateResolvedSchemaOrThrow(
 export function resolveSchemaOrThrow(
   models: Record<string, Model<any>>
 ): ResolvedRelationIndex {
-  return validateResolvedSchemaOrThrow(models, [
-    publicSelectorNamesAreUnambiguous,
-  ]);
+  return validateResolvedSchemaOrThrow(models, SELECTOR_RULES);
 }
 
 /**
@@ -227,9 +239,7 @@ export function resolveSchemaOrThrow(
 export function validateClientSchemaOrThrow(
   models: Record<string, Model<any>>
 ): ResolvedRelationIndex {
-  return validateResolvedSchemaOrThrow(models, [
-    publicSelectorNamesAreUnambiguous,
-  ]);
+  return validateResolvedSchemaOrThrow(models, SELECTOR_RULES);
 }
 
 /** One construction path for every thrown schema-validation result. */

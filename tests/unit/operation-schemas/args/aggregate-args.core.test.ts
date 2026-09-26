@@ -537,7 +537,6 @@ describe("GroupBy Args - Simple Model Runtime", () => {
 describe("GroupBy Args - aggregate name collisions", () => {
   const shadowing = s.model({
     id: s.int().id(),
-    _count: s.int(),
     _avg: s.int(),
     _sum: s.int(),
     _min: s.int(),
@@ -547,7 +546,6 @@ describe("GroupBy Args - aggregate name collisions", () => {
     .groupBy;
 
   test.each([
-    ["_count", true],
     ["_avg", { id: true }],
     ["_sum", { id: true }],
     ["_min", { id: true }],
@@ -560,8 +558,17 @@ describe("GroupBy Args - aggregate name collisions", () => {
   });
 
   test("output: grouping by the shadowing field without selecting it passes", () => {
-    const result = parse(schema, { by: ["_count"], _avg: { id: true } });
+    const result = parse(schema, { by: ["_avg"], _sum: { id: true } });
     expect(result.issues).toBeUndefined();
+  });
+
+  // `_count` has no grouped-column collision to refuse: a model field of that
+  // name is refused before any registry exists (F010, the reserved member name).
+  test("output: a model field named _count never reaches groupBy", () => {
+    const counted = s.model({ id: s.int().id(), _count: s.int() });
+    expect(() => createSchemaRegistry({ counted })).toThrow(
+      "Model 'counted' declares a member named '_count'; '_count' is reserved for relation counts."
+    );
   });
 });
 

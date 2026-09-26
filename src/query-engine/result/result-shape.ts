@@ -256,11 +256,6 @@ function buildModelShape(
     }
   }
 
-  if (relationCounts.size > 0 && selectedOutputKeys.has("_count")) {
-    throw new QueryEngineError(
-      "Relation counts cannot be selected together with a model field named '_count'."
-    );
-  }
   if (relationCounts.size > 0) {
     rawKeys.push(RELATION_COUNTS_RESULT_KEY);
   }

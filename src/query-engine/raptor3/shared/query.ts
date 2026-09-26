@@ -3646,7 +3646,9 @@ export class Queries {
     let distanceSelected = false;
     for (const [name, selection] of Object.entries(selected)) {
       if (!selection) continue;
-      if (name === "_count" && !model["~"].state.scalars[name]) {
+      // `_count` is the relation-count key and nothing else: schema
+      // validation refuses a member of that name (F010).
+      if (name === "_count") {
         const counts = this.prepareCounts(model, selection);
         // An empty count SELECTION contributes no field at all: the shipped
         // engine pushed the `_count` pair only `if (relationCountPairs.length
