@@ -263,17 +263,6 @@ function admittedRecurrence(value: unknown): NormalizedRecurrence | undefined {
   return getOwnValue(value, "recurse") as NormalizedRecurrence | undefined;
 }
 
-/**
- * A negative nested `take` runs the relation subquery in reversed order with an
- * absolute limit; the rows therefore arrive last-first and the shape carries the
- * instruction to restore the logical order (top-level parity, `ReadOperation`).
- */
-function pagesBackward(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  const take = getOwnValue(value, "take");
-  return typeof take === "number" && take < 0;
-}
-
 function addSelectedRelations(
   model: Model<any>,
   modelRelations: Model<any>["~"]["state"]["relations"],
@@ -309,7 +298,7 @@ function addSelectedRelations(
     }
     relations.set(relationName, {
       model: targetModel,
-      shape: pagesBackward(value) ? { ...shape, reversed: true } : shape,
+      shape,
       cardinality: relation["~"].state.cardinality,
       optional: resolved !== undefined && slotMayBeEmpty(resolved),
       ...(recurrence ? { recurrence } : {}),
@@ -388,9 +377,6 @@ function addSelectedPolymorphicRelations(
             index
           ),
           visible: allowList ? allowList.has(publicType) : true,
-          // ARM-LOCAL, unlike the ordinary relation flag: one arm may page
-          // backward while its sibling pages forward.
-          ...(pagesBackward(override) ? { reversed: true } : {}),
         });
       }
     }
