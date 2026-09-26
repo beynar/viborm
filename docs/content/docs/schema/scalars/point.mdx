@@ -344,7 +344,10 @@ nearest[0]?._distance; // number | undefined
 `"asc"` means nearest first; `"desc"` means farthest first. A null point yields
 `number | null`, and null distance sorts last in both directions. One result
 projection can expose only one `_distance` value, including across vector and
-GeoPoint fields.
+GeoPoint fields. `_distance` is a [reserved member name](/docs/schema/model#reserved-member-names),
+so a model never has a field that competes for the key; a column named
+`_distance` is reached through a renamed scalar, `rank: s.int().map("_distance")`,
+and selected beside the distance as `rank`.
 
 An upper-bounded positive distance filter can use the spatial index as a
 conservative prefilter before the exact distance expression. Lower-only and

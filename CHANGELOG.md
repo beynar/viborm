@@ -24,6 +24,25 @@ Versioning.
   `.extends({ _count: ... })` no longer type-check, and the diagnostic names
   the reason: ``not assignable to type '"`_count` is reserved for relation
   counts (F010)"'``.
+- **Breaking: `_distance` is a reserved member name**, by the same rule as
+  `_count`. A schema whose model declares a scalar, a relation or a
+  polymorphic slot named `_distance` is refused where the schema is validated
+  — client construction, migrations and `validateSchema` — with `[F010] Model
+  '<model>' declares a member named '_distance'; '_distance' is reserved for
+  distance results. Rename it, and use .map("_distance") on a renamed scalar to
+  keep its column name.` Before, such a schema was accepted and the key had two
+  producers: selecting a point's distance beside a scalar or relation of that
+  name, in either order, or a recursive relation of that name whose node
+  selected a distance, was refused per query with `A distance result cannot be
+  selected together with a model field named '_distance'.`; that sentence no
+  longer exists, and `_distance` in a result is always the selected distance.
+  To keep the column, rename the member and map it:
+  `rank: s.int().map("_distance")`, which can be selected, filtered and
+  ordered beside a distance. In TypeScript the key is refused at compile time
+  too: `s.model({ _distance: ... })` and `.extends({ _distance: ... })` no
+  longer type-check, and the diagnostic names the reason:
+  ``not assignable to type '"`_distance` is reserved for distance results
+  (F010)"'``.
 - **A singular polymorphic slot reads every arm.** A `select` that named only
   some arms of a required or optional to-one variant slot used to return
   `null` for a row whose target belongs to an unnamed arm; the documented
@@ -108,10 +127,10 @@ Versioning.
   lives in a lateral derived table, because MySQL materializes a correlated
   CTE that is read twice once per statement. Providers cap exhaustive
   traversals with their own limits: MySQL's `cte_max_recursion_depth` surfaces
-  as the provider's error (errno 3636), never as a truncated result. The
-  output key `_distance` has one producer: a relation named `_distance`
-  (recursive or not) cannot be projected beside a point's distance, in either
-  order — the refusal a scalar of that name already met.
+  as the provider's error (errno 3636), never as a truncated result. A
+  recursive node may select a point's distance, returned as the node's
+  `_distance`; no relation can take that name (see "`_distance` is a reserved
+  member name" above).
 - **A connection must be representable.** An explicit `connect`, and the found
   and the create arm of `connectOrCreate`, establish a relation by writing the
   value the target holds for the referenced field. Every component that

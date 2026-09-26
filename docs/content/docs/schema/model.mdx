@@ -19,19 +19,27 @@ const user = s.model({
 });
 ```
 
-### Reserved member name
+### Reserved member names
 
-`_count` is reserved for [relation counts](/docs/client/selecting#count-relations):
-in `select` and `include` it always means the counts of the model's relations.
-A model that declares a member named `_count` — a scalar, a relation or a
-polymorphic slot — is refused when the schema is validated, at client
-construction and by `validateSchema` (`F010`). In TypeScript, `s.model` and
-`.extends` already refuse the key at compile time, with a diagnostic that
-names the reason (`` '"`_count` is reserved for relation counts (F010)"' ``);
-`F010` is the check that holds for every caller, JavaScript included. To keep
-an existing `_count` column, give the scalar another name and map it:
+Two keys belong to what a selection produces, so no member may take them:
+
+- `_count` is reserved for [relation counts](/docs/client/selecting#count-relations):
+  in `select` and `include` it always means the counts of the model's relations;
+- `_distance` is reserved for distance results: it is the key a selected
+  [point](/docs/schema/scalars/point#select-and-order-by-distance) or
+  [vector](/docs/schema/scalars/vector) distance is returned under.
+
+A model that declares a member named `_count` or `_distance` — a scalar, a
+relation or a polymorphic slot — is refused when the schema is validated, at
+client construction and by `validateSchema` (`F010`). In TypeScript, `s.model`
+and `.extends` already refuse the key at compile time, with a diagnostic that
+names the reason (`` '"`_count` is reserved for relation counts (F010)"' ``,
+`` '"`_distance` is reserved for distance results (F010)"' ``); `F010` is the
+check that holds for every caller, JavaScript included. To keep an existing
+column of either name, give the scalar another name and map it:
 `tally: s.int().map("_count")` reads and writes the column `_count` as the
-member `tally`.
+member `tally`, and `rank: s.int().map("_distance")` the column `_distance` as
+`rank`, beside a selected distance.
 
 ## Table Name
 

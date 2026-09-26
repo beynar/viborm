@@ -865,11 +865,10 @@ a `$transaction([...])` array on a batch-only transport: the array owner
 parses that member's result and, like an ordinary malformed member, it
 surfaces as `QueryError` V2001); the FK-cycle refusal, a property of the
 data, is its own `QueryEngineError`. The output key
-`_distance` has one producer:
-`prepareProjection` refuses a scalar or a relation of that name beside a
-distance in either order, and `relationShape` refuses a recursive `_distance`
-slot whose repeated node selects a distance (the schema-only mirror is
-`result/result-shape.ts` `addSelectedRelations`). Measure
+`_distance` has one producer, the selected distance: schema validation refuses
+a member of that name (F010, as for `_count`), so neither `prepareProjection`
+nor `relationShape` checks for a scalar, relation or recursive slot competing
+for it, and neither does the schema-only shape. Measure
 statement/bind/provider-row/output growth separately from source-derived
 occurrence and transient-copy counts; do not invent an allocation metric API.
 

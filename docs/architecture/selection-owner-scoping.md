@@ -3,7 +3,8 @@
 Status: first written as a reader-only scoping at `f250df80a` (2026-09-26), then
 corrected and brought up to date after the consolidation round on branch
 `engine-consolidation` (PR #52), then after the owner's `_count` ruling
-(`945aaf8b2`, B2 below). Line numbers below are at that commit unless a
+(`945aaf8b2`, B2 below), then after the `_distance` ruling (`ec844d8b5`,
+`413984668`, below B2). Line numbers below are at `413984668` unless a
 revision is named.
 
 Each section labels its claims:
@@ -12,9 +13,9 @@ Each section labels its claims:
 - **Judgement**: a design opinion. Another reviewer can reasonably disagree.
 
 The question: two interpreters read one selection.
-- `Queries.prepareProjection` is the SQL preparer: src/query-engine/raptor3/shared/query.ts:3629-3803.
+- `Queries.prepareProjection` is the SQL preparer: src/query-engine/raptor3/shared/query.ts:3628-3790.
 - `buildExpectedResultShape` is the schema-only shape that the TypeScript renderer reads:
-  src/query-engine/result/result-shape.ts:148-376.
+  src/query-engine/result/result-shape.ts:144-336.
 
 Which of their decisions are one meaning spelled twice? Which can share one owner?
 
@@ -48,37 +49,37 @@ E = src/query-engine/raptor3/shared/query.ts. R = src/query-engine/result/result
 
 | # | Selection decision | Engine (E) | Renderer shape (R) | Status now |
 |---|---|---|---|---|
-| 1 | Default projection = scalars minus the model's `.omit()` | 721-729 `defaultSelection`, 3641 | 185 | **ONE OWNER**: both call validation/model/core/projection.ts:52 `projectableScalarNames` (966d42c97, b05a13454) |
-| 2 | select and include merged into one output | 3640-3643 (spread, caller order) | 166-225 (scalars, select relations, select variants, include relations, include variants, `_count`) | Same key set. **Presentation order differs**; each consumer owns its own order (see below) |
-| 3 | A falsy entry is skipped | 3648 | 131-136 `selectedEntries`, 170 | Twice, agree |
-| 4 | Key `_count` means relation counts | 3651 (`name === "_count"`) | 233-257 (reads the value's shape) | **ONE MEANING, owned by the schema**: F010 refuses a member named `_count` (src/schema/validation/rules/model.ts `memberNamesAreNotReserved`, 945aaf8b2), so admission, the engine and the renderer all read `_count` as counts. B2 resolved |
-| 5 | An empty count list publishes no `_count` | 3657 | 259 | Twice, agree |
-| 6 | Counted relations = the truthy entries of `_count.select` | 3882-3892 | 238-257 (re-guards at 247 and 252, which admission already enforces; see count-filter.ts:56) | Twice, agree |
-| 7 | A non-relation entry with a `_distance` record is the distance | 3674-3676 | 175 | Twice, agree |
-| 8 | At most one distance per select | 3678-3679 | 176-177 | Twice, agree; **sentence shared** as `DISTANCE_SELECTED_TWICE` (R:53, bd6e17af2) |
-| 9 | Output key `_distance` has one producer | 3684-3686 and 3705-3706 (two order-dependent checks) | 230-232 (one check after gathering) | Twice, agree; two algorithms; sentence shared (`DISTANCE_NAME_COLLISION`, R:49) |
-| 10 | A recursive `_distance` slot vs a distance inside its node | 3815-3816 | 320-322 | Twice, agree |
-| 11 | Ordinary relation vs variant slot | 3712-3717 (resolved edge kind) | 306, 353 (declaration state) | Twice, agree: one fact read from two sources |
-| 12 | Nested node: `true` becomes `{}`, otherwise its select/include | 3860-3861 | 138-146 `getNestedSelection` | Twice, agree |
-| 13 | Recurrence read from the admitted `recurse` | 3875 | 285-288 (an `as` assertion at 287) | Twice, agree |
-| 14 | To-one vs to-many | 3834 `edge.many` | 326 `state.cardinality` | Twice, agree: one fact read from two sources |
-| 15 | A negative take means reversed | 3838-3843 (the decoder reads it) | — | **ONE SPELLING**: the unread renderer copy was deleted (53a1bc2dd) |
-| 16 | A slot may be empty (optional) | 3824 (recursive only) | 327, 376 | Owned by the renderer, except for recursive slots |
-| 17 | Collection arms = `only`, else every arm | 3738 | 358 | **ONE OWNER**: `selectedArm` (R:79-90, 03ad902bc). An arm that `only` excludes is no longer recorded |
-| 18 | Arm node = `variants[type]` / `configuration[type]`, default `true` | 3738 | 358 | **ONE OWNER**: `selectedArm` |
-| 19 | Singular carrier: every arm is read, and an unnamed arm at its default projection | 3738 | 358 | **ONE OWNER**: `selectedArm`. The runtime now agrees (B1, 357dd412a) |
-| 20 | Empty projection: refuse if `select` was written, else the sentinel | 3789-3794 | 263-268 | Twice, agree; **sentence shared** as `emptySelectRefusal` (R:61, B3, 5ca72ba37) |
+| 1 | Default projection = scalars minus the model's `.omit()` | 720-728 `defaultSelection`, 3640 | 179 | **ONE OWNER**: both call validation/model/core/projection.ts:52 `projectableScalarNames` (966d42c97, b05a13454) |
+| 2 | select and include merged into one output | 3639-3642 (spread, caller order) | 161-202 (scalars, select relations, select variants, include relations, include variants, `_count`) | Same key set. **Presentation order differs**; each consumer owns its own order (see below) |
+| 3 | A falsy entry is skipped | 3647 | 127-132 `selectedEntries`, 165 | Twice, agree |
+| 4 | Key `_count` means relation counts | 3650 (`name === "_count"`) | 203-227 (reads the value's shape) | **ONE MEANING, owned by the schema**: F010 refuses a member named `_count` (src/schema/validation/rules/model.ts `memberNamesAreNotReserved`, 945aaf8b2), so admission, the engine and the renderer all read `_count` as counts. B2 resolved |
+| 5 | An empty count list publishes no `_count` | 3656 | 229 | Twice, agree |
+| 6 | Counted relations = the truthy entries of `_count.select` | 3863-3873 | 208-227 (re-guards at 217 and 222, which admission already enforces; see count-filter.ts:56) | Twice, agree |
+| 7 | A non-relation entry with a `_distance` record is the distance | 3673-3675 | 169 | Twice, agree |
+| 8 | At most one distance per select | 3677-3678 | 170-171 | Twice, agree; **sentence shared** as `DISTANCE_SELECTED_TWICE` (R:49, bd6e17af2) |
+| 9 | Output key `_distance` has one producer | none (two order-dependent checks deleted, 413984668) | none (the check after gathering deleted, 413984668) | **RETIRED**: unreachable once F010 refuses a member named `_distance` (ec844d8b5); the coverage moved to schema validation (guard-ownership ledger, `_distance` addendum) |
+| 10 | A recursive `_distance` slot vs a distance inside its node | none (deleted, 413984668) | none (deleted, 413984668) | **RETIRED**: the slot publishes under the relation's name, so only a relation named `_distance` could collide; F010 refuses it |
+| 11 | Ordinary relation vs variant slot | 3699-3704 (resolved edge kind) | 275, 314 (declaration state) | Twice, agree: one fact read from two sources |
+| 12 | Nested node: `true` becomes `{}`, otherwise its select/include | 3841-3842 | 134-142 `getNestedSelection` | Twice, agree |
+| 13 | Recurrence read from the admitted `recurse` | 3856 | 255-258 (an `as` assertion at 257) | Twice, agree |
+| 14 | To-one vs to-many | 3815 `edge.many` | 288 `state.cardinality` | Twice, agree: one fact read from two sources |
+| 15 | A negative take means reversed | 3819-3824 (the decoder reads it) | — | **ONE SPELLING**: the unread renderer copy was deleted (53a1bc2dd) |
+| 16 | A slot may be empty (optional) | 3805 (recursive only) | 289, 336 | Owned by the renderer, except for recursive slots |
+| 17 | Collection arms = `only`, else every arm | 3725 | 319 | **ONE OWNER**: `selectedArm` (R:75-86, 03ad902bc). An arm that `only` excludes is no longer recorded |
+| 18 | Arm node = `variants[type]` / `configuration[type]`, default `true` | 3725 | 319 | **ONE OWNER**: `selectedArm` |
+| 19 | Singular carrier: every arm is read, and an unnamed arm at its default projection | 3725 | 319 | **ONE OWNER**: `selectedArm`. The runtime now agrees (B1, 357dd412a) |
+| 20 | Empty projection: refuse if `select` was written, else the sentinel | 3776-3781 | 233-238 | Twice, agree; **sentence shared** as `emptySelectRefusal` (R:57, B3, 5ca72ba37) |
 | 21 | Relation counts beside a scalar `_count` are refused | none | none (deleted, 945aaf8b2) | **RETIRED**: unreachable once F010 refuses the member; the coverage moved to schema validation (guard-ownership ledger addendum, 2026-09-26) |
-| 22 | Duplicate output columns are refused | none | 115-119 | Renderer only; no test; no admitted payload found that reaches it |
-| 23 | Distance nullability = a nullable point | 3847-3854 `distanceLeaf` | src/client/typescript-type-renderer.ts:336-340 | Twice, agree |
+| 22 | Duplicate output columns are refused | none | 111-115 | Renderer only; no test; no admitted payload found that reaches it |
+| 23 | Distance nullability = a nullable point | 3828-3835 `distanceLeaf` | src/client/typescript-type-renderer.ts:336-340 | Twice, agree. Unchanged by the `_distance` ruling: the leaf's nullability is the point's, whatever else the model declares |
 
 Decisions that exist only in the engine:
-- the default-projection cache (3633-3637, 3801);
-- count filters, tagged arms and `countedMemberships` (3943-);
+- the default-projection cache (3632-3636, 3788);
+- count filters, tagged arms and `countedMemberships` (3924-);
 - integrity memberships;
 - leaf descriptors;
 - the distance specification;
-- relation arguments (3862-3873);
+- relation arguments (3843-3854);
 - recursive identity.
 
 Decisions that exist only in the renderer:
@@ -128,17 +129,45 @@ And after the `_count` ruling (`945aaf8b2`):
 | Retired (unreachable guard deleted; coverage at schema validation) | 21 | 1 |
 | **Total** | | **23** |
 
+And after the `_distance` ruling (`ec844d8b5` reservation, `413984668` deletions):
+
+| Category after both rulings | Entries | Count |
+|---|---|---:|
+| One owner, both views call it | 1, 17, 18, 19 | 4 |
+| One meaning owned by the schema (every view reads `_count` as counts) | 4 | 1 |
+| One spelling (the dead copy was deleted) | 15 | 1 |
+| Twice; agree; sentence shared, guard in each view | 8, 20 | 2 |
+| Twice, agree, maintained independently | 3, 5, 6, 7, 11, 12, 13, 14, 23 | 9 |
+| Same key set; presentation order is per consumer | 2 | 1 |
+| Twice, disagree | — | 0 |
+| One side only | 16, 22 | 2 |
+| Retired (unreachable guard deleted; coverage at schema validation) | 9, 10, 21 | 3 |
+| **Total** | | **23** |
+
+The `_distance` ruling moved two entries, both to **Retired**: #9 (from "sentence shared,
+guard in each view": the engine's two order-dependent checks and the renderer's check after
+gathering) and #10 (from "maintained independently": the recursive-slot check in each view).
+Neither became a new "one meaning" row, unlike #4: `_count` is still a decision each view
+makes (the key is counts), whereas "`_distance` has one producer" was only ever a refusal, and
+with no member able to take the name there is nothing left to decide. The distance decisions
+that remain are selection-side and unchanged: #7 (which entry is the distance), #8 (at most
+one, `DISTANCE_SELECTED_TWICE`, still live) and #23 (its nullability). **Judgement:** #7 and
+#23 are candidates for a leaf owner like `selectedArm`; the ruling does not change that.
+
 This plainly answers whether the smaller sharing left semantic decisions maintained
 independently. It did:
-- 10 decisions still agree only because two independent spellings happen to agree.
-- 3 more share a sentence but keep a guard in each view.
+- 9 decisions still agree only because two independent spellings happen to agree (10 before
+  the `_distance` ruling; #10 was one of them).
+- 2 more share a sentence but keep a guard in each view (3 before; #9 was one of them).
 
 What changed is narrower:
 - the decisions where the views disagreed (#19, #20) or where a leaf function suffices
   (#1, #17, #18) now have one owner;
 - #4 no longer disagrees: the schema owns the fact that makes `_count` one meaning, and
   the engine's model lookup behind the disagreement is gone;
-- dead renderer state (#15, the excluded-arm record behind #17, and #21's guard) is gone.
+- dead renderer state (#15, the excluded-arm record behind #17, and #21's guard) is gone;
+- #9 and #10 are gone from both views: the schema owns the fact that `_distance` has one
+  producer (F010), and the five checks and the `DISTANCE_NAME_COLLISION` sentence are deleted.
 
 ## B1, B2, B3: status on this branch
 
@@ -177,7 +206,8 @@ What changed is narrower:
     src/schema/validation/rules/model.ts). It runs in `validateSchema` and in the selector
     rules of every effect-capable boundary (client construction, the standalone registry,
     migrations). A column keeps the name through `.map("_count")` on a renamed scalar.
-    Only `_count` is reserved; `_distance` and the aggregate names are not.
+    At this ruling only `_count` was reserved; `_distance` followed the same day (next
+    section). The aggregate names (`_avg`, `_sum`, `_min`, `_max`) are not reserved.
   - Deleted because the invariant makes them dead:
     - The `!model["~"].state.scalars[name]` conjunct that stood beside E:3651's test. Restoring it changes no
       result (measured: 204 cells over the new contract, the sqlite3 behaviour file and
@@ -212,6 +242,57 @@ What changed is narrower:
       `_count` is `true` or the count object (`false` refused), results are counts only.
   - The B2 follow-up scope (the four-owner change set that either candidate rule would
     have needed) is closed: the ruling needed only the schema rule and the deletions above.
+
+## The `_distance` ruling (#9, #10)
+
+**Owner ruling (Arnaud, 2026-09-26): "_distance is reserved too."**
+
+- The rule: F010 refuses a member named `_distance` as it refuses `_count` (scalar, relation,
+  variant slot), one sentence parameterised by the name and the output it is reserved for
+  (`ec844d8b5`). `DeclaredModelShape` refuses the key at compile time with the reason literal.
+  A column keeps the name through `.map("_distance")` on a renamed scalar.
+- Before the ruling (measured, reproduced at `002ee0a90` before any change):
+  distance-key-collision.test.ts passed 4 of 4 with a recursive relation named `_distance`
+  admitted by `createClient` and the pair refused per query.
+- Deleted because the invariant makes them dead (`413984668`):
+  - E: the check before the distance (`fields[DISTANCE_FIELD]`), the check after it
+    (`name === DISTANCE_FIELD && distanceSelected`) and `relationShape`'s recursive check;
+  - R: the check after gathering, the `selectedOutputKeys` set only it read, and
+    `addSelectedRelations`' recursive mirror;
+  - the `DISTANCE_NAME_COLLISION` sentence.
+
+  The recursive checks (#10) were read before deletion: the repeated slot publishes under the
+  relation's own name, which admission refuses inside its node, so a field of that name in the
+  node existed only when the relation was named `_distance`. That is a member against the
+  distance, not a second collision between two selection-side producers, so it is dead too.
+  `DISTANCE_SELECTED_TWICE` (#8, two distances in one select) is selection-side and stays.
+- Falsified (measured): with all five checks restored against their deletion, `layer-*` is
+  423 files / 9,005 cells passed both ways, `raptor3` is 2,002 passed / 7 failed both ways (the
+  known reds), and a 51-case probe (the round's probe with the `tally` fixture renamed, plus a
+  point model with a member mapped to the `_distance` column and a recursive relation: the
+  distance beside the mapped member and beside the slot in both orders, inside the repeated
+  node (to-many and to-one), a top-level `_distance` key (admission: "Unknown key:
+  _distance"), two distances, and two select-beside-include spellings asked of the engine and
+  the schema-only shape directly) is byte-identical. The probe sits in the session
+  scratchpad (`distance-reserved/probe/`).
+- Refusal census (measured, `node scripts/raptor3-refusal-census.mjs`): inherited 79 sites /
+  77 sentences → 76 / 76; total 206 → 203. The three sites were query.ts's throws of the deleted
+  sentence; invariant 25 / 24, candidate 44 / 35 and sentence-less 58 are unchanged.
+- Tests:
+  - count-reserved-member.core.test.ts: :183 and :194, the F010 refusal table over both
+    names (scalar, relation, variant slot, at `validateSchema` and at client construction);
+    :208 both names on one model; :223 the `.map` remedy admitted for both columns; :260
+    admission and the renderer read `_distance` as the distance beside the mapped member.
+  - distance-key-collision.test.ts: :179 the recursive relation named `_distance` refused at
+    `validateSchema`, `EngineSchema` and `createClient` (no statement); :195 and :223 the
+    pair's four spellings under the renamed relation keep both keys in the engine and the
+    renderer; :272 each producer alone.
+  - geopoint-behavior.ts: :440 the column read and written under the member name (every
+    tier: sqlite3, libsql, PGlite, pg, postgres.js, mysql2); :467 a distance selected and
+    ordered beside it (full tier: PGlite with PostGIS, mysql2 pass; pg and postgres.js fail on
+    the docker container's missing PostGIS, as every GeoPoint cell there does).
+  - count-reserved-member.core.types.ts: the four `@ts-expect-error` refusals and the static
+    result `{ score: number; _distance: number }`.
 
 ## What this round shared, and why each deletion is safe
 
@@ -251,7 +332,8 @@ Each commit is behaviour-preserving on the 36-selection probe (measured).
 
 No guard was added or removed in (c).
 - The two distance guards and the empty-select guard stay, one in each view: each view prepares
-  its own projection, and the renderer never calls the SQL preparer.
+  its own projection, and the renderer never calls the SQL preparer. (The `_distance` ruling
+  later deleted #9's guards; `DISTANCE_SELECTED_TWICE` stays.)
 - `visible` was a presentation filter, not a refusal.
 - The guard-ownership ledger is unchanged.
 - Refusal census (measured, `node scripts/raptor3-refusal-census.mjs --at <rev>`):
@@ -361,14 +443,11 @@ no line threshold decides whether an abstraction is justified. The criteria are 
 - client-coverage.core.test.ts: :146 (#23) and :193 (#19 with `true`).
 - typescript-renderer-nullability.core.test.ts: :9 and :35 (#16).
 - typescript-renderer-closure.core.test.ts: :68 (#17), :80 (#20), :92 (#1), :117 (#8).
-- distance-key-collision.test.ts: :187 and :213 (#9, #10).
 - polymorphic-result.core.types.ts (static): :198, :232 and :235 (#19).
 
 **Engine:**
 - parity-preparation.core.test.ts: :95-146 (#20, #5).
 - distance-parity.test.ts:111 and g4/unit01/repairs.test.ts:24 (#8).
-- parity-decoding.core.test.ts:400 (#9).
-- distance-key-collision.test.ts: :135 and :225 (#9, #10).
 - polymorphic-relation-behavior.ts: :217 (#18) and :427 (#19).
 - polymorphic-collection-read-behavior.ts: :325 and :341 (#17).
 - result-aliases.core.test.ts (the sentinel alias).
@@ -377,6 +456,11 @@ no line threshold decides whether an abstraction is justified. The criteria are 
 renderer), the "a scalar mapped to the column `_count`" section of
 relation-read-aggregate-behavior.ts (runtime, every registered provider) and
 count-reserved-member.core.types.ts (static).
+
+**Both sides (#9, #10, retired):** the F010 refusal pins in count-reserved-member.core.test.ts
+and distance-key-collision.test.ts:179; distance-key-collision.test.ts:195 and :223 (the old
+pair's spellings keep both keys, engine and renderer); geopoint-behavior.ts:440 and :467
+(runtime); count-reserved-member.core.types.ts (static).
 
 **Untested:**
 - #2: the interleaved order, on either side;
