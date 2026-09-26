@@ -718,6 +718,16 @@ function admittedTemporal(
   return "value" in admitted ? admitted.value : value;
 }
 
+/**
+ * The selection a query that writes no `select` asks for: every scalar the
+ * default projection's one owner (`projectableScalarNames`) keeps.
+ */
+function defaultSelection(model: AnyModel): Record<string, true> {
+  const selection: Record<string, true> = {};
+  for (const field of projectableScalarNames(model)) selection[field] = true;
+  return selection;
+}
+
 export class Queries {
   readonly schema: EngineSchema;
   readonly adapter: DatabaseAdapter;
@@ -3628,10 +3638,7 @@ export class Queries {
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     const selected = {
-      ...(args.select ??
-        Object.fromEntries(
-          projectableScalarNames(model).map((field) => [field, true])
-        )),
+      ...(args.select ?? defaultSelection(model)),
       ...args.include,
     };
     const prepared: PreparedProjectionField[] = [];
