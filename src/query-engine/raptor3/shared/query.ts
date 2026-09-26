@@ -8,7 +8,10 @@ import {
   TransactionError,
   VibORMError,
 } from "@errors";
-import { DISTANCE_NAME_COLLISION } from "@query-engine/result/result-shape";
+import {
+  DISTANCE_NAME_COLLISION,
+  emptySelectRefusal,
+} from "@query-engine/result/result-shape";
 import {
   CURSOR_CARRIER_PREFIX,
   EMPTY_ROW_RESULT_KEY,
@@ -3784,9 +3787,7 @@ export class Queries {
     // the caller asking for nothing, which is a refusal, not "everything".
     if (prepared.length === 0) {
       if (args.select !== undefined)
-        throw new QueryEngineError(
-          `The 'select' statement for model '${model["~"].names.ts ?? "unknown"}' needs at least one truthy value.`
-        );
+        throw new QueryEngineError(emptySelectRefusal(model));
       prepared.push(
         Object.freeze({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY })
       );

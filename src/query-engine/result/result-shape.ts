@@ -49,6 +49,15 @@ const MODEL_ROW_OPERATIONS = new Set<Operation>([
 export const DISTANCE_NAME_COLLISION =
   "A distance result cannot be selected together with a model field named '_distance'.";
 
+/**
+ * The registered refusal for a written `select` that keeps nothing, stated once
+ * for both result views like {@link DISTANCE_NAME_COLLISION}: this schema-only
+ * shape and Raptor 3's prepared projection name the model by its schema key.
+ */
+export function emptySelectRefusal(model: Model<any>): string {
+  return `The 'select' statement for model '${model["~"].names.ts ?? "unknown"}' needs at least one truthy value.`;
+}
+
 const AGGREGATE_NAMES: readonly AggregateResultName[] = [
   "_count",
   "_avg",
@@ -229,9 +238,7 @@ function buildModelShape(
 
   if (rawKeys.length === 0) {
     if (select) {
-      throw new QueryEngineError(
-        `The 'select' statement for model '${model["~"].state.name}' needs at least one truthy value.`
-      );
+      throw new QueryEngineError(emptySelectRefusal(model));
     }
     rawKeys.push(EMPTY_ROW_RESULT_KEY);
   }
