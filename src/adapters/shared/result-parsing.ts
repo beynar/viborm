@@ -18,8 +18,8 @@
  * The private column name a COUNT result carries in a RESULT SHAPE.
  *
  * It names a shape's single raw key, never a provider's row: its readers are
- * `query-engine/result/cache-result-codec.ts`, `result/result-shape.ts` and
- * `client/typescript-type-renderer.ts`, all over DECODED values. A live row's
+ * `query-engine/result/result-shape.ts` and `client/typescript-type-renderer.ts`,
+ * both over DECODED values. A live row's
  * count arrives under the alias the engine asked for (`_count`), which the
  * engine's own decoder reads back (Arnaud's D-40).
  */

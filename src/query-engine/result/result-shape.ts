@@ -7,9 +7,9 @@ import {
 } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
+import { projectableScalarNames } from "@validation/model/core/projection";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { isRecord } from "@validation/value-guards";
-import { getDefaultScalarFieldNames } from "../context";
 import {
   type AggregateResultName,
   DISTANCE_RESULT_KEY,
@@ -42,12 +42,48 @@ const MODEL_ROW_OPERATIONS = new Set<Operation>([
 ]);
 
 /**
- * The registered sentence for the output key `_distance` claimed twice, stated
- * once for both result views: this schema-only shape and Raptor 3's prepared
+ * The registered refusal for a second `_distance` in one select, stated once
+ * for both result views: this schema-only shape and Raptor 3's prepared
  * projection (`raptor3/shared/query.ts`) raise it.
  */
-export const DISTANCE_NAME_COLLISION =
-  "A distance result cannot be selected together with a model field named '_distance'.";
+export const DISTANCE_SELECTED_TWICE =
+  "Distance select supports only one _distance field per select.";
+
+/**
+ * The registered refusal for a written `select` that keeps nothing, stated once
+ * for both result views like {@link DISTANCE_SELECTED_TWICE}: this schema-only
+ * shape and Raptor 3's prepared projection name the model by its schema key.
+ */
+export function emptySelectRefusal(model: Model<any>): string {
+  return `The 'select' statement for model '${model["~"].names.ts ?? "unknown"}' needs at least one truthy value.`;
+}
+
+/**
+ * The node one arm of a variant slot is read with, or `undefined` when the
+ * selection leaves that arm out of the result. One rule for both result views:
+ * this schema-only shape and Raptor 3's prepared projection
+ * (`raptor3/shared/query.ts`).
+ *
+ * Only a collection's `only` narrows the arms; admission deduplicates it and
+ * refuses a `variants` key outside it. A singular slot has no such key: its row
+ * belongs to exactly one arm, so every arm is read and an arm the selection
+ * leaves unnamed is read at its model's default projection (`true`), which
+ * keeps the result union exhaustive
+ * (docs/content/docs/schema/relations/polymorphic.mdx). An admitted arm is
+ * `true` or a relation node; admission has no `false` arm.
+ */
+export function selectedArm(
+  selection: unknown,
+  many: boolean,
+  variant: string
+): unknown {
+  const configuration = isRecord(selection) ? selection : undefined;
+  if (!many) return getOwnValue(configuration, variant) ?? true;
+  const only = getOwnValue(configuration, "only");
+  if (Array.isArray(only) && !only.includes(variant)) return undefined;
+  const arms = getOwnValue(configuration, "variants");
+  return (isRecord(arms) ? getOwnValue(arms, variant) : undefined) ?? true;
+}
 
 const AGGREGATE_NAMES: readonly AggregateResultName[] = [
   "_count",
@@ -113,7 +149,6 @@ function buildModelShape(
   const rawKeys: string[] = [];
   const relations = new Map<string, ExpectedRelationResultShape>();
   const polymorphic = new Map<string, ExpectedPolymorphicResultShape>();
-  const selectedOutputKeys = new Set<string>();
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
   const modelRelations = model["~"].state.relations;
   const selectValue = getOwnValue(args, "select");
@@ -129,14 +164,11 @@ function buildModelShape(
       if (!scalar) continue;
       if (value === true) {
         rawKeys.push(fieldName);
-        selectedOutputKeys.add(fieldName);
         continue;
       }
       if (isRecord(value) && Object.hasOwn(value, "_distance")) {
         if (hasDistance) {
-          throw new QueryEngineError(
-            "Distance select supports only one _distance field per select."
-          );
+          throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
         }
         hasDistance = true;
         distanceScalar = scalar;
@@ -144,9 +176,8 @@ function buildModelShape(
       }
     }
   } else {
-    for (const fieldName of getDefaultScalarFieldNames(model)) {
+    for (const fieldName of projectableScalarNames(model)) {
       rawKeys.push(fieldName);
-      selectedOutputKeys.add(fieldName);
     }
   }
 
@@ -156,17 +187,9 @@ function buildModelShape(
     select,
     rawKeys,
     relations,
-    selectedOutputKeys,
     index
   );
-  addSelectedPolymorphicRelations(
-    model,
-    select,
-    rawKeys,
-    polymorphic,
-    selectedOutputKeys,
-    index
-  );
+  addSelectedPolymorphicRelations(model, select, rawKeys, polymorphic, index);
 
   addSelectedRelations(
     model,
@@ -174,24 +197,9 @@ function buildModelShape(
     include,
     rawKeys,
     relations,
-    selectedOutputKeys,
     index
   );
-  addSelectedPolymorphicRelations(
-    model,
-    include,
-    rawKeys,
-    polymorphic,
-    selectedOutputKeys,
-    index
-  );
-  // The output key `_distance` has ONE producer: the distance, or a model
-  // field of that name — scalar or relation, selected or included. The guard
-  // sits after every producer has been gathered so an included relation named
-  // `_distance` is refused exactly as a selected one is.
-  if (hasDistance && selectedOutputKeys.has("_distance")) {
-    throw new QueryEngineError(DISTANCE_NAME_COLLISION);
-  }
+  addSelectedPolymorphicRelations(model, include, rawKeys, polymorphic, index);
   const relationCountSelections = [
     getOwnValue(select, "_count"),
     getOwnValue(include, "_count"),
@@ -218,20 +226,13 @@ function buildModelShape(
     }
   }
 
-  if (relationCounts.size > 0 && selectedOutputKeys.has("_count")) {
-    throw new QueryEngineError(
-      "Relation counts cannot be selected together with a model field named '_count'."
-    );
-  }
   if (relationCounts.size > 0) {
     rawKeys.push(RELATION_COUNTS_RESULT_KEY);
   }
 
   if (rawKeys.length === 0) {
     if (select) {
-      throw new QueryEngineError(
-        `The 'select' statement for model '${model["~"].state.name}' needs at least one truthy value.`
-      );
+      throw new QueryEngineError(emptySelectRefusal(model));
     }
     rawKeys.push(EMPTY_ROW_RESULT_KEY);
   }
@@ -256,24 +257,12 @@ function admittedRecurrence(value: unknown): NormalizedRecurrence | undefined {
   return getOwnValue(value, "recurse") as NormalizedRecurrence | undefined;
 }
 
-/**
- * A negative nested `take` runs the relation subquery in reversed order with an
- * absolute limit; the rows therefore arrive last-first and the shape carries the
- * instruction to restore the logical order (top-level parity, `ReadOperation`).
- */
-function pagesBackward(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  const take = getOwnValue(value, "take");
-  return typeof take === "number" && take < 0;
-}
-
 function addSelectedRelations(
   model: Model<any>,
   modelRelations: Model<any>["~"]["state"]["relations"],
   selection: Record<string, unknown> | undefined,
   rawKeys: string[],
   relations: Map<string, ExpectedRelationResultShape>,
-  selectedOutputKeys: Set<string>,
   index: ResolvedRelationIndex
 ): void {
   for (const [relationName, value] of selectedEntries(selection)) {
@@ -286,7 +275,6 @@ function addSelectedRelations(
     if (!relation || isVariantRelationState(relation["~"].state)) continue;
     const targetModel = relation["~"].settleTarget() as Model<any>;
     rawKeys.push(relationName);
-    selectedOutputKeys.add(relationName);
     const shape = buildModelShape(
       targetModel,
       getNestedSelection(value),
@@ -294,15 +282,9 @@ function addSelectedRelations(
     );
     const resolved = index.get(model)?.get(relationName);
     const recurrence = admittedRecurrence(value);
-    // A recursive `_distance` slot whose repeated node selects a distance
-    // gives that node's key two producers (`Queries.relationShape` refuses
-    // the same pair for the engine).
-    if (recurrence && relationName === "_distance" && shape.distanceScalar) {
-      throw new QueryEngineError(DISTANCE_NAME_COLLISION);
-    }
     relations.set(relationName, {
       model: targetModel,
-      shape: pagesBackward(value) ? { ...shape, reversed: true } : shape,
+      shape,
       cardinality: relation["~"].state.cardinality,
       optional: resolved !== undefined && slotMayBeEmpty(resolved),
       ...(recurrence ? { recurrence } : {}),
@@ -311,19 +293,14 @@ function addSelectedRelations(
 }
 
 /**
- * The expected shape of one polymorphic projection, on the SAME cross-boundary
- * contract the collection read builder compiles against: a validated collection
- * selection is `true` / `false` verbatim, or
- * `{ only?: readonly string[]; variants?: { [publicType]: <arm node> } }` with
- * `only` already deduplicated into declaration order. This reads `only` and
- * `variants` and nothing else.
+ * The expected shape of one polymorphic projection. It records exactly the arms
+ * {@link selectedArm} reads, each with the node it reads it with.
  */
 function addSelectedPolymorphicRelations(
   model: Model<any>,
   selection: Record<string, unknown> | undefined,
   rawKeys: string[],
   polymorphic: Map<string, ExpectedPolymorphicResultShape>,
-  selectedOutputKeys: Set<string>,
   index: ResolvedRelationIndex
 ): void {
   const modelRelations = model["~"].state.relations;
@@ -336,60 +313,19 @@ function addSelectedPolymorphicRelations(
     const state = relation["~"].state;
     if (!isVariantRelationState(state)) continue;
 
-    const projection = isRecord(value) ? value : undefined;
+    const many = state.cardinality === "many";
     const variants = new Map<string, ExpectedPolymorphicVariantShape>();
-    const publicTypes = Object.keys(state.target.entries);
-
-    if (state.cardinality === "one") {
-      for (const publicType of publicTypes) {
-        const override = getOwnValue(projection, publicType);
-        const targetModel = relation["~"].settleTarget(
-          publicType
-        ) as Model<any>;
-        variants.set(publicType, {
-          model: targetModel,
-          shape: buildModelShape(
-            targetModel,
-            override === undefined || override === true
-              ? {}
-              : getNestedSelection(override),
-            index
-          ),
-        });
-      }
-    } else {
-      const only = getOwnValue(projection, "only");
-      const allowList = Array.isArray(only) ? new Set(only) : undefined;
-      const armNodes = getOwnValue(projection, "variants");
-      const armProjection = isRecord(armNodes) ? armNodes : undefined;
-      for (const publicType of publicTypes) {
-        const override = getOwnValue(armProjection, publicType);
-        const targetModel = relation["~"].settleTarget(
-          publicType
-        ) as Model<any>;
-        // EVERY configured arm is recorded, INCLUDING one excluded by `only`:
-        // the read still computes its integrity facts, and the parser still
-        // refuses a non-zero orphan count there. Visibility only decides
-        // whether the arm carries rows and whether they reach the result.
-        variants.set(publicType, {
-          model: targetModel,
-          shape: buildModelShape(
-            targetModel,
-            override === undefined || override === true
-              ? {}
-              : getNestedSelection(override),
-            index
-          ),
-          visible: allowList ? allowList.has(publicType) : true,
-          // ARM-LOCAL, unlike the ordinary relation flag: one arm may page
-          // backward while its sibling pages forward.
-          ...(pagesBackward(override) ? { reversed: true } : {}),
-        });
-      }
+    for (const publicType of Object.keys(state.target.entries)) {
+      const arm = selectedArm(value, many, publicType);
+      if (arm === undefined) continue;
+      const targetModel = relation["~"].settleTarget(publicType) as Model<any>;
+      variants.set(publicType, {
+        model: targetModel,
+        shape: buildModelShape(targetModel, getNestedSelection(arm), index),
+      });
     }
 
     rawKeys.push(relationName);
-    selectedOutputKeys.add(relationName);
     const resolved = index.get(model)?.get(relationName);
     polymorphic.set(relationName, {
       // CARDINALITY is the declaration's own fact — the slot the factory was

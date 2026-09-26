@@ -63,7 +63,28 @@ const marker = s
       .name("geopointTarget"),
   })
   .map("geopoint_behavior_markers");
-const schema = { article, marker, place, route, stop, video };
+/**
+ * `_distance` is a reserved member name (F010): the key belongs to a selected
+ * distance. The COLUMN name does not: `rank` reads and writes the column
+ * `_distance`, and a distance selected beside it still publishes under the
+ * output key `_distance`, at the top level, in a nested node and in a
+ * recursive node.
+ */
+const landmark = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+    rank: s.int().map("_distance"),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => landmark)
+      .fields("parentId")
+      .references("id")
+      .name("geopointLandmarkTree"),
+    children: s.toMany(() => landmark).name("geopointLandmarkTree"),
+  })
+  .map("geopoint_behavior_landmarks");
+const schema = { article, landmark, marker, place, route, stop, video };
 
 type GeoPointClientConfig = VibORMConfig<typeof schema>;
 export type GeoPointBehaviorClient = VibORMClient<GeoPointClientConfig>;
@@ -144,6 +165,18 @@ export function runGeoPointBatchBehavior({
 
 const PARIS = { longitude: 2.3522, latitude: 48.8566 } as const;
 const LONDON = { longitude: -0.1276, latitude: 51.5072 } as const;
+const NEW_YORK = { longitude: -74.006, latitude: 40.7128 } as const;
+
+/**
+ * Nearest to London first: london, paris, new-york. By rank: paris,
+ * new-york, london. The two orders disagree everywhere, so an order read from
+ * the wrong source is visible.
+ */
+const LANDMARKS = [
+  { id: "paris", location: PARIS, rank: 1 },
+  { id: "new-york", location: NEW_YORK, rank: 2 },
+  { id: "london", location: LONDON, rank: 3 },
+] as const;
 
 /** Shared live proof for the logical GeoPoint value and each provider tier. */
 export function runGeoPointBehavior({
@@ -412,7 +445,151 @@ export function runGeoPointBehavior({
       expect(tagged[0]?.location).not.toEqual(PARIS);
     });
 
+    test("reads and writes a member mapped to the `_distance` column", async () => {
+      await active().landmark.createMany({ data: [...LANDMARKS] });
+      await active().landmark.update({
+        where: { id: "paris" },
+        data: { rank: { increment: 10 } },
+      });
+
+      await expect(
+        active().landmark.findMany({ orderBy: { rank: "asc" } })
+      ).resolves.toEqual([
+        { id: "new-york", location: NEW_YORK, rank: 2, parentId: null },
+        { id: "london", location: LONDON, rank: 3, parentId: null },
+        { id: "paris", location: PARIS, rank: 11, parentId: null },
+      ]);
+      await expect(
+        active().landmark.findMany({
+          where: { rank: { gte: 3 } },
+          select: { id: true, rank: true },
+          orderBy: { rank: "desc" },
+        })
+      ).resolves.toEqual([
+        { id: "paris", rank: 11 },
+        { id: "london", rank: 3 },
+      ]);
+    });
+
     if (tier === "full") {
+      test("selects and orders by a distance beside a member mapped to the `_distance` column", async () => {
+        await active().landmark.createMany({ data: [...LANDMARKS] });
+        const toParis = sphericalDistance(LONDON, PARIS);
+        const toNewYork = sphericalDistance(LONDON, NEW_YORK);
+
+        const byDistance = await active().landmark.findMany({
+          select: {
+            id: true,
+            rank: true,
+            location: { _distance: { to: LONDON } },
+          },
+          orderBy: { location: { _distance: { to: LONDON, sort: "asc" } } },
+        });
+        expect(byDistance.map(({ id, rank }) => ({ id, rank }))).toEqual([
+          { id: "london", rank: 3 },
+          { id: "paris", rank: 1 },
+          { id: "new-york", rank: 2 },
+        ]);
+        expect(byDistance.map((row) => Object.keys(row).sort())).toEqual([
+          ["_distance", "id", "rank"],
+          ["_distance", "id", "rank"],
+          ["_distance", "id", "rank"],
+        ]);
+        expect(byDistance[0]?._distance).toBeCloseTo(0, 6);
+        expect(byDistance[1]?._distance).toBeCloseTo(toParis, 3);
+        expect(byDistance[2]?._distance).toBeCloseTo(toNewYork, 3);
+
+        // The distance first, the column second; ordered by the column and
+        // filtered on the distance.
+        const byRank = await active().landmark.findMany({
+          where: {
+            location: { distance: { to: LONDON, lte: toParis + 1 } },
+          },
+          select: {
+            location: { _distance: { to: LONDON } },
+            rank: true,
+          },
+          orderBy: { rank: "desc" },
+        });
+        expect(byRank.map((row) => row.rank)).toEqual([3, 1]);
+        expect(byRank[0]?._distance).toBeCloseTo(0, 6);
+        expect(byRank[1]?._distance).toBeCloseTo(toParis, 3);
+      });
+
+      test("selects a distance beside a member mapped to the `_distance` column in nested and recursive nodes", async () => {
+        await active().landmark.createMany({ data: [...LANDMARKS] });
+        await active().landmark.updateMany({
+          where: { id: { in: ["london", "new-york"] } },
+          data: { parentId: "paris" },
+        });
+        const toParis = sphericalDistance(LONDON, PARIS);
+        const toNewYork = sphericalDistance(LONDON, NEW_YORK);
+        const node = {
+          id: true,
+          rank: true,
+          location: { _distance: { to: LONDON } },
+        } as const;
+
+        // A nested node: distance order (london, new-york) and rank order
+        // (new-york, london) disagree, so each node's key is read from its
+        // own source.
+        const nested = await active().landmark.findUnique({
+          where: { id: "paris" },
+          select: {
+            ...node,
+            children: {
+              select: node,
+              orderBy: { location: { _distance: { to: LONDON, sort: "asc" } } },
+            },
+          },
+        });
+        expect(nested).toEqual({
+          id: "paris",
+          rank: 1,
+          _distance: expect.closeTo(toParis, 3),
+          children: [
+            { id: "london", rank: 3, _distance: expect.closeTo(0, 6) },
+            {
+              id: "new-york",
+              rank: 2,
+              _distance: expect.closeTo(toNewYork, 3),
+            },
+          ],
+        });
+
+        // A recursive node repeats the column and the distance at every level.
+        const recursive = await active().landmark.findUnique({
+          where: { id: "paris" },
+          select: {
+            ...node,
+            children: {
+              recurse: { depth: false },
+              select: node,
+              orderBy: { rank: "asc" },
+            },
+          },
+        });
+        expect(recursive).toEqual({
+          id: "paris",
+          rank: 1,
+          _distance: expect.closeTo(toParis, 3),
+          children: [
+            {
+              id: "new-york",
+              rank: 2,
+              _distance: expect.closeTo(toNewYork, 3),
+              children: [],
+            },
+            {
+              id: "london",
+              rank: 3,
+              _distance: expect.closeTo(0, 6),
+              children: [],
+            },
+          ],
+        });
+      });
+
       test("uses the fixed-radius metric for filtering, selection, and ordering", async () => {
         await active().place.createMany({
           data: [

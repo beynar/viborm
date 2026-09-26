@@ -5,6 +5,7 @@ import { DRIVER_CONTRACT_IDS } from "@tests/contracts/drivers/contract-ids";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { classifyTestFile } from "@tests/inventory";
 import { CONTRACT_ASSIGNMENTS, PROVIDERS } from "@tests/providers/matrix";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 async function collectFiles(directory: string): Promise<string[]> {
@@ -18,6 +19,82 @@ async function collectFiles(directory: string): Promise<string[]> {
     }
   }
   return files;
+}
+
+/** Vitest's registrars: a registration inside one of their bodies runs. */
+const REGISTRARS = new Set(["describe", "suite", "it", "test"]);
+/** A member that keeps a registrar's body from running, whatever follows. */
+const SKIPPING_MEMBERS = new Set(["skip", "todo"]);
+
+/** `describe.concurrent.skip` as `["describe", "concurrent", "skip"]`. */
+function memberChain(expression: ts.Expression): string[] | undefined {
+  if (ts.isIdentifier(expression)) {
+    return [expression.text];
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    const chain = memberChain(expression.expression);
+    return chain && [...chain, expression.name.text];
+  }
+  return undefined;
+}
+
+/**
+ * Whether a call's body never runs, whatever the environment: a registrar
+ * chain through `skip` or `todo` (`describe.skip(...)`, `it.todo(...)`,
+ * `describe.skip.each(table)(...)`), or a `skipIf(true)` / `runIf(false)`
+ * gate with a literal condition. A gate on a runtime value
+ * (`describe.skipIf(!url)`) and the availability alias
+ * `describeIf = url ? describe : describe.skip` are not calls of this shape.
+ */
+function neverRuns(call: ts.CallExpression): boolean {
+  const direct = memberChain(call.expression);
+  if (direct) {
+    return (
+      REGISTRARS.has(direct[0] ?? "") &&
+      direct.slice(1).some((member) => SKIPPING_MEMBERS.has(member))
+    );
+  }
+  if (!ts.isCallExpression(call.expression)) {
+    return false;
+  }
+  const gate = call.expression;
+  const chain = memberChain(gate.expression);
+  if (!(chain && REGISTRARS.has(chain[0] ?? ""))) {
+    return false;
+  }
+  if (chain.slice(1).some((member) => SKIPPING_MEMBERS.has(member))) {
+    return true;
+  }
+  const condition = gate.arguments[0]?.kind;
+  const member = chain.at(-1);
+  return (
+    (member === "skipIf" && condition === ts.SyntaxKind.TrueKeyword) ||
+    (member === "runIf" && condition === ts.SyntaxKind.FalseKeyword)
+  );
+}
+
+/**
+ * A provider file's source without the calls whose body never runs
+ * (`neverRuns`): a registration inside one is not a run.
+ */
+function runnableSource(fileName: string, text: string): string {
+  const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest);
+  const skipped: Array<readonly [number, number]> = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && neverRuns(node)) {
+      skipped.push([node.getStart(source), node.getEnd()]);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  let runnable = "";
+  let cursor = 0;
+  for (const [start, end] of skipped) {
+    runnable += text.slice(cursor, start);
+    cursor = end;
+  }
+  return runnable + text.slice(cursor);
 }
 
 const runtimeOwners: ReadonlyArray<{
@@ -109,15 +186,58 @@ describe("contract and provider matrix", () => {
     }
   });
 
+  it("counts no registration that a static skip keeps from running", () => {
+    const skipped = [
+      "describe.skip",
+      "describe.todo",
+      "describe.concurrent.skip",
+      "describe.skipIf(true)",
+      "describe.runIf(false)",
+      "describe.skip.each([1])",
+      "suite.skip",
+      "it.skip",
+      "it.todo",
+      "test.skip",
+      "test.skipIf(true)",
+    ];
+    for (const wrapper of skipped) {
+      expect(
+        runnableSource(
+          "probe.test.ts",
+          `${wrapper}("x", () => { fooContract.register(); });`
+        ),
+        wrapper
+      ).not.toContain("fooContract.register(");
+    }
+    const running = [
+      "describe",
+      "describeIf",
+      "describe.skipIf(!url)",
+      "describe.runIf(url)",
+      "describe.skipIf(false)",
+      "describe.runIf(true)",
+      "describe.each([1])",
+    ];
+    for (const wrapper of running) {
+      expect(
+        runnableSource(
+          "probe.test.ts",
+          `const describeIf = url ? describe : describe.skip;\n${wrapper}("x", () => { fooContract.register(); });`
+        ),
+        wrapper
+      ).toContain("fooContract.register(");
+    }
+  });
+
   it("matches matrix run decisions to provider registrations", async () => {
     const contractEntries = Object.entries(DRIVER_CONTRACT_IDS);
 
     for (const provider of PROVIDERS) {
       let providerSource = "";
       for (const sourceFile of provider.sourceFiles) {
-        providerSource += await readFile(
-          join(REPOSITORY_ROOT, sourceFile),
-          "utf8"
+        providerSource += runnableSource(
+          sourceFile,
+          await readFile(join(REPOSITORY_ROOT, sourceFile), "utf8")
         );
       }
 

@@ -2912,3 +2912,84 @@ combined-depth-stress,nested-create-context-grandchild,create-many-skip-depth}.t
 `tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts`.
 The logger route and the `notice` key are pinned by "routes the dropped-skip
 warning through the client's logger once …" (`suppression-replay.test.ts`).
+
+---
+
+## Addendum — `_count` is a reserved member name (2026-09-26)
+
+**Owner ruling (Arnaud, 2026-09-26): "_count is a reserved word."** A model
+member named `_count` — scalar, relation or variant slot — is refused where
+the schema is validated: F010, `memberNamesAreNotReserved`
+(`src/schema/validation/rules/model.ts`), in `validateSchema`'s model rules and
+in the selector rules every effect-capable boundary runs beside the relation
+gate (`SELECTOR_RULES`, `src/schema/validation/validator.ts`). Commit
+`945aaf8b2`. The one sentence:
+`Model '<model>' declares a member named '_count'; '_count' is reserved for
+relation counts. Rename it, and use .map("_count") on a renamed scalar to keep
+its column name.`
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `result/result-shape.ts` `buildModelShape` · `Relation counts cannot be selected together with a model field named '_count'.` (`QueryEngineError`) | The output key `_count` has one producer. | Schema validation: the only second producer was a model member named `_count`. | **DELETED.** Coverage moved to F010. It had no test of its own before the known-defect file (2ebadbc46); restoring it leaves layer-client and layer-query-engine green (1295 cells), because no admitted selection can put `_count` among the projected member names. |
+| `raptor3/shared/query.ts` `Queries.prepareProjection` · `name === "_count" && !model["~"].state.scalars[name]` | same | same | **DELETED** (the conjunct; not a guard, the model lookup that made the engine publish the member). Restoring it changes no result: 204 cells over the new contract, the sqlite3 behaviour file and the raptor3 projection/count files stay green. |
+| `validation/model/args/aggregate.ts` `groupByCollisions` · `Aggregate '_count' cannot be selected together with a model field named '_count'.` | A grouped column and a selected aggregate never share an output key. | Schema validation, for `_count` only. | **NARROWED**: `_count` left `GROUP_AGGREGATE_KEYS`; the refusal stays for `_avg`, `_sum`, `_min`, `_max` (pins: aggregate-args.core.test.ts, four cells). |
+| `validation/model/args/bulk-write-projection.ts` `findProjectedRelation` · `'select._count' is not supported on '<verb>' …` | A bulk write projects scalars only. | Admission. | **KEPT**: live on every model (without it `_count` falls to `Unknown key: _count`); it never depended on a member of that name. |
+
+Falsifiers: `tests/contracts/public-client/count-reserved-member.core.test.ts`
+(six refusal cells, one per member kind at `validateSchema` and at client
+construction) and aggregate-args.core.test.ts "a model field named _count never
+reaches groupBy"; disabling F010 turns those seven red. The runtime witness of
+what remains is the "a scalar mapped to the column `_count`" section of
+`tests/contracts/drivers/behaviors/relation-read-aggregate-behavior.ts`. The
+Raptor 3 refusal census is unmoved in counts (it matches sentences thrown under
+`raptor3/**`; the deleted renderer guard sits outside it): only line numbers
+after `query.ts:3651` shift by two.
+
+
+---
+
+## Addendum — `_distance` is a reserved member name (2026-09-26)
+
+**Owner ruling (Arnaud, 2026-09-26): "_distance is reserved too."** A model
+member named `_distance` — scalar, relation or variant slot — is refused by the
+same rule as `_count`: F010, `memberNamesAreNotReserved`
+(`src/schema/validation/rules/model.ts`), now one sentence parameterised by
+the name and the output it is reserved for (commit `ec844d8b5`):
+`Model '<model>' declares a member named '_distance'; '_distance' is reserved
+for distance results. Rename it, and use .map("_distance") on a renamed scalar
+to keep its column name.` The `_count` sentence is unchanged. With the
+invariant "no model has a member named `_distance`", the output key
+`_distance` has one producer, the selected distance, and every check that
+existed only because a member could take the name is deleted:
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `raptor3/shared/query.ts` `Queries.prepareProjection` · `if (fields[DISTANCE_FIELD]) throw …DISTANCE_NAME_COLLISION` (distance prepared after a member of that name) | The output key `_distance` has one producer. | Schema validation: `fields._distance` was set before the distance only by a scalar, relation or variant slot named `_distance`; a second distance meets `DISTANCE_SELECTED_TWICE` first. | **DELETED.** Coverage moved to F010. |
+| `raptor3/shared/query.ts` `Queries.prepareProjection` · `if (name === DISTANCE_FIELD && distanceSelected) throw …` (a member of that name prepared after the distance) | same | same: admission refuses a `select`/`include` key `_distance` on a model with no such member (`Unknown key: _distance`, probed). | **DELETED.** |
+| `raptor3/shared/query.ts` `Queries.relationShape` · `if (nested.projection.shape.fields[nested.edge.name]) throw …` (a recursive slot vs a distance inside its node) | same, one level down | same: the repeated slot publishes under the RELATION'S name, and admission refuses that name inside its own node, so the node could hold a field of that name only when the relation was named `_distance` and the node selected a distance. Not a second collision between two selection-side producers: a member (the slot) against the distance. | **DELETED.** |
+| `result/result-shape.ts` `buildModelShape` · `if (hasDistance && selectedOutputKeys.has("_distance")) throw …` | same | same | **DELETED**, with the `selectedOutputKeys` set it alone read (built in `buildModelShape`, threaded through `addSelectedRelations` and `addSelectedPolymorphicRelations`). The groupBy shape's own set of that name is a different, live check. |
+| `result/result-shape.ts` `addSelectedRelations` · `if (recurrence && relationName === "_distance" && shape.distanceScalar) throw …` | same, one level down | same | **DELETED.** |
+| `result/result-shape.ts` `DISTANCE_NAME_COLLISION` (the shared sentence) | — | — | **DELETED**: no thrower remains. |
+| `DISTANCE_SELECTED_TWICE` (both views) | At most one distance per select. | Selection: two point/vector fields each selecting `_distance`. | **KEPT**: live on every model with two distance-capable fields; pins `g4/unit01/repairs.test.ts`, `distance-parity.test.ts`, `typescript-renderer-closure.core.test.ts`. |
+
+Falsification (measured on the working tree before the deletion commit, with
+the reservation committed): restoring all five checks at once — the engine's
+three and the renderer's two — against their deletion leaves every
+`layer-*` project at 423 files / 9,005 cells passed both ways, `raptor3` at
+2,002 passed / 7 failed both ways (the seven known reds: cs02 and the six
+generation campaigns), and a 51-case selection probe (49 selections through
+admission, the engine's prepared fields and shape and the rendered type, plus
+2 select-beside-include spellings asked of the engine and the schema-only
+shape directly: a distance beside a member mapped to the `_distance` column,
+beside a recursive slot in both orders, inside the repeated node, a top-level
+`_distance` key, two distances) byte-identical (sha256 `9d857305…`). Each check
+only throws, so if none fires with all five present, none fires alone. The
+refusal pins moved to F010: `count-reserved-member.core.test.ts` (scalar,
+relation, variant slot at `validateSchema` and client construction) and
+`raptor3/recursive-query/distance-key-collision.test.ts` (the recursive
+relation, at `validateSchema`, `EngineSchema` and `createClient`); disabling
+F010 for `_distance` turns those 8 cells red. Raptor 3 refusal census: the
+inherited sentence "A distance result cannot be selected together with a model
+field named '_distance'." and its three sites leave (inherited 79 sites / 77
+sentences → 76 / 76, total 206 → 203); invariant, candidate and sentence-less
+counts are unchanged.

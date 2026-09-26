@@ -2,8 +2,8 @@
 
 import { validateSchema } from "../../../validation/primitives/helpers";
 import { isValidSchemaIdentifier } from "../../identifier";
-import { getAmbiguousPublicSelectorNames } from "../../model/keys";
 import type { Model, ModelState } from "../../model";
+import { getAmbiguousPublicSelectorNames } from "../../model/keys";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
 
@@ -406,6 +406,53 @@ export function compoundConstraintsNonEmpty(
   return errors;
 }
 
+/**
+ * F010's reserved names, each with the output it is reserved for. Both are
+ * keys a selection publishes on its own (owner rulings, 2026-09-26: "_count is
+ * a reserved word", "_distance is reserved too"): `_count` in `select` and
+ * `include` is the relation-count projection, and `_distance` is the key a
+ * selected point or vector distance publishes under.
+ */
+const RESERVED_MEMBER_NAMES = {
+  _count: "relation counts",
+  _distance: "distance results",
+} as const;
+
+/**
+ * F010: a model member never takes a reserved name.
+ *
+ * A member named `_count` or `_distance` — a scalar, a relation or a variant
+ * slot — would give that output key two producers, and every reader of a
+ * selection (admission, the engine's projection, the schema-only renderer,
+ * the static types) then needs its own answer to which one wins. Refusing the
+ * name here leaves each key one meaning everywhere downstream. The two names
+ * share one sentence because they share the reason and the remedy: the column
+ * name stays available, and a renamed scalar keeps it with `.map(...)`.
+ *
+ * TypeScript callers meet the refusal earlier: the shape parameter of
+ * `s.model` and `.extends` forbids both keys (`DeclaredModelShape`). That is a
+ * convenience for them only; a JavaScript caller, a cast or a computed key
+ * reaches this rule, so F010 is the contract for every caller.
+ */
+export function memberNamesAreNotReserved(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): SchemaValidationIssue[] {
+  const shape = model["~"].state.shape;
+  return Object.entries(RESERVED_MEMBER_NAMES)
+    .filter(([reserved]) => Object.hasOwn(shape, reserved))
+    .map(
+      ([reserved, output]): SchemaValidationIssue => ({
+        code: "F010",
+        message: `Model '${name}' declares a member named '${reserved}'; '${reserved}' is reserved for ${output}. Rename it, and use .map("${reserved}") on a renamed scalar to keep its column name.`,
+        severity: "error",
+        model: name,
+        field: reserved,
+      })
+    );
+}
+
 /** I006: one model-local public unique-where name has one meaning. */
 export function publicSelectorNamesAreUnambiguous(
   _s: Schema,
@@ -572,6 +619,7 @@ export const modelRules = [
   // Compound key checks
   compoundConstraintsNonEmpty,
   publicSelectorNamesAreUnambiguous,
+  memberNamesAreNotReserved,
   decimalListsAreNotKeyMembers,
   geoPointRolesArePortable,
 ];

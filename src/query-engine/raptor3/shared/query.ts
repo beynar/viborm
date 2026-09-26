@@ -8,7 +8,11 @@ import {
   TransactionError,
   VibORMError,
 } from "@errors";
-import { DISTANCE_NAME_COLLISION } from "@query-engine/result/result-shape";
+import {
+  DISTANCE_SELECTED_TWICE,
+  emptySelectRefusal,
+  selectedArm,
+} from "@query-engine/result/result-shape";
 import {
   CURSOR_CARRIER_PREFIX,
   EMPTY_ROW_RESULT_KEY,
@@ -30,6 +34,7 @@ import type { NativeType } from "@schema/scalars/native-types";
 import { Sql, sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
+import { projectableScalarNames } from "@validation/model/core/projection";
 import {
   type DateTimePhysicalForm,
   decodePhysicalDateTime,
@@ -710,6 +715,16 @@ function admittedTemporal(
   if (!(value instanceof Date)) return value;
   const admitted = admit(value);
   return "value" in admitted ? admitted.value : value;
+}
+
+/**
+ * The selection a query that writes no `select` asks for: every scalar the
+ * default projection's one owner (`projectableScalarNames`) keeps.
+ */
+function defaultSelection(model: AnyModel): Record<string, true> {
+  const selection: Record<string, true> = {};
+  for (const field of projectableScalarNames(model)) selection[field] = true;
+  return selection;
 }
 
 export class Queries {
@@ -3622,12 +3637,7 @@ export class Queries {
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     const selected = {
-      ...(args.select ??
-        Object.fromEntries(
-          model["~"].scalarFieldNames
-            .filter((field) => !model["~"].state.omit?.[field])
-            .map((field) => [field, true])
-        )),
+      ...(args.select ?? defaultSelection(model)),
       ...args.include,
     };
     const prepared: PreparedProjectionField[] = [];
@@ -3635,7 +3645,9 @@ export class Queries {
     let distanceSelected = false;
     for (const [name, selection] of Object.entries(selected)) {
       if (!selection) continue;
-      if (name === "_count" && !model["~"].state.scalars[name]) {
+      // `_count` is the relation-count key and nothing else: schema
+      // validation refuses a member of that name (F010).
+      if (name === "_count") {
         const counts = this.prepareCounts(model, selection);
         // An empty count SELECTION contributes no field at all: the shipped
         // engine pushed the `_count` pair only `if (relationCountPairs.length
@@ -3663,16 +3675,9 @@ export class Queries {
           selection === true ? undefined : record(selection)._distance;
         if (distance !== undefined) {
           if (distanceSelected)
-            throw new QueryEngineError(
-              "Distance select supports only one _distance field per select."
-            );
-          // The OTHER registered collision (`result/result-shape.ts`
-          // `buildModelShape`, the guard after every producer): the output key
-          // `_distance` is the distance's, and a model that owns a field of
-          // that name: scalar, relation or variant slot, cannot publish both
-          // under it.
-          if (fields[DISTANCE_FIELD])
-            throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+            throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
+          // The output key `_distance` is the distance's alone: schema
+          // validation refuses a member of that name (F010).
           distanceSelected = true;
           prepared.push(
             Object.freeze({
@@ -3686,13 +3691,6 @@ export class Queries {
           continue;
         }
       }
-      // The output key `_distance` has ONE producer. A distance prepared
-      // earlier in this projection owns it; a scalar OR a relation of that
-      // name prepared after it — a recursive slot included — would otherwise
-      // overwrite the leaf silently and publish under one key at some levels
-      // and the other at the rest.
-      if (name === DISTANCE_FIELD && distanceSelected)
-        throw new QueryEngineError(DISTANCE_NAME_COLLISION);
       if (!model["~"].state.relations[name]) {
         prepared.push(Object.freeze({ kind: "scalar", name }));
         fields[name] = this.scalarShape(model, name);
@@ -3705,8 +3703,6 @@ export class Queries {
           resolved.edge.kind === "variantJunctionCarrier")
       ) {
         const many = resolved.edge.kind === "variantJunctionCarrier";
-        const configuration = selection === true ? {} : record(selection);
-        const only = configuration.only as string[] | undefined;
         // A junction-carried slot's arm is a collection of its rows; a row
         // carrier's arm is the target's document.
         const collections: Record<string, CollectionShape> = {};
@@ -3723,20 +3719,14 @@ export class Queries {
               edge: bindMembership(this.schema, model, name, member.variant),
             }))
           : [];
+        // Which arms are read, and with which node, is `selectedArm`'s one
+        // rule, shared with the schema-only result shape.
         for (const member of resolved.edge.members) {
-          if (
-            many
-              ? only && !only.includes(member.variant)
-              : selection !== true &&
-                configuration[member.variant] === undefined
-          )
-            continue;
-          const arm = many
-            ? record(configuration.variants ?? {})[member.variant]
-            : configuration[member.variant];
+          const arm = selectedArm(selection, many, member.variant);
+          if (arm === undefined) continue;
           const nested = this.prepareRelationProjection(
             bindMembership(this.schema, model, name, member.variant),
-            arm === undefined ? true : arm
+            arm
           );
           if (many) collections[member.variant] = this.collectionShape(nested);
           else documents[member.variant] = this.relationShape(nested);
@@ -3785,9 +3775,7 @@ export class Queries {
     // the caller asking for nothing, which is a refusal, not "everything".
     if (prepared.length === 0) {
       if (args.select !== undefined)
-        throw new QueryEngineError(
-          `The 'select' statement for model '${model["~"].names.ts ?? "unknown"}' needs at least one truthy value.`
-        );
+        throw new QueryEngineError(emptySelectRefusal(model));
       prepared.push(
         Object.freeze({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY })
       );
@@ -3807,12 +3795,6 @@ export class Queries {
    */
   private relationShape(nested: PreparedRelationProjection): Shape {
     if (nested.recurrence) {
-      // The repeated slot publishes under the relation's name inside its own
-      // node. Admission refuses that name there, so a field of it in the node
-      // is a distance: `_distance` would have two producers — the slot at every
-      // level before the cutoff, the distance at the cutoff.
-      if (nested.projection.shape.fields[nested.edge.name])
-        throw new QueryEngineError(DISTANCE_NAME_COLLISION);
       const resolved = this.schema.index
         .get(nested.edge.source)!
         .get(nested.edge.name)!;

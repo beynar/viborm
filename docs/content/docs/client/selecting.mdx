@@ -190,9 +190,10 @@ size bound. `take`, `skip`, `cursor` and `distinct` cannot be combined with
 `recurse`, and a singular recursive node accepts only `select`, `include` and
 `omit`. `recurse: false` is refused; leave `recurse` out for an ordinary node.
 The recursive key cannot be spelled again inside its own node's `select` or
-`include`, because `recurse` already produces it. A relation named
-`_distance` cannot be projected beside a point's `_distance` result: the
-output key has one producer. A node filter must be deterministic across the
+`include`, because `recurse` already produces it. A recursive node may
+select a point's distance; it is returned as the node's `_distance`, a name no
+relation can take ([reserved member names](/docs/schema/model#reserved-member-names)).
+A node filter must be deterministic across the
 traversal: a volatile raw expression (such as `random()`) can make the
 provider's answer disagree with itself, which is refused as an invalid
 provider result rather than decoded. The operation then rejects with the
@@ -237,6 +238,9 @@ const users = await client.user.findMany({
 // user._count.posts: number
 // user._count.followers: number
 ```
+
+`_count` means relation counts and nothing else: a model member cannot be
+named `_count` (see [Reserved member names](/docs/schema/model#reserved-member-names)).
 
 ## Examples
 

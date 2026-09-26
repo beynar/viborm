@@ -32,7 +32,7 @@ QueryEngine
 | `routed-operations.ts` | The read/write verb vocabulary the cache and interception seams key on |
 | `types.ts` | The prepared-operation, prepared-batch and guard shapes the client and the route share |
 | `batch-error-attribution.ts` | Attribution of a native-batch assertion failure to the guard that raised it, and the one guard-failure-to-error construction |
-| `result/` | The cache codecs (`cache-result-codec.ts`, `cache-value-codecs.ts`, `cache-json-codec.ts`, `cache-snapshot-structure.ts`), the result-shape vocabulary the client's type renderer reads, and `groupby-fields.ts` |
+| `result/` | The cache codecs (`cache-value-codecs.ts`, `cache-json-codec.ts`, `cache-snapshot-structure.ts`), the result-shape vocabulary the client's type renderer reads, and `groupby-fields.ts` |
 | `raptor3/shared/parse-boundary.ts` | The typed parse boundary: the ONE place a user payload becomes a validated, typed value |
 | `context/`, `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts`, `transaction-operation.ts`, `pending-execution.ts` | Retained boundaries outside either engine |
 

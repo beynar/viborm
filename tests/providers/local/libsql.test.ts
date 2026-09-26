@@ -1,5 +1,5 @@
 /**
- * LibSQL provider boundary: the refusal of effectful live-schema setup and the GeoPoint storage tier, the only LibSQL contracts that run.
+ * LibSQL provider boundary: the refusal of effectful live-schema setup, and the contracts that build their own tables and so run on LibSQL: the GeoPoint storage tier and the batch-reference smoke.
  *
  * One file of the LibSQL provider suite, which is split across sibling
  * `libsql-*.test.ts` files. Every registered contract instantiates the
@@ -13,6 +13,7 @@
 import { createClient } from "@client/client";
 import { VibORMErrorCode } from "@errors";
 import { s } from "@schema";
+import { batchRefSmokeContract } from "@tests/contracts/drivers/behaviors/batch-ref-smoke-behavior";
 import {
   geoPointBatchContract,
   geoPointContract,
@@ -47,6 +48,10 @@ describe("LibSQL Driver", () => {
   });
   geoPointBatchContract.register({
     driverName: "LibSQL forced native batch",
+    createDriver: () => new BatchOnlyLibSQLDriver(),
+  });
+  batchRefSmokeContract.register({
+    driverName: "LibSQL batch-only",
     createDriver: () => new BatchOnlyLibSQLDriver(),
   });
 });

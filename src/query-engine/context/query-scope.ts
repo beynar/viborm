@@ -221,15 +221,6 @@ export function getScalarFieldNames(model: Model<any>): string[] {
   return model["~"].scalarFieldNames;
 }
 
-export function getDefaultScalarFieldNames(model: Model<any>): string[] {
-  const omitted = model["~"].state.omit;
-  if (!omitted) return getScalarFieldNames(model);
-  return getScalarFieldNames(model).filter(
-    (fieldName) =>
-      !Object.hasOwn(omitted, fieldName) || omitted[fieldName] !== true
-  );
-}
-
 export function getRelationNames(model: Model<any>): string[] {
   return model["~"].relationNames;
 }

@@ -84,7 +84,7 @@ export interface CacheExecutionOptions {
 
 type ObservedCacheOperation = "get" | "set" | "revalidate" | "invalidate";
 
-interface DetachedCacheResultCodec<T> {
+export interface DetachedCacheResultCodec<T> {
   snapshot(value: T): unknown;
   materialize(snapshot: unknown): T;
 }

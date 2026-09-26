@@ -48,7 +48,16 @@ it is not evidence for a behavioral contract and must not be mixed into one.
 The matrix in `tests/providers/matrix.ts` records one `run` or explained
 `waive` decision for every shared driver contract and provider. The architecture
 gate rejects stale IDs, duplicate registrations, missing assignments, empty
-waiver reasons, and layers without runtime or type core coverage.
+waiver reasons, and layers without runtime or type core coverage. A `run` needs
+a registration outside every call whose body never runs: a `describe`, `suite`,
+`it` or `test` chain through `skip` or `todo` (`describe.skip(...)`,
+`it.todo(...)`, `describe.skip.each(table)(...)`), or a `skipIf(true)` /
+`runIf(false)` gate with a literal condition. A gate on a runtime value, such as
+`describe.skipIf(!url)` or `describeIf = url ? describe : describe.skip`, still
+counts. The LibSQL registrations kept inside a `describe.skip(...)` run nothing,
+so LibSQL runs only the contracts that build their own tables
+(`geoPointContract`, `geoPointBatchContract`, `batchRefSmokeContract`) and
+waives the rest.
 
 Query coverage has an additional fail-closed admission list in
 `scripts/query-engine-test-manifest.mjs`. It assigns every architecture, query,

@@ -14,7 +14,10 @@ import { describe, expect, it } from "vitest";
  * Follow-up F-2 then moved those last two survivors to their consumers
  * (`raptor3/shared/parse-boundary.ts`, `result/groupby-fields.ts`) and F-6 moved
  * the two RETIRED guides to `docs/architecture/retired/`, which emptied and
- * deleted `write-engine/` and `operations/` too.
+ * deleted `write-engine/` and `operations/` too. The engine consolidation then
+ * deleted `result/cache-result-codec.ts`, whose shape compiler the route's own
+ * `cacheCodec` had superseded; its one live member, the `CacheResultCodec`
+ * contract, moved to its consumer `cache-flow.ts`.
  *
  * Every deleted module/class name must appear in no CODE anywhere in
  * `src/**​/*.ts` — an import of a resurrected file, a copy-pasted class, a
@@ -90,6 +93,9 @@ const DELETED_V1_SYMBOLS = [
   "createRowParser",
   "parseResultRows",
   "decodeRelationCarrier",
+  // Engine consolidation — the shape-compiled cache codec the route's
+  // `cacheCodec` superseded; `CacheResultCodec` lives in `cache-flow.ts`.
+  "compileCacheResultCodec",
 ] as const;
 
 const SRC = SOURCE_ROOT;
@@ -124,7 +130,6 @@ function code(source: string): string {
 
 /** A whole-identifier matcher for `name` (dynamic — one per deleted symbol). */
 function wholeWord(name: string): RegExp {
-  // biome-ignore lint/performance/useTopLevelRegex: built once per deleted symbol
   return new RegExp(`\\b${name}\\b`);
 }
 

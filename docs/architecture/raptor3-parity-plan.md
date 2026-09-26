@@ -325,7 +325,11 @@ one home (`result-aliases.ts`) that both `Queries.cursorCondition` and the
 ordering behaviour module read (ruling A-Q5: keep `0viborm_`, the estate's
 private-alias convention); the `_distance` sentence is restored to the
 registered `A distance result cannot be selected together with a model field
-named '_distance'.` (refusals are contracts).
+named '_distance'.` (refusals are contracts). *Retired 2026-09-26:* that
+sentence no longer exists. `_distance` became a reserved member name (F010,
+`ec844d8b5`), so no schema can pair a member with a distance result, and
+`413984668` deleted the pair checks and `DISTANCE_NAME_COLLISION`
+(`docs/architecture/selection-owner-scoping.md` rows #9/#10).
 
 ## 2. Sequencing
 

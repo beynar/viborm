@@ -93,10 +93,36 @@ export class CommandExecution {
 }
 `;
 
-/** The old engine's corpus: one of the fixture's sentences is inherited. */
+/**
+ * Sentence builders another layer owns and the engine imports: one returns a
+ * single template, which the census reads at the call; the other computes its
+ * sentence, which it cannot read, so that call stays sentence-less.
+ */
+const BUILDERS = `export function emptySelectRefusal(model: { name: string }): string {
+  return \`The fixture's '\${model.name}' selection needs at least one field.\`;
+}
+export function composedRefusal(model: { name: string }): string {
+  const name = model.name.toUpperCase();
+  return \`The fixture composed '\${name}' before refusing it.\`;
+}
+`;
+
+/** The engine throwing through the imported builders. */
+const PROJECTION = `import { composedRefusal, emptySelectRefusal } from "../../result/result-shape";
+export class Queries {
+  prepareProjection(model: { name: string }, empty: boolean): void {
+    if (empty) throw new QueryEngineError(emptySelectRefusal(model));
+    throw new QueryEngineError(composedRefusal(model));
+  }
+}
+`;
+
+/** The old engine's corpus: two of the fixture's sentences are inherited. */
 const SHIPPED = `export const messages = {
   parentChanged: (kind: string, edge: string) =>
     \`Cannot \${kind} relation '\${edge}': parent record changed across a committed segment.\`,
+  emptySelect: (model: string) =>
+    \`The fixture's '\${model}' selection needs at least one field.\`,
 };
 `;
 
@@ -125,6 +151,8 @@ const fixture = (owner = FAILURE_OWNER) => {
   write(root, `${ENGINE}/shared/invariant.ts`, INVARIANT_OWNER);
   write(root, `${ENGINE}/shared/operation-context.ts`, owner);
   write(root, `${ENGINE}/commands/execution.ts`, EXECUTION);
+  write(root, "src/query-engine/result/result-shape.ts", BUILDERS);
+  write(root, `${ENGINE}/shared/query.ts`, PROJECTION);
   git(root, "add", "--all");
   git(root, "commit", "--quiet", "-m", "fixture");
   return root;
@@ -233,6 +261,31 @@ test("reads the failure owner's own substituted sentence once, at the owner", ()
     assert(line.includes("operation-context.ts"), line);
     assert(!line.includes("execution.ts"), line);
     assert(line.includes("QueryEngineError"), line);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reads the one template an imported sentence builder returns, at the call", () => {
+  const root = fixture();
+  try {
+    const { report, status } = run(root);
+    assert.equal(status, 0);
+    const line = row(report, "selection needs at least one field");
+    assert(line, "the imported builder's sentence is missing from the report");
+    assert(line.includes("shared/query.ts"), line);
+    assert(line.includes("QueryEngineError"), line);
+    assert.equal(
+      sectionOf(report, "selection needs at least one field"),
+      "Inherited sentences"
+    );
+    // A builder that computes before it returns is not one template: its
+    // call stays a site without a sentence, and nothing invents one.
+    assert(!report.includes("composed"), "a computed sentence was invented");
+    const sentenceless = report.slice(
+      report.indexOf("## Sites without a sentence")
+    );
+    assert(sentenceless.includes("shared/query.ts"), sentenceless);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -639,9 +639,11 @@ success. The settlement therefore called a shortfall an answer that SUCCEEDED
 and published the listener's failure alone, losing both the registered
 cardinality sentence and the `atomicity: "segment"` progress attached to it —
 measured on both verbs by the closure review. The SEMANTIC answer now lives
-inside the settlement: `capturedMutation` takes the caller's own answer as
-`answered` — the verb keeps its own sentence — and states it INSIDE
-`settleSubmitted`'s region, so what follows is the composition this paragraph
+inside the settlement: `capturedMutation` owns the captured set's premises
+(`requireCapturedSet`), its statement and the row-count comparison against the
+captured identities — the verb supplies only its statement shape and its own
+cardinality sentence — and states that judgement INSIDE `settleSubmitted`'s
+region (on the interactive route, right after the dispatch), so what follows is the composition this paragraph
 already describes — the operation's failure primary, the listener's retained
 beside it — while a successful answer beside a failed listener still publishes
 the listener's alone. The rule generalises: a settlement region must contain
@@ -863,11 +865,10 @@ a `$transaction([...])` array on a batch-only transport: the array owner
 parses that member's result and, like an ordinary malformed member, it
 surfaces as `QueryError` V2001); the FK-cycle refusal, a property of the
 data, is its own `QueryEngineError`. The output key
-`_distance` has one producer:
-`prepareProjection` refuses a scalar or a relation of that name beside a
-distance in either order, and `relationShape` refuses a recursive `_distance`
-slot whose repeated node selects a distance (the schema-only mirror is
-`result/result-shape.ts` `addSelectedRelations`). Measure
+`_distance` has one producer, the selected distance: schema validation refuses
+a member of that name (F010, as for `_count`), so neither `prepareProjection`
+nor `relationShape` checks for a scalar, relation or recursive slot competing
+for it, and neither does the schema-only shape. Measure
 statement/bind/provider-row/output growth separately from source-derived
 occurrence and transient-copy counts; do not invent an allocation metric API.
 
@@ -1274,7 +1275,13 @@ the recursive feature; the recursive-query gate's last run is
 `docs/architecture/raptor3-evidence/recursive-query/gate-3/census.log`) tells the two
 apart by CLASS, never by message text; D-54's recursive-read fit, its last
 private fit, became the public `recurse` option, and its sentences are counted
-with the public ones. Do not add a second enumeration of an admitted
+with the public ones. A sentence another owner states for both result views
+is read at the engine's throw site when the engine imports it as an
+`export const` (`DISTANCE_SELECTED_TWICE`) or calls an imported
+`export function` whose body is one `return` of a template
+(`emptySelectRefusal(model)`); a builder that computes before it returns
+leaves its site sentence-less, so keep a shared sentence in one of those two
+shapes. Do not add a second enumeration of an admitted
 vocabulary inside a lowerer to close a union the admission already closed —
 where the type cannot say the invariant, the class carries the distinction.
 A declared field named like a combinator (`AND`, `OR`, `NOT`) is that field:

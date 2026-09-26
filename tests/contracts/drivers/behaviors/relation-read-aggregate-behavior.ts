@@ -49,7 +49,44 @@ const archive = s
   })
   .map("rel_agg_archives");
 
-const schema = { user, post, archive };
+// `_count` is reserved as a member name (schema validation refuses it, F010);
+// the COLUMN name is not. `ledger.tally` and the model-hidden `vault.sealed`
+// both live in a column named `_count`, beside a to-many relation whose counts
+// publish under the output key `_count`.
+const ledger = s
+  .model({
+    id: s.string().id(),
+    tally: s.int().map("_count"),
+    entries: s.toMany(() => entry),
+  })
+  .map("rel_agg_ledgers");
+
+const vault = s
+  .model({
+    id: s.string().id(),
+    sealed: s.int().map("_count"),
+    entries: s.toMany(() => entry),
+  })
+  .omit({ sealed: true })
+  .map("rel_agg_vaults");
+
+const entry = s
+  .model({
+    id: s.string().id(),
+    ledgerId: s.string(),
+    ledger: s
+      .toOne(() => ledger)
+      .fields("ledgerId")
+      .references("id"),
+    vaultId: s.string().nullable(),
+    vault: s
+      .toOne(() => vault)
+      .fields("vaultId")
+      .references("id"),
+  })
+  .map("rel_agg_entries");
+
+const schema = { user, post, archive, ledger, vault, entry };
 
 type RelationReadAggregateClientConfig = VibORMConfig<typeof schema>;
 
@@ -68,6 +105,8 @@ export interface RelationReadAggregateBehaviorOptions {
  * - to-one `isNot` with real conditions (null-FK rows pinned as matching,
  *   Prisma parity: NOT EXISTS is vacuously true for a null FK)
  * - every/none to-many filters on findMany (vacuous truth for zero relations)
+ * - a scalar mapped to a COLUMN named `_count` beside relation counts: the
+ *   member name is reserved, the column name is not
  *
  * Seed (in beforeEach):
  *   u1 Alice — p1 (published), p2 (published), p3 (unpublished)
@@ -592,6 +631,122 @@ export function runRelationReadAggregateBehavior({
         });
 
         expect(users.map((u) => u.id)).toEqual(["u3"]);
+      });
+    });
+
+    describe("a scalar mapped to the column `_count`", () => {
+      // L1: tally 7, one entry. L2: tally 3, two entries. L3: tally 3, no
+      // entry, so a group's row count and a ledger's entry count disagree with
+      // the column's order on purpose. V1 hides `sealed` (42), one entry.
+      beforeEach(async () => {
+        await client.ledger.createMany({
+          data: [
+            { id: "L1", tally: 7 },
+            { id: "L2", tally: 3 },
+            { id: "L3", tally: 3 },
+          ],
+        });
+        await client.vault.create({ data: { id: "V1", sealed: 42 } });
+        await client.entry.createMany({
+          data: [
+            { id: "e1", ledgerId: "L1", vaultId: "V1" },
+            { id: "e2", ledgerId: "L2", vaultId: null },
+            { id: "e3", ledgerId: "L2", vaultId: null },
+          ],
+        });
+      });
+
+      test("the column reads under its member name, and `_count` is the counts", async () => {
+        await expect(
+          client.ledger.findMany({ orderBy: { id: "asc" } })
+        ).resolves.toEqual([
+          { id: "L1", tally: 7 },
+          { id: "L2", tally: 3 },
+          { id: "L3", tally: 3 },
+        ]);
+        const selected = await client.ledger.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true, tally: true, _count: true },
+        });
+        expect(selected).toEqual([
+          { id: "L1", tally: 7, _count: { entries: 1 } },
+          { id: "L2", tally: 3, _count: { entries: 2 } },
+          { id: "L3", tally: 3, _count: { entries: 0 } },
+        ]);
+        await expect(
+          client.ledger.findMany({
+            orderBy: { id: "asc" },
+            include: { _count: { select: { entries: true } } },
+          })
+        ).resolves.toEqual(selected);
+      });
+
+      test("an omitted member stays omitted when counts are included", async () => {
+        await expect(
+          client.ledger.findMany({
+            orderBy: { id: "asc" },
+            omit: { tally: true },
+            include: { _count: true },
+          })
+        ).resolves.toEqual([
+          { id: "L1", _count: { entries: 1 } },
+          { id: "L2", _count: { entries: 2 } },
+          { id: "L3", _count: { entries: 0 } },
+        ]);
+      });
+
+      test("orders by the relation count and by the column independently", async () => {
+        await expect(
+          client.ledger.findMany({
+            orderBy: { entries: { _count: "desc" } },
+            select: { id: true },
+          })
+        ).resolves.toEqual([{ id: "L2" }, { id: "L1" }, { id: "L3" }]);
+        await expect(
+          client.ledger.findMany({
+            orderBy: [{ tally: "desc" }, { id: "asc" }],
+            select: { id: true },
+          })
+        ).resolves.toEqual([{ id: "L1" }, { id: "L2" }, { id: "L3" }]);
+      });
+
+      test("filters on the column and counts under a where", async () => {
+        await expect(
+          client.ledger.findMany({
+            where: { tally: { gt: 5 } },
+            select: {
+              id: true,
+              _count: { select: { entries: { where: { id: "e3" } } } },
+            },
+          })
+        ).resolves.toEqual([{ id: "L1", _count: { entries: 0 } }]);
+        await expect(
+          client.ledger.groupBy({
+            by: ["tally"],
+            _count: true,
+            orderBy: { tally: "asc" },
+          })
+        ).resolves.toEqual([
+          { tally: 3, _count: 2 },
+          { tally: 7, _count: 1 },
+        ]);
+      });
+
+      test("a model-hidden member in the `_count` column never leaves", async () => {
+        const counts = [{ id: "V1", _count: { entries: 1 } }];
+        await expect(client.vault.findMany()).resolves.toEqual([{ id: "V1" }]);
+        await expect(
+          client.vault.findMany({ select: { id: true, _count: true } })
+        ).resolves.toEqual(counts);
+        await expect(
+          client.vault.findMany({ include: { _count: true } })
+        ).resolves.toEqual(counts);
+        await expect(
+          client.entry.findMany({
+            where: { id: "e1" },
+            select: { id: true, vault: { include: { _count: true } } },
+          })
+        ).resolves.toEqual([{ id: "e1", vault: counts[0] }]);
       });
     });
   });

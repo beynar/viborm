@@ -848,15 +848,10 @@ export type GroupByArgs<
  * aggregate both produce ONE output column for TWO requested facts: the
  * second aliases over the first and the caller reads a silently wrong answer
  * (the aggregate wins). Neither is a lowering question — both are complete
- * facts about the admitted arguments.
+ * facts about the admitted arguments. `_count` is not listed: schema
+ * validation refuses a member of that name (F010), so no grouped scalar has it.
  */
-const GROUP_AGGREGATE_KEYS = [
-  "_count",
-  "_avg",
-  "_sum",
-  "_min",
-  "_max",
-] as const;
+const GROUP_AGGREGATE_KEYS = ["_avg", "_sum", "_min", "_max"] as const;
 
 const groupByCollisions = (
   value: Record<string, unknown>

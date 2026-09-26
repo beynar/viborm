@@ -9,6 +9,7 @@ import {
   withCacheSchema,
 } from "@cache";
 import {
+  type DetachedCacheResultCodec,
   executeCachedWithResultCodec,
   invalidateOfficialCache,
   type WaitUntilFn,
@@ -22,9 +23,8 @@ import type { WriteOutcomeRegistration } from "@extensions/query";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import { isError } from "../errors/diagnostic-safety";
-import type { CacheResultCodec } from "./result/cache-result-codec";
-import type { PrepareOptions } from "./types";
 import { isWriteOperation } from "./routed-operations";
+import type { PrepareOptions } from "./types";
 
 const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "findFirst",
@@ -254,6 +254,13 @@ export function createCacheExecutionOptions(
     dbAttributes,
   };
 }
+
+/**
+ * The detached cache representation of one read result: the cache driver's
+ * own contract, read here at the boundary that hands the Raptor 3 route's
+ * `cacheCodec` to it.
+ */
+export type CacheResultCodec = DetachedCacheResultCodec<unknown>;
 
 /** Execute an official read through the detached result representation. */
 export function executeCachedResultOperation(

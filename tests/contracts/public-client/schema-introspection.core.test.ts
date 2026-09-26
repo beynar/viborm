@@ -6,6 +6,10 @@ import {
 } from "@client/schema-introspection";
 import { ValidationError, VibORMErrorCode } from "@errors";
 import { s } from "@schema";
+import {
+  polymorphicRelationSchema,
+  unnamedArmSelections,
+} from "@tests/contracts/drivers/behaviors/polymorphic-relation-schema";
 import { describe, expect, test } from "vitest";
 
 const user = s.model({
@@ -357,6 +361,90 @@ describe("schema operation introspection", () => {
     };
   }>;
 }>`);
+  });
+
+  test("renders an arm a singular selection leaves unnamed at its default projection", () => {
+    // The renderer's half of one contract the runtime shares, on a schema of
+    // its own; the next cell renders the behavior suite's own schema and
+    // selections. tests/types/client/polymorphic-result.core.types.ts pins
+    // this shape of selection's inferred type.
+    const note = s.model({
+      id: s.string().id(),
+      subject: s.toOne({ article: () => article, clip: () => clip }),
+    });
+    const draft = s.model({
+      id: s.string().id(),
+      subject: s.toOne({ article: () => article, clip: () => clip }).optional(),
+    });
+    const slots = { article, clip, note, draft };
+    const selection = {
+      select: { id: true, subject: { article: { select: { title: true } } } },
+    };
+    const union = `{
+    readonly type: "article";
+    readonly data: {
+      title: string;
+    };
+  } | {
+    readonly type: "clip";
+    readonly data: {
+      id: string;
+      duration: number;
+    };
+  }`;
+    expect(
+      renderOperationResultType(slots, "note", "findMany", selection)
+    ).toBe(`Array<{
+  id: string;
+  subject: ${union};
+}>`);
+    expect(
+      renderOperationResultType(slots, "draft", "findMany", selection)
+    ).toBe(`Array<{
+  id: string;
+  subject: ${union} | null;
+}>`);
+  });
+
+  test("renders the behavior suite's unnamed-arm selections over its own schema", () => {
+    // The same schema object and selections the runtime cell reads
+    // (polymorphic-relation-behavior.ts) and the static pin types
+    // (tests/types/client/polymorphic-relation-behavior.core.types.ts).
+    const union = `{
+    readonly type: "post";
+    readonly data: {
+      title: string;
+    };
+  } | {
+    readonly type: "video";
+    readonly data: {
+      id: number;
+      slug: string;
+      title: string;
+    };
+  }`;
+    expect(
+      renderOperationResultType(
+        polymorphicRelationSchema,
+        "requiredComment",
+        "findMany",
+        { select: unnamedArmSelections.requiredComment }
+      )
+    ).toBe(`Array<{
+  id: number;
+  subject: ${union};
+}>`);
+    expect(
+      renderOperationResultType(
+        polymorphicRelationSchema,
+        "comment",
+        "findUniqueOrThrow",
+        { where: { id: 1 }, select: unnamedArmSelections.comment }
+      )
+    ).toBe(`{
+  id: number;
+  commentable: ${union} | null;
+}`);
   });
 });
 

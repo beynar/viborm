@@ -8,6 +8,7 @@ const DENSE_STRING_MEMBERS = /fields must be a dense array of strings/i;
 const DUPLICATE_COMPOUND_NAME =
   /name '.*' is already used by another compound key/i;
 const AMBIGUOUS_PUBLIC_SELECTOR = "I006";
+const RESERVED_MEMBER_NAME = "F010";
 
 function changingMemberIterator() {
   const fields: ("a" | "b")[] = ["a", "b"];
@@ -259,6 +260,40 @@ describe("model definition rules", () => {
     expect(errorCodes({ first, second })).not.toContain(
       AMBIGUOUS_PUBLIC_SELECTOR
     );
+  });
+
+  it("refuses a member named `_count` or `_distance`, one issue per name", () => {
+    const record = s.model({
+      id: s.string().id(),
+      // @ts-expect-error F010 is the runtime contract; the shape type refuses the key
+      _count: s.int(),
+      // @ts-expect-error F010 is the runtime contract; the shape type refuses the key
+      _distance: s.number(),
+    });
+
+    expect(validateSchema({ record }).errors).toEqual([
+      {
+        code: RESERVED_MEMBER_NAME,
+        message:
+          "Model 'record' declares a member named '_count'; '_count' is reserved for relation counts. Rename it, and use .map(\"_count\") on a renamed scalar to keep its column name.",
+        severity: "error",
+        model: "record",
+        field: "_count",
+      },
+      {
+        code: RESERVED_MEMBER_NAME,
+        message:
+          "Model 'record' declares a member named '_distance'; '_distance' is reserved for distance results. Rename it, and use .map(\"_distance\") on a renamed scalar to keep its column name.",
+        severity: "error",
+        model: "record",
+        field: "_distance",
+      },
+    ]);
+    expect(
+      errorCodes({
+        record: s.model({ id: s.string().id(), tally: s.int().map("_count") }),
+      })
+    ).not.toContain(RESERVED_MEMBER_NAME);
   });
 
   it("rejects a model with no scalar fields", () => {

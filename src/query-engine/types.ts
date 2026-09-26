@@ -163,27 +163,12 @@ export interface ExpectedAggregateResultShape {
 }
 
 /**
- * One configured arm of a polymorphic projection.
- *
- * `visible` and `reversed` are COLLECTION facts and ARM-LOCAL by construction: a
- * collection carries one read window per arm, so `take: -3` on one arm and
- * `take: 5` on another must reverse different rows. A relation-level flag (the
- * ordinary `ExpectedResultShape.reversed`) would reverse the concatenated array,
- * which is a different result. The singular arm sets neither.
+ * One arm of a polymorphic projection that the selection reads
+ * (`selectedArm`, result/result-shape.ts); an arm `only` excludes is absent.
  */
 export interface ExpectedPolymorphicVariantShape {
   readonly model: Model<any>;
   readonly shape: ExpectedResultShape;
-  /**
-   * This arm is inside the validated `only` allow-list, so the read emitted its
-   * visible-row branch. The parser reads visibility FROM THE SHAPE, never from
-   * the carrier value: an excluded arm's `rows` is `null` by construction, and a
-   * `null` aggregate over an allow-listed arm normalizes to `[]` — two different
-   * meanings for one JSON value, disambiguated structurally.
-   */
-  readonly visible?: boolean;
-  /** This arm's negative `take` ran as a reversed window; restore its order. */
-  readonly reversed?: boolean;
 }
 
 /** Exact target-specific result contracts for one polymorphic projection. */
@@ -220,13 +205,6 @@ export interface ExpectedResultShape {
   polymorphic: ReadonlyMap<string, ExpectedPolymorphicResultShape>;
   aggregates: ReadonlyMap<string, ExpectedAggregateResultShape>;
   relationCounts: ReadonlySet<string>;
-  /**
-   * This relation was paged with a negative `take`: the subquery ran the
-   * reversed order with an absolute limit, so its rows arrive last-first and
-   * the parser restores the logical order — the nested mirror of what
-   * `ReadOperation.parse` does for a top-level negative `take`.
-   */
-  reversed?: boolean;
 }
 
 /**

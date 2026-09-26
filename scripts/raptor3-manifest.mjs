@@ -195,7 +195,7 @@ export const POST_G3_SCHEMA_VIEW_TESTS = Object.freeze(
   Object.keys(POST_G3_SCHEMA_VIEW_COUNTS)
 );
 export const POST_G3_PROJECTION_PREPARATION_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/projection-preparation.test.ts": 4,
+  "tests/raptor3/post-prep/projection-preparation.test.ts": 8,
 });
 export const POST_G3_PROJECTION_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_PROJECTION_PREPARATION_COUNTS)

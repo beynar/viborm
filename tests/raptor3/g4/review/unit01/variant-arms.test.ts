@@ -54,7 +54,11 @@ function createWorld() {
 }
 
 describe("G4-01 review — variant arms", () => {
-  it("projects only the requested arm and leaves the other slot null", async () => {
+  // An arm subset shapes the NAMED arms only: a row of an unnamed arm keeps
+  // that model's default projection, which is the union the rendered and the
+  // inferred types declare (polymorphic.mdx). Only a slot that holds no row
+  // reads null.
+  it("projects the requested arm and reads an unnamed arm at its default projection", async () => {
     const world = createWorld();
     try {
       const rows = (await world.engine.execute("remark", "findMany", {
@@ -63,7 +67,7 @@ describe("G4-01 review — variant arms", () => {
       })) as Record<string, unknown>[];
       assert.deepEqual(rows, [
         { id: 1, subject: { type: "article", data: { title: "A one" } } },
-        { id: 2, subject: null },
+        { id: 2, subject: { type: "clip", data: { id: 1, title: "C one" } } },
         { id: 3, subject: null },
       ]);
     } finally {
