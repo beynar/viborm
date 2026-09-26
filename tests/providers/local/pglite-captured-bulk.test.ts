@@ -28,7 +28,10 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -142,14 +145,32 @@ const progressOf = (error: unknown): Progress | undefined =>
 
 describe("PGlite captured selected bulk mutations", () => {
   let disconnect: (() => Promise<void>) | undefined;
+  let database: PGlite | undefined;
 
+  // Every cell opens a FRESH Wasm database and the client only borrows it, so
+  // the database is released per test, after its client, or the eight
+  // instances stay alive together until the file's sweep. A failed disconnect
+  // does not skip the release, and neither failure hides the other.
   afterEach(async () => {
-    await disconnect?.();
+    const failures: unknown[] = [];
+    try {
+      await disconnect?.();
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      if (database) await closeTestPGlite(database);
+    } catch (error) {
+      failures.push(error);
+    }
     disconnect = undefined;
+    database = undefined;
+    if (failures.length > 0)
+      throw new AggregateError(failures, "captured-bulk cell cleanup failed");
   });
 
   async function world(route: Route) {
-    const database = openTestPGlite();
+    database = openTestPGlite();
     const driver =
       route === "interactive"
         ? new InteractiveCapturingPGlite(database)
