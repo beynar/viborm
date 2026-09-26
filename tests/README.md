@@ -55,8 +55,9 @@ a registration outside every call whose body never runs: a `describe`, `suite`,
 `runIf(false)` gate with a literal condition. A gate on a runtime value, such as
 `describe.skipIf(!url)` or `describeIf = url ? describe : describe.skip`, still
 counts. The LibSQL registrations kept inside a `describe.skip(...)` run nothing,
-so LibSQL runs only `geoPointContract` and `geoPointBatchContract` and waives
-the rest.
+so LibSQL runs only the contracts that build their own tables
+(`geoPointContract`, `geoPointBatchContract`, `batchRefSmokeContract`) and
+waives the rest.
 
 Query coverage has an additional fail-closed admission list in
 `scripts/query-engine-test-manifest.mjs`. It assigns every architecture, query,

@@ -66,7 +66,7 @@ export const PROVIDERS = [
     sourceFiles: providerSources("local", "libsql"),
     availability: "always",
     waiverReason:
-      "LibSQL refuses the effectful live-schema push the shared contracts set their schema up with (DRIVER_NOT_SUPPORTED, pinned in libsql.test.ts), so the LibSQL registrations kept in the libsql-* suites sit in an unconditional describe.skip and run nothing; only the GeoPoint contracts, which create their own tables, run.",
+      "LibSQL runs only geoPointContract, geoPointBatchContract and batchRefSmokeContract, which build their own tables. A contract SQLite3 runs is waived here because it sets its schema up with the effectful live-schema push LibSQL refuses (DRIVER_NOT_SUPPORTED, pinned in libsql.test.ts); the libsql-* suites keep most of those registrations inside a describe.skip. A contract SQLite3 waives is waived here for SQLite3's reason: it needs an isolation or dialect feature the SQLite fixtures lack.",
   },
   {
     id: "pg",
@@ -228,7 +228,11 @@ const PROVIDER_RUNS = {
     "scalarRoundtripContract",
     "upsertAtomicityContract",
   ],
-  libsql: ["geoPointBatchContract", "geoPointContract"],
+  libsql: [
+    "batchRefSmokeContract",
+    "geoPointBatchContract",
+    "geoPointContract",
+  ],
   pg: [
     "batchPrimaryKeyDataflowContract",
     "blobFilterContract",
