@@ -358,6 +358,49 @@ describe("schema operation introspection", () => {
   }>;
 }>`);
   });
+
+  test("renders an arm a singular selection leaves unnamed at its default projection", () => {
+    // The renderer's half of one contract the runtime shares: the polymorphic
+    // relation behavior suite reads a real row of the unnamed arm, and
+    // tests/types/client/polymorphic-result.core.types.ts pins the same
+    // selection's inferred type.
+    const note = s.model({
+      id: s.string().id(),
+      subject: s.toOne({ article: () => article, clip: () => clip }),
+    });
+    const draft = s.model({
+      id: s.string().id(),
+      subject: s.toOne({ article: () => article, clip: () => clip }).optional(),
+    });
+    const slots = { article, clip, note, draft };
+    const selection = {
+      select: { id: true, subject: { article: { select: { title: true } } } },
+    };
+    const union = `{
+    readonly type: "article";
+    readonly data: {
+      title: string;
+    };
+  } | {
+    readonly type: "clip";
+    readonly data: {
+      id: string;
+      duration: number;
+    };
+  }`;
+    expect(
+      renderOperationResultType(slots, "note", "findMany", selection)
+    ).toBe(`Array<{
+  id: string;
+  subject: ${union};
+}>`);
+    expect(
+      renderOperationResultType(slots, "draft", "findMany", selection)
+    ).toBe(`Array<{
+  id: string;
+  subject: ${union} | null;
+}>`);
+  });
 });
 
 describe("schema-only rendering of recursive relation slots", () => {

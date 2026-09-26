@@ -206,6 +206,39 @@ type _omittedVariantKeepsDefaultProjection = Expect<
   >
 >;
 
+// The same unnamed arm through `select`, on a required and on an optional
+// slot: the rendered type (schema-introspection.core.test.ts) and the runtime
+// read of a real row of that arm (polymorphic-relation-behavior.ts) pin the
+// same answer.
+type SelectedSubject = {
+  select: { id: true; subject: { post: { select: { title: true } } } };
+};
+type SelectedRows = OperationResult<
+  "findMany",
+  typeof comment,
+  SelectedSubject
+>;
+type OptionalSelectedRows = OperationResult<
+  "findMany",
+  typeof optionalComment,
+  SelectedSubject
+>;
+type SelectedUnion =
+  | { readonly type: "post"; readonly data: { title: string } }
+  | {
+      readonly type: "video";
+      readonly data: { id: string; duration: number; token: string };
+    };
+type _selectedUnnamedVariantKeepsDefaultProjection = Expect<
+  Equal<SelectedRows[number], { id: string; subject: SelectedUnion }>
+>;
+type _optionalSelectedUnnamedVariantAddsNull = Expect<
+  Equal<
+    OptionalSelectedRows[number],
+    { id: string; subject: SelectedUnion | null }
+  >
+>;
+
 const configuredRows = () =>
   client.comment.findMany({
     select: {

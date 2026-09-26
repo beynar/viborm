@@ -424,6 +424,87 @@ export function runPolymorphicRelationBehavior(
       ]);
     });
 
+    test("an arm the selection leaves unnamed reads at its default projection", async () => {
+      const { client } = requireDatabase();
+      const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
+      const post = await client.post.create({
+        data: { slug: "named-arm-post", title: "Named arm post" },
+      });
+      const video = await client.video.create({
+        data: { slug: "unnamed-arm-video", title: "Unnamed arm video" },
+      });
+      const onPost = await client.requiredComment.create({
+        data: {
+          body: "on the named arm",
+          subject: { connect: { type: "post", where: { id: post.id } } },
+        },
+      });
+      const onVideo = await client.requiredComment.create({
+        data: {
+          body: "on the unnamed arm",
+          subject: { connect: { type: "video", where: { id: video.id } } },
+        },
+      });
+      const optionalOnVideo = await client.comment.create({
+        data: {
+          body: "optional on the unnamed arm",
+          commentable: {
+            connect: { type: "video", where: { id: video.id } },
+          },
+        },
+      });
+      // `video` is named nowhere below, so its rows carry that model's
+      // default scalar projection: the union the docs, the rendered type and
+      // the inferred client type all declare stays exhaustive.
+      const videoDefault = {
+        id: video.id,
+        slug: "unnamed-arm-video",
+        title: "Unnamed arm video",
+      };
+
+      await expect(
+        client.requiredComment.findMany({
+          orderBy: { id: "asc" },
+          select: { id: true, subject: { post: { select: { title: true } } } },
+        })
+      ).resolves.toEqual([
+        {
+          id: onPost.id,
+          subject: { type: "post", data: { title: "Named arm post" } },
+        },
+        { id: onVideo.id, subject: { type: "video", data: videoDefault } },
+      ]);
+      await expect(
+        client.comment.findUniqueOrThrow({
+          where: { id: optionalOnVideo.id },
+          select: {
+            id: true,
+            commentable: { post: { select: { title: true } } },
+          },
+        })
+      ).resolves.toEqual({
+        id: optionalOnVideo.id,
+        commentable: { type: "video", data: videoDefault },
+      });
+
+      // Read, not skipped: the unnamed arm's missing row is the slot's
+      // integrity failure, as it is when every arm is named.
+      await client.$executeRaw(
+        sql`DELETE FROM ${tableRef("poly_contract_videos")} WHERE ${ident(
+          "id"
+        )} = ${video.id}`
+      );
+      await expect(
+        client.requiredComment.findUniqueOrThrow({
+          where: { id: onVideo.id },
+          select: { id: true, subject: { post: { select: { title: true } } } },
+        })
+      ).rejects.toThrow(
+        "Polymorphic relation 'subject' references a missing 'video' record."
+      );
+    });
+
     test.runIf(options.name === "pg")(
       "inverse reads use the generated discriminator/id index",
       async () => {

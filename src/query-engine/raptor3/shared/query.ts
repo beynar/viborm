@@ -3723,14 +3723,13 @@ export class Queries {
               edge: bindMembership(this.schema, model, name, member.variant),
             }))
           : [];
+        // Only a collection's `only` narrows the arms read. A singular slot has
+        // no such key: its row belongs to exactly one arm, and an arm the
+        // selection leaves unnamed is read at its model's default projection,
+        // so the result union the renderer and the client types declare stays
+        // exhaustive (docs/content/docs/schema/relations/polymorphic.mdx).
         for (const member of resolved.edge.members) {
-          if (
-            many
-              ? only && !only.includes(member.variant)
-              : selection !== true &&
-                configuration[member.variant] === undefined
-          )
-            continue;
+          if (many && only && !only.includes(member.variant)) continue;
           const arm = many
             ? record(configuration.variants ?? {})[member.variant]
             : configuration[member.variant];
