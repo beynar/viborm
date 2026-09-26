@@ -82,9 +82,9 @@ For portable schemas, model keys, mapped table names, scalar and relation keys,
 and mapped column names must be ASCII SQL identifiers (letters, digits, and
 underscores, not starting with a digit) of at most 63 bytes. Names inherited
 from `Object.prototype`, such as `constructor` and `toString`, are reserved to
-prevent dictionary collisions at runtime. A model member cannot be named `_count`, which is
-reserved for relation counts (F010); keep such a column by renaming the scalar
-and mapping it, `.map("_count")`.
+prevent dictionary collisions at runtime. A model member cannot be named
+`_count`, which is reserved for relation counts (F010); keep such a column by
+renaming the scalar and mapping it, `.map("_count")`.
 
 ---
 

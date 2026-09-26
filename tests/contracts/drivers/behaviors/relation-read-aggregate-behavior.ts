@@ -635,13 +635,15 @@ export function runRelationReadAggregateBehavior({
     });
 
     describe("a scalar mapped to the column `_count`", () => {
-      // L1: tally 7, one entry. L2: tally 3, two entries. V1 hides `sealed`
-      // (42) and holds one entry. The two orders disagree on purpose.
+      // L1: tally 7, one entry. L2: tally 3, two entries. L3: tally 3, no
+      // entry, so a group's row count and a ledger's entry count disagree with
+      // the column's order on purpose. V1 hides `sealed` (42), one entry.
       beforeEach(async () => {
         await client.ledger.createMany({
           data: [
             { id: "L1", tally: 7 },
             { id: "L2", tally: 3 },
+            { id: "L3", tally: 3 },
           ],
         });
         await client.vault.create({ data: { id: "V1", sealed: 42 } });
@@ -660,6 +662,7 @@ export function runRelationReadAggregateBehavior({
         ).resolves.toEqual([
           { id: "L1", tally: 7 },
           { id: "L2", tally: 3 },
+          { id: "L3", tally: 3 },
         ]);
         const selected = await client.ledger.findMany({
           orderBy: { id: "asc" },
@@ -668,6 +671,7 @@ export function runRelationReadAggregateBehavior({
         expect(selected).toEqual([
           { id: "L1", tally: 7, _count: { entries: 1 } },
           { id: "L2", tally: 3, _count: { entries: 2 } },
+          { id: "L3", tally: 3, _count: { entries: 0 } },
         ]);
         await expect(
           client.ledger.findMany({
@@ -687,6 +691,7 @@ export function runRelationReadAggregateBehavior({
         ).resolves.toEqual([
           { id: "L1", _count: { entries: 1 } },
           { id: "L2", _count: { entries: 2 } },
+          { id: "L3", _count: { entries: 0 } },
         ]);
       });
 
@@ -696,13 +701,13 @@ export function runRelationReadAggregateBehavior({
             orderBy: { entries: { _count: "desc" } },
             select: { id: true },
           })
-        ).resolves.toEqual([{ id: "L2" }, { id: "L1" }]);
+        ).resolves.toEqual([{ id: "L2" }, { id: "L1" }, { id: "L3" }]);
         await expect(
           client.ledger.findMany({
-            orderBy: { tally: "desc" },
+            orderBy: [{ tally: "desc" }, { id: "asc" }],
             select: { id: true },
           })
-        ).resolves.toEqual([{ id: "L1" }, { id: "L2" }]);
+        ).resolves.toEqual([{ id: "L1" }, { id: "L2" }, { id: "L3" }]);
       });
 
       test("filters on the column and counts under a where", async () => {
@@ -722,7 +727,7 @@ export function runRelationReadAggregateBehavior({
             orderBy: { tally: "asc" },
           })
         ).resolves.toEqual([
-          { tally: 3, _count: 1 },
+          { tally: 3, _count: 2 },
           { tally: 7, _count: 1 },
         ]);
       });
