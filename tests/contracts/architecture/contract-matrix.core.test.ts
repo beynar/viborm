@@ -5,6 +5,7 @@ import { DRIVER_CONTRACT_IDS } from "@tests/contracts/drivers/contract-ids";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { classifyTestFile } from "@tests/inventory";
 import { CONTRACT_ASSIGNMENTS, PROVIDERS } from "@tests/providers/matrix";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 async function collectFiles(directory: string): Promise<string[]> {
@@ -18,6 +19,38 @@ async function collectFiles(directory: string): Promise<string[]> {
     }
   }
   return files;
+}
+
+/**
+ * A provider file's source without its unconditional `describe.skip(...)`
+ * calls: a registration inside one runs nothing, so it is not a run. The
+ * availability-gated `describeIf = url ? describe : describe.skip` is a
+ * reference, not a call, and stays.
+ */
+function runnableSource(fileName: string, text: string): string {
+  const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest);
+  const skipped: Array<readonly [number, number]> = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "describe" &&
+      node.expression.name.text === "skip"
+    ) {
+      skipped.push([node.getStart(source), node.getEnd()]);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  let runnable = "";
+  let cursor = 0;
+  for (const [start, end] of skipped) {
+    runnable += text.slice(cursor, start);
+    cursor = end;
+  }
+  return runnable + text.slice(cursor);
 }
 
 const runtimeOwners: ReadonlyArray<{
@@ -115,9 +148,9 @@ describe("contract and provider matrix", () => {
     for (const provider of PROVIDERS) {
       let providerSource = "";
       for (const sourceFile of provider.sourceFiles) {
-        providerSource += await readFile(
-          join(REPOSITORY_ROOT, sourceFile),
-          "utf8"
+        providerSource += runnableSource(
+          sourceFile,
+          await readFile(join(REPOSITORY_ROOT, sourceFile), "utf8")
         );
       }
 
