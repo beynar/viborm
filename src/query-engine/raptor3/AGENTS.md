@@ -1276,7 +1276,13 @@ the recursive feature; the recursive-query gate's last run is
 `docs/architecture/raptor3-evidence/recursive-query/gate-3/census.log`) tells the two
 apart by CLASS, never by message text; D-54's recursive-read fit, its last
 private fit, became the public `recurse` option, and its sentences are counted
-with the public ones. Do not add a second enumeration of an admitted
+with the public ones. A sentence another owner states for both result views
+is read at the engine's throw site when the engine imports it as an
+`export const` (`DISTANCE_SELECTED_TWICE`) or calls an imported
+`export function` whose body is one `return` of a template
+(`emptySelectRefusal(model)`); a builder that computes before it returns
+leaves its site sentence-less, so keep a shared sentence in one of those two
+shapes. Do not add a second enumeration of an admitted
 vocabulary inside a lowerer to close a union the admission already closed —
 where the type cannot say the invariant, the class carries the distinction.
 A declared field named like a combinator (`AND`, `OR`, `NOT`) is that field:

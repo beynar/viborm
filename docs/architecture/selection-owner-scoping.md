@@ -254,8 +254,21 @@ No guard was added or removed in (c).
   its own projection, and the renderer never calls the SQL preparer.
 - `visible` was a presentation filter, not a refusal.
 - The guard-ownership ledger is unchanged.
-- Refusal census (measured): before and after the consolidation commits it differs only in line
-  numbers.
+- Refusal census (measured, `node scripts/raptor3-refusal-census.mjs --at <rev>`):
+  - main (6729e0f87): invariant 25 sites / 24 sentences, inherited 79 / 77, candidate 45 / 36,
+    sentence-less 58, 207 sites.
+  - 5d9adc5b7, before the census followed imported builders: inherited 78 / 76, sentence-less 59.
+    B3 (5ca72ba37) made the empty-select throw call `emptySelectRefusal(model)` from
+    result-shape.ts, and the census did not follow a call, so query.ts's empty-select site
+    dropped from inherited to sentence-less. That was a blind spot in the census, not a change
+    in what the engine refuses.
+  - After the census learned to follow an imported function whose body returns one template
+    (and at 5d9adc5b7 read with it): inherited 79 / 77, sentence-less 58, candidate 44 / 35,
+    206 sites.
+  - The one remaining difference from main is e6679e1f3: the deleteMany and updateMany
+    "selected-row cardinality changed during its locked mutation" sentences are now one
+    `${verb}` template at one site. Candidate goes from 45 / 36 to 44 / 35. Line numbers
+    differ too.
 
 ## Preparation-path cost (measured)
 

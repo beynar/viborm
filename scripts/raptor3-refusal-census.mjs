@@ -222,6 +222,17 @@ const renderSentences = (node, at) => {
       ? renderSentences(bound.expression, bound.node)
       : [];
   }
+  // A call to a sentence builder this file imports (`emptySelectRefusal(model)`)
+  // is the one template the builder returns, spelled as the builder spells it.
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    at &&
+    localBinding(at, node.expression.text) === undefined
+  ) {
+    const template = importedSentenceBuilder(at, node.expression.text);
+    return template ? renderSentences(template, template) : [];
+  }
   return [];
 };
 
@@ -444,14 +455,10 @@ const modulePath = (importer, specifier) => {
 const importedModules = new Map();
 
 /**
- * A constant this file imports, read where it is declared: the named import
- * that binds `name`, followed to the exporting module's top-level
- * `export const`. That is how a sentence one owner states for several files
- * stays read at every throw that spells it. Only a message is resolved this
- * way; a thrown value or a factory stays the site's own
- * ({@link constructionsOf}).
+ * What the named import binding `name` leads to: the exporting module's
+ * top-level statements, parsed once, and the name it exports the binding as.
  */
-const importedConstant = (at, name) => {
+const importedExport = (at, name) => {
   const importer = at.getSourceFile();
   for (const statement of importer.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
@@ -480,34 +487,79 @@ const importedConstant = (at, name) => {
           ts.ScriptKind.TS
         )
       );
-    const exported = (element.propertyName ?? element.name).text;
-    for (const declared of importedModules.get(path).statements) {
-      if (
-        !(
-          ts.isVariableStatement(declared) &&
-          declared.modifiers?.some(
-            (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
-          ) &&
-          declared.declarationList.getFirstToken()?.kind ===
-            ts.SyntaxKind.ConstKeyword
-        )
-      )
-        continue;
-      for (const declaration of declared.declarationList.declarations)
-        if (
-          ts.isIdentifier(declaration.name) &&
-          declaration.name.text === exported &&
-          declaration.initializer
-        )
-          return {
-            kind: "value",
-            expression: declaration.initializer,
-            node: declaration,
-          };
-    }
-    return undefined;
+    return {
+      statements: importedModules.get(path).statements,
+      exported: (element.propertyName ?? element.name).text,
+    };
   }
   return undefined;
+};
+
+const isExported = (statement) =>
+  statement.modifiers?.some(
+    (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+  );
+
+/**
+ * A constant this file imports, read where it is declared: the named import
+ * that binds `name`, followed to the exporting module's top-level
+ * `export const`. That is how a sentence one owner states for several files
+ * stays read at every throw that spells it. Only a message is resolved this
+ * way; a thrown value or a factory stays the site's own
+ * ({@link constructionsOf}).
+ */
+const importedConstant = (at, name) => {
+  const found = importedExport(at, name);
+  if (found === undefined) return undefined;
+  const { statements, exported } = found;
+  for (const declared of statements) {
+    if (
+      !(
+        ts.isVariableStatement(declared) &&
+        isExported(declared) &&
+        declared.declarationList.getFirstToken()?.kind ===
+          ts.SyntaxKind.ConstKeyword
+      )
+    )
+      continue;
+    for (const declaration of declared.declarationList.declarations)
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.name.text === exported &&
+        declaration.initializer
+      )
+        return {
+          kind: "value",
+          expression: declaration.initializer,
+          node: declaration,
+        };
+  }
+  return undefined;
+};
+
+/**
+ * A sentence builder this file imports, read where it is declared: an
+ * `export function` whose body is one `return` of a template or string
+ * literal (`emptySelectRefusal`). The literal is returned; a builder with any
+ * other body is not a sentence this census can read, and the call stays
+ * sentence-less.
+ */
+const importedSentenceBuilder = (at, name) => {
+  const found = importedExport(at, name);
+  if (found === undefined) return undefined;
+  const declared = found.statements.find(
+    (statement) =>
+      ts.isFunctionDeclaration(statement) &&
+      isExported(statement) &&
+      statement.name?.text === found.exported
+  );
+  const only = declared?.body?.statements;
+  if (only?.length !== 1 || !ts.isReturnStatement(only[0])) return undefined;
+  const returned = only[0].expression;
+  return returned &&
+    (ts.isTemplateExpression(returned) || ts.isStringLiteralLike(returned))
+    ? returned
+    : undefined;
 };
 
 /** The method `name` of the class the throw is in — a method, never an accessor. */
@@ -903,7 +955,9 @@ section(
     " its declaration, or a message computed at the site (one built from" +
     " mapped issues). A sentence built by a local factory, a function of the" +
     " file, a method of the throw's own class, a local `const` bound to one of" +
-    " those, or a named constant IS read at the throw site — including when" +
+    " those, a named constant (imported or not), or a call to an imported" +
+    " builder whose body returns one template IS read at the throw site —" +
+    " including when" +
     " the site hands it to the failure owner" +
     ` (\`${FAILURE_OWNER.method}(…)\`), whose own substituted sentences are` +
     " read once at the owner itself. Listed so" +
