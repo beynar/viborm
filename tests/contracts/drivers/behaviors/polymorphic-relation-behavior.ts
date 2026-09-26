@@ -1,65 +1,17 @@
 import { createClient } from "@client/client";
 import { QueryEngineError } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
-import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
+import {
+  polymorphicRelationSchema,
+  unnamedArmSelections,
+} from "@tests/contracts/drivers/behaviors/polymorphic-relation-schema";
 import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-
-const polymorphicRelationSchema = (() => {
-  const post = s
-    .model({
-      id: s.int().id().increment(),
-      slug: s.string().unique(),
-      title: s.string(),
-      comments: s.toMany(() => comment).name("commentable"),
-    })
-    .map("poly_contract_posts");
-
-  const video = s
-    .model({
-      id: s.int().id().increment(),
-      slug: s.string().unique(),
-      title: s.string(),
-    })
-    .map("poly_contract_videos");
-
-  const comment = s
-    .model({
-      id: s.int().id().increment(),
-      body: s.string(),
-      commentable: s
-        .toOne(
-          { post: () => post, video: () => video },
-          {
-            values: {
-              post: "content.post.v1",
-              video: "content.video.v1",
-            },
-          }
-        )
-        .name("commentable")
-        .optional(),
-    })
-    .map("poly_contract_comments");
-
-  const requiredComment = s
-    .model({
-      id: s.int().id().increment(),
-      body: s.string(),
-      subject: s.toOne({
-        post: () => post,
-        video: () => video,
-      }),
-    })
-    .map("poly_contract_required_comments");
-
-  return { post, video, comment, requiredComment };
-})();
 
 interface StoredComment {
   readonly id: number | bigint;
@@ -466,7 +418,7 @@ export function runPolymorphicRelationBehavior(
       await expect(
         client.requiredComment.findMany({
           orderBy: { id: "asc" },
-          select: { id: true, subject: { post: { select: { title: true } } } },
+          select: unnamedArmSelections.requiredComment,
         })
       ).resolves.toEqual([
         {
@@ -478,10 +430,7 @@ export function runPolymorphicRelationBehavior(
       await expect(
         client.comment.findUniqueOrThrow({
           where: { id: optionalOnVideo.id },
-          select: {
-            id: true,
-            commentable: { post: { select: { title: true } } },
-          },
+          select: unnamedArmSelections.comment,
         })
       ).resolves.toEqual({
         id: optionalOnVideo.id,
@@ -498,7 +447,7 @@ export function runPolymorphicRelationBehavior(
       await expect(
         client.requiredComment.findUniqueOrThrow({
           where: { id: onVideo.id },
-          select: { id: true, subject: { post: { select: { title: true } } } },
+          select: unnamedArmSelections.requiredComment,
         })
       ).rejects.toThrow(
         "Polymorphic relation 'subject' references a missing 'video' record."

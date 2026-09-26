@@ -209,7 +209,8 @@ type _omittedVariantKeepsDefaultProjection = Expect<
 // The same unnamed arm through `select`, on a required and on an optional
 // slot: the rendered type (schema-introspection.core.test.ts) and the runtime
 // read of a real row of that arm (polymorphic-relation-behavior.ts) pin the
-// same answer.
+// same answer; polymorphic-relation-behavior.core.types.ts types the runtime
+// cell's own schema and selections.
 type SelectedSubject = {
   select: { id: true; subject: { post: { select: { title: true } } } };
 };

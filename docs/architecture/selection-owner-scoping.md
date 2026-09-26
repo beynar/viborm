@@ -152,6 +152,14 @@ What changed is narrower:
       missing row as the slot's integrity refusal.
     - schema-introspection.core.test.ts:362 is the renderer pin.
     - polymorphic-result.core.types.ts:232 and :235 are the static pins.
+    - The three views on ONE schema (added after 945aaf8b2, so named rather than numbered): the
+      behaviour suite's schema and its two selections now live in
+      tests/contracts/drivers/behaviors/polymorphic-relation-schema.ts. The runtime cell reads
+      them, the renderer cell "renders the behavior suite's unnamed-arm selections over its own
+      schema" (schema-introspection.core.test.ts) renders them, and
+      tests/types/client/polymorphic-relation-behavior.core.types.ts types them. **Measured:**
+      dropping `?? true` from `selectedArm`'s singular branch fails the runtime cell on sqlite3
+      and both renderer cells.
     - g4/review/unit01/variant-arms.test.ts:61 previously pinned the null.
 - **B3: fixed.** The renderer's empty-select refusal named model `'undefined'`.
   - Fix: commit 5ca72ba37. One sentence, `emptySelectRefusal`, shared by both views.
