@@ -58,6 +58,33 @@ export function emptySelectRefusal(model: Model<any>): string {
   return `The 'select' statement for model '${model["~"].names.ts ?? "unknown"}' needs at least one truthy value.`;
 }
 
+/**
+ * The node one arm of a variant slot is read with, or `undefined` when the
+ * selection leaves that arm out of the result. One rule for both result views:
+ * this schema-only shape and Raptor 3's prepared projection
+ * (`raptor3/shared/query.ts`).
+ *
+ * Only a collection's `only` narrows the arms; admission deduplicates it and
+ * refuses a `variants` key outside it. A singular slot has no such key: its row
+ * belongs to exactly one arm, so every arm is read and an arm the selection
+ * leaves unnamed is read at its model's default projection (`true`), which
+ * keeps the result union exhaustive
+ * (docs/content/docs/schema/relations/polymorphic.mdx). An admitted arm is
+ * `true` or a relation node; admission has no `false` arm.
+ */
+export function selectedArm(
+  selection: unknown,
+  many: boolean,
+  variant: string
+): unknown {
+  const configuration = isRecord(selection) ? selection : undefined;
+  if (!many) return getOwnValue(configuration, variant) ?? true;
+  const only = getOwnValue(configuration, "only");
+  if (Array.isArray(only) && !only.includes(variant)) return undefined;
+  const arms = getOwnValue(configuration, "variants");
+  return (isRecord(arms) ? getOwnValue(arms, variant) : undefined) ?? true;
+}
+
 const AGGREGATE_NAMES: readonly AggregateResultName[] = [
   "_count",
   "_avg",
@@ -307,12 +334,8 @@ function addSelectedRelations(
 }
 
 /**
- * The expected shape of one polymorphic projection, on the SAME cross-boundary
- * contract the collection read builder compiles against: a validated collection
- * selection is `true` / `false` verbatim, or
- * `{ only?: readonly string[]; variants?: { [publicType]: <arm node> } }` with
- * `only` already deduplicated into declaration order. This reads `only` and
- * `variants` and nothing else.
+ * The expected shape of one polymorphic projection. It records exactly the arms
+ * {@link selectedArm} reads, each with the node it reads it with.
  */
 function addSelectedPolymorphicRelations(
   model: Model<any>,
@@ -332,53 +355,16 @@ function addSelectedPolymorphicRelations(
     const state = relation["~"].state;
     if (!isVariantRelationState(state)) continue;
 
-    const projection = isRecord(value) ? value : undefined;
+    const many = state.cardinality === "many";
     const variants = new Map<string, ExpectedPolymorphicVariantShape>();
-    const publicTypes = Object.keys(state.target.entries);
-
-    if (state.cardinality === "one") {
-      for (const publicType of publicTypes) {
-        const override = getOwnValue(projection, publicType);
-        const targetModel = relation["~"].settleTarget(
-          publicType
-        ) as Model<any>;
-        variants.set(publicType, {
-          model: targetModel,
-          shape: buildModelShape(
-            targetModel,
-            override === undefined || override === true
-              ? {}
-              : getNestedSelection(override),
-            index
-          ),
-        });
-      }
-    } else {
-      const only = getOwnValue(projection, "only");
-      const allowList = Array.isArray(only) ? new Set(only) : undefined;
-      const armNodes = getOwnValue(projection, "variants");
-      const armProjection = isRecord(armNodes) ? armNodes : undefined;
-      for (const publicType of publicTypes) {
-        const override = getOwnValue(armProjection, publicType);
-        const targetModel = relation["~"].settleTarget(
-          publicType
-        ) as Model<any>;
-        // EVERY configured arm is recorded, INCLUDING one excluded by `only`:
-        // the read still computes its integrity facts, and the parser still
-        // refuses a non-zero orphan count there. Visibility only decides
-        // whether the arm carries rows and whether they reach the result.
-        variants.set(publicType, {
-          model: targetModel,
-          shape: buildModelShape(
-            targetModel,
-            override === undefined || override === true
-              ? {}
-              : getNestedSelection(override),
-            index
-          ),
-          visible: allowList ? allowList.has(publicType) : true,
-        });
-      }
+    for (const publicType of Object.keys(state.target.entries)) {
+      const arm = selectedArm(value, many, publicType);
+      if (arm === undefined) continue;
+      const targetModel = relation["~"].settleTarget(publicType) as Model<any>;
+      variants.set(publicType, {
+        model: targetModel,
+        shape: buildModelShape(targetModel, getNestedSelection(arm), index),
+      });
     }
 
     rawKeys.push(relationName);

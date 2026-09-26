@@ -254,7 +254,6 @@ function polymorphicType(
 ): TypeNode {
   const variants: TypeNode[] = [];
   for (const [publicType, variant] of expected.variants) {
-    if (expected.cardinality === "many" && variant.visible !== true) continue;
     variants.push(
       objectOf([
         {

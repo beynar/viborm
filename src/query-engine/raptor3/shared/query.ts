@@ -11,6 +11,7 @@ import {
 import {
   DISTANCE_NAME_COLLISION,
   emptySelectRefusal,
+  selectedArm,
 } from "@query-engine/result/result-shape";
 import {
   CURSOR_CARRIER_PREFIX,
@@ -3707,8 +3708,6 @@ export class Queries {
           resolved.edge.kind === "variantJunctionCarrier")
       ) {
         const many = resolved.edge.kind === "variantJunctionCarrier";
-        const configuration = selection === true ? {} : record(selection);
-        const only = configuration.only as string[] | undefined;
         // A junction-carried slot's arm is a collection of its rows; a row
         // carrier's arm is the target's document.
         const collections: Record<string, CollectionShape> = {};
@@ -3725,19 +3724,14 @@ export class Queries {
               edge: bindMembership(this.schema, model, name, member.variant),
             }))
           : [];
-        // Only a collection's `only` narrows the arms read. A singular slot has
-        // no such key: its row belongs to exactly one arm, and an arm the
-        // selection leaves unnamed is read at its model's default projection,
-        // so the result union the renderer and the client types declare stays
-        // exhaustive (docs/content/docs/schema/relations/polymorphic.mdx).
+        // Which arms are read, and with which node, is `selectedArm`'s one
+        // rule, shared with the schema-only result shape.
         for (const member of resolved.edge.members) {
-          if (many && only && !only.includes(member.variant)) continue;
-          const arm = many
-            ? record(configuration.variants ?? {})[member.variant]
-            : configuration[member.variant];
+          const arm = selectedArm(selection, many, member.variant);
+          if (arm === undefined) continue;
           const nested = this.prepareRelationProjection(
             bindMembership(this.schema, model, name, member.variant),
-            arm === undefined ? true : arm
+            arm
           );
           if (many) collections[member.variant] = this.collectionShape(nested);
           else documents[member.variant] = this.relationShape(nested);

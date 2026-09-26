@@ -163,22 +163,12 @@ export interface ExpectedAggregateResultShape {
 }
 
 /**
- * One configured arm of a polymorphic projection.
- *
- * `visible` is a COLLECTION fact and ARM-LOCAL by construction. The singular
- * arm does not set it.
+ * One arm of a polymorphic projection that the selection reads
+ * (`selectedArm`, result/result-shape.ts); an arm `only` excludes is absent.
  */
 export interface ExpectedPolymorphicVariantShape {
   readonly model: Model<any>;
   readonly shape: ExpectedResultShape;
-  /**
-   * This arm is inside the validated `only` allow-list, so the read emitted its
-   * visible-row branch. The parser reads visibility FROM THE SHAPE, never from
-   * the carrier value: an excluded arm's `rows` is `null` by construction, and a
-   * `null` aggregate over an allow-listed arm normalizes to `[]` — two different
-   * meanings for one JSON value, disambiguated structurally.
-   */
-  readonly visible?: boolean;
 }
 
 /** Exact target-specific result contracts for one polymorphic projection. */
