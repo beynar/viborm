@@ -63,7 +63,20 @@ const marker = s
       .name("geopointTarget"),
   })
   .map("geopoint_behavior_markers");
-const schema = { article, marker, place, route, stop, video };
+/**
+ * `_distance` is a reserved member name (F010): the key belongs to a selected
+ * distance. The COLUMN name does not: `rank` reads and writes the column
+ * `_distance`, and a distance selected beside it still publishes under the
+ * output key `_distance`.
+ */
+const landmark = s
+  .model({
+    id: s.string().id(),
+    location: s.point(),
+    rank: s.int().map("_distance"),
+  })
+  .map("geopoint_behavior_landmarks");
+const schema = { article, landmark, marker, place, route, stop, video };
 
 type GeoPointClientConfig = VibORMConfig<typeof schema>;
 export type GeoPointBehaviorClient = VibORMClient<GeoPointClientConfig>;
@@ -144,6 +157,18 @@ export function runGeoPointBatchBehavior({
 
 const PARIS = { longitude: 2.3522, latitude: 48.8566 } as const;
 const LONDON = { longitude: -0.1276, latitude: 51.5072 } as const;
+const NEW_YORK = { longitude: -74.006, latitude: 40.7128 } as const;
+
+/**
+ * Nearest to London first: london, paris, new-york. By rank: paris,
+ * new-york, london. The two orders disagree everywhere, so an order read from
+ * the wrong source is visible.
+ */
+const LANDMARKS = [
+  { id: "paris", location: PARIS, rank: 1 },
+  { id: "new-york", location: NEW_YORK, rank: 2 },
+  { id: "london", location: LONDON, rank: 3 },
+] as const;
 
 /** Shared live proof for the logical GeoPoint value and each provider tier. */
 export function runGeoPointBehavior({
@@ -412,7 +437,77 @@ export function runGeoPointBehavior({
       expect(tagged[0]?.location).not.toEqual(PARIS);
     });
 
+    test("reads and writes a member mapped to the `_distance` column", async () => {
+      await active().landmark.createMany({ data: [...LANDMARKS] });
+      await active().landmark.update({
+        where: { id: "paris" },
+        data: { rank: { increment: 10 } },
+      });
+
+      await expect(
+        active().landmark.findMany({ orderBy: { rank: "asc" } })
+      ).resolves.toEqual([
+        { id: "new-york", location: NEW_YORK, rank: 2 },
+        { id: "london", location: LONDON, rank: 3 },
+        { id: "paris", location: PARIS, rank: 11 },
+      ]);
+      await expect(
+        active().landmark.findMany({
+          where: { rank: { gte: 3 } },
+          select: { id: true, rank: true },
+          orderBy: { rank: "desc" },
+        })
+      ).resolves.toEqual([
+        { id: "paris", rank: 11 },
+        { id: "london", rank: 3 },
+      ]);
+    });
+
     if (tier === "full") {
+      test("selects and orders by a distance beside a member mapped to the `_distance` column", async () => {
+        await active().landmark.createMany({ data: [...LANDMARKS] });
+        const toParis = sphericalDistance(LONDON, PARIS);
+        const toNewYork = sphericalDistance(LONDON, NEW_YORK);
+
+        const byDistance = await active().landmark.findMany({
+          select: {
+            id: true,
+            rank: true,
+            location: { _distance: { to: LONDON } },
+          },
+          orderBy: { location: { _distance: { to: LONDON, sort: "asc" } } },
+        });
+        expect(byDistance.map(({ id, rank }) => ({ id, rank }))).toEqual([
+          { id: "london", rank: 3 },
+          { id: "paris", rank: 1 },
+          { id: "new-york", rank: 2 },
+        ]);
+        expect(byDistance.map((row) => Object.keys(row).sort())).toEqual([
+          ["_distance", "id", "rank"],
+          ["_distance", "id", "rank"],
+          ["_distance", "id", "rank"],
+        ]);
+        expect(byDistance[0]?._distance).toBeCloseTo(0, 6);
+        expect(byDistance[1]?._distance).toBeCloseTo(toParis, 3);
+        expect(byDistance[2]?._distance).toBeCloseTo(toNewYork, 3);
+
+        // The distance first, the column second; ordered by the column and
+        // filtered on the distance.
+        const byRank = await active().landmark.findMany({
+          where: {
+            location: { distance: { to: LONDON, lte: toParis + 1 } },
+          },
+          select: {
+            location: { _distance: { to: LONDON } },
+            rank: true,
+          },
+          orderBy: { rank: "desc" },
+        });
+        expect(byRank.map((row) => row.rank)).toEqual([3, 1]);
+        expect(byRank[0]?._distance).toBeCloseTo(0, 6);
+        expect(byRank[1]?._distance).toBeCloseTo(toParis, 3);
+      });
+
       test("uses the fixed-radius metric for filtering, selection, and ordering", async () => {
         await active().place.createMany({
           data: [
