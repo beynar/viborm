@@ -193,7 +193,9 @@ What changed is narrower:
       read `_count` beside it as counts (renderer pin). Disabling the refusal turns 7
       cells red (6 there, 1 in aggregate-args.core.test.ts).
     - tests/contracts/drivers/behaviors/relation-read-aggregate-behavior.ts, "a scalar
-      mapped to the column `_count`" (sqlite3, libsql, PGlite, pg, postgres.js, mysql2):
+      mapped to the column `_count`" (runs on sqlite3, PGlite, pg, postgres.js, mysql2;
+      libsql's only registration, tests/providers/local/libsql-parity-json.test.ts, sits
+      in an unconditional `describe.skip` (DRIVER_NOT_SUPPORTED), so it never runs there):
       the column read under its member name beside the counts, `omit` of that member with
       counts included, orderBy count vs column, where on the column, a filtered count,
       groupBy by the column, and a model-hidden member in the `_count` column that no

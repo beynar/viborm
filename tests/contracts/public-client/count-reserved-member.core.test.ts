@@ -9,7 +9,9 @@
  * scalar keeps it with `.map("_count")`, and that spelling reaches the same
  * counts as any other model (runtime cells: the relation read/aggregate
  * behavior, `tests/contracts/drivers/behaviors/relation-read-aggregate-behavior.ts`,
- * on every provider; static pins: `tests/types/client/count-reserved-member.core.types.ts`).
+ * run on sqlite3, PGlite, pg, postgres.js and mysql2 — libsql's registration is
+ * an unconditional `describe.skip`; static pins:
+ * `tests/types/client/count-reserved-member.core.types.ts`).
  */
 
 import { createClient } from "@client/client";
