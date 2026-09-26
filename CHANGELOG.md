@@ -5,6 +5,16 @@ Versioning.
 
 ## Unreleased
 
+- **A singular polymorphic slot reads every arm.** A `select` that named only
+  some arms of a required or optional to-one variant slot used to return
+  `null` for a row whose target belongs to an unnamed arm; the documented
+  contract and the inferred type always said an unnamed arm keeps its default
+  projection, and the runtime now agrees. `subject: {}` reads every arm at its
+  default projection too. A missing row behind an unnamed arm is now the
+  slot's integrity refusal (`Polymorphic relation '<slot>' references a
+  missing '<arm>' record.`) where it used to read as `null`. Selections that
+  name every arm are unchanged. The TypeScript renderer's empty-`select`
+  refusal now names the model instead of `'undefined'`.
 - **Error-surface change: a malformed polymorphic slot is a malformed
   result.** A driver (or its `parseResult` middleware) that hands back a NULL
   or non-object value where a polymorphic to-one or to-many slot's document
