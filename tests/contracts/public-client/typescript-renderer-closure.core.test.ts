@@ -46,6 +46,14 @@ const note = s.model({
 });
 const vaultSchema = { vault, note };
 
+const site = s.model({
+  id: s.string().id(),
+  entrance: s.point(),
+  exit: s.point(),
+});
+const siteSchema = { site };
+const paris = { longitude: 2.35, latitude: 48.85 };
+
 describe("TypeScript renderer degenerate domains", () => {
   test("renders an enum declaring no member as an uninhabited field", () => {
     const ticket = s.model({ state: s.enum([]) });
@@ -104,6 +112,19 @@ describe("TypeScript renderer degenerate domains", () => {
     vaultId: string;
   }>;
 }>`);
+  });
+
+  test("refuses a second distance in one select with the engine's sentence", () => {
+    // One spelling for both result views (DISTANCE_SELECTED_TWICE); the
+    // engine's side is pinned by g4/unit01/repairs.test.ts.
+    expect(() =>
+      renderOperationResultType(siteSchema, "site", "findMany", {
+        select: {
+          entrance: { _distance: { to: paris } },
+          exit: { _distance: { to: paris } },
+        },
+      })
+    ).toThrow("Distance select supports only one _distance field per select.");
   });
 
   test("renders a row carrying no readable column as an empty object", () => {

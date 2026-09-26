@@ -10,6 +10,7 @@ import {
 } from "@errors";
 import {
   DISTANCE_NAME_COLLISION,
+  DISTANCE_SELECTED_TWICE,
   emptySelectRefusal,
   selectedArm,
 } from "@query-engine/result/result-shape";
@@ -3666,9 +3667,7 @@ export class Queries {
           selection === true ? undefined : record(selection)._distance;
         if (distance !== undefined) {
           if (distanceSelected)
-            throw new QueryEngineError(
-              "Distance select supports only one _distance field per select."
-            );
+            throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
           // The OTHER registered collision (`result/result-shape.ts`
           // `buildModelShape`, the guard after every producer): the output key
           // `_distance` is the distance's, and a model that owns a field of

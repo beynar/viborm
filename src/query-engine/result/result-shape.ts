@@ -49,6 +49,10 @@ const MODEL_ROW_OPERATIONS = new Set<Operation>([
 export const DISTANCE_NAME_COLLISION =
   "A distance result cannot be selected together with a model field named '_distance'.";
 
+/** The registered refusal for a second `_distance` in one select, shared the same way. */
+export const DISTANCE_SELECTED_TWICE =
+  "Distance select supports only one _distance field per select.";
+
 /**
  * The registered refusal for a written `select` that keeps nothing, stated once
  * for both result views like {@link DISTANCE_NAME_COLLISION}: this schema-only
@@ -170,9 +174,7 @@ function buildModelShape(
       }
       if (isRecord(value) && Object.hasOwn(value, "_distance")) {
         if (hasDistance) {
-          throw new QueryEngineError(
-            "Distance select supports only one _distance field per select."
-          );
+          throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
         }
         hasDistance = true;
         distanceScalar = scalar;
