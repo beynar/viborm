@@ -9,6 +9,7 @@ import {
   withCacheSchema,
 } from "@cache";
 import {
+  type DetachedCacheResultCodec,
   executeCachedWithResultCodec,
   invalidateOfficialCache,
   type WaitUntilFn,
@@ -255,14 +256,11 @@ export function createCacheExecutionOptions(
 }
 
 /**
- * The detached cache representation of one read result. The official cache is
- * the consumer that defines it, so it is declared here, at the boundary that
- * hands it to the cache driver; the Raptor 3 route's `cacheCodec` produces it.
+ * The detached cache representation of one read result: the cache driver's
+ * own contract, read here at the boundary that hands the Raptor 3 route's
+ * `cacheCodec` to it.
  */
-export interface CacheResultCodec {
-  snapshot(value: unknown): unknown;
-  materialize(snapshot: unknown): unknown;
-}
+export type CacheResultCodec = DetachedCacheResultCodec<unknown>;
 
 /** Execute an official read through the detached result representation. */
 export function executeCachedResultOperation(
