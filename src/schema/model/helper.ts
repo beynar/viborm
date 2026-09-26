@@ -14,6 +14,16 @@ import type { Scalar } from "@schema/scalars/base";
 export type AnyModelField = Scalar | AnyRelation;
 export type ModelShape = Record<string, AnyModelField>;
 
+/**
+ * The shape `s.model(...)` and `.extends(...)` accept: a model shape with no
+ * member named `_count`, the relation-count projection's reserved name. This is
+ * the compile-time spelling of rule F010 for TypeScript callers; F010
+ * (`memberNamesAreNotReserved`) stays the contract for every caller. It
+ * constrains keys only and never reads a member's type, so it cannot change
+ * what a shape infers.
+ */
+export type DeclaredModelShape = ModelShape & { readonly _count?: never };
+
 export type NameFromKeys<
   TFields extends string[],
   TName extends string = "",

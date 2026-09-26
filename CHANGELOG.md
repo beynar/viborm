@@ -19,7 +19,9 @@ Versioning.
   everywhere. To keep the column, rename the member and map it:
   `tally: s.int().map("_count")`. A `groupBy` can no longer group by a field
   named `_count`, since none exists; the grouped-field collision refusal for
-  `_avg`, `_sum`, `_min` and `_max` is unchanged.
+  `_avg`, `_sum`, `_min` and `_max` is unchanged. In TypeScript the key is
+  refused at compile time too: `s.model({ _count: ... })` and
+  `.extends({ _count: ... })` no longer type-check.
 - **A singular polymorphic slot reads every arm.** A `select` that named only
   some arms of a required or optional to-one variant slot used to return
   `null` for a row whose target belongs to an unnamed arm; the documented

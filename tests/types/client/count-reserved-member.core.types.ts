@@ -7,6 +7,12 @@
  * intersected with a scalar. A scalar mapped to the `_count` COLUMN keeps its
  * own member name on both sides. Runtime and refusal pins:
  * `tests/contracts/public-client/count-reserved-member.core.test.ts`.
+ *
+ * `s.model` and `.extends` refuse the member name at compile time as well:
+ * their shape parameter forbids the key `_count` (`DeclaredModelShape`), for a
+ * scalar, a relation and a variant slot alike. The constraint names a key and
+ * never a member's type, so the mutually recursive `ledger`/`entry` pair below
+ * still infers concrete members.
  */
 
 import type { OperationPayload, OperationResult } from "@client/types";
@@ -76,5 +82,47 @@ type _includedCountsAreCountsOnly = Expect<
       { include: { _count: { select: { entries: true } } } }
     >[number],
     { id: string; tally: number; _count: { entries: number } }
+  >
+>;
+
+// The declaration: `_count` is refused as a member key, whatever the member.
+const countTarget = s.model({ id: s.string().id() });
+const countClip = s.model({ id: s.string().id(), seconds: s.int() });
+s.model({
+  id: s.string().id(),
+  // @ts-expect-error `_count` is a reserved member name; a scalar may not take it.
+  _count: s.int(),
+});
+s.model({
+  id: s.string().id(),
+  // @ts-expect-error `_count` is a reserved member name; a relation may not take it.
+  _count: s.toMany(() => countTarget),
+});
+s.model({
+  id: s.string().id(),
+  // @ts-expect-error `_count` is a reserved member name; a variant slot may not take it.
+  _count: s.toOne({ target: () => countTarget, clip: () => countClip }),
+});
+// @ts-expect-error `_count` is a reserved member name; `.extends` may not add it.
+countTarget.extends({ _count: s.int() });
+// The column name stays available under another member name.
+s.model({ id: s.string().id(), tally: s.int().map("_count") });
+
+// The recursive pair still infers concrete members through the constraint.
+type IsAny<Value> = 0 extends 1 & Value ? true : false;
+type _ledgerIsNotAny = Expect<Equal<IsAny<typeof ledger>, false>>;
+type _entryIsNotAny = Expect<Equal<IsAny<typeof entry>, false>>;
+type _ledgerReadsThroughEntry = Expect<
+  Equal<
+    OperationResult<
+      "findMany",
+      typeof ledger,
+      {
+        select: {
+          entries: { select: { ledger: { select: { tally: true } } } };
+        };
+      }
+    >[number],
+    { entries: { ledger: { tally: number } }[] }
   >
 >;

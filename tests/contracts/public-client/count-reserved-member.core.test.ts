@@ -40,6 +40,7 @@ const reservedIssue = (model: string) => ({
 // A scalar named `_count` beside a to-many relation.
 const scalarHolder = s.model({
   id: s.string().id(),
+  // @ts-expect-error `_count` is a reserved member name: `s.model` refuses it at compile time too; F010 is the runtime pin here.
   _count: s.int(),
   things: s.toMany(() => scalarThing),
 });
@@ -55,6 +56,7 @@ const scalarThing = s.model({
 // A to-many relation named `_count`.
 const relationHolder = s.model({
   id: s.string().id(),
+  // @ts-expect-error `_count` is a reserved member name: `s.model` refuses it at compile time too; F010 is the runtime pin here.
   _count: s.toMany(() => relationThing),
 });
 const relationThing = s.model({
@@ -71,6 +73,7 @@ const article = s.model({ id: s.string().id(), title: s.string() });
 const clip = s.model({ id: s.string().id(), seconds: s.int() });
 const slotHolder = s.model({
   id: s.string().id(),
+  // @ts-expect-error `_count` is a reserved member name: `s.model` refuses it at compile time too; F010 is the runtime pin here.
   _count: s.toOne({ article: () => article, clip: () => clip }),
 });
 

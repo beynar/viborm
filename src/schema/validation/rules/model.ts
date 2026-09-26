@@ -416,6 +416,11 @@ export function compoundConstraintsNonEmpty(
  * needs its own answer to which one wins. Refusing the name here leaves `_count`
  * one meaning everywhere downstream. The column name stays available: a
  * renamed scalar keeps it with `.map("_count")`.
+ *
+ * TypeScript callers meet the refusal earlier: the shape parameter of
+ * `s.model` and `.extends` forbids the key (`DeclaredModelShape`). That is a
+ * convenience for them only; a JavaScript caller, a cast or a computed key
+ * reaches this rule, so F010 is the contract for every caller.
  */
 export function memberNamesAreNotReserved(
   _s: Schema,

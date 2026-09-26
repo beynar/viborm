@@ -565,6 +565,7 @@ describe("GroupBy Args - aggregate name collisions", () => {
   // `_count` has no grouped-column collision to refuse: a model field of that
   // name is refused before any registry exists (F010, the reserved member name).
   test("output: a model field named _count never reaches groupBy", () => {
+    // @ts-expect-error `_count` is a reserved member name: `s.model` refuses it at compile time too.
     const counted = s.model({ id: s.int().id(), _count: s.int() });
     expect(() => createSchemaRegistry({ counted })).toThrow(
       "Model 'counted' declares a member named '_count'; '_count' is reserved for relation counts."

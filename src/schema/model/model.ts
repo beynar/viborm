@@ -8,6 +8,7 @@ import type { AnyRelation } from "../relation";
 import type { Scalar } from "../scalars/base";
 import type { HydratedSchemaNames, SchemaNames } from "../scalars/common";
 import {
+  type DeclaredModelShape,
   extractRelationMap,
   extractScalarMap,
   extractUniqueScalarMap,
@@ -504,7 +505,7 @@ export class Model<State extends ModelState> {
     >;
   }
 
-  extends<ETShape extends ModelShape>(shape: ETShape) {
+  extends<ETShape extends DeclaredModelShape>(shape: ETShape) {
     const newShape = { ...this.state.shape, ...shape } as State["shape"] &
       ETShape;
     return new Model({
@@ -585,7 +586,7 @@ export class Model<State extends ModelState> {
   }
 }
 
-export const model = <TShape extends ModelShape>(
+export const model = <TShape extends DeclaredModelShape>(
   shape: TShape
 ): Model<
   UpdateState<

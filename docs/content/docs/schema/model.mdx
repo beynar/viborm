@@ -25,7 +25,9 @@ const user = s.model({
 in `select` and `include` it always means the counts of the model's relations.
 A model that declares a member named `_count` — a scalar, a relation or a
 polymorphic slot — is refused when the schema is validated, at client
-construction and by `validateSchema` (`F010`). To keep an existing `_count`
+construction and by `validateSchema` (`F010`). In TypeScript, `s.model` and
+`.extends` already refuse the key at compile time; `F010` is the check that
+holds for every caller, JavaScript included. To keep an existing `_count`
 column, give the scalar another name and map it: `tally: s.int().map("_count")`
 reads and writes the column `_count` as the member `tally`.
 
