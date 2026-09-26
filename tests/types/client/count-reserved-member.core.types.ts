@@ -1,18 +1,20 @@
 /**
- * `_count` in a selection is the relation-count projection only.
+ * `_count` in a selection is the relation-count projection only, and
+ * `_distance` is the selected distance only.
  *
- * Schema validation refuses a member named `_count` (F010), so the select
- * input's `_count` is the count shorthand or the count object and never a
- * scalar boolean, and the result's `_count` is the counts object, never
- * intersected with a scalar. A scalar mapped to the `_count` COLUMN keeps its
- * own member name on both sides. Runtime and refusal pins:
+ * Schema validation refuses a member named `_count` or `_distance` (F010), so
+ * the select input's `_count` is the count shorthand or the count object and
+ * never a scalar boolean, and the result's `_count` is the counts object,
+ * never intersected with a scalar; the result's `_distance` is the distance
+ * number. A scalar mapped to either COLUMN keeps its own member name on both
+ * sides. Runtime and refusal pins:
  * `tests/contracts/public-client/count-reserved-member.core.test.ts`.
  *
- * `s.model` and `.extends` refuse the member name at compile time as well:
- * their shape parameter forbids the key `_count` (`DeclaredModelShape`), for a
- * scalar, a relation and a variant slot alike. The constraint names a key and
- * never a member's type, so the mutually recursive `ledger`/`entry` pair below
- * still infers concrete members.
+ * `s.model` and `.extends` refuse both member names at compile time as well:
+ * their shape parameter forbids the keys `_count` and `_distance`
+ * (`DeclaredModelShape`), for a scalar, a relation and a variant slot alike.
+ * The constraint names keys and never a member's type, so the mutually
+ * recursive `ledger`/`entry` pair below still infers concrete members.
  */
 
 import type { OperationPayload, OperationResult } from "@client/types";
@@ -107,6 +109,48 @@ s.model({
 countTarget.extends({ _count: s.int() });
 // The column name stays available under another member name.
 s.model({ id: s.string().id(), tally: s.int().map("_count") });
+
+// `_distance` is refused the same way, whatever the member.
+s.model({
+  id: s.string().id(),
+  // @ts-expect-error `_distance` is a reserved member name; a scalar may not take it.
+  _distance: s.number(),
+});
+s.model({
+  id: s.string().id(),
+  // @ts-expect-error `_distance` is a reserved member name; a relation may not take it.
+  _distance: s.toMany(() => countTarget),
+});
+s.model({
+  id: s.string().id(),
+  // @ts-expect-error `_distance` is a reserved member name; a variant slot may not take it.
+  _distance: s.toOne({ target: () => countTarget, clip: () => countClip }),
+});
+// @ts-expect-error `_distance` is a reserved member name; `.extends` may not add it.
+countTarget.extends({ _distance: s.number() });
+
+// A member in the `_distance` column beside a selected distance: both keys,
+// each with its own meaning.
+const landmark = s.model({
+  id: s.string().id(),
+  at: s.point(),
+  score: s.number().map("_distance"),
+});
+type _mappedMemberBesideTheDistance = Expect<
+  Equal<
+    OperationResult<
+      "findMany",
+      typeof landmark,
+      {
+        select: {
+          score: true;
+          at: { _distance: { to: { longitude: 0; latitude: 0 } } };
+        };
+      }
+    >[number],
+    { score: number; _distance: number }
+  >
+>;
 
 // The recursive pair still infers concrete members through the constraint.
 type IsAny<Value> = 0 extends 1 & Value ? true : false;

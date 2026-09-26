@@ -275,15 +275,17 @@ void NumberScalarValue;
   );
 
   // The reason a TypeScript caller reads when a shape declares a member named
-  // `_count` (rule F010's compile-time spelling). A `@ts-expect-error` in the
-  // repo's type tests pins the refusal but cannot pin its text; this file does,
-  // through the packed declarations a consumer compiles against.
+  // `_count` or `_distance` (rule F010's compile-time spelling). A
+  // `@ts-expect-error` in the repo's type tests pins the refusal but cannot pin
+  // its text; this file does, through the packed declarations a consumer
+  // compiles against.
   const reservedMemberFile = join(consumerRoot, "reserved-member-consumer.ts");
   writeFileSync(
     reservedMemberFile,
     `
 import { s } from "viborm";
 s.model({ id: s.string().id(), _count: s.int() });
+s.model({ id: s.string().id(), _distance: s.number() });
 `,
     "utf8"
   );
@@ -369,13 +371,18 @@ export { ExportKindFixture as ValueAndType };
   );
   assert.equal(
     reservedMemberDiagnostics.length,
-    1,
-    `a \`_count\` member was not refused exactly once: ${reservedMemberDiagnostics.join(" | ")}`
+    2,
+    `the \`_count\` and \`_distance\` members were not refused once each: ${reservedMemberDiagnostics.join(" | ")}`
   );
   assert.match(
     reservedMemberDiagnostics[0],
     /is not assignable to type '"`_count` is reserved for relation counts \(F010\)"'/,
     "the `_count` member refusal does not name its reason"
+  );
+  assert.match(
+    reservedMemberDiagnostics[1],
+    /is not assignable to type '"`_distance` is reserved for distance results \(F010\)"'/,
+    "the `_distance` member refusal does not name its reason"
   );
 
   const checker = program.getTypeChecker();

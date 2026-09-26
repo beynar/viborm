@@ -83,8 +83,6 @@ const parent = s
     meta: s.json().nullable(),
     price: s.decimal({ precision: 12, scale: 2 }),
     bucket: s.string().nullable(),
-    at: s.point().nullable(),
-    _distance: s.string().nullable(),
     children: s.toMany(() => child),
   })
   .map("parity_decode_parents");
@@ -395,24 +393,5 @@ describe("one physical vocabulary", () => {
       orderBy: { bucket: "asc" },
     });
     expect(statement).toContain(CURSOR_CARRIER_PREFIX);
-  });
-
-  test("the registered _distance collision sentence, in both orders", () => {
-    const paris = { longitude: 2.3522, latitude: 48.8566 };
-    const sentence =
-      "A distance result cannot be selected together with a model field named '_distance'.";
-    expect(() =>
-      build(parent, {
-        select: { _distance: true, at: { _distance: { to: paris } } },
-      })
-    ).toThrow(sentence);
-    expect(() =>
-      build(parent, {
-        select: { at: { _distance: { to: paris } }, _distance: true },
-      })
-    ).toThrow(sentence);
-    // The OTHER registered sentence is unchanged and still owned by the same
-    // arm; `tests/raptor3/g4/unit01/repairs.test.ts` pins it on two point
-    // fields, which this model does not have a second of.
   });
 });
