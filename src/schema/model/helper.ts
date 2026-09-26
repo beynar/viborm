@@ -20,9 +20,13 @@ export type ModelShape = Record<string, AnyModelField>;
  * the compile-time spelling of rule F010 for TypeScript callers; F010
  * (`memberNamesAreNotReserved`) stays the contract for every caller. It
  * constrains keys only and never reads a member's type, so it cannot change
- * what a shape infers.
+ * what a shape infers. The key's type is the reason spelled as a string
+ * literal, so the diagnostic a caller reads names it: no model member is a
+ * string, so nothing a shape can hold satisfies it.
  */
-export type DeclaredModelShape = ModelShape & { readonly _count?: never };
+export type DeclaredModelShape = ModelShape & {
+  readonly _count?: "`_count` is reserved for relation counts (F010)";
+};
 
 export type NameFromKeys<
   TFields extends string[],

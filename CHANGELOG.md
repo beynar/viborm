@@ -21,7 +21,9 @@ Versioning.
   named `_count`, since none exists; the grouped-field collision refusal for
   `_avg`, `_sum`, `_min` and `_max` is unchanged. In TypeScript the key is
   refused at compile time too: `s.model({ _count: ... })` and
-  `.extends({ _count: ... })` no longer type-check.
+  `.extends({ _count: ... })` no longer type-check, and the diagnostic names
+  the reason: ``not assignable to type '"`_count` is reserved for relation
+  counts (F010)"'``.
 - **A singular polymorphic slot reads every arm.** A `select` that named only
   some arms of a required or optional to-one variant slot used to return
   `null` for a row whose target belongs to an unnamed arm; the documented
