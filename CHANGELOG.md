@@ -46,10 +46,12 @@ Versioning.
   of `restrict`/`noAction` keys, a cycle whose `cascade` reaches rows a
   `restrict` key still guards, or a table whose `restrict` key references
   itself, is refused before any statement runs (`V11009`, naming each blocked
-  table and the key that refuses it). Such a plan used to run in catalog
-  order: it failed and rolled back unless the rows happened to satisfy that
-  order, and it succeeded on empty tables. Remove one relation, or change its
-  action to `setNull`, in a separate change first.
+  table and the key that refuses it). The refusal is decided from the schema
+  alone, because no order safe for every row set can be established from it.
+  Such a plan used to run in catalog order: it failed and rolled back unless
+  the rows happened to satisfy that order, and it succeeded on empty tables,
+  which are now refused too. Remove one relation, or change its action to
+  `setNull`, in a separate change first.
 - **One native type per dialect** (#45). Every scalar factory that takes a
   native type — `s.string`, `s.int`, `s.number`, `s.bigInt`, `s.boolean`,
   `s.dateTime`, `s.date`, `s.time`, `s.json`, `s.blob`, `s.vector`, and the

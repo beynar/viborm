@@ -338,8 +338,11 @@ key deletes the referencing rows. Tables no order can drop — a cycle of
 `restrict` or `noAction` keys, a cycle whose `cascade` reaches rows a
 `restrict` key still guards, or a table whose `restrict` key references itself
 — are refused before any statement runs, naming each blocked table and the key
-that refuses it. Remove one of those relations, or change its action to
-`setNull`, in a separate push first, then remove the tables.
+that refuses it. The decision is made from the schema alone: no order that is
+safe for every row set can be established from it, so such a plan is refused
+whether or not the tables hold rows today (an empty `restrict` cycle would
+drop, and is refused all the same). Remove one of those relations, or change
+its action to `setNull`, in a separate push first, then remove the tables.
 
 ## Enum Value Removal
 
