@@ -70,6 +70,24 @@ const client = createClient({
 
 LibSQL supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
+## Migrations
+
+Runtime transaction support does not grant live Migration V1 support. LibSQL
+refuses `push`, `apply`, `down`, `reset`, and locked `verify` before effects:
+its constraint alteration does not prevalidate existing rows, and safe table
+reconstruction has not been proven with the migration lock and marker update.
+
+Offline `generate` and `check`, estate inspection, and admitted read-only
+`status`, `log`, and `push({ dryRun: true })` remain available.
+`apply({ dryRun: true })` and `down({ dryRun: true })` read the live marker
+without a lock and require database connectivity. `reset({ dryRun: true })`
+previews the estate's root-to-target path without database reads, after target
+and read-only capability admission. These previews do not enable live effects.
+
+Use the provider's deployment migration system for live schema
+changes. The qualified local LibSQL runtime is not evidence of hosted Turso
+migration support. See [LibSQL migration limits](/docs/migration/drivers/sqlite#libsql--turso).
+
 ## GeoPoint storage tier
 
 LibSQL uses the checked SQLite GeoPoint JSON carrier. Typed CRUD, equality,

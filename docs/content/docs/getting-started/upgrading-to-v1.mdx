@@ -1,0 +1,403 @@
+---
+title: Upgrading to V1
+description: Move from VibORM 0.1.0 or a development checkout to the V1 public API and storage contracts
+icon: arrow-up-circle
+---
+
+V1 changes schema declarations, physical storage, migration history, extensions,
+and raw SQL. Treat this as an application and database upgrade, not only a
+package-version change.
+
+:::info[Release candidate preparation]
+This guide describes `1.0.0-rc.1`, currently being prepared. It does not announce
+an npm publication or a stable V1 release. After that exact candidate is
+published, install it explicitly with `npm install viborm@1.0.0-rc.1` for a
+rehearsal. Until then, test the candidate tarball supplied by the release build.
+:::
+
+The published baseline is `0.1.0`, the initial development package. The
+repository also contained intermediate development APIs that changed before
+V1. The retired spellings below identify code to review if you use them; they
+are not a claim that every spelling shipped in `0.1.0`.
+
+## 1. Prepare the application and a database copy
+
+Use Node.js 22 or later and TypeScript 5.8 or later, with strict mode. The
+package exports ESM. Use a supported driver entry point such as `viborm/pg`,
+`viborm/postgres`, or `viborm/sqlite3` and install its database library
+separately. See [Installation](/docs/getting-started) and
+[Package entry points](/docs/getting-started/package-entry-points).
+
+Keep the old application lockfile, migration artifacts, and a restorable
+database backup. Rehearse on a database copy before applying schema changes to
+the live database. Compile the application after updating declarations, then
+inspect the physical schema difference. Do not use `push` as an automatic data
+converter: several storage changes below require an explicit conversion.
+
+Choose a deployment driver separately from the application driver when
+needed. Runtime CRUD or batch support does not imply support for live
+migrations; the [migration matrix](/docs/migration#atomicity) is the contract.
+
+## 2. Replace the relation language
+
+There are two factories: `s.toOne()` for a singular slot and `s.toMany()` for
+a collection. Their target is either a model thunk or a map of named variants.
+The old cardinality-specific factories and a separate polymorphic factory are
+not compatibility aliases.
+
+The pair of endpoints determines cardinality. Replace declarations according
+to what each endpoint contains:
+
+| Relationship | V1 endpoints | Storage declaration |
+| --- | --- | --- |
+| One-to-one | `toOne` / `toOne` | Exactly one endpoint completes `.fields(...).references(...)`; the pair derives its unique constraint |
+| One-to-many | `toMany` / `toOne` | The singular endpoint completes `.fields(...).references(...)` |
+| Many-to-many | `toMany` / `toMany` | At most one endpoint configures the physical junction |
+| Polymorphic | `toOne({ ... })` or `toMany({ ... })` | A map of target variants determines the variant storage |
+
+```ts
+import { s } from "viborm";
+
+export const user = s.model({
+  id: s.string().id(),
+  posts: s.toMany(() => post),
+});
+
+export const post = s.model({
+  id: s.string().id(),
+  authorId: s.string().nullable(),
+  author: s.toOne(() => user).fields("authorId").references("id"),
+});
+
+export const schema = { user, post };
+```
+
+Both ordinary endpoints must exist. If more than one relation joins the same
+models, give the two endpoints the same exact `.name(...)`. An incomplete or
+ambiguous pair is a schema error; it is not selected by declaration order.
+
+For ordinary relations, remove relation `.optional()` and express absence
+through nullable foreign-key scalars. A singular inverse without the foreign
+key is nullable because the owning row may not exist. A variant `toOne({ ... })`
+still has `.optional()` for its private discriminator and identifier columns.
+
+Remove relation `.unique()`; the `toOne` / `toOne` pair derives uniqueness.
+A declared unique foreign key paired with a collection is a contradiction,
+so review any scalar or compound unique constraint left by an old declaration.
+Complete every `.fields(...)` with matching
+`.references(...)`; zero-argument `.fields()` is not allowed. For junctions,
+use `.source(...)` and `.target(...)` instead of `.A()` / `.B()`, with physical
+configuration on one endpoint. Do not copy storage declarations onto both
+endpoints.
+
+Changing factory names alone does not prove that an existing foreign key,
+junction name, or polymorphic discriminator is preserved. Compare the physical
+schema, especially custom junctions and variant values. See
+[Relations](/docs/schema/relations), [Many-to-many](/docs/schema/relations/many-to-many),
+and [Polymorphic relations](/docs/schema/relations/polymorphic).
+
+## 3. Review scalar values and physical storage
+
+### Fixed decimals
+
+Declare every decimal with a required descriptor:
+
+```ts
+import { Decimal, s } from "viborm";
+
+const amount = s.decimal({ precision: 10, scale: 2 });
+const openingBalance = new Decimal("12.34");
+const increasedBalance = openingBalance.plus("0.20");
+```
+
+Typed writes accept plain decimal strings or VibORM's exported `Decimal`.
+JavaScript numbers, exponent strings, and decimal.js instances are not inputs.
+Assignment refuses values that exceed precision or scale; it does not round
+them. Selected values are fresh `Decimal` instances, so compare with `.eq()`
+rather than object identity.
+
+If your application used the intermediate decimal.js value type, convert its
+values with `new Decimal(oldValue.toFixed())`. Plain `toFixed()` retains all
+digits without exponent notation. Replace decimal.js aliases or configuration:
+VibORM exposes `plus`, `minus`, `times`, `div`, comparison methods and formatting,
+but no `Decimal.set()`. For example, `value.isZero()` becomes `value.eq("0")`.
+
+| Dialect | Scalar | Decimal list |
+| --- | --- | --- |
+| PostgreSQL | `NUMERIC(p,s)` | Native `NUMERIC(p,s)[]` |
+| MySQL | `DECIMAL(p,s)` | JSON array of coefficient strings |
+| SQLite family | Checked scaled `INTEGER` coefficient | `TEXT` containing coefficient-string JSON |
+
+At scale 2, logical `12.34` is SQLite coefficient `1234`; a JSON-backed list
+stores it as `"1234"`. Existing SQLite decimal text or floating-point values
+are not interchangeable with these coefficients. Preserve their logical value
+in a reviewed conversion; never rename their type and assume the stored value
+has changed. Descriptor changes also need review: scale reduction is valid
+only when all discarded digits are zero. See
+[Decimal](/docs/schema/scalars/decimal#descriptor-migrations) for provider
+limits and refused conversion paths.
+
+### Identifier domains
+
+A bare `s.string().id()` remains a text key with a default ULID generator.
+Adding `.uuid()`, `.uuidv7()`, `.ulid()`, `.ksuid()`, `.nanoid()`, or `.cuid()`
+declares a domain: every supplied value must match that format and its declared
+prefix, including values in filters, cursors, and relation selectors.
+
+UUID/UUIDv7 now use PostgreSQL `uuid`, MySQL `BINARY(16)`, or SQLite `BLOB`.
+ULID uses 16 payload bytes and KSUID uses 20; PostgreSQL uses `bytea` for both.
+Prefixes are restored on typed reads. NanoID and CUID remain text. Foreign-key
+columns derive the referenced identifier's domain and representation.
+
+For an existing text column, choose explicitly:
+
+- Keep text storage with a supported text-family native type while retaining
+  domain validation, for example `s.string(PG.STRING.TEXT).uuid()` with `PG`
+  imported from `viborm/schema`.
+- Convert every affected key and reference together, including junction and
+  polymorphic storage columns, using the
+  [identifier conversion guide](/docs/migration/identifiers).
+
+Check invalid legacy values, normalization collisions and reference integrity
+before conversion. A generated binary `alterColumn` cannot convert text into
+identifier payload bytes and is refused. PostgreSQL's guarded text-to-UUID cast
+is a separate supported case. No batch converter or automatic prefix stripping
+is supplied.
+
+`contains`, `startsWith`, `endsWith`, and `mode` are unavailable for the four
+compact formats, even when a text override preserves their storage. Review
+queries as well as DDL. See [String](/docs/schema/scalars/string).
+
+### DateTime admission and storage
+
+DateTime accepts valid `Date` values and timestamps naming a real calendar
+date, with a timezone and a UTC instant from `0000-01-01T00:00:00.000Z` through
+`9999-12-31T23:59:59.999Z`. Invalid dates, nonexistent calendar days, hour 24,
+leap-second spellings, and out-of-range instants are refused. Audit permissive
+legacy strings before reading or rewriting them through the typed client.
+
+SQLite DateTime storage follows the declared native type:
+
+```ts
+import { s } from "viborm";
+import { SQLITE } from "viborm/schema";
+
+const timestampText = s.dateTime();
+const epochMilliseconds = s.dateTime(SQLITE.DATETIME.INTEGER);
+const julianDay = s.dateTime(SQLITE.DATETIME.REAL);
+```
+
+`TEXT` contains timestamps, `INTEGER` contains epoch **milliseconds**, and
+`REAL` contains Julian days. Unix seconds are not milliseconds. Existing
+numeric values must agree with the declared representation before a new
+client reads them. Changing a declaration is not proof of a correct data
+conversion. Raw SQL stays physical and does not apply these codecs. See
+[DateTime](/docs/schema/scalars/datetime) and
+[Native types](/docs/schema/native-types#datetime).
+
+### Creation and update timestamps
+
+`.now()` is insert-only. Remove its field from `update`, `updateMany`, the
+update arm of `upsert`, and nested update payloads, including `{ set: ... }`
+and an explicit `undefined`. Runtime admission rejects the key. A root refusal
+does no SQL; a nested refusal keeps the existing transaction and partial-progress
+rules for work that preceded that nested input.
+
+Use `.updatedAt()` for an automatic update timestamp. On non-array DateTime,
+Date, and Time fields, an omitted or `undefined` update value receives the
+application's current UTC value. An explicit `data: {}` refreshes it too. A
+valid explicit value, including `{ set: value }`, wins.
+
+```ts
+const timestamps = {
+  createdAt: s.dateTime().now(),
+  updatedAt: s.dateTime().updatedAt(),
+};
+```
+
+The clock is read at input admission, not at commit. One scalar bulk update
+shares its admitted value; separately admitted relation-series members can
+have different values. A permitted retry reuses already-admitted values. This
+is not a monotonic version counter. `.updatedAt().default(value)` changes the
+create default only. The last `.now()` / `.updatedAt()` declaration determines
+the generator. Temporal arrays do not gain an automatic update timestamp.
+Raw SQL, cascades, and external writers do not run this generator. See
+[Auto-timestamps](/docs/schema/scalars/datetime#auto-timestamps).
+
+## 4. Adopt the V1 migration estate
+
+Use `createMigrationClient()` with `createFsStorageWriter()`:
+
+```ts
+import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
+import { client } from "./client";
+
+const migrations = createMigrationClient(client, {
+  storage: createFsStorageWriter("./migrations-v1"),
+});
+
+const candidate = await migrations.generate({ name: "v1-baseline", dryRun: true });
+```
+
+Without storage, the client exposes `push` and `log`. A reader adds inspection
+and application methods; a writer also adds `generate` and `reset`.
+
+V1 stores an immutable estate descriptor, hashed state manifests, snapshots,
+and exact SQL blobs. The live database has a current-state marker and an
+append-only ledger. It does not load old journals, numbered migration programs,
+or TypeScript migration files as V1 history. If you used a development
+`$migrations`, `createFsStorageDriver`, `MigrationJournal`, `pending()`, or
+`squash` API, rewrite that integration against the
+[migration client](/docs/migration/migrate). Pending work is on `status()`.
+
+For an existing database:
+
+1. Preserve the old migration directory and tracking evidence. Create a new V1
+   estate directory rather than editing hashes or renaming old artifacts.
+2. Make the V1 schema describe the intended physical database. Review and
+   complete required data conversions on a copy first.
+3. Generate the structural baseline into the new estate and run `check`.
+   Compare the live schema with that state before adoption.
+4. Use `baseline({ to: { name: "v1-baseline" } })` only when the live database
+   already matches the state. Baseline requires no existing V1 marker or ledger
+   history, an exact physical match, and a fully structural root path. It does
+   not execute the generated create-table SQL or bypass drift.
+5. Generate subsequent changes, review the stored SQL, then apply them through
+   the admitted deployment driver. Keep the new estate artifacts in version
+   control.
+
+An ordinary first `apply()` requires an empty managed target; it does not
+silently adopt populated tables. A legacy control-table conflict or refused
+baseline is a migration decision to resolve, not a reason to delete tracking
+evidence. See [Baseline](/docs/migration/migrate#baseline-an-existing-database)
+for its exact conditions.
+
+`push` remains history-free. Review a dry-run preview and its resolver choices;
+the returned consent identifies that exact reviewed change. `forceReset: true`
+remains a planning option: preview it with `dryRun: true`, then execute only
+with `push({ consent: preview.consent })`. It drops and rebuilds managed tables;
+it does not convert existing data or bypass consent. `down()` executes the stored
+rollback policy, and `resolve()` requires proof of the live state; neither is
+checksum repair. See [Push](/docs/migration/push) and
+[Recovery](/docs/migration/migrate#recover-an-unfinished-attempt).
+
+### Provider and namespace changes
+
+PostgreSQL migrations bind the driver's `namespace` (default `public`). MySQL
+artifacts are database-relative, but live migration work needs a resolved
+database namespace. MySQL2 effectful commands also need the explicit
+`migrationNamespaceAttestation: "non-redirecting"` transport assertion; do not
+set it without knowing that the transport preserves qualified destinations.
+MySQL DDL is stepwise and can leave earlier statements applied after failure.
+
+Neon HTTP, PlanetScale, LibSQL, and D1 refuse effectful V1 migrations, including
+live `push`. Offline `generate` and `check` and admitted read-only paths remain.
+Dry-run `apply` and `down` read the live marker without a lock and need
+connectivity. Dry-run `reset` previews the estate's root-to-target path without
+database reads, after target and read-only capability admission. Locked
+`verify` also needs the effectful capability even though it does not mutate the
+schema. D1 additionally has a documented live-introspection limitation. Use a
+session-capable PostgreSQL deployment driver for Neon, and the provider's
+deployment system where VibORM has no admitted live route. Hosted Neon,
+PlanetScale, and Turso evidence is not implied by local database-family tests.
+See [Drivers](/docs/drivers), [Namespaces](/docs/drivers/namespaces), and
+[Migration atomicity](/docs/migration#atomicity).
+
+## 5. Move optional behavior to extensions
+
+Replace `createClient` cache, instrumentation, and default-omit configuration
+with the official extensions. `$extends()` returns a new client; keep and use
+that returned value.
+
+```ts
+import { createClient } from "viborm/sqlite3";
+import { cache } from "viborm/cache";
+import { MemoryCache } from "viborm/cache/memory";
+import { defaultOmit } from "viborm/client";
+import { instrumentation } from "viborm/instrumentation";
+import { schema } from "./schema";
+
+const client = createClient({ schema, dataDir: "./app.db" })
+  .$extends(cache({ driver: new MemoryCache(), version: "v1" }))
+  .$extends(instrumentation({ logging: { warning: true, error: true } }))
+  .$extends(defaultOmit<typeof schema>()({ post: { authorId: true } }));
+```
+
+Only the cache-derived client exposes `$withCache()` and `$invalidate()`.
+Custom cache keys are suffixes of a canonical query key, not replacements.
+Cache hits return fresh value graphs. Old namespaces are not a cache-migration
+format; expect a cold cache. Cached reads bypass raw calls, transactions and
+chains with statement transforms.
+
+Apply `defaultOmit()` before schema-specific query maps or client/model method
+factories. Default omit is overridable presentation, not authorization.
+Instrumentation SQL and parameter disclosure default to off and are configured
+separately for tracing, logging and error diagnostics.
+
+Custom extensions have six capabilities: `request`, `query`, `statement`,
+`observe`, `client`, and `model`. A mutation or raw query interceptor must call
+`proceed()` exactly once. Read the lifecycle and continuation rules before
+porting hooks. See [Extensions](/docs/extensions),
+[Caching](/docs/extensions/cache), [Instrumentation](/docs/extensions/instrumentation),
+and [Default omit](/docs/extensions/omit).
+
+## 6. Update raw SQL calls and their results
+
+`$queryRaw` and `$executeRaw` accept tagged templates or one `Sql` fragment.
+They do not accept plain statement strings or a fragment followed by extra
+parameters. Use Unsafe methods only for trusted statement text, with parameters
+as individual arguments rather than an array.
+
+```ts
+const minimumAge = 18;
+const rows = await client.$queryRaw<{ age: number }>`
+  SELECT age FROM person WHERE age >= ${minimumAge}
+`;
+
+// Trusted SQLite text; use the selected driver's placeholder syntax.
+const otherRows = await client.$queryRawUnsafe<{ age: number }>(
+  "SELECT age FROM person WHERE age >= ?",
+  minimumAge,
+);
+
+const affected = await client.$executeRaw`
+  UPDATE person SET active = ${false} WHERE age < ${minimumAge}
+`;
+```
+
+Query methods return the row array directly; execute methods return an affected
+row count. Remove old `.rows` / `.rowCount` result-envelope access. The generic
+row type is a caller declaration, not validation or model decoding. Identifier
+bytes, decimal coefficients, temporal values and GeoPoint carriers remain
+physical provider values. Invalid raw `Date` inputs are refused before
+dispatch. See [Raw SQL](/docs/client/raw-sql).
+
+## 7. Check recursive reads and transaction assumptions
+
+Recursive projections are opt-in with `recurse` on a supported ordinary
+self-relation. Existing fixed-depth nested selections do not need to change.
+If you adopt recursion, use a deliberate bound: `recurse: true` means depth
+100, not unlimited; `recurse: { depth: false }` is exhaustive. A numeric cutoff
+omits the repeated key, while natural termination returns `[]` or `null`.
+Filters apply at each hop, and a provider recursion-limit failure is an error,
+not a truncated success. See
+[Recursive relations](/docs/client/selecting#recursive-relations).
+
+On Neon HTTP and D1, dynamic writes outside an atomic array may use multiple
+committed segments. A later failure does not roll back earlier segments.
+Inspect reported progress before retrying; do not replay a committed prefix.
+The [driver behavior table](/docs/drivers#nested-writes-and-failures-per-driver)
+and [Transactions](/docs/client/transactions) describe the exact boundaries.
+
+## Finish the rehearsal
+
+Compile the upgraded application and run its existing tests against the
+candidate. On a database copy, verify representative create/read/update/delete
+operations, nullable and nested relations, identifier lookups, decimal values,
+timestamps, raw results, and any cache or extension behavior you use.
+
+Inspect generated SQL, prove the baseline or empty-target apply path, and test
+the stored rollback or recovery policy before a deployment. Record the exact
+candidate version, driver, database version, and which hosted paths actually
+ran. Keep the backup until both the application and database upgrade are
+verified; installing the old package cannot undo changed physical storage.

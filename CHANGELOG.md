@@ -5,6 +5,15 @@ Versioning.
 
 ## Unreleased
 
+## 1.0.0-rc.1 — Release candidate (not yet published)
+
+This candidate brings the changes below together for V1 qualification. It is
+not a stable release. Read the [V1 upgrade guide](docs/content/docs/getting-started/upgrading-to-v1.mdx)
+before upgrading from `0.1.0` or a development checkout. Provider and migration
+limits remain part of the contract; see the [driver guide](docs/content/docs/drivers/index.mdx).
+Publication and the post-publication rehearsal require the separate approval
+described in [RELEASING.md](RELEASING.md).
+
 - **Fix: omitted `.updatedAt()` fields refresh on update** (#54). Non-array
   DateTime, Date and Time fields now receive the application's current UTC
   value at update admission, including explicit empty update payloads, bulk

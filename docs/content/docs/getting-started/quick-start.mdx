@@ -96,9 +96,21 @@ import { client } from "./src/db/client";
 export default defineConfig({ client });
 ```
 
+The examples import TypeScript files with extensionless paths. Run the CLI
+with Bun and force its runtime so the CLI's Node shebang does not take over:
+
 ```bash
-bun viborm push
+bun --bun viborm push
 ```
+
+On Node.js, use a TypeScript loader for the same config and imports:
+
+```bash
+npx tsx node_modules/.bin/viborm push
+```
+
+The package's Node.js runtime support does not by itself provide a loader for
+this TypeScript module graph.
 
 `push` syncs your models straight to the database without migration files — see [Push](/docs/migration/push) for details and [Configuration](/docs/getting-started/configuration) for config options.
 

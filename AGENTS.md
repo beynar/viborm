@@ -601,6 +601,9 @@ issues, and `SchemaRegistry` translates thrown external-validator failures.
 
 ```bash
 # Development
+# A TS consumer config with extensionless imports needs a TS runtime:
+# bun --bun viborm push (force Bun past the CLI's Node shebang), or
+# npx tsx node_modules/.bin/viborm push. Plain Node is not that loader.
 pnpm build               # Complete typecheck, one native program; compiles nothing
 pnpm package:build       # tsdown - actual package build (dist output)
 pnpm test:types          # COMPLETE typecheck: every file the root tsconfig intends, one native TS 7 program, ~6s

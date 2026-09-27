@@ -68,8 +68,9 @@ SELECT "user"."id" FROM "billing"."user" AS "user"
 :::warning
 **Migration capability is a subset here.** Neon HTTP cannot pin a session, so it
 supports schema-aware runtime, admitted read-only, and offline migration paths
-only. Effectful push/migration verbs and concurrency-stable dry
-`down`/`reset`/`squash` decisions require a session-capable driver.
+only. Effectful push/migration verbs and locked `verify` require a
+session-capable driver. Dry-run `apply` and `down` are unlocked live reads;
+they do not require a pinned session, but do require database connectivity.
 
 Use Neon HTTP for application traffic and point a `pg` or postgres.js driver at
 the **same** `namespace` for deployment migrations. This is not a `migrationUrl`
@@ -139,9 +140,21 @@ For Neon HTTP, use batch mode (`$transaction([...])`) for operations that can be
 
 ### Migrations
 
-Schema `push` executes atomically through Neon's `transaction()` function.
-File-based `migrate apply` requires a callback transaction and rejects on
-Neon HTTP.
+Migration V1 refuses live `push`, `apply`, `down`, `reset`, and locked `verify`
+before provider work. A native atomic batch cannot hold the session-scoped
+migration lock across inspection, execution, and marker comparison.
+
+Offline `generate` and `check`, estate inspection, and admitted read-only
+`status`, `log`, and `push({ dryRun: true })` remain available.
+`apply({ dryRun: true })` and `down({ dryRun: true })` read the live marker
+without a lock, so they need database connectivity. `reset({ dryRun: true })`
+instead previews the estate's root-to-target path without reading the database,
+after target and read-only capability admission. None of these previews grants
+permission to execute the corresponding effectful command on Neon HTTP.
+
+Use a session-capable `pg` or postgres.js client against the same
+database and `namespace` for deployment migrations. See
+[migration atomicity](/docs/migration#atomicity).
 
 ## Capabilities
 

@@ -215,7 +215,7 @@ async function importModule(filePath: string): Promise<any> {
         `Failed to load ${filePath}.\n\n` +
           `Make sure you're running with a TypeScript loader:\n\n` +
           "  # Using bun (recommended)\n" +
-          "  bun viborm push\n\n" +
+          "  bun --bun viborm push\n\n" +
           "  # Using tsx\n" +
           "  npx tsx node_modules/.bin/viborm push\n\n" +
           "  # Using ts-node\n" +

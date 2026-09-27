@@ -161,14 +161,14 @@ DATABASE_URL=postgresql://user:password@localhost:5432/mydb
 The CLI automatically loads your config file:
 
 ```bash
-# Using bun (recommended for TypeScript)
-bun viborm push
+# Force Bun's TypeScript runtime instead of the CLI's Node shebang
+bun --bun viborm push
 
 # Using npx with tsx
 npx tsx node_modules/.bin/viborm push
 
 # With custom config path
-bun viborm push --config ./config/viborm.config.ts
+bun --bun viborm push --config ./config/viborm.config.ts
 ```
 
 ## Multiple Environments
@@ -195,14 +195,9 @@ export const client = createClient({
 import { defineConfig } from "viborm/config";
 import { client } from "./src/db";
 
-const isProduction = process.env.NODE_ENV === "production";
-
 export default defineConfig({
   client,
-  migrations: {
-    dir: "./migrations",
-    tableName: isProduction ? "_migrations" : "_viborm_migrations",
-  },
+  migrations: { dir: "./migrations" },
 });
 ```
   </Tab>
@@ -240,10 +235,10 @@ export default defineConfig({ client });
 
 ```bash
 # Development
-bun viborm push --config viborm.config.dev.ts
+bun --bun viborm push --config viborm.config.dev.ts
 
 # Production
-bun viborm push --config viborm.config.prod.ts
+bun --bun viborm push --config viborm.config.prod.ts
 ```
   </Tab>
 </Tabs>

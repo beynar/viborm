@@ -2,6 +2,18 @@
 
 Type-safe TypeScript ORM with **zero code generation**. Types are inferred from schema definitions at compile time—no `prisma generate` needed.
 
+## V1 release candidate
+
+This source prepares `1.0.0-rc.1`; it does not mean the candidate is published.
+V1 includes breaking changes. Read the [upgrade guide](docs/content/docs/getting-started/upgrading-to-v1.mdx)
+and [changelog](CHANGELOG.md) before migrating. Node.js 22 or newer and
+TypeScript 5.8 or newer are the supported Node/TypeScript floors. The docs site
+has its own Node.js requirement.
+
+The [driver guide](docs/content/docs/drivers/index.mdx) distinguishes local
+qualification from hosted preview limits. Publication follows [RELEASING.md](RELEASING.md);
+stable V1 is not released by this preparation step.
+
 ## Key Features
 
 | Feature | Description |
