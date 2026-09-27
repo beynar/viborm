@@ -5,6 +5,30 @@ Versioning.
 
 ## Unreleased
 
+- **Breaking: `.now()` creation timestamps are insert-only** (#47). A
+  `s.dateTime().now()`, `s.date().now()` or `s.time().now()` field was
+  documented as a creation timestamp that is "set once", yet an ordinary
+  `update` accepted it and overwrote the stored creation time. It is now
+  refused by every update surface — `update`, `updateMany`, the `update` arm of
+  `upsert`, and nested `update` / `updateMany` / `upsert.update` at any depth —
+  in TypeScript (the key is typed `?: never`, so a payload held in a variable
+  is refused too) and at runtime, where the call fails with `Unknown key:
+  <field>` before any SQL is sent, whether the value is spelled directly,
+  inside `{ set }`, or as `undefined`. An explicit `<field>: undefined` is the
+  one spelling TypeScript cannot refuse, because an optional key always admits
+  `undefined`: it compiles and is refused at runtime. Create, `createMany`, nested create,
+  `upsert.create` and `connectOrCreate.create` still accept an explicit value,
+  and an omitted one is still generated. Filtering, ordering and reading the
+  field are unchanged. The generator declared last decides:
+  `.now().updatedAt()` stays updatable, `.updatedAt().now()` does not, and
+  `.now().default(value)` / `.nullable().now()` keep the restriction.
+  `.updatedAt()` and ordinary temporal fields are unaffected. The schema
+  registry exported by `viborm/validation` shows the same rule: for such a
+  field, `createSchemaRegistry(...).proxy.<model>.scalars.<field>.update` is
+  now `undefined` (and typed `undefined`), while its `base`, `create` and
+  `filter` are unchanged. To change a
+  creation timestamp deliberately, use raw SQL — the restriction covers what
+  the typed client writes, not the column.
 - **Breaking: `_count` is a reserved member name.** A schema whose model
   declares a scalar, a relation or a polymorphic slot named `_count` is now
   refused where the schema is validated — client construction, migrations and

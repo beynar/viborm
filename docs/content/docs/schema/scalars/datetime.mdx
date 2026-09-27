@@ -26,6 +26,25 @@ s.dateTime().updatedAt()  // Update to current timestamp on every update
 
 `.now()` and `.updatedAt()` also exist on `s.date()` and `s.time()`.
 
+### Creation timestamps are insert-only
+
+A `.now()` field is set when the row is created — from the value you pass, or
+the current time when you pass none — and is never assigned by an update.
+`update`, `updateMany`, the `update` arm of `upsert`, and every nested update
+refuse the key: TypeScript rejects it (also in a payload held in a variable),
+and at runtime the call fails with `Unknown key: createdAt` before any SQL is
+sent — including `{ set: ... }` and an explicit `undefined`. An explicit
+`createdAt: undefined` is the one spelling TypeScript cannot reject, because an
+optional key always admits `undefined`: it compiles, and the runtime refuses it.
+
+The generator declared last decides: `.now().updatedAt()` is an `updatedAt`
+field and stays updatable, `.updatedAt().now()` is a creation timestamp.
+Modifiers that keep the generator keep the restriction, so
+`.now().default(value)` and `.nullable().now()` are insert-only too, while a
+plain `.default(value)` is not. This restricts what the typed client writes; it
+does not stop raw SQL, other writers or database cascades from changing the
+column.
+
 ## Timezones
 
 `s.dateTime()` and `s.time()` are timezone-aware by default (`timestamptz` / `timetz` on PostgreSQL). Chain `.withoutTimezone()` to store without timezone:
@@ -52,7 +71,7 @@ await client.user.create({
 ## Examples
 
 ```ts
-// Created timestamp (set once)
+// Created timestamp (set once, refused by updates)
 const createdAt = s.dateTime().now();
 
 // Updated timestamp (auto-updates)

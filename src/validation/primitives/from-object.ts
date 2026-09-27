@@ -1,5 +1,6 @@
 import { ValidationError } from "@errors";
 import type { Cast, ThunkCast, VibSchema } from "../types";
+import { isRecord } from "../value-guards";
 import { type ObjectOptions, type ObjectSchema, object } from "./object";
 
 // =============================================================================
@@ -129,6 +130,17 @@ function getNestedValue(obj: any, path: string): any {
 }
 
 /**
+ * Whether `path` names a property of `value`, including one that holds
+ * `undefined` — a member that DECLARES it has no schema there (an insert-only
+ * scalar's `update`) is not a path typo, and contributes no entry.
+ */
+function declaresPath(value: unknown, path: string): boolean {
+  const cut = path.lastIndexOf(".");
+  const parent = cut === -1 ? value : getNestedValue(value, path.slice(0, cut));
+  return isRecord(parent) && path.slice(cut + 1) in parent;
+}
+
+/**
  * Extract entries from an object using a dot path.
  */
 function extractEntries<TObject extends Record<string, any>>(
@@ -191,7 +203,8 @@ export function fromObject<
   const entries = extractEntries(sourceObject, path);
   if (
     Object.keys(sourceObject).length > 0 &&
-    Object.keys(entries).length === 0
+    Object.keys(entries).length === 0 &&
+    !Object.values(sourceObject).some((value) => declaresPath(value, path))
   ) {
     throw new ValidationError(
       { kind: "schema-builder", builder: "fromObject", path },

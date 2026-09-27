@@ -64,6 +64,29 @@ describe("fromObject", () => {
     }
   });
 
+  test("a member that DECLARES the path as undefined is not a path typo", () => {
+    // An insert-only scalar's record declares `update: undefined` (#47): a
+    // model whose every scalar is one has no update entry, and that is an
+    // empty schema, not a misspelled path.
+    const declared = v.fromObject(
+      { at: { create: v.string(), update: undefined } },
+      "update"
+    );
+    expect(declared.entries).toEqual({});
+    expect(parse(declared, { at: "x" }).issues?.[0]?.message).toBe(
+      "Unknown key: at"
+    );
+    const nested = v.fromObject(
+      { at: { profile: { update: undefined } } },
+      "profile.update"
+    );
+    expect(nested.entries).toEqual({});
+    // The path still has to be DECLARED somewhere: a typo keeps throwing.
+    expect(() =>
+      v.fromObject({ at: { update: undefined } }, "updaet")
+    ).toThrowError(ValidationError);
+  });
+
   test("reports a path that stops at a null intermediate value", () => {
     expect(() =>
       v.fromObject({ user: { nested: null } }, "nested.value")

@@ -2993,3 +2993,22 @@ inherited sentence "A distance result cannot be selected together with a model
 field named '_distance'." and its three sites leave (inherited 79 sites / 77
 sentences → 76 / 76, total 206 → 203); invariant, candidate and sentence-less
 counts are unchanged.
+
+---
+
+## Addendum — `.now()` timestamps are insert-only (issue #47, 2026-09-27)
+
+No guard was added or removed; one existing refusal was NARROWED. The rule
+itself is not a guard: `getScalarsSchemas` (`src/validation/scalars/index.ts`)
+gives a field whose effective generator is `now` no `update` schema, and the
+strict update object's existing unknown-key refusal (`Unknown key: <field>`)
+is what refuses the assignment.
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `src/validation/primitives/from-object.ts` `fromObject` · `fromObject path "<path>" did not match any entries in the source object` (schema-builder, `builder: "fromObject"`) | A `fromObject` path names a schema some member holds: a misspelled path is a builder bug, not an empty object. | Schema construction, where the path meets the source record. | **NARROWED.** It now also requires that no member DECLARES the path (`declaresPath`: the key is present, even holding `undefined`). An insert-only scalar declares `update` as `undefined`, so a model whose every scalar is insert-only builds an empty scalar update object and its relation updates still work; without the narrowing, the #47 rule would make that model's update schema throw at construction. Unique coverage kept: a path no member names — a typo, or a path that stops at a missing or `null` intermediate. Measured: making `declaresPath` always true fails 4 of `tests/unit/validation/fromObject.core.test.ts`'s cells (`throws when a path matches no entries…` :43, `a member that DECLARES the path…` :67, `reports a path that stops at a null intermediate value` :90, `throws when a nested path matches no entries…` :128); removing the exemption fails `a member that DECLARES the path as undefined is not a path typo` (:67) and `tests/unit/operation-schemas/update/insert-only-timestamps.core.test.ts` `a model with no updatable scalar still admits a relation update` (:381). |
+
+Deliberately NOT added: a `.now()` check in any relation verb, in
+`update.ts`, or in Raptor 3. Every update surface reads the one scalar record,
+so a second check would have no coverage of its own. The Raptor 3 refusal
+census is unaffected.

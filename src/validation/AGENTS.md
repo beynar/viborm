@@ -158,6 +158,21 @@ pass, because the two trees are structurally identical and differ only in which
 values they admit. `createScalarInterners()` mints a private pair per module;
 `tests/unit/scalars/scalar-family.core.test.ts` is what refuses to share it.
 
+**Update eligibility is decided ABOVE the intern caches.** A `.now()` creation
+timestamp is insert-only (#47): `getScalarsSchemas` reads each model field's
+effective generator once and gives an insert-only field a record whose `update`
+is `undefined` (type half: `UpdateAdmission` in `scalars/index.ts`).
+`fromObject(scalars, "update")` builds no entry for it, so `getScalarUpdate` —
+the one reader every update surface extends, `core.update`, `scalarUpdate` and
+each nested projection alike — refuses the key as `Unknown key` however it is
+spelled, `undefined` included, while its `?: never` type entry refuses a held
+payload too (an explicit `undefined` still type-checks — an optional key admits
+it — which `tests/types/client/insert-only-timestamps.core.types.ts` pins). The kind's interned value validator is never consulted for such a
+field, so two fields with the same flag bits cannot trade permission through
+access order; do not move the rule into a kind builder, where the interner
+would key it by flags alone
+(`tests/unit/operation-schemas/update/insert-only-timestamps.core.test.ts`).
+
 Each public operation owns its exact args language. In particular, `exist`
 accepts only its optional `where` clause; it must not reuse `count`, whose
 ordering, pagination, cursor, and selection clauses describe a larger query.
