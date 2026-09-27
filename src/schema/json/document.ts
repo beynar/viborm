@@ -281,12 +281,33 @@ export interface VariantTargetDocument extends RelationSlotDocument {
   junction?: never;
 }
 
-export interface JunctionDocument {
+/**
+ * Each action is spelled once: `onDelete` states one action for both junction
+ * foreign keys, `onDeleteSides` one per key (`source` naming the declaring
+ * model's side). The `?: never` arms make the two spellings exclusive, as the
+ * reader refuses both together; the serializer writes the side map only when
+ * the two sides differ.
+ */
+export type JunctionDocument = JunctionNamesDocument &
+  (
+    | { onDelete?: JunctionReferentialAction; onDeleteSides?: never }
+    | { onDelete?: never; onDeleteSides?: JunctionSidesDocument }
+  ) &
+  (
+    | { onUpdate?: JunctionReferentialAction; onUpdateSides?: never }
+    | { onUpdate?: never; onUpdateSides?: JunctionSidesDocument }
+  );
+
+/** The junction's physical names: its table and its two side tokens. */
+export interface JunctionNamesDocument {
   table?: string;
   source?: string;
   target?: string;
-  onDelete?: JunctionReferentialAction;
-  onUpdate?: JunctionReferentialAction;
+}
+
+export interface JunctionSidesDocument {
+  source: JunctionReferentialAction;
+  target: JunctionReferentialAction;
 }
 
 export interface VariantJunctionDocument {

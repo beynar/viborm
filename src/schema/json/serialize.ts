@@ -28,6 +28,8 @@ import { emptyRecord, own, put } from "@schema/record";
 import type {
   AnyRelation,
   Getter,
+  JunctionReferentialAction,
+  JunctionSideActions,
   RelationState,
   VariantEntry,
   VariantRelationState,
@@ -59,7 +61,8 @@ import type {
   FieldDocument,
   GenerateDocument,
   IndexDocument,
-  JunctionDocument,
+  JunctionNamesDocument,
+  JunctionSidesDocument,
   ModelDocument,
   ModelTargetDocument,
   RelationFieldDocument,
@@ -551,15 +554,34 @@ function withModelTargetFacts(
   }
   const junction = state.junction;
   if (junction !== undefined) {
-    const overrides: JunctionDocument = {};
-    if (junction.table !== undefined) overrides.table = junction.table;
-    if (junction.source !== undefined) overrides.source = junction.source;
-    if (junction.target !== undefined) overrides.target = junction.target;
-    if (junction.onDelete !== undefined) overrides.onDelete = junction.onDelete;
-    if (junction.onUpdate !== undefined) overrides.onUpdate = junction.onUpdate;
-    document.junction = overrides;
+    const names: JunctionNamesDocument = {};
+    if (junction.table !== undefined) names.table = junction.table;
+    if (junction.source !== undefined) names.source = junction.source;
+    if (junction.target !== undefined) names.target = junction.target;
+    const onDelete = canonicalJunctionActions(junction.onDelete);
+    const onUpdate = canonicalJunctionActions(junction.onUpdate);
+    document.junction = {
+      ...names,
+      ...(typeof onDelete === "string"
+        ? { onDelete }
+        : onDelete && { onDeleteSides: onDelete }),
+      ...(typeof onUpdate === "string"
+        ? { onUpdate }
+        : onUpdate && { onUpdateSides: onUpdate }),
+    };
   }
   return document;
+}
+
+/**
+ * One canonical spelling per action: equal sides are the symmetric shorthand,
+ * so only a genuinely asymmetric pair spells its sides.
+ */
+function canonicalJunctionActions(
+  actions: JunctionSideActions | undefined
+): JunctionReferentialAction | JunctionSidesDocument | undefined {
+  if (actions === undefined) return;
+  return actions.source === actions.target ? actions.source : { ...actions };
 }
 
 /**

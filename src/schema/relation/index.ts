@@ -38,6 +38,7 @@ export type {
   ForeignKeyDeclaration,
   Getter,
   JunctionReferentialAction,
+  JunctionSideActions,
   ModelTarget,
   ModelToManyState,
   ModelToOneState,

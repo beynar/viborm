@@ -53,8 +53,8 @@ s.toMany(() => tag)
   .through("post_tags")     // Junction table name
   .source("post_id")        // THIS endpoint's column, or compound-key prefix
   .target("tag_id")         // The other endpoint's column, or compound-key prefix
-  .onDelete("cascade")      // Referential action (applies to both FKs)
-  .onUpdate("cascade")      // Referential action (applies to both FKs)
+  .onDelete("cascade")      // Referential action for both FKs...
+  .onUpdate({ source: "cascade", target: "restrict" }) // ...or one per FK
 ```
 
 **One junction, one owner.** These five methods describe one physical table, so
@@ -66,6 +66,31 @@ endpoint swaps `.source()` and `.target()` and leaves the table unchanged.
 Junction actions accept `cascade`, `restrict` and `noAction` — but not
 `setNull`: every junction column carries the membership itself, so nulling one
 would erase the row's meaning rather than clear a reference.
+
+### Different actions for the two foreign keys
+
+A junction has two foreign keys, and they need not share a policy. Pass
+`{ source, target }` instead of one action: `source` is the key to the model
+that declares the configuration, `target` the key to its target model. These
+are the same words `.source()` and `.target()` use, not the order of the columns
+in the table. Declared on `post.topics`,
+`.onDelete({ source: "cascade", target: "noAction" })` removes a post's
+memberships when the post is deleted, and refuses to delete a topic that is
+still assigned to a post. A nested `delete` through a post's own `topics`
+(`post.update({ where, data: { topics: { delete: … } } })`) first removes that
+post's membership, so it deletes a topic assigned to that post alone and is
+refused, changing nothing, while another post still holds the topic.
+
+The map states both keys; a missing side, an unknown key and `setNull` on
+either side are refused where you write them. A bare action is shorthand for
+the same action on both keys, and `{ source: "cascade", target: "cascade" }`
+is exactly `"cascade"`. An action you do not state stays `cascade` on both keys.
+
+The one-owner rule still holds, so the other endpoint cannot declare "its"
+side. To move the configuration there, swap the two sides as you swap
+`.source()` and `.target()`: `topic.posts` declaring
+`.onDelete({ source: "noAction", target: "cascade" })` is the same table with
+the same two constraints, and pushing one after the other is a no-op.
 
 `.source()` and `.target()` remain scalar configuration methods even when an
 endpoint uses a compound primary key. A one-field key uses the supplied string as

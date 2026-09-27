@@ -3103,3 +3103,33 @@ refusals), `tests/unit/schema-json/native-type-map.core.test.ts` (document
 refusals), `tests/unit/schema-validation/native-type-map-validation.core.test.ts`
 (the widened L5 rules). The Raptor 3 refusal census is unchanged: the engine
 only threads the declaration's type (`query.ts`), and no sentence moved.
+
+---
+
+## Addendum — asymmetric junction actions (issue #46, 2026-09-27)
+
+A model-target `s.toMany` takes `.onDelete()` / `.onUpdate()` as a bare action
+(both junction keys) or an exact `{ source, target }` map, `source` being the
+key to the declaring model. The declaration is normalized ONCE, by
+`normalizeJunctionActions` (`src/schema/relation/terminal.ts`), into the side
+pair trusted state holds; the resolver orients it onto the topology's sides
+(`mirrorOverrides` swaps them with the tokens) and each `ResolvedJunctionSide`
+carries its own key's actions to the migration serializer. No guard was
+removed; the engine gained none (it reads no junction action — the constraint
+owns it, see non-census item N9).
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `terminal.ts` `normalizeJunctionActions` · `A junction '<action>' map is a plain record naming exactly 'source' … and 'target' …` (V4002, `s.toMany`, path `onDelete` / `onUpdate`) | Every object argument is read as a side map, and a side map is a plain record stating both keys and nothing else. | The modifier call: the map's keys are all it needs. | Without it an omitted side would silently keep the `cascade` default the author did not choose, and an extra key would be ignored. No later owner sees the map: the resolver reads the normalized pair. A class instance, inherited map or array is refused here as a map (the layer's `isPlainRecord` rule), not told the action vocabulary. | `tests/unit/relations/junction-side-actions.core.test.ts` "refuses an unknown key beside both sides", "refuses a map that omits a side, or names neither", "refuses a value that is neither an action nor a plain map, in the words of what it was read as". |
+| same function, each side through the existing `normalizeJunctionAction` (now module-private) at path `onDelete.source` … | A side action is `cascade` / `restrict` / `noAction`. | The modifier call. | The existing action rule, not a second one: the shorthand and both sides pass through the same function. | same file, "refuses `setNull` on either side", "refuses an explicit undefined side". |
+| `src/schema/json/read.ts` `readJunctionNode` · `` `onDelete` and `onDeleteSides` are exclusive … `` (J004) | One action has one spelling in a document. | The reader: the document node is the only place both keys coexist. | Both keys would otherwise become two builder calls, and last-call-wins would silently discard one. The `JunctionDocument` type's `?: never` arms state the same rule to a typed author; they are not a second runtime guard, and the reader stays the authority for untyped input. | `tests/unit/schema-json/junction-side-actions.core.test.ts` "refuses a symmetric action beside its side map"; type: `tests/types/relations/junction-side-actions.core.types.ts` `_deleteSpelledTwice`, `_updateSpelledTwice`. |
+| `read.ts` `readJunctionSides` (J003 unknown key, J004 non-object / missing side / bad action) | The document node has the shape its `JunctionSidesDocument` type claims. | The reader, which owns the document's shape and pointer (`src/schema/AGENTS.md` §5), exactly as it already checks the symmetric `onDelete` value. | The typed document the interpreter receives; without it the type would be an unchecked claim. The builder's refusal stays the semantic owner for hand-written declarations. | same file, "refuses an unknown key inside a side map", "refuses a side map that omits a side", "refuses `setNull` or an unknown action on either side", "refuses a side map that is not an object". |
+
+R011 (two configuring endpoints) and R012 (junction configuration on a slot
+that resolves to a row reference) are unchanged and cover the side map with no
+new code: `tests/unit/schema-validation/junction-side-actions.core.test.ts`.
+
+`junction-topology.ts` filters nothing: the resolver hands each side only its
+stated actions (an unstated one is omitted, never `undefined`) and the
+topology copies the side through, so absence has one producer. Variant member
+junctions state no action and so carry none.

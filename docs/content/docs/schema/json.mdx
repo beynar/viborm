@@ -157,13 +157,18 @@ create time overrides it.
 | --- | --- |
 | `name` | any — the pairing label, a free-form non-empty string |
 | `fields`, `references`, `onDelete`, `onUpdate` | `toOne` with `target` |
-| `junction` | `toMany` with `target` — `{ table?, source?, target?, onDelete?, onUpdate? }`, at least one key |
+| `junction` | `toMany` with `target` — `{ table?, source?, target?, onDelete?, onUpdate?, onDeleteSides?, onUpdateSides? }`, at least one key |
 | `values` | variants — the stored discriminator per variant, exact over every variant key |
 | `optional` | `toOne` with `variants` |
 | `through` | `toMany` with `variants` — `{ "<variant>": { "table", "source", "target" } }` |
 
 A key that belongs to another arm is refused, so a `toMany` cannot carry
 `references` and a `toOne` cannot carry `through`.
+
+A junction action is either one action for both foreign keys (`onDelete`) or
+one per key (`onDeleteSides: { "source": "cascade", "target": "noAction" }`,
+both keys required), never both for the same action. The serializer writes the
+side map only when the two sides differ; equal sides come back as `onDelete`.
 
 ### Native types
 

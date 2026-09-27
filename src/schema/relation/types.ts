@@ -23,6 +23,18 @@ export type ReferentialAction = "cascade" | "setNull" | "restrict" | "noAction";
 export type JunctionReferentialAction = Exclude<ReferentialAction, "setNull">;
 
 /**
+ * One junction action per foreign key, named by the DECLARING endpoint:
+ * `source` is the junction's foreign key to the model whose slot carries the
+ * declaration, `target` the one to that slot's target model. Never the
+ * alphabetical column order, and never whichever endpoint a query traverses.
+ * A bare action is the symmetric shorthand for both.
+ */
+export type JunctionSideActions = {
+  readonly source: JunctionReferentialAction;
+  readonly target: JunctionReferentialAction;
+};
+
+/**
  * Last-call-wins at the type level: every modifier returns a new value whose
  * state REPLACES its own fact rather than intersecting with the prior one, so
  * repeating `.name(...)` keeps the last literal instead of collapsing to
@@ -117,14 +129,16 @@ type AtLeastOne<Value> = {
 
 /**
  * Any subset of the canonical junction defaults, but never the empty object:
- * trusted state stores an override only when an override was declared.
+ * trusted state stores an override only when an override was declared. An
+ * action is stored in its one normalized form, the side pair, whichever
+ * spelling declared it.
  */
 export type OrdinaryJunctionOverrides = AtLeastOne<{
   readonly table?: string;
   readonly source?: string;
   readonly target?: string;
-  readonly onDelete?: JunctionReferentialAction;
-  readonly onUpdate?: JunctionReferentialAction;
+  readonly onDelete?: JunctionSideActions;
+  readonly onUpdate?: JunctionSideActions;
 }>;
 
 // =============================================================================

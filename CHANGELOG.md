@@ -77,6 +77,25 @@ Versioning.
   `serializeModels` with a `TypeError`. Before, a map was accepted at runtime,
   silently ignored on every dialect, and crashed `serializeSchema` with a
   `TypeError`.
+- **A many-to-many junction's two foreign keys can have different actions
+  (#46).** `.onDelete()` and `.onUpdate()` on a model-target `s.toMany` now
+  also take `{ source, target }`: `source` is the junction's key to the model
+  that declares the configuration, `target` its key to the target model (not
+  the column order). `s.toMany(() => topic).onDelete({ source: "cascade",
+  target: "noAction" })` removes a post's memberships when the post is deleted
+  and refuses to delete a topic that is still assigned (a nested `delete`
+  through a post first removes that post's own membership). Both sides are
+  required; an extra key or `setNull` on either side is refused where it is
+  written, at runtime and in TypeScript. A bare action keeps meaning "both
+  keys", and existing declarations produce the same DDL. The one-owner rule
+  (R011) is unchanged: moving the configuration to the other endpoint means
+  swapping the sides, and that migrates to nothing. Schema JSON adds
+  `junction.onDeleteSides` / `junction.onUpdateSides`, each exclusive with the
+  symmetric key (`J004`); the serializer writes them only for unequal sides.
+  Internal state: `relation["~"].state.junction.onDelete` / `onUpdate` now
+  always hold the `{ source, target }` pair, and a resolved junction edge
+  carries its actions on `topology.source` / `topology.target` instead of
+  beside the topology.
 - **Breaking: `_count` is a reserved member name.** A schema whose model
   declares a scalar, a relation or a polymorphic slot named `_count` is now
   refused where the schema is validated — client construction, migrations and
