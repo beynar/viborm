@@ -23,7 +23,7 @@ icon: columns
 | `s.point()`     | `{ longitude, latitude }`           | Geographic points                  |
 | `s.vector()`    | `number[]`                          | Embeddings (PostgreSQL pgvector)   |
 
-Database column types for each scalar — defaults and per-database overrides — live on [Native Types](/docs/schema/native-types).
+Database column types for each scalar — defaults and per-database overrides — live on [Native Types](/docs/schema/native-types). A factory that takes a native type accepts either one database's constant or a map with one entry per database (`{ pg, mysql, sqlite }`); each migration reads only its own database's entry.
 
 ## Modifier Reference
 

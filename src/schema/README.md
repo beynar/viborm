@@ -705,7 +705,7 @@ const scalar = s.string().nullable().id();
 
 scalar["~"].state        // ScalarState object
 scalar["~"].state.base   // Base scalar schema
-scalar["~"].nativeType   // Optional native DB type
+scalar["~"].nativeType   // Optional native-type declaration (tagged or per-dialect map); read it through nativeTypeFor
 ```
 
 ### Model Internals

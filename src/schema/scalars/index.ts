@@ -31,7 +31,13 @@ export { EnumScalar, enumScalar } from "./enum/scalar";
 export { IntScalar, int } from "./int/scalar";
 export { JsonScalar, json } from "./json/scalar";
 // Native database types
-export { MYSQL, type NativeType, PG, SQLITE } from "./native-types";
+export {
+  MYSQL,
+  type NativeType,
+  type NativeTypeMap,
+  PG,
+  SQLITE,
+} from "./native-types";
 export { NumberScalar, number } from "./number/scalar";
 export { PointScalar, point } from "./point/scalar";
 // Scalar classes and factory functions

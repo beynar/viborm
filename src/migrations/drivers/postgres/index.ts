@@ -1,3 +1,4 @@
+import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
 /**
@@ -396,7 +397,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     scalarState: ScalarState,
     idDomain?: IdDomain
   ): string {
-    const nativeType = scalar["~"].nativeType;
+    const declaration = scalar["~"].nativeType;
 
     // An identifier column's type is the ONE storage owner's answer, override
     // included — which is also why the override is not read separately here: a
@@ -405,11 +406,12 @@ export class PostgresMigrationDriver extends MigrationDriver {
     const idStorage =
       idDomain === undefined
         ? undefined
-        : idStorageOf(idDomain, nativeType, "pg");
+        : idStorageOf(idDomain, declaration, "pg");
     if (idStorage) return idStorage.columnType;
 
-    // If a native type is specified and it's for PostgreSQL, use it
-    if (nativeType && nativeType.db === "pg") {
+    // The declaration's PostgreSQL choice, if it makes one
+    const nativeType = nativeTypeFor(declaration, "pg");
+    if (nativeType) {
       return scalarState.array ? `${nativeType.type}[]` : nativeType.type;
     }
 

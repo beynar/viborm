@@ -28,9 +28,9 @@ import {
 } from "@schema/scalars";
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarType } from "@schema/scalars/common";
-import type { NativeType } from "@schema/scalars/native-types";
+import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 
-export type ScalarFactory = (native?: NativeType) => Scalar;
+export type ScalarFactory = (native?: NativeTypeDeclaration) => Scalar;
 
 export const SCALAR_FACTORIES: Record<
   Exclude<ScalarType, "enum" | "decimal">,

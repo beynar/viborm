@@ -23,7 +23,17 @@ import type {
   ReferentialAction,
 } from "@schema/relation/types";
 import type { AutoGenerateType, ScalarType } from "@schema/scalars/common";
-import type { NativeType } from "@schema/scalars/native-types";
+import {
+  isNativeTypeInCatalog,
+  nativeTypeRefusal,
+} from "@schema/scalars/native-catalog";
+import {
+  type DialectNativeType,
+  NATIVE_DIALECTS,
+  type NativeDialect,
+  type NativeType,
+  type NativeTypeMap,
+} from "@schema/scalars/native-types";
 import { readDefaultValue } from "./default-codec";
 import type {
   CompoundKeyDocument,
@@ -54,7 +64,6 @@ import {
   renderValue,
   throwIfRefused,
 } from "./issues";
-import { isNativeTypeInCatalog, nativeTypeRefusal } from "./native-catalog";
 
 // =============================================================================
 // CLOSED VOCABULARIES
@@ -100,12 +109,6 @@ const GENERATE_KINDS: Record<AutoGenerateType, true> = {
   updatedAt: true,
 };
 
-const NATIVE_DIALECTS: Record<NativeType["db"], true> = {
-  pg: true,
-  mysql: true,
-  sqlite: true,
-};
-
 const isReferentialAction = (value: unknown): value is ReferentialAction =>
   typeof value === "string" && Object.hasOwn(REFERENTIAL_ACTIONS, value);
 
@@ -118,8 +121,9 @@ const isIndexType = (value: unknown): value is IndexType =>
 const isGenerateKind = (value: unknown): value is AutoGenerateType =>
   typeof value === "string" && Object.hasOwn(GENERATE_KINDS, value);
 
-const isNativeDialect = (value: unknown): value is NativeType["db"] =>
-  typeof value === "string" && Object.hasOwn(NATIVE_DIALECTS, value);
+const isNativeDialect = (value: unknown): value is NativeDialect =>
+  typeof value === "string" &&
+  NATIVE_DIALECTS.some((dialect) => dialect === value);
 
 const isScalarTypeName = (value: unknown): value is ScalarType =>
   typeof value === "string" && SCALAR_TYPE_NAMES.has(value);
@@ -140,6 +144,7 @@ const VARIANT_JUNCTION_KEYS = ["table", "source", "target"];
 const SCALAR_FIELD_KEYS = [
   "type",
   "native",
+  "nativeByDialect",
   "nullable",
   "array",
   "id",
@@ -769,6 +774,28 @@ function readScalarField(
       if (nativeType !== undefined) field.native = nativeType;
     }
   }
+  const byDialect = member(node, "nativeByDialect", path, issues);
+  if (byDialect !== undefined) {
+    if (field.type === "point") {
+      refusePointModifier("nativeByDialect", path, issues);
+    } else if (field.type === "decimal" || native !== undefined) {
+      addIssue(
+        issues,
+        pointer(path, "nativeByDialect"),
+        "J003",
+        field.type === "decimal"
+          ? "`nativeByDialect` does not belong to a decimal field; its physical type is derived from `precision` and `scale`"
+          : "`native` and `nativeByDialect` are two spellings of one declaration; a field carries at most one"
+      );
+    } else {
+      const map = readNativeByDialectNode(
+        byDialect,
+        pointer(path, "nativeByDialect"),
+        issues
+      );
+      if (map !== undefined) field.nativeByDialect = map;
+    }
+  }
   const generate = member(node, "generate", path, issues);
   if (generate !== undefined) {
     if (type === "point") {
@@ -939,7 +966,7 @@ function readNativeNode(
       issues,
       pointer(path, "db"),
       "J004",
-      `\`native.db\` must be one of ${renderKeys(Object.keys(NATIVE_DIALECTS))}`
+      `\`native.db\` must be one of ${renderKeys(NATIVE_DIALECTS)}`
     );
     return;
   }
@@ -951,6 +978,56 @@ function readNativeNode(
     return;
   }
   return { db, type };
+}
+
+/**
+ * A map by dialect. Its keys are the three dialects and each entry is a
+ * `native` node of its own key's dialect; whether the map names any dialect at
+ * all is the scalar factory's refusal, which `interpret.ts` locates here.
+ */
+function readNativeByDialectNode(
+  value: unknown,
+  path: string,
+  issues: DocumentIssues
+): NativeTypeMap | undefined {
+  const node = asRecord(value, path, issues, "`nativeByDialect`");
+  if (node === undefined) return;
+  refuseUnknownKeys(node, NATIVE_DIALECTS, path, issues);
+  const map: {
+    pg?: DialectNativeType<"pg">;
+    mysql?: DialectNativeType<"mysql">;
+    sqlite?: DialectNativeType<"sqlite">;
+  } = {};
+  const pg = readDialectEntry(node, "pg", path, issues);
+  if (pg !== undefined) map.pg = pg;
+  const mysql = readDialectEntry(node, "mysql", path, issues);
+  if (mysql !== undefined) map.mysql = mysql;
+  const sqlite = readDialectEntry(node, "sqlite", path, issues);
+  if (sqlite !== undefined) map.sqlite = sqlite;
+  return map;
+}
+
+function readDialectEntry<Dialect extends NativeDialect>(
+  node: Record<string, unknown>,
+  dialect: Dialect,
+  path: string,
+  issues: DocumentIssues
+): DialectNativeType<Dialect> | undefined {
+  const value = member(node, dialect, path, issues);
+  if (value === undefined) return;
+  const entryPath = pointer(path, dialect);
+  const entry = readNativeNode(value, entryPath, issues);
+  if (entry === undefined) return;
+  if (entry.db !== dialect) {
+    addIssue(
+      issues,
+      pointer(entryPath, "db"),
+      "J004",
+      `The '${dialect}' entry's \`db\` must be '${dialect}'`
+    );
+    return;
+  }
+  return { db: dialect, type: entry.type };
 }
 
 function readGenerateNode(

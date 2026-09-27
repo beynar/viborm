@@ -50,6 +50,33 @@ Versioning.
   order: it failed and rolled back unless the rows happened to satisfy that
   order, and it succeeded on empty tables. Remove one relation, or change its
   action to `setNull`, in a separate change first.
+- **One native type per dialect** (#45). Every scalar factory that takes a
+  native type — `s.string`, `s.int`, `s.number`, `s.bigInt`, `s.boolean`,
+  `s.dateTime`, `s.date`, `s.time`, `s.json`, `s.blob`, `s.vector`, and the
+  second argument of `s.enum` — also takes a map by dialect:
+  `s.string({ pg: PG.STRING.CITEXT, mysql: MYSQL.STRING.LONGTEXT, sqlite:
+  SQLITE.STRING.TEXT })`. Each migration, adapter and identifier-storage
+  decision uses its own dialect's entry, or the automatic column when the map
+  omits it, so a DDL change to one entry is a migration on that dialect only.
+  The map's keys are exact in TypeScript (beside a real key, and in a map held
+  in a variable) and at runtime; an object with no dialect key must be a whole
+  `{ db, type }` value; each entry must be its key's dialect and, at runtime, a
+  value the `PG` / `MYSQL` / `SQLITE` constants produce; `{}` and an object that
+  is both a `{ db, type }` constant and a map are refused. A union of two maps
+  that share no dialect key needs a `NativeTypeMap` annotation. The factory
+  stores a frozen copy. Parameterized constants (`PG.STRING.VARCHAR(n)` and
+  the rest) now return their dialect in their type (`DialectNativeType<"pg">`,
+  still a `NativeType`). Schema documents carry a map as the new optional
+  `nativeByDialect` field, mutually exclusive with `native`, with the same
+  catalog check (`J011`); `NativeTypeMap` is exported from `viborm/schema`.
+  The single `{ db, type }` argument is unchanged in TypeScript, including
+  custom spellings outside the catalog. At runtime (untyped callers only) it
+  must now name `pg`, `mysql` or `sqlite` as `db` and carry a string `type`;
+  before, an unknown `db` was silently ignored on every dialect, and a
+  `db: "pg"` value with a missing, misspelled or non-string `type` crashed
+  `serializeModels` with a `TypeError`. Before, a map was accepted at runtime,
+  silently ignored on every dialect, and crashed `serializeSchema` with a
+  `TypeError`.
 - **Breaking: `_count` is a reserved member name.** A schema whose model
   declares a scalar, a relation or a polymorphic slot named `_count` is now
   refused where the schema is validated — client construction, migrations and

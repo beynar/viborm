@@ -12,7 +12,7 @@ import type {
   ReferentialAction,
 } from "@schema/relation/types";
 import type { AutoGenerateType, ScalarType } from "@schema/scalars/common";
-import type { NativeType } from "@schema/scalars/native-types";
+import type { NativeType, NativeTypeMap } from "@schema/scalars/native-types";
 import type { JsonValue } from "@validation/primitives/json";
 
 /**
@@ -106,8 +106,8 @@ export function isRelationField(
  * One scalar field: its type plus every chainable modifier as an explicit key.
  *
  * Common chainable modifiers stay flat. Factory arguments are discriminated:
- * ordinary/enum fields may carry `native`, while a decimal must carry
- * `precision` and `scale` and cannot carry `native`. A document declaration is
+ * ordinary/enum fields may carry `native` or `nativeByDialect`, while a decimal
+ * must carry `precision` and `scale` and carries neither. A document declaration is
  * never accepted by one arm and then silently ignored by its factory.
  */
 export type ScalarFieldDocument =
@@ -153,6 +153,14 @@ interface NativeScalarFieldModifiers extends ScalarFieldModifiers {
    * directions. `native-catalog.ts` owns that set.
    */
   native?: NativeType;
+  /**
+   * The factory's argument when it is a map by dialect —
+   * `{ pg?: { db: "pg", type }, mysql?: …, sqlite?: … }`, the same value a
+   * coded schema passes, each entry spelled like `native`. Every entry is in
+   * its own dialect's catalog (`J011`), and a field carries at most one of
+   * `native` and `nativeByDialect`: they are two spellings of one declaration.
+   */
+  nativeByDialect?: NativeTypeMap;
   precision?: never;
   scale?: never;
 }
@@ -169,6 +177,7 @@ export interface PointFieldDocument extends SharedScalarFieldModifiers {
   id?: never;
   unique?: never;
   native?: never;
+  nativeByDialect?: never;
   generate?: never;
   dimension?: never;
   withoutTimezone?: never;
@@ -183,6 +192,7 @@ export interface DecimalFieldDocument extends ScalarFieldModifiers {
   precision: number;
   scale: number;
   native?: never;
+  nativeByDialect?: never;
   enum?: never;
 }
 

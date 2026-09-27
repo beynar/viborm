@@ -37,7 +37,11 @@ import {
   sameIdDomain,
 } from "@validation/primitives/id-codec";
 import type { Model } from "../model";
-import type { NativeType } from "../scalars/native-types";
+import {
+  NATIVE_DIALECTS,
+  type NativeTypeDeclaration,
+  nativeTypeFor,
+} from "../scalars/native-types";
 import {
   describeIdNativeTypes,
   idDomainOfState,
@@ -251,8 +255,9 @@ export function deriveIdDomains(
   // so a key kept text by an override beside a foreign key that declares no
   // override is a `uuid`/byte column referencing a text one — PostgreSQL and
   // MySQL refuse the constraint, SQLite accepts it and the engine binds a
-  // payload the key never holds. Only a dialect one of the two overrides NAMES
-  // can disagree: with neither, both take the same automatic column.
+  // payload the key never holds. Only a dialect one of the two declarations
+  // selects a native type on can disagree: with neither, both take the same
+  // automatic column.
   for (const [model, byField] of graph) {
     for (const [field, targets] of byField) {
       const domain = resolve(model, field);
@@ -351,29 +356,34 @@ export function deriveIdDomains(
  * migration would emit the column the override named and the engine would bind
  * the value the domain named, which is a table that refuses every row.
  *
- * Dialect-blind, because the override names its own dialect. It is checked HERE
- * rather than in the advisory rule list because `skipValidation` may drop
- * advice and must not be able to drop this.
+ * Asked of EVERY dialect the declaration selects a native type on — one
+ * dialect for the tagged shorthand, each entry of a map — because no dialect is
+ * bound yet and each of them is a column some migration will create. It is
+ * checked HERE rather than in the advisory rule list because `skipValidation`
+ * may drop advice and must not be able to drop this.
  */
 function refuseUnusableNativeType(
   model: Model<any>,
   field: string,
-  nativeType: NativeType | undefined,
+  declaration: NativeTypeDeclaration | undefined,
   domain: IdDomain,
   ctx: ValidationContext | undefined,
   issues: SchemaValidationIssue[]
 ): void {
-  if (nativeType === undefined) return;
-  if (idStorageOf(domain, nativeType, nativeType.db) !== undefined) return;
-  const marker = `${nameOf(ctx, model)}.${field}`;
-  issues.push({
-    code: "F013",
-    message: `'${marker}' holds ${describeIdDomain(domain)}, which cannot live in the ${nativeType.db} column '${nativeType.type}'.`,
-    severity: "error",
-    model: nameOf(ctx, model),
-    field,
-    repair: `Declare '${marker}' with one of: ${describeIdNativeTypes(domain.format, nativeType.db)} — or drop the native type and take the automatic column.`,
-  });
+  for (const dialect of NATIVE_DIALECTS) {
+    const nativeType = nativeTypeFor(declaration, dialect);
+    if (nativeType === undefined) continue;
+    if (idStorageOf(domain, declaration, dialect) !== undefined) continue;
+    const marker = `${nameOf(ctx, model)}.${field}`;
+    issues.push({
+      code: "F013",
+      message: `'${marker}' holds ${describeIdDomain(domain)}, which cannot live in the ${dialect} column '${nativeType.type}'.`,
+      severity: "error",
+      model: nameOf(ctx, model),
+      field,
+      repair: `Declare '${marker}' with one of: ${describeIdNativeTypes(domain.format, dialect)} — or drop the native type and take the automatic column.`,
+    });
+  }
 }
 
 /**
@@ -387,13 +397,14 @@ function refuseUnusableNativeType(
  */
 function storageDisagreement(
   domain: IdDomain,
-  own: NativeType | undefined,
-  theirs: NativeType | undefined
+  own: NativeTypeDeclaration | undefined,
+  theirs: NativeTypeDeclaration | undefined
 ):
   | { readonly dialect: string; readonly own: string; readonly theirs: string }
   | undefined {
-  for (const dialect of [own?.db, theirs?.db]) {
-    if (dialect === undefined) continue;
+  // Every dialect: one neither declaration selects gives both columns the same
+  // automatic storage, so asking it too costs nothing and cannot disagree.
+  for (const dialect of NATIVE_DIALECTS) {
     const ownStorage = idStorageOf(domain, own, dialect);
     const theirStorage = idStorageOf(domain, theirs, dialect);
     if (ownStorage === undefined || theirStorage === undefined) continue;

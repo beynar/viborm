@@ -1,4 +1,4 @@
-import type { NativeType } from "@schema/scalars/native-types";
+import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import type { DateTimePhysicalForm } from "@validation/primitives/datetime-physical-codec";
 import type { DecimalPhysicalRepresentation } from "@validation/primitives/decimal-codec";
 import type {
@@ -63,7 +63,7 @@ export interface AdapterResultParser {
    * produced it.
    */
   dateTimeRepresentation?: (
-    nativeType: NativeType | undefined
+    nativeType: NativeTypeDeclaration | undefined
   ) => DateTimePhysicalForm;
 
   /**
@@ -106,7 +106,7 @@ export interface AdapterResultParser {
    */
   idRepresentation?: (
     domain: IdDomain,
-    nativeType: NativeType | undefined
+    nativeType: NativeTypeDeclaration | undefined
   ) => IdRepresentation;
 
   /**

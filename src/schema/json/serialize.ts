@@ -39,6 +39,15 @@ import {
   isGeneratorDefault,
   type ScalarState,
 } from "@schema/scalars/common";
+import {
+  isNativeTypeInCatalog,
+  nativeTypeRefusal,
+} from "@schema/scalars/native-catalog";
+import {
+  type DialectNativeType,
+  isTaggedNativeType,
+  type NativeTypeMap,
+} from "@schema/scalars/native-types";
 import type { JsonValue } from "@validation/primitives/json";
 import type { ObjectSchema } from "@validation/primitives/object";
 import { isFunction } from "@validation/value-guards";
@@ -69,7 +78,6 @@ import {
   refuseDocument,
   throwIfRefused,
 } from "./issues";
-import { isNativeTypeInCatalog, nativeTypeRefusal } from "./native-catalog";
 import type { ExactSchemaJsonOptions, SchemaJsonOptions } from "./validate";
 import { readValidateOption, validateGraph } from "./validate";
 
@@ -255,7 +263,10 @@ function serializeScalar(
     // The catalog owns `native.type` at the parse boundary, where the document
     // is untrusted. Emitting a value that gate would refuse would write a
     // document this parser cannot read back — a round trip that loses a schema —
-    // so the same rule refuses it here, by name.
+    // so the same rule refuses it here, by name. A MAP was held to the catalog
+    // when its scalar was built, so it is restated as it was declared, in its
+    // own form (never collapsed to the tagged one): every entry, in dialect
+    // order, each copied so the document does not alias the scalar's state.
     if (document.type === "point") {
       refusePointState(path, "native", issues);
     } else if (document.type === "decimal") {
@@ -265,6 +276,8 @@ function serializeScalar(
         "J009",
         "A fixed decimal cannot carry a native-type override"
       );
+    } else if (!isTaggedNativeType(native)) {
+      document.nativeByDialect = nativeTypeMapDocument(native);
     } else if (isNativeTypeInCatalog(native.db, native.type)) {
       // Copy `{ db, type }`: the document is the caller's to edit, and it must
       // not alias the scalar's own native object (mutating one would reach the
@@ -327,6 +340,23 @@ function serializeScalar(
   }
   const literal = serializeDefault(state, path, issues);
   if (literal !== undefined) document.default = literal;
+  return document;
+}
+
+/** A native-type map restated as document data, every entry copied. */
+function nativeTypeMapDocument(map: NativeTypeMap): NativeTypeMap {
+  const document: {
+    pg?: DialectNativeType<"pg">;
+    mysql?: DialectNativeType<"mysql">;
+    sqlite?: DialectNativeType<"sqlite">;
+  } = {};
+  if (map.pg !== undefined) document.pg = { db: "pg", type: map.pg.type };
+  if (map.mysql !== undefined) {
+    document.mysql = { db: "mysql", type: map.mysql.type };
+  }
+  if (map.sqlite !== undefined) {
+    document.sqlite = { db: "sqlite", type: map.sqlite.type };
+  }
   return document;
 }
 

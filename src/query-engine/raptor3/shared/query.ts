@@ -30,7 +30,7 @@ import { slotMayBeEmpty } from "@schema/relation/clearability";
 import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
-import type { NativeType } from "@schema/scalars/native-types";
+import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { Sql, sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
@@ -1002,7 +1002,7 @@ export class Queries {
       : this.adapter.arrays.value([...values]);
   }
   /** The declared native form of a column; a list's members live in its container. */
-  private nativeType(scalar: Scalar): NativeType | undefined {
+  private nativeType(scalar: Scalar): NativeTypeDeclaration | undefined {
     return scalar["~"].state.array === true
       ? undefined
       : scalar["~"].nativeType;

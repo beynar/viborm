@@ -287,16 +287,16 @@ function createScalar(
     const { precision, scale } = document;
     return call(path, () => buildDecimalScalar({ precision, scale }));
   }
+  // The reader admits at most one of the two spellings of the declaration.
+  const native = document.native ?? document.nativeByDialect;
   if (document.type !== "enum") {
     const factory = SCALAR_FACTORIES[document.type];
     return call(path, () =>
-      document.native === undefined ? factory() : factory(document.native)
+      native === undefined ? factory() : factory(native)
     );
   }
   const definition = resolveEnum(document, schema, path);
-  const scalar = call(path, () =>
-    enumScalar(definition.values, document.native)
-  );
+  const scalar = call(path, () => enumScalar(definition.values, native));
   if (definition.name === undefined) return scalar;
   const name = definition.name;
   return modify(scalar, "name", [name], "enum", pointer(path, "enum"));

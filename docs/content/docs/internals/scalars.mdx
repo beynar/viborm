@@ -55,7 +55,7 @@ The key insight: **immutability enables type tracking**. If we mutated the scala
 | `s.enum(values)` | ENUM/VARCHAR | `values[number]` |
 | `s.blob()` | BLOB/BYTEA | `Uint8Array` |
 | `s.point()` | provider GeoPoint representation | `{ longitude, latitude }` |
-| `s.vector(dim)` | VECTOR | `number[]` |
+| `s.vector().dimension(n)` | VECTOR | `number[]` |
 
 The validation codec declares the one structural decimal descriptor shape.
 Each fixed-decimal scalar validates and freezes one instance in scalar state.

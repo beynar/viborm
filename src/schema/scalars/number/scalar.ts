@@ -6,15 +6,21 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
+import { admitNativeType } from "../native-catalog";
+import type {
+  ExactNativeTypeMap,
+  NativeDialect,
+  NativeTypeArgument,
+  NativeTypeDeclaration,
+} from "../native-types";
 
 const numberBase = v.number();
 
 export class NumberScalar<State extends ScalarState<"number">> {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
+  private readonly _nativeType?: NativeTypeDeclaration | undefined;
 
-  constructor(state: State, _nativeType?: NativeType) {
+  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
     this.state = state;
     this._nativeType = _nativeType;
   }
@@ -112,5 +118,13 @@ export class NumberScalar<State extends ScalarState<"number">> {
   }
 }
 
-export const number = (nativeType?: NativeType) =>
-  new NumberScalar(createDefaultState("number", numberBase), nativeType);
+export const number = <
+  Db extends NativeDialect = never,
+  const Given extends ExactNativeTypeMap<Given> = never,
+>(
+  nativeType?: NativeTypeArgument<Db, Given>
+) =>
+  new NumberScalar(
+    createDefaultState("number", numberBase),
+    admitNativeType("s.number", nativeType)
+  );

@@ -3049,3 +3049,57 @@ statement runs" cells); the cycles the rule orders instead are pinned beside
 them ("SQLite breaks a cycle …", "a populated cycle drops when a delete action
 gives an order"). Neither file touches Raptor 3; its refusal census is
 unaffected.
+
+---
+
+## Addendum — a native type per dialect (issue #45, 2026-09-27)
+
+A scalar factory's native-type argument may now be a map by dialect
+(`s.string({ pg: PG.STRING.CITEXT, mysql: MYSQL.STRING.LONGTEXT })`), and the
+schema document carries it as `nativeByDialect`. The semantic owner of the
+declaration is `admitNativeType` (`src/schema/scalars/native-catalog.ts`, moved
+from `src/schema/json/` so the factories can reach the catalog); the one
+reader of it is `nativeTypeFor` (`src/schema/scalars/native-types.ts`). Guards
+added — none removed:
+
+| Site | Refuses | Unique coverage |
+|---|---|---|
+| `admitNativeType` · a declaration that is not an object | `s.string("citext")`, `s.string(null)` | Untyped callers only: TypeScript refuses both. Before, a string was stored and ignored by every reader, and `null` crashed `idStorageOf` on an identifier field. |
+| `admitNativeType` · a tagged value whose `db` is not a dialect or whose `type` is not a string | `{ db: "oracle", type }`, `{ db: "pg" }`, `{ db: "pg", typ }`, `{ db: "pg", type: 5 }` | Untyped callers only: `NativeTypeArgument` refuses all four in TypeScript. Measured on origin/main: an unknown `db` was ignored by every dialect, and a `db: "pg"` value without a string `type` crashed `serializeModels` with a `TypeError`. It is the shorthand's half of the plan's "never silently ignore an unknown dialect key" (the map's half is `admitEntry`); nothing downstream checks either fact. Added by the review repair. |
+| `admitNativeType` · a tagged value beside a dialect key | `{ db, type, mysql }` | The one object that is two declarations; its TypeScript half is `NativeTypeArgument`'s `Partial<Record<dialect, never>>`, which a `as any` caller bypasses. |
+| `admitNativeTypeMap` · an unknown key, an empty map, an entry of another dialect or shape, an entry outside its catalog | `{ pg, oracle }`, `{}`, `{ mysql: PG.STRING.CITEXT }`, `{ pg: { db: "pg", type: "text UNIQUE" } }` | The runtime half of the new map contract for code callers (the plan's "runtime rejection when types are bypassed"); a map is new surface, so it is catalog-checked where a tagged value is not. For a schema DOCUMENT it is reached only by the empty map (`J010`); every other case is refused by the reader first (below). |
+| `read.ts` · `nativeByDialect` beside `native`, or on a decimal | `J003` | The document's two spellings of one declaration; no builder sees both. |
+| `read.ts` · `readDialectEntry`'s `db` agreement | `J004` at `…/nativeByDialect/<key>/db` | **Overlaps** `admitEntry`'s mismatched-tag refusal for documents (which would report `J010` at the field). Kept because it is the narrowing that lets the reader produce the typed `NativeTypeMap` document value without an assertion, and it locates the entry. It exists only because a document entry repeats its key as `db`; the compact entry form (`{ pg: "citext" }`) would delete it. That entry-shape choice is the owner's (#45 review, open). |
+
+Reused, not added: the reader's closed-key (`J003`), plain-record and string
+shape (`J004`) and catalog (`J011`) checks now also run on each map entry
+through the existing `refuseUnknownKeys` / `readNativeNode`; `J011` on a map
+entry overlaps `admitEntry`'s catalog refusal for documents. It is not a second
+site: it is the one `readNativeNode` that already checks the `native` form,
+and the plan requires the document to keep its strict catalog boundary for
+every form, before any builder runs.
+The serializer does not catalog-check a map: every map a scalar holds passed
+`admitEntry`.
+
+Widened, not added: `F013` and `FK012` (`schema/validation/id-domains.ts`) and
+the SQLite DateTime foreign-key form (`rules/fk.ts`) now ask every dialect the
+declaration selects, through `nativeTypeFor`, instead of only the dialect a
+tagged value names — the same clause, over a declaration that can name several.
+`storageDisagreement` visits `pg`, `mysql`, `sqlite` in that order; a dialect
+neither side selects cannot disagree.
+
+Deliberately NOT added: a check that a map entry suits the scalar's kind
+(`s.string({ pg: PG.INT.INTEGER })` is admitted, as the tagged
+`s.string(PG.INT.INTEGER)` always was). The plan asks for "that dialect's
+existing catalog", and the constant trees' categories are not a kind rule:
+`s.string({ pg: PG.BLOB.BYTEA }).uuid().id()` is the identifier storage the
+native-type-map and issue-combination fixtures run live, and it crosses
+categories on purpose. A narrower map would be a new public-type decision, and
+narrowing the tagged form would break legacy declarations; both are the
+owner's. `docs/content/docs/schema/native-types.mdx` states the contract.
+
+Falsifiers: `tests/unit/scalars/native-type-map.core.test.ts` (factory
+refusals), `tests/unit/schema-json/native-type-map.core.test.ts` (document
+refusals), `tests/unit/schema-validation/native-type-map-validation.core.test.ts`
+(the widened L5 rules). The Raptor 3 refusal census is unchanged: the engine
+only threads the declaration's type (`query.ts`), and no sentence moved.

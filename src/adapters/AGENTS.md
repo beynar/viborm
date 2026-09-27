@@ -142,7 +142,7 @@ owns exactly three statements about that:
 
 | Member | What it says |
 | --- | --- |
-| `result.idRepresentation(domain, nativeType)` | what the column physically holds here — `"text"`, `"uuid"` or `"bytes"` |
+| `result.idRepresentation(domain, nativeType)` | what the column physically holds here — `"text"`, `"uuid"` or `"bytes"`; `nativeType` is the field's whole declaration (shorthand or per-dialect map), resolved for this dialect by `idStorageOf` |
 | `literals.id(physical, representation)` | how an operand in that form BINDS |
 | `expressions.idCast(expr, representation)` | how a DEFERRED value is cast into the column's type (no engine caller since the Raptor 3 port; see below) |
 

@@ -694,6 +694,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Capability-sensitive migration client composition | `client.ts` |
 | Package export boundary | `index.ts` |
 | Identifier column type and physical form | `@schema/scalars/string/id-domain` `idStorageOf` — the three `mapScalarType`s derive from it |
+| Which native type a scalar selects on this dialect (shorthand or per-dialect map) | `@schema/scalars/native-types` `nativeTypeFor` — each driver asks for its own dialect; a snapshot records only that answer |
 | Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
 | Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
 

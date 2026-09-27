@@ -1,6 +1,6 @@
 import { unsupportedVector } from "@errors";
 import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
-import type { NativeType } from "@schema/scalars/native-types";
+import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { type Sql, sql } from "@sql";
 import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical-codec";
@@ -310,7 +310,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // undeclared field keeps the ISO spelling byte for byte. The string is a
     // validated ISO timestamp — the ISO boundary owns that — and every
     // four-digit public instant round-trips through the Julian-day double.
-    dateTime: (iso: string, nativeType?: NativeType): Sql =>
+    dateTime: (iso: string, nativeType?: NativeTypeDeclaration): Sql =>
       sql`${encodePhysicalDateTime(
         iso,
         sqliteDateTimePhysicalForm(nativeType)
