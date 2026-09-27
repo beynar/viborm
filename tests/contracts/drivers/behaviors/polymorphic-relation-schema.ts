@@ -11,6 +11,7 @@
  */
 
 import { s } from "@schema";
+import { PG, SQLITE } from "@schema/scalars/native-types";
 
 export const polymorphicRelationSchema = (() => {
   const post = s
@@ -22,11 +23,14 @@ export const polymorphicRelationSchema = (() => {
     })
     .map("poly_contract_posts");
 
+  // `video` is the arm the selections below leave unnamed. Its `title` states a
+  // native type per dialect (#45) — each dialect's own default; MySQL falls
+  // back — so the default projection is pinned over a mapped declaration.
   const video = s
     .model({
       id: s.int().id().increment(),
       slug: s.string().unique(),
-      title: s.string(),
+      title: s.string({ pg: PG.STRING.TEXT, sqlite: SQLITE.STRING.TEXT }),
     })
     .map("poly_contract_videos");
 
