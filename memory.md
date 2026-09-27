@@ -1,5 +1,15 @@
 # Albert's procedural memory
 
+- Rehearse the actual publication command with the workflow's exact tool
+  version and artifact in dry-run mode. A verified archive does not prove that
+  the CLI argument selects it: use an explicit `./` or absolute local path
+  where package managers also accept repository shorthand, and pin that
+  command boundary in the existing release tests.
+- Before blocking a release on a provider setting, verify that the current
+  provider actually exposes that setting. A repository runbook can be stale;
+  check the live UI and official documentation before asking for an impossible
+  change. Distinguish a workflow's chosen action from the permissions the
+  provider grants by default.
 - Before a large refactor or dependency restore, verify that the workspace has
   enough durable free space for installs, build output, and test databases. If a
   write fails with `ENOSPC`, stop and ask for space to be freed. Do not delete

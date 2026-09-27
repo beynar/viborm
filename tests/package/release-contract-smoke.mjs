@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   auditPackedPackage,
   compareReleaseVersions,
@@ -244,6 +245,16 @@ const provenanceUrl =
   "https://registry.npmjs.org/-/npm/v1/attestations/viborm@1.0.0";
 const repository = "https://github.com/beynar/viborm";
 const workflowPath = ".github/workflows/release.yml";
+const releaseWorkflow = readFileSync(
+  new URL(`../../${workflowPath}`, import.meta.url),
+  "utf8"
+);
+// Without ./, npm parses release/<archive> as GitHub owner/repository shorthand.
+if (!/npm publish "\.\/release\/\$\{RELEASE_TARBALL\}"/.test(releaseWorkflow)) {
+  throw new Error(
+    "The publish command must name an explicit local tarball path"
+  );
+}
 const subjectDigest = Buffer.from(
   hashes.integrity.slice("sha512-".length),
   "base64"

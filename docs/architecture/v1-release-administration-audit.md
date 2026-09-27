@@ -1,5 +1,23 @@
 # V1 release administration audit
 
+## Follow-up correction — 2026-09-27
+
+The initial audit below is historical. Main's required-check, force-push and
+deletion protections were subsequently applied and verified. Arnaud supplied
+the npm settings screenshot showing the correct `beynar/viborm`, `release.yml`,
+`npm-production` publisher with direct `npm publish` enabled.
+
+The initial instruction to permit direct publishing **only** was incorrect:
+[npm's current contract](https://docs.npmjs.com/trusted-publishers/) always
+allows `npm stage publish`; direct publishing is the additional permission.
+The displayed staged permission is not a release blocker. Arnaud subsequently
+confirmed maintainer 2FA on 2026-09-28. The Release workflow was dispatched as
+[run 36386640811](https://github.com/beynar/viborm/actions/runs/36386640811)
+against merged `4beec52a5`, for `1.0.0-rc.1` only. No release has been published
+by this correction; workflow qualification and human approval remain required.
+
+## Initial read-only audit
+
 Observed **2026-09-27, 21:17–21:22 UTC**, for `beynar/viborm`.
 Read-only authenticated GitHub REST requests succeeded with repository admin
 visibility. Local workflow review used commit
@@ -56,7 +74,7 @@ all four rule types and all eight contexts before merging the release PR.
 For npm, inspect the `viborm` package's authenticated **Settings → Trusted
 Publisher** view and confirm GitHub Actions, owner `beynar`, repository
 `viborm`, workflow `release.yml`, environment `npm-production`, and permission
-for direct `npm publish` only. Confirm maintainer 2FA. Follow `RELEASING.md`:
+for direct `npm publish` (see the correction above). Confirm maintainer 2FA. Follow `RELEASING.md`:
 after the first RC proves trusted publishing and provenance, require 2FA and
 disallow tokens, and revoke old automation tokens. Record evidence without
 copying credentials. The repository's OIDC workflow configuration alone does
