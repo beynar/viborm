@@ -1,8 +1,10 @@
 # V1 Release Closure
 
-Updated 2026-09-27 against `main` at `e94b8ea3c` (PR #53), with the issue #54
-fix in the accompanying change. This is the remaining-work
-checklist, not a replacement for historical engine evidence.
+Updated 2026-09-27 against `main` at `53eed0012`, the squash merge of
+[PR #55](https://github.com/beynar/viborm/pull/55).
+The #54 fix is merged, and issue #54 is closed.
+This is the existing remaining-work checklist, not a new implementation
+program or a replacement for historical engine evidence.
 
 **V1 needs release closure, not another engine rewrite.** Recursive reads,
 Raptor 3, compiled decoding, relation topology, exact decimals, namespaces,
@@ -22,19 +24,28 @@ A checked implementation item does not claim that the current RC has passed it.
   directed junction actions. Its documentation distinguishes conservative
   schema-only SQLite drop refusals from what an empty database could execute.
 - [x] Issue [#54](https://github.com/beynar/viborm/issues/54) is corrected in
-  this change: non-array `.updatedAt()` refresh is owned by update admission.
+  merged PR #55: non-array `.updatedAt()` refresh is owned by update admission.
   Explicit values, create defaults and `.now()` admission are preserved.
   SQLite3, PGlite, native PostgreSQL and native MySQL execute the same focused
   contract; public types, admission lifetimes and the existing replay rule
   have checks. Temporal arrays retain their prior behavior. The DateTime guide
   and changelog describe the contract instead of the former known defect.
-  The issue remains open until the fix PR merges.
+  The issue closed on 2026-09-27 at 18:06:30 UTC.
+- [x] PR #55 squash-merged as `53eed0012` on 2026-09-27 at 18:06:29 UTC.
+  All eight jobs in [CI run 36337145755](https://github.com/beynar/viborm/actions/runs/36337145755)
+  succeeded: types/format/docs, core, coverage, both Node package jobs,
+  local providers, PostgreSQL/MySQL and Bun/D1. The reviewed head `fc7810dfe`
+  and base were unchanged, no blocking review finding remained, and the merge
+  used an exact head-SHA guard. The merged source tree equals the reviewed tree.
+  Independent local review, typecheck and 100% validation coverage also passed.
+  Devin reported no issues; CodeRabbit skipped review and Greptile's trial had
+  expired. A successful bot status alone is not proof that a review ran.
 - [ ] On the release commit, classify every failing or skipped required gate.
   Missing seed corpora, absent PostGIS and unavailable providers are missing
   evidence, not correctness passes. Use the existing runners and manifests;
   do not reopen old campaigns simply to produce another report.
 
-No other open GitHub issue was returned by the repository query on 2026-09-27.
+No open GitHub issue was returned by the post-merge query on 2026-09-27.
 That is an inventory observation, not proof that the code has no defects.
 
 ## 2. Public contract — implementation present, release freeze remains
@@ -142,14 +153,34 @@ the concrete provider's transaction, migration or failure contract.
   final RC is accepted. Neither this checklist nor a PR merge authorizes an
   npm publication.
 
-## Execution order and stop condition
+## Next work and exit conditions
 
-1. Merge the qualified #54 fix.
-2. Close the support-table discrepancies and executable-documentation/upgrade
-   gaps; verify the one-time release settings in parallel.
-3. Freeze the RC contract and run its existing required gates once on stable
-   source. Re-run affected checks after repairs, not the full estate per edit.
-4. Publish and rehearse the RC, then release stable through `RELEASING.md`.
+The fix is landed. Documentation and release-setting verification can proceed
+independently. No new engine work is scheduled.
+
+1. **Land #54 — complete.** PR #55 merged as `53eed0012` after all eight CI
+   jobs passed; issue #54 is closed. The merge evidence is recorded in section 1.
+2. **Close the public documentation gaps.** Correct the specific LibSQL and
+   Neon/D1 migration claims identified in section 3, retain explicit hosted
+   qualification limits, and write the upgrade guide from the existing
+   breaking-change record. Done when the overview and per-driver migration
+   pages agree and the quick-start/upgrade instructions work in the runbook's
+   packed-consumer rehearsal. Do not build a new documentation test framework.
+3. **Close release administration.** Verify the still-unchecked runbook
+   settings and configure the intended required CI checks through an
+   authorized repository-settings change. Done when effective branch/tag rules,
+   npm trusted publishing, release immutability and the approval environment
+   are verified rather than inferred from workflow source. This document
+   refresh changes none of those settings.
+4. **Prepare the RC on stable source.** After the fix and release blockers are
+   closed, make the version/changelog release PR and run the existing required
+   gates on that exact source and tarball. Re-run affected checks after repairs,
+   not the full estate per edit. Done when the artifact, provider claims and
+   executed gate results agree, with every required skip resolved.
+5. **Rehearse, then release.** Publish the RC through `RELEASING.md`, complete
+   its fresh-install/upgrade/migration/recovery rehearsal, and record the
+   result. A defect requires a new RC, not replacement of published bytes.
+   Stable publication remains a separate authorized release decision.
 
 V1 is ready when the declared support matrix, public contract, actual tarball
 and executed evidence agree; release authority is enforced; the rehearsal
