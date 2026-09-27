@@ -25,6 +25,7 @@ import type { AnyDriver } from "../drivers/driver";
 import { errorCause } from "../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { BoundMigrationDriver } from "./drivers";
+import { childrenBeforeParents, type TableReference } from "./drop-order";
 import { introspectSchema } from "./push/planner";
 import type { ForeignKeyDef, SchemaSnapshot } from "./types";
 import { createQueryExecutor } from "./utils";
@@ -300,49 +301,27 @@ function* ownedForeignKeys(
  * Every foreign key inside the estate has already been dropped by the time
  * these run, so the order is defence rather than necessity: it keeps a
  * constraint the inventory could not see from turning a reset into a failure
- * that has already dropped half the estate.
+ * that has already dropped half the estate. A cycle's keys are already
+ * dropped too, so its tables go in inventory order rather than deadlocking.
  */
 function dependencySafeOrder(
   tables: readonly string[],
   snapshot: SchemaSnapshot
 ): string[] {
-  const remaining = new Set(tables);
-  const referencedBy = new Map<string, Set<string>>();
+  const references: TableReference[] = [];
   for (const table of snapshot.tables) {
     for (const foreignKey of table.foreignKeys) {
-      if (foreignKey.referencedTable === table.name) {
-        continue;
+      if (foreignKey.referencedTable !== table.name) {
+        references.push({ from: table.name, to: foreignKey.referencedTable });
       }
-      const dependants =
-        referencedBy.get(foreignKey.referencedTable) ?? new Set<string>();
-      dependants.add(table.name);
-      referencedBy.set(foreignKey.referencedTable, dependants);
     }
   }
-
-  const ordered: string[] = [];
-  while (remaining.size > 0) {
-    const free = [...remaining].filter((name) => {
-      const dependants = referencedBy.get(name);
-      if (!dependants) {
-        return true;
-      }
-      for (const dependant of dependants) {
-        if (remaining.has(dependant)) {
-          return false;
-        }
-      }
-      return true;
-    });
-    // A cycle leaves nothing free. Its keys are already dropped, so the
-    // remaining names go in inventory order rather than deadlocking here.
-    const batch = free.length > 0 ? free : [...remaining];
-    for (const name of batch) {
-      ordered.push(name);
-      remaining.delete(name);
-    }
-  }
-  return ordered;
+  const { ordered, blocked } = childrenBeforeParents(
+    tables,
+    (name) => name,
+    references
+  );
+  return [...ordered, ...blocked];
 }
 
 /** Refuses an inbound foreign key to the declared tracking table. */

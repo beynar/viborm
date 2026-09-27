@@ -29,6 +29,27 @@ Versioning.
   `filter` are unchanged. To change a
   creation timestamp deliberately, use raw SQL — the restriction covers what
   the typed client writes, not the column.
+- **Fix: table removal follows foreign keys, not table names** (#42). A push or
+  generated migration that removed a populated parent and child on SQLite
+  failed with `Foreign key constraint violation` whenever the parent's name
+  sorted first, and succeeded with the names swapped. Drops are now ordered
+  child-first from the foreign keys the database holds; unrelated drops keep
+  their order, and the preview, consent and executed program agree. On SQLite
+  a generated rollback recreates referenced tables first. PostgreSQL and MySQL
+  keep their forward order: they drop the keys before the tables. Their
+  generated rollback of such a removal now recreates every table before it
+  restores the keys, once each; it used to restore a child's key before the
+  parent existed and then a second time, so it failed. Tables that reference
+  each other are dropped in an order their `onDelete` actions allow, when one
+  exists: a `setNull` or `cascade` key can let one of them go first. **Newly
+  refused on SQLite:** removing tables that no order can drop, such as a cycle
+  of `restrict`/`noAction` keys, a cycle whose `cascade` reaches rows a
+  `restrict` key still guards, or a table whose `restrict` key references
+  itself, is refused before any statement runs (`V11009`, naming each blocked
+  table and the key that refuses it). Such a plan used to run in catalog
+  order: it failed and rolled back unless the rows happened to satisfy that
+  order, and it succeeded on empty tables. Remove one relation, or change its
+  action to `setNull`, in a separate change first.
 - **Breaking: `_count` is a reserved member name.** A schema whose model
   declares a scalar, a relation or a polymorphic slot named `_count` is now
   refused where the schema is validated — client construction, migrations and

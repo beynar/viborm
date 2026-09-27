@@ -3012,3 +3012,40 @@ Deliberately NOT added: a `.now()` check in any relation verb, in
 `update.ts`, or in Raptor 3. Every update surface reads the one scalar record,
 so a second check would have no coverage of its own. The Raptor 3 refusal
 census is unaffected.
+
+---
+
+## Addendum — table drops follow foreign keys (issue #42, 2026-09-27)
+
+One refusal was added and none was removed. `orderTableDrops`
+(`src/migrations/drop-order.ts`, reached only through `prepareSchemaProgram`)
+orders a generated program's `dropTable` operations child-first from the
+CURRENT snapshot's foreign keys; a key matters while it is still active when
+its tables go (both tables dropped, no explicit `dropForeignKey` for it in the
+program). Where the keys form a cycle, it drops next a table whose implicit
+delete no remaining key can refuse (`refusalOf`: CASCADE extends the delete,
+SET NULL clears, RESTRICT refuses, NO ACTION and SET DEFAULT refuse unless the
+key is held by the table being dropped).
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `drop-order.ts` `cyclicDropRefusal` · `Tables "<t>", … cannot be dropped in an order that satisfies their foreign keys: dropping "<t>" is refused by <from>(<columns>) -> <to> ON DELETE <action>; …` (`V11009`, `meta.type: "cyclic-table-drop"`) | No table is dropped while a remaining active key may refuse its implicit delete, directly or through a CASCADE it triggers. | Program preparation: the first point where the effective key removals are known, before statements, consent hashes and artifacts are sealed. | **ADDED.** Unique coverage: a SQLite/LibSQL program in which every remaining table's drop can be refused: a cycle of RESTRICT/NO ACTION/SET DEFAULT keys, a cycle whose CASCADE reaches rows a RESTRICT key still guards, or a RESTRICT self-reference. Measured on better-sqlite3 over random populated rows (every action pair on a two-table cycle, both drop orders, and each self-reference action): these shapes fail in every order on some valid rows, while every shape the rule orders succeeds on all of them. Without the refusal the plan ran in catalog order: it failed mid-transaction and rolled back unless the rows happened to satisfy that order (for example a single west/east row pair under RESTRICT/CASCADE), and succeeded on empty tables. PostgreSQL and MySQL never reach it: `materializeDroppedTableForeignKeys` removes every key that touches a dropped table first. |
+
+Deliberately NOT added: a check that no RETAINED table keeps an active key into
+a dropped one. The desired snapshot cannot reference a table it does not
+contain, so the differ always removes such a key, and `sortOperations` runs
+every `dropForeignKey` (priority 2) before every `dropTable` (priority 7); the
+unique coverage of such a check cannot be named. Nor a check that a SET NULL
+key's columns are nullable: RA004 owns that for declared schemas, and a
+hand-written key that breaks it makes the drop fail with a NOT NULL
+violation (measured on better-sqlite3), inside the transaction the push rolls
+back.
+Falsifiers: `tests/unit/migrations/table-drop-order.core.test.ts` ("SQLite
+refuses a cycle before anything is published, naming each blocked table and
+why", "SQLite refuses a cascade into rows that RESTRICT still guards", "SQLite
+refuses a RESTRICT self-reference and names only it") and
+`tests/unit/migrations/table-drop-order.test.ts` (the three "refused before any
+statement runs" cells); the cycles the rule orders instead are pinned beside
+them ("SQLite breaks a cycle …", "a populated cycle drops when a delete action
+gives an order"). Neither file touches Raptor 3; its refusal census is
+unaffected.

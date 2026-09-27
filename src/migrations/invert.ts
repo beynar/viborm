@@ -25,8 +25,19 @@ export function invertOperations(
   // always-new is correct.
   let previousAtOperationIdentity = previousSnapshot;
   const previousIdentityBefore: SchemaSnapshot[] = [];
+  // A key the up program drops by itself (PostgreSQL/MySQL drop every key of
+  // a dropped table first) comes back through that drop's own inverse, which
+  // runs after every recreated table exists. The recreated table leaves it
+  // out: restored inline it would name a table not yet recreated, and then be
+  // added a second time.
+  const keysRestoredByTheirOwnInverse = new Set<string>();
   for (const op of operations) {
     previousIdentityBefore.push(previousAtOperationIdentity);
+    if (op.type === "dropForeignKey") {
+      keysRestoredByTheirOwnInverse.add(
+        foreignKeyIdentity(op.tableName, op.fkName)
+      );
+    }
     if (op.type === "renameTable" || op.type === "renameColumn") {
       previousAtOperationIdentity = applyNativeRename(
         previousAtOperationIdentity,
@@ -44,6 +55,7 @@ export function invertOperations(
       op,
       previousSnapshot,
       findPrevTable,
+      keysRestoredByTheirOwnInverse,
       warnings
     );
     if (inverse) inverted.push(...inverse);
@@ -52,10 +64,14 @@ export function invertOperations(
   return { operations: inverted, warnings };
 }
 
+const foreignKeyIdentity = (tableName: string, fkName: string) =>
+  `${tableName}\u0000${fkName}`;
+
 function invertOperation(
   op: DiffOperation,
   previousSnapshot: SchemaSnapshot,
   findPrevTable: (name: string) => TableDef | undefined,
+  keysRestoredByTheirOwnInverse: ReadonlySet<string>,
   warnings: string[]
 ): DiffOperation[] | null {
   switch (op.type) {
@@ -76,7 +92,13 @@ function invertOperation(
       warnings.push(
         `dropTable "${op.tableName}" was lossy: rolling back recreates the table structure but not its data.`
       );
-      return [{ type: "createTable", table }];
+      const foreignKeys = table.foreignKeys.filter(
+        (fk) =>
+          !keysRestoredByTheirOwnInverse.has(
+            foreignKeyIdentity(table.name, fk.name)
+          )
+      );
+      return [{ type: "createTable", table: { ...table, foreignKeys } }];
     }
 
     case "renameTable":
