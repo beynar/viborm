@@ -169,21 +169,21 @@ back exactly as the driver hands it over — for example LibSQL reads integer
 columns with `intMode: "bigint"`, so an `INTEGER` arrives as a `BigInt` where
 other drivers give a `number`. Convert at the call site when it matters.
 
-## Deprecated: the string form of `$queryRaw`/`$executeRaw`
+## Migrating string calls
 
-Before tagged templates, `$queryRaw` took `(sql: string, params?: unknown[])`.
-That shape still runs for one release, and announces itself once per method on
-the `warning` log channel.
+V1 does not accept the earlier `(sql: string, params?: unknown[])` shape on
+`$queryRaw` or `$executeRaw`. Replace it with a tagged template or pass trusted
+statement text and individual parameters to the matching Unsafe method.
 
 ```ts
-// Deprecated — removed next release
-await client.$queryRaw('SELECT id FROM "user" WHERE age >= $1', [18]);
-
-// Replace with either:
+// Tagged template: values are bound by the driver.
 await client.$queryRaw`SELECT id FROM "user" WHERE age >= ${18}`;
+
+// Trusted PostgreSQL statement text: parameters are positional arguments.
 await client.$queryRawUnsafe('SELECT id FROM "user" WHERE age >= $1', 18);
 ```
 
-The return type changed with it: these methods used to answer a
-`QueryResult<T>` envelope (`{ rows, rowCount }`). They now answer `T[]` and
-`number`.
+If an earlier integration reads a `QueryResult<T>` envelope (`{ rows,
+rowCount }`), update that call site too: query methods return `T[]` directly,
+and execute methods return an affected-row `number`. See the
+[V1 upgrade guide](/docs/getting-started/upgrading-to-v1).

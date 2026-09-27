@@ -42,14 +42,14 @@ PostgreSQL schema or MySQL database its objects live in. See
 | pg | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | postgres | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | pglite | ✅ Full | ✅ Full | ✅ Full | Any (WASM) |
-| neon-http | ❌ Unsupported | ✅ Full | ⚠️ Push only; `migrate apply` rejects | Any |
+| neon-http | ❌ Unsupported | ✅ Full | ❌ Effectful V1 commands refused | Any |
 | bun-sql | ✅ Full | ✅ Full | ✅ Full | Bun |
 | mysql2 | ✅ Full | ✅ Full | ⚠️ DDL-limited | Node.js |
-| planetscale | ✅ Single-shard atomic | ✅ Single-shard atomic | ⚠️ DDL-limited | Any |
+| planetscale | ✅ Single-shard atomic | ✅ Single-shard atomic | ❌ Effectful V1 commands refused | Any |
 | sqlite3 | ✅ Full | ✅ Full | ✅ Full | Node.js |
-| libsql | ✅ Full | ✅ Full | ✅ Full | Any |
+| libsql | ✅ Full | ✅ Full | ❌ Effectful V1 commands refused | Any |
 | bun-sqlite | ✅ Full | ✅ Full | ✅ Full | Bun |
-| d1 | ❌ Unsupported | ✅ Full | ⚠️ Push only; `migrate apply` rejects | Workers |
+| d1 | ❌ Unsupported | ✅ Full | ❌ Effectful V1 commands refused | Workers |
 
 :::info
 **Dynamic Transactions** use the callback API: `$transaction(async (tx) => { ... })`
@@ -61,6 +61,17 @@ Drivers marked "Unsupported" reject instead of running non-atomically. See
 [Migrations](/docs/migration#atomicity) for what migration atomicity means
 per driver.
 :::
+
+Runtime transactions do not prove migration support. Neon HTTP, PlanetScale,
+LibSQL, and D1 retain offline generation and admitted read-only paths, but
+effectful `push`, `apply`, `down`, `reset`, and locked `verify` refuse before
+effects. Admitted `push({ dryRun: true })` paths remain available, subject to
+the driver's introspection limitations.
+MySQL2 migrations additionally require a resolved namespace and the explicit
+non-redirecting transport attestation. See the
+[migration capability table](/docs/migration#atomicity),
+[MySQL namespace rules](/docs/drivers/namespaces), and
+[D1 introspection limitation](/docs/drivers/sqlite/d1#migrations).
 
 ## Nested writes and failures per driver
 

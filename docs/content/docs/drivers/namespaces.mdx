@@ -399,14 +399,16 @@ boundary the command published.
 
 ## Migration contract changes
 
-The namespace feature changes the public migration contract:
+Migration V1 uses the same namespace target as runtime queries:
 
-- **Journal version 3** replaces the journal's top-level dialect with the
-  migration-estate target. Version 2 is refused: there is no alias, legacy
-  reader, or automatic upgrader.
-- **`MigrationTarget` and the version-3 `MigrationJournal` shape are exported**
-  from `viborm/migrations`, because the public storage driver and journal
-  accessors name those types.
+- **Authenticated estates replace development journals.** The public formats
+  are `MigrationEstateDescriptorV1` and `MigrationStateManifestV1`, with
+  content-addressed snapshots and SQL. There is no `MigrationJournal` export,
+  journal compatibility reader, or automatic upgrader. See
+  [Migrate](/docs/migration/migrate) and the
+  [V1 upgrade guide](/docs/getting-started/upgrading-to-v1).
+- **`MigrationTarget` is exported** from `viborm/migrations`; PostgreSQL
+  includes its schema in the authenticated estate target.
 - **`MigrationContext` and `MigrationContextOptions` are no longer exported.**
   The context is an internal command-composition owner, not a supported
   low-level execution API — retaining its raw, lock, tracking, and statement
@@ -418,21 +420,25 @@ The namespace feature changes the public migration contract:
 - **Every MySQL migration command that reaches live state requires a resolved
   `namespace`.** Every effectful or concurrency-stable live decision
   additionally requires the non-redirecting attestation. Admitted read-only live
-  work requires the namespace but not the attestation; an absent-journal
-  storage-only return, offline generation, and unqualified runtime use require
+  work requires the namespace but not the attestation; estate-only inspection,
+  offline generation, and unqualified runtime use require
   neither.
-- **`push()` and `push({ forceReset: true })` synchronize only the live
-  namespace** and never read or mutate migration storage.
-- **`status()` and `pending()` are genuinely read-only** and never create the
-  tracking table.
-- **PostgreSQL migration reset refuses** a generated history containing an
-  enum-addition commit boundary before doing destructive work.
-- **MySQL migration reset and force-reset preflight completely** but report their
+- **`createMigrationClient(client).push()` synchronizes only the live
+  namespace** and never reads or mutates migration storage. Reviewed resolver
+  decisions travel in the preview's consent. `forceReset: true` can plan a
+  rebuild with `dryRun: true`; executing that destructive plan requires
+  `push({ consent: preview.consent })`, not a force bypass.
+- **`status()` is read-only** and never creates control tables. Pending work is
+  a field on its result, not a `pending()` method.
+- **MySQL migration effects report their
   unavoidable partial-commit boundary honestly, because MySQL DDL implicitly
-  commits.
+  commits.** Stored transitions declare their execution boundary and rollback
+  policy; a transaction is never inferred from a successful runtime query.
 - **Neon HTTP** supports schema-aware runtime, read-only, and offline migration
-  paths, but effectful push/migration verbs and concurrency-stable dry
-  down/reset/squash decisions require a session-capable driver.
+  paths, but effectful push/migration verbs and locked `verify` require a
+  session-capable driver. Dry-run `apply` and `down` read the live marker without
+  a lock and require connectivity. Dry-run `reset` only previews the estate's
+  root-to-target path after target and read-only capability admission.
 - **PlanetScale** supports runtime qualification plus admitted read-only and
   offline paths; every effectful push/migration verb is refused.
 

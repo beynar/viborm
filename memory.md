@@ -309,6 +309,11 @@
   consumer artifact. The repository's development toolchain can require a
   newer patch without raising the package runtime floor; do not conflate those
   two contracts.
+- Execute quick-start commands against a fresh packed consumer before changing
+  their spelling. A package runner may honor a CLI's Node shebang even when
+  invoked through Bun; force the intended runtime with `bun --bun` when the
+  config requires TypeScript resolution. Verify schema creation and queries,
+  not only `--help`, because help never loads the config.
 - A publication workflow must resume from every partially durable external
   state. Verify an existing registry version, draft release, published release,
   tag, and asset by identity before deciding to create, complete, or refuse;

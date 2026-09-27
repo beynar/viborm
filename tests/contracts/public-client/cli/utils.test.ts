@@ -128,7 +128,7 @@ describe("loadConfig", () => {
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      TS_LOADER_HINT_PATTERN
+      "bun --bun viborm push"
     );
   });
 

@@ -2,7 +2,8 @@
 
 Updated 2026-09-27 against `main` at `53eed0012`, the squash merge of
 [PR #55](https://github.com/beynar/viborm/pull/55).
-The #54 fix is merged, and issue #54 is closed.
+The #54 fix is merged, and issue #54 is closed. RC preparation now sets the
+candidate version to `1.0.0-rc.1`; no release has been published.
 This is the existing remaining-work checklist, not a new implementation
 program or a replacement for historical engine evidence.
 
@@ -67,10 +68,12 @@ That is an inventory observation, not proof that the code has no defects.
 - [ ] Run the existing export/declaration, public-type and packed-consumer
   probes on the final RC commit. Review any changed public contract against
   its release notes; do not add another export registry or compatibility language.
-- [ ] Publish a `0.1.0` → V1 upgrade guide. Cover the changed relation language,
-  decimal/identifier/temporal storage, migration estate, extensions, raw APIs,
-  `.now()` update rejection and `.updatedAt()` behavior. Link to the exact
-  current owners and migration guidance rather than creating aliases.
+- [x] Add the [V1 upgrade guide](../content/docs/getting-started/upgrading-to-v1.mdx),
+  covering the relation language, scalar storage, migration estate, extensions,
+  raw APIs and timestamp behavior. It distinguishes published `0.1.0` from
+  intermediate development APIs rather than inventing a release history.
+- [ ] Complete the upgrade rehearsal on the final RC artifact. A written guide
+  and passing package tests do not prove a production application's data upgrade.
 
 ## 3. Provider claims must match executed evidence
 
@@ -82,11 +85,10 @@ That is an inventory observation, not proof that the code has no defects.
   documents refusal of effectful `apply`, `down`, `reset`, `verify` and `push`.
   Offline/read-only operations and dry-run push remain available. Implementing
   production LibSQL migrations is not required if this limit stays explicit.
-- [ ] Reconcile one public support matrix with the registered gates and
-  per-capability documentation. In particular, the overview's LibSQL
-  "Migration Atomicity: Full" and Neon/D1 "Push only" labels must agree with
-  the migration V1 restrictions; shared transport code is not live-provider
-  evidence. Do not promote a tier by changing prose alone.
+- [x] Correct the public overview's LibSQL "Full" and Neon/D1 "Push only"
+  migration claims and the linked per-driver instructions. They now distinguish
+  runtime transactions, refused effectful V1 migrations, admitted offline/read-only
+  work and hosted qualification limits. No provider tier is promoted by this edit.
 - [ ] Run the release-blocking PostgreSQL (including required PostGIS), MySQL,
   SQLite/PGlite/LibSQL and declared Bun/Workers lanes on the exact RC source.
   Record executed counts, skips, substrate versions and restrictions. A
@@ -114,10 +116,13 @@ the concrete provider's transaction, migration or failure contract.
   protection. The effective branch-rules API returned a pull-request rule but
   **no required-status-checks rule** on 2026-09-27. Green checks on one PR do
   not establish enforcement.
-- [ ] Verify npm trusted publishing, tag protection, immutable releases and
-  private vulnerability reporting using the runbook. These settings were not
-  all verified by this refresh; do not label them missing or complete without
-  checking. No repository or npm settings were changed here.
+- [x] Verify tag protection, immutable releases and private vulnerability
+  reporting. The [read-only administration audit](v1-release-administration-audit.md)
+  records the endpoints, results and exact missing-main-rule remediation.
+- [ ] Verify npm trusted publishing and maintainer 2FA in authenticated npm
+  settings; public package metadata cannot establish them. After the first RC
+  proves provenance, complete the runbook's token restriction/revocation step.
+  No repository or npm settings were changed by the audit.
 - [ ] Exercise the publication workflow with an RC. No `Release` workflow
   runs or GitHub releases were returned by the read-only queries on
   2026-09-27. Existing workflow source is not end-to-end publication evidence.
@@ -137,10 +142,12 @@ the concrete provider's transaction, migration or failure contract.
 - [ ] Finish the capability/support tables and upgrade guide before the RC
   freeze; make known refusals, partial-progress semantics and extension trust
   boundaries visible. No complete RBAC claim.
-- [ ] Prepare the RC release PR: change `package.json` from `0.1.0` to
-  `1.0.0-rc.1`, update changelog/release notes, make package metadata and
-  README/site/LICENSE agree, and pass required checks on clean committed source.
-  Do not create a local release tag.
+- [x] Prepare `1.0.0-rc.1` metadata, candidate release notes and README/site
+  guidance; the MIT license is unchanged. Local package evidence is recorded
+  in [the RC preflight](v1-rc1-preflight.md). No release tag is created.
+- [ ] Pass all eight CI jobs on the final release PR head and merge only after
+  release blockers are resolved. Local preflight is not the protected-main
+  release workflow's exact-artifact qualification or publication authority.
 - [ ] Release `1.0.0-rc.1` to `next` through the runbook. Rehearse its fresh
   consumer, upgrade, CLI, schema push and migration/recovery workflows on
   PostgreSQL, MySQL and SQLite in disposable
@@ -160,21 +167,20 @@ independently. No new engine work is scheduled.
 
 1. **Land #54 — complete.** PR #55 merged as `53eed0012` after all eight CI
    jobs passed; issue #54 is closed. The merge evidence is recorded in section 1.
-2. **Close the public documentation gaps.** Correct the specific LibSQL and
-   Neon/D1 migration claims identified in section 3, retain explicit hosted
-   qualification limits, and write the upgrade guide from the existing
-   breaking-change record. Done when the overview and per-driver migration
-   pages agree and the quick-start/upgrade instructions work in the runbook's
-   packed-consumer rehearsal. Do not build a new documentation test framework.
+2. **Close the public documentation gaps — edits prepared.** The support
+   corrections and upgrade guide are in the RC change. Finish the documented
+   upgrade rehearsal before calling the release qualified. Do not build a new
+   documentation test framework.
 3. **Close release administration.** Verify the still-unchecked runbook
    settings and configure the intended required CI checks through an
    authorized repository-settings change. Done when effective branch/tag rules,
    npm trusted publishing, release immutability and the approval environment
    are verified rather than inferred from workflow source. This document
    refresh changes none of those settings.
-4. **Prepare the RC on stable source.** After the fix and release blockers are
-   closed, make the version/changelog release PR and run the existing required
-   gates on that exact source and tarball. Re-run affected checks after repairs,
+4. **Qualify the prepared RC.** Metadata and local package preflight are ready;
+   the final PR checks and administration blockers still gate adoption. Run the
+   protected-main workflow on its exact source and tarball only with publication
+   authority. Re-run affected checks after repairs,
    not the full estate per edit. Done when the artifact, provider claims and
    executed gate results agree, with every required skip resolved.
 5. **Rehearse, then release.** Publish the RC through `RELEASING.md`, complete
