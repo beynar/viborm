@@ -690,6 +690,17 @@ function createObjectValidator(
           continue;
         }
         const result = validates[i]!(undefined);
+        if (result.issues) {
+          const issue = result.issues[0]!;
+          return {
+            issues: [
+              {
+                message: issue.message,
+                path: issue.path ? [key].concat(issue.path) : [key],
+              },
+            ],
+          };
+        }
         if (result.value !== undefined) {
           output[key] = result.value;
         }
@@ -741,6 +752,17 @@ function createObjectValidator(
         // If schema accepts undefined, run validator to apply defaults
         if (acceptsUndefined[i]) {
           const result = validates[i]!(undefined);
+          if (result.issues) {
+            const issue = result.issues[0]!;
+            return {
+              issues: [
+                {
+                  message: issue.message,
+                  path: issue.path ? [key].concat(issue.path) : [key],
+                },
+              ],
+            };
+          }
           output[key] = result.value;
         } else {
           // Scalar is optional (partial: true, not in atLeast) but schema doesn't have defaults

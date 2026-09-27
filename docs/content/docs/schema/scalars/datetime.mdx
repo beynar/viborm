@@ -21,7 +21,7 @@ All three support the full [modifier reference](/docs/schema/scalars). Column ty
 
 ```ts
 s.dateTime().now()        // Default to current timestamp on create
-s.dateTime().updatedAt()  // Defaults to the current timestamp on create; stays updatable
+s.dateTime().updatedAt()  // Current timestamp on create and omitted update input
 ```
 
 `.now()` and `.updatedAt()` also exist on `s.date()` and `s.time()`.
@@ -48,18 +48,38 @@ plain `.default(value)` is not. This restricts what the typed client writes; it
 does not stop raw SQL, other writers or database cascades from changing the
 column.
 
-### Known defect: `.updatedAt()` does not refresh on update
+### Update timestamps
 
-`.updatedAt()` today gives the field a current-time default on create and
-leaves it updatable; an update that does not name the field leaves it
-unchanged. Nothing in admission, the query engine or the migration drivers
-reads the `updatedAt` generator yet. Until that lands, set the field yourself
-in the update payload (`data: { updatedAt: new Date() }`). The reproducer and
-the acceptance conditions are pinned in
-`tests/contracts/public-client/updated-at-known-defect.core.test.ts`: a fix is
-accepted when an update that omits the field moves it to the statement's
-time on every provider, `updateMany` and nested updates included, an update
-that names it keeps the named value, and create keeps its current default.
+For non-array DateTime, Date and Time fields, `.updatedAt()` supplies the
+current value when an update payload omits the field or sets it to
+`undefined`. This applies to `update`, `updateMany`, the update arm of
+`upsert`, and nested updates. An explicit `data: {}` also refreshes it; it is
+not a no-op on a model with an automatic update timestamp. An update matching
+no rows still changes no rows.
+
+A valid explicit value wins, including `{ set: value }`. Create behavior is
+unchanged: an explicit create value wins over its default.
+`.updatedAt().default(value)` overrides the **create** default, not the clock
+used for omitted updates. An ordinary `.default(value)` does not make a field
+refresh on update.
+
+The clock is the application's wall clock at input admission, not the
+database's statement or commit time. DateTime uses the UTC instant, Date its
+UTC calendar date, and Time its UTC time of day to whole seconds. This is not
+a monotonic counter: two updates may receive the same value.
+
+The value is evaluated once per admitted field occurrence. A scalar bulk
+update shares its admitted value across the affected rows. A relation-bearing
+series admits its members separately, so their values may differ. Reusing
+already-admitted input during a permitted retry does not read the clock again;
+any newly admitted occurrence uses its own admission time. Transaction
+ownership, failure timing and partial-progress rules are unchanged. Raw SQL,
+database cascades and external writers do not run this client-side generator.
+
+Temporal arrays retain their existing update behavior: omission leaves the
+array unchanged and explicit array updates work. `.array().updatedAt()` does
+not provide an automatic list timestamp; supply an explicit create value too,
+because its scalar create generator does not produce an array.
 
 ## Timezones
 

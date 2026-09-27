@@ -186,12 +186,14 @@ describe("insert-only timestamps: the scalar update schema", () => {
       editedAt: LATER,
       dueOn: { set: "2026-02-01" },
       updatedAt: LATER,
+      nowThenUpdatedAt: LATER,
     });
     if (result.issues) throw new Error(result.issues[0]!.message);
     expect(result.value).toEqual({
       editedAt: { set: LATER },
       dueOn: { set: "2026-02-01" },
       updatedAt: { set: LATER },
+      nowThenUpdatedAt: { set: LATER },
     });
   });
 
