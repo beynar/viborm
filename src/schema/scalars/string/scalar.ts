@@ -11,7 +11,13 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
+import { admitNativeType } from "../native-catalog";
+import type {
+  ExactNativeTypeMap,
+  NativeDialect,
+  NativeTypeArgument,
+  NativeTypeDeclaration,
+} from "../native-types";
 import {
   defaultCuid,
   defaultKsuid,
@@ -25,9 +31,9 @@ const stringBase = v.string();
 
 export class StringScalar<State extends ScalarState<"string">> {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
+  private readonly _nativeType?: NativeTypeDeclaration | undefined;
 
-  constructor(state: State, _nativeType?: NativeType) {
+  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
     this.state = state;
     this._nativeType = _nativeType;
   }
@@ -240,7 +246,10 @@ export class StringScalar<State extends ScalarState<"string">> {
     );
   }
 
-  private _internal?: { state: State; nativeType: NativeType | undefined };
+  private _internal?: {
+    state: State;
+    nativeType: NativeTypeDeclaration | undefined;
+  };
 
   get ["~"]() {
     return (this._internal ??= {
@@ -250,6 +259,14 @@ export class StringScalar<State extends ScalarState<"string">> {
   }
 }
 
-export const string = (nativeType?: NativeType) => {
-  return new StringScalar(createDefaultState("string", stringBase), nativeType);
+export const string = <
+  Db extends NativeDialect = never,
+  const Given extends ExactNativeTypeMap<Given> = never,
+>(
+  nativeType?: NativeTypeArgument<Db, Given>
+) => {
+  return new StringScalar(
+    createDefaultState("string", stringBase),
+    admitNativeType("s.string", nativeType)
+  );
 };

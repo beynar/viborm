@@ -9,12 +9,18 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
+import { admitNativeType } from "../native-catalog";
+import type {
+  ExactNativeTypeMap,
+  NativeDialect,
+  NativeTypeArgument,
+  NativeTypeDeclaration,
+} from "../native-types";
 
 export class EnumScalar<State extends ScalarState<"enum">> {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
-  constructor(state: State, _nativeType?: NativeType) {
+  private readonly _nativeType?: NativeTypeDeclaration | undefined;
+  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
     this.state = state;
     this._nativeType = _nativeType;
   }
@@ -105,9 +111,16 @@ export class EnumScalar<State extends ScalarState<"enum">> {
   }
 }
 
-export const enumScalar = <const T extends string[]>(
+export const enumScalar = <
+  const T extends string[],
+  Db extends NativeDialect = never,
+  const Given extends ExactNativeTypeMap<Given> = never,
+>(
   values: T,
-  nativeType?: NativeType
+  nativeType?: NativeTypeArgument<Db, Given>
 ) => {
-  return new EnumScalar(createDefaultState("enum", v.enum(values)), nativeType);
+  return new EnumScalar(
+    createDefaultState("enum", v.enum(values)),
+    admitNativeType("s.enum", nativeType)
+  );
 };

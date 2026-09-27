@@ -22,7 +22,14 @@ import {
   isIdFormat,
 } from "@validation/primitives/id-codec";
 import type { AutoGenerate, ScalarState } from "../common";
-import { MYSQL, type NativeType, PG, SQLITE } from "../native-types";
+import {
+  MYSQL,
+  type NativeDialect,
+  type NativeTypeDeclaration,
+  nativeTypeFor,
+  PG,
+  SQLITE,
+} from "../native-types";
 
 // =============================================================================
 // THE DECLARED DOMAIN
@@ -75,7 +82,7 @@ export function idDomainOfState(
 // =============================================================================
 
 /** The three dialects a column spelling is asked for. */
-export type IdDialect = NativeType["db"];
+export type IdDialect = NativeDialect;
 
 /** What one domain is physically, on one dialect. */
 export interface IdStorage {
@@ -183,8 +190,10 @@ function binaryRepresentation(
  * encoding, the read projection and the result decode all derive from this, so
  * a column cannot be created as one thing and written as another.
  *
- * A native type for ANOTHER dialect is not this dialect's column and is ignored
- * exactly as every other scalar's mapping ignores it. An override that IS this
+ * The declaration is resolved for THIS dialect (`nativeTypeFor`): a tagged
+ * native type for another dialect, or a map without this dialect's entry, is
+ * not this dialect's column and is ignored exactly as every other scalar's
+ * mapping ignores it. An override that IS this
  * dialect's and that this domain cannot live in returns `undefined` — the
  * schema boundary refuses it by name long before a query is built, and this
  * answering `undefined` rather than guessing is what keeps that refusal the
@@ -192,10 +201,11 @@ function binaryRepresentation(
  */
 export function idStorageOf(
   domain: IdDomain,
-  nativeType: NativeType | undefined,
+  declaration: NativeTypeDeclaration | undefined,
   dialect: IdDialect
 ): IdStorage | undefined {
-  if (nativeType === undefined || nativeType.db !== dialect) {
+  const nativeType = nativeTypeFor(declaration, dialect);
+  if (nativeType === undefined) {
     return defaultIdStorage(domain.format, dialect);
   }
   const type = nativeType.type;

@@ -18,4 +18,10 @@ export type {
 } from "./relation";
 export type { GeoPoint, NumberScalar, NumericScalar, Scalar } from "./scalars";
 // Native database types (PG, MYSQL, SQLITE)
-export { MYSQL, type NativeType, PG, SQLITE } from "./scalars/native-types";
+export {
+  MYSQL,
+  type NativeType,
+  type NativeTypeMap,
+  PG,
+  SQLITE,
+} from "./scalars/native-types";

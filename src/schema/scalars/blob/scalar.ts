@@ -8,15 +8,21 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
+import { admitNativeType } from "../native-catalog";
+import type {
+  ExactNativeTypeMap,
+  NativeDialect,
+  NativeTypeArgument,
+  NativeTypeDeclaration,
+} from "../native-types";
 
 const blobBase = v.blob();
 
 export class BlobScalar<State extends ScalarState<"blob">> {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
+  private readonly _nativeType?: NativeTypeDeclaration | undefined;
 
-  constructor(state: State, _nativeType?: NativeType) {
+  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
     this.state = state;
     this._nativeType = _nativeType;
   }
@@ -77,5 +83,13 @@ export class BlobScalar<State extends ScalarState<"blob">> {
   }
 }
 
-export const blob = (nativeType?: NativeType) =>
-  new BlobScalar(createDefaultState("blob", blobBase), nativeType);
+export const blob = <
+  Db extends NativeDialect = never,
+  const Given extends ExactNativeTypeMap<Given> = never,
+>(
+  nativeType?: NativeTypeArgument<Db, Given>
+) =>
+  new BlobScalar(
+    createDefaultState("blob", blobBase),
+    admitNativeType("s.blob", nativeType)
+  );

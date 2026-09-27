@@ -8,15 +8,21 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
+import { admitNativeType } from "../native-catalog";
+import type {
+  ExactNativeTypeMap,
+  NativeDialect,
+  NativeTypeArgument,
+  NativeTypeDeclaration,
+} from "../native-types";
 
 const vectorBase = v.vector();
 
 export class VectorScalar<State extends ScalarState<"vector">> {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
+  private readonly _nativeType?: NativeTypeDeclaration | undefined;
 
-  constructor(state: State, _nativeType?: NativeType) {
+  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
     this.state = state;
     this._nativeType = _nativeType;
   }
@@ -74,5 +80,13 @@ export class VectorScalar<State extends ScalarState<"vector">> {
   }
 }
 
-export const vector = (nativeType?: NativeType) =>
-  new VectorScalar(createDefaultState("vector", vectorBase), nativeType);
+export const vector = <
+  Db extends NativeDialect = never,
+  const Given extends ExactNativeTypeMap<Given> = never,
+>(
+  nativeType?: NativeTypeArgument<Db, Given>
+) =>
+  new VectorScalar(
+    createDefaultState("vector", vectorBase),
+    admitNativeType("s.vector", nativeType)
+  );

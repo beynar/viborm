@@ -17,7 +17,7 @@ import {
 } from "./polymorphic";
 import {
   createTargetSettlement,
-  normalizeJunctionAction,
+  normalizeJunctionActions,
   normalizeJunctionToken,
   normalizeRelationName,
   refuseRelationInput,
@@ -27,6 +27,7 @@ import type {
   Getter,
   GetterOnly,
   JunctionReferentialAction,
+  JunctionSideActions,
   ModelToManyState,
   OrdinaryJunctionOverrides,
   RelationInternal,
@@ -36,6 +37,28 @@ import type {
 // =============================================================================
 // TERMINAL CAPABILITY SURFACE
 // =============================================================================
+
+/** A junction action: the symmetric shorthand, or one action per side. */
+export type JunctionActionDeclaration =
+  | JunctionReferentialAction
+  | JunctionSideActions;
+
+/** Every key any map member of `Action` declares; a bare action declares none. */
+type DeclaredMapKeys<Action> = Action extends JunctionReferentialAction
+  ? never
+  : keyof Action;
+
+/**
+ * `{ source, target }` is exact: a key beside the two sides is refused
+ * structurally, so a map held in a variable cannot carry one past
+ * excess-property checking either. The keys are gathered across a union
+ * before the check, so one clean member cannot vouch for another that carries
+ * an extra key.
+ */
+export type ExactJunctionActions<Action> = Record<
+  Exclude<DeclaredMapKeys<Action>, keyof JunctionSideActions>,
+  never
+>;
 
 /**
  * A model-target collection slot.
@@ -56,8 +79,12 @@ export type ModelToManyRelation<State> = {
   through(table: string): ModelToManyRelation<State>;
   source(token: string): ModelToManyRelation<State>;
   target(token: string): ModelToManyRelation<State>;
-  onDelete(action: JunctionReferentialAction): ModelToManyRelation<State>;
-  onUpdate(action: JunctionReferentialAction): ModelToManyRelation<State>;
+  onDelete<const Action extends JunctionActionDeclaration>(
+    action: Action & ExactJunctionActions<Action>
+  ): ModelToManyRelation<State>;
+  onUpdate<const Action extends JunctionActionDeclaration>(
+    action: Action & ExactJunctionActions<Action>
+  ): ModelToManyRelation<State>;
 };
 
 // =============================================================================
@@ -104,17 +131,17 @@ class ModelToMany {
     });
   }
 
-  onDelete(action: JunctionReferentialAction): ModelToMany {
+  onDelete(action: JunctionActionDeclaration): ModelToMany {
     return this.withJunction({
       ...this.state.junction,
-      onDelete: normalizeJunctionAction("onDelete", action),
+      onDelete: normalizeJunctionActions("onDelete", action),
     });
   }
 
-  onUpdate(action: JunctionReferentialAction): ModelToMany {
+  onUpdate(action: JunctionActionDeclaration): ModelToMany {
     return this.withJunction({
       ...this.state.junction,
-      onUpdate: normalizeJunctionAction("onUpdate", action),
+      onUpdate: normalizeJunctionActions("onUpdate", action),
     });
   }
 

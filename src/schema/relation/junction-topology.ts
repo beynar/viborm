@@ -28,7 +28,10 @@ import {
   JunctionPhysicalNameError,
   junctionSourceSideIsFirst,
 } from "./helpers";
-import type { VariantJunctionOverride } from "./types";
+import type {
+  JunctionReferentialAction,
+  VariantJunctionOverride,
+} from "./types";
 
 export interface JunctionEndpointInput {
   /** Carried opaquely; the owner never dereferences it (the engine projects it into its `JunctionSide`). */
@@ -48,6 +51,14 @@ export interface JunctionEndpointInput {
   readonly rowKey: readonly string[];
   /** The side naming token, resolved by the caller from overrides or defaults. */
   readonly token: string;
+  /**
+   * This side's foreign-key actions, already oriented onto this side by the
+   * caller. Absent (omitted, never `undefined`: the owner copies the side
+   * through) means the junction default; only an ordinary pair's owner states
+   * them.
+   */
+  readonly onDelete?: JunctionReferentialAction;
+  readonly onUpdate?: JunctionReferentialAction;
 }
 
 export interface JunctionTopologyInput {
@@ -70,6 +81,13 @@ export interface ResolvedJunctionSide {
   readonly token: string;
   /** Complete ordered stored reference, model-key-catalog order (index-aligned with the input rowKey). */
   readonly members: readonly ResolvedJunctionMember[];
+  /**
+   * The actions of the foreign key from the junction to THIS side's model.
+   * They travel with the side, so reordering the two sides into canonical
+   * physical order moves each action with its own table and columns.
+   */
+  readonly onDelete?: JunctionReferentialAction;
+  readonly onUpdate?: JunctionReferentialAction;
 }
 
 export interface ResolvedJunctionTopology {
@@ -180,6 +198,8 @@ interface JunctionSideFacts {
   readonly token: string;
   readonly fields: readonly string[];
   readonly rowKey: readonly string[];
+  readonly onDelete?: JunctionReferentialAction;
+  readonly onUpdate?: JunctionReferentialAction;
 }
 
 interface JunctionTopologyFacts {
@@ -189,17 +209,15 @@ interface JunctionTopologyFacts {
   readonly pairName: string | undefined;
 }
 
+/**
+ * The endpoint's facts travel through as the caller stated them: its actions
+ * are already oriented onto this side, and an unstated one is already absent.
+ */
 function sideFacts(
   endpoint: JunctionEndpointInput,
   group: JunctionFieldGroup
 ): JunctionSideFacts {
-  return {
-    model: endpoint.model,
-    modelName: endpoint.modelName,
-    token: group.token,
-    fields: group.fields,
-    rowKey: endpoint.rowKey,
-  };
+  return { ...endpoint, token: group.token, fields: group.fields };
 }
 
 /** Relation-free half of the resolution: member zip, canonical order, names. */
@@ -253,15 +271,17 @@ function deriveJunctionTopology(
   };
 }
 
-function resolveSide(side: JunctionSideFacts): ResolvedJunctionSide {
+function resolveSide({
+  fields,
+  rowKey,
+  ...side
+}: JunctionSideFacts): ResolvedJunctionSide {
   return {
-    model: side.model,
-    modelName: side.modelName,
-    token: side.token,
-    members: side.rowKey.map((referencedField, index) => ({
+    ...side,
+    members: rowKey.map((referencedField, index) => ({
       // `junctionFieldGroup` (helpers.ts) returns exactly `rowKeyArity` fields
       // for the same row-key list zipped here, so this lookup cannot miss.
-      junctionField: side.fields[index]!,
+      junctionField: fields[index]!,
       referencedField,
     })),
   };

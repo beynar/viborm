@@ -7,7 +7,7 @@
 // reads a relation object or a second endpoint's declaration.
 
 import { isValidSchemaIdentifier } from "../identifier";
-import type { JunctionReferentialAction } from "./types";
+import type { JunctionSideActions } from "./types";
 
 // =============================================================================
 // DEFAULT NAMES
@@ -221,8 +221,8 @@ export interface JunctionOverrideView {
   readonly table?: string;
   readonly source?: string;
   readonly target?: string;
-  readonly onDelete?: JunctionReferentialAction;
-  readonly onUpdate?: JunctionReferentialAction;
+  readonly onDelete?: JunctionSideActions;
+  readonly onUpdate?: JunctionSideActions;
 }
 
 export interface OrdinaryJunctionNames {

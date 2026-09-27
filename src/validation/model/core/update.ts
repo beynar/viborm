@@ -9,7 +9,14 @@ import type { ScalarSchemas } from "../index";
 // =============================================================================
 
 /**
- * Build scalar update schema - all scalar fields for update input (all optional)
+ * Scalar update input: every scalar that HAS an update schema (all optional).
+ *
+ * The one reader of `fieldSchemas.scalars` for update input — `getUpdateSchema`
+ * and every nested update surface (they project `core.update`) extend it. A
+ * `.now()` creation timestamp has no update schema (`getScalarsSchemas`), so
+ * `fromObject` gives it no runtime entry, the strict object refuses the key as
+ * `Unknown key` however it is spelled — `undefined` included — and its
+ * type-level entry is `never`, which refuses the key in a non-fresh payload too.
  */
 export type ScalarUpdateSchema<
   M extends AnyModel,
@@ -62,10 +69,6 @@ export type UpdateSchema<
 export const getUpdateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   fieldSchemas: F
 ): UpdateSchema<M, F> => {
-  const scalarUpdate = v.fromObject<F["scalars"], "update">(
-    fieldSchemas.scalars,
-    "update"
-  );
   const relationUpdate = v.fromObject<F["relations"], "update">(
     fieldSchemas.relations,
     "update"
@@ -74,7 +77,7 @@ export const getUpdateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     fieldSchemas.polymorphic,
     "update"
   );
-  return scalarUpdate
+  return getScalarUpdate<M, F>(fieldSchemas)
     .extend(relationUpdate.entries)
     .extend(polymorphicUpdate.entries);
 };

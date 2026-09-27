@@ -11,6 +11,7 @@ import { ValidationError } from "@errors";
 import { isValidSchemaIdentifier } from "../identifier";
 import type {
   JunctionReferentialAction,
+  JunctionSideActions,
   NonEmptyFieldTuple,
   ReferentialAction,
 } from "./types";
@@ -142,7 +143,7 @@ export function normalizeReferentialAction(
 }
 
 /** Junction actions exclude `setNull` at the type level and here. */
-export function normalizeJunctionAction(
+function normalizeJunctionAction(
   path: string,
   action: unknown
 ): JunctionReferentialAction {
@@ -154,6 +155,43 @@ export function normalizeJunctionAction(
     path,
     "A junction referential action must be one of 'cascade', 'restrict' or 'noAction'; 'setNull' cannot null a membership-key member"
   );
+}
+
+/**
+ * The ONE normalization of a junction action declaration. A bare action is the
+ * symmetric shorthand and becomes the same pair a `{ source, target }` map
+ * spells, so trusted state holds one form and no consumer asks which spelling
+ * declared it. The map names both sides and nothing else: an omitted side
+ * would silently keep a default the author never chose. Every object is read
+ * as a map, so an array or a class instance is told what a map must be rather
+ * than which actions exist.
+ */
+export function normalizeJunctionActions(
+  path: "onDelete" | "onUpdate",
+  declared: unknown
+): JunctionSideActions {
+  if (typeof declared !== "object" || declared === null) {
+    const action = normalizeJunctionAction(path, declared);
+    return Object.freeze({ source: action, target: action });
+  }
+  if (
+    !(
+      isPlainRecord(declared) &&
+      hasExactKeys(declaredKeys(declared), ["source", "target"])
+    )
+  ) {
+    refuseRelationInput(
+      "s.toMany",
+      path,
+      `A junction '${path}' map is a plain record naming exactly 'source' (the foreign key to the declaring model) and 'target' (the foreign key to its target model)`
+    );
+  }
+  const side = (name: "source" | "target"): JunctionReferentialAction =>
+    normalizeJunctionAction(
+      `${path}.${name}`,
+      readCallerProperty("s.toMany", declared, name, `${path}.${name}`)
+    );
+  return Object.freeze({ source: side("source"), target: side("target") });
 }
 
 /** One junction table name or side naming token. */

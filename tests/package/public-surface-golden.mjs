@@ -130,6 +130,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "Getter",
       "Model",
       "NativeType",
+      "NativeTypeMap",
       "NumberScalar",
       "NumericScalar",
       "ReferentialAction",

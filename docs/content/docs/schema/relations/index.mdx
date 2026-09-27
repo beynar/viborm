@@ -129,8 +129,8 @@ s.toMany(() => target)
   .through("post_tags")     // Junction table name
   .source("postId")         // This side's column, or prefix for a compound key
   .target("tagId")          // The other side's column, or prefix for a compound key
-  .onDelete("cascade")      // Referential action (applies to both junction FKs)
-  .onUpdate("cascade")      // Referential action (applies to both junction FKs)
+  .onDelete("cascade")      // Referential action for both junction FKs,
+  .onUpdate({ source: "cascade", target: "restrict" }) // or one per FK
 ```
 
 `.through()`, `.source()`, `.target()`, `.onDelete()` and `.onUpdate()` describe
@@ -199,7 +199,10 @@ candidates between the same two models are ambiguous and reported as `R009`.
 | `noAction` | Database default behavior |
 
 Junction actions accept only `cascade`, `restrict` and `noAction`: every junction
-column carries the membership itself, so there is nothing there to null.
+column carries the membership itself, so there is nothing there to null. A
+junction has two foreign keys, and `{ source, target }` gives each its own
+action: `source` is the key to the declaring model, `target` the key to its
+target. See [Many-to-Many](/docs/schema/relations/many-to-many#different-actions-for-the-two-foreign-keys).
 
 This is the canonical reference — the per-relationship pages link back here.
 

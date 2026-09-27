@@ -105,6 +105,7 @@ order; a producer that sorts keys destroys it.
 | Key | Means |
 | --- | --- |
 | `native` | the factory's native-type argument — `{ "db": "pg" \| "mysql" \| "sqlite", "type": "varchar(255)" }`, see [Native types](#native-types); absent on `decimal` |
+| `nativeByDialect` | the factory's argument when it is a map by dialect — `{ "pg"?: { "db": "pg", "type": … }, "mysql"?: …, "sqlite"?: … }`, each entry spelled like `native`; a field carries at most one of `native` and `nativeByDialect`; absent on `decimal` |
 | `nullable`, `array`, `id`, `unique` | the matching modifier |
 | `column` | `.map(columnName)` |
 | `default` | a literal default — see [Defaults](#defaults) |
@@ -116,7 +117,7 @@ order; a producer that sorts keys destroys it.
 
 `point` is the fixed GeoPoint scalar. It accepts `nullable`, `column`, and a
 literal default with exactly `longitude` and `latitude`. It has no `native`,
-`array`, `id`, or `unique` spelling. A spatial index is declared at the model:
+`nativeByDialect`, `array`, `id`, or `unique` spelling. A spatial index is declared at the model:
 
 ```json
 {
@@ -156,13 +157,18 @@ create time overrides it.
 | --- | --- |
 | `name` | any — the pairing label, a free-form non-empty string |
 | `fields`, `references`, `onDelete`, `onUpdate` | `toOne` with `target` |
-| `junction` | `toMany` with `target` — `{ table?, source?, target?, onDelete?, onUpdate? }`, at least one key |
+| `junction` | `toMany` with `target` — `{ table?, source?, target?, onDelete?, onUpdate?, onDeleteSides?, onUpdateSides? }`, at least one key |
 | `values` | variants — the stored discriminator per variant, exact over every variant key |
 | `optional` | `toOne` with `variants` |
 | `through` | `toMany` with `variants` — `{ "<variant>": { "table", "source", "target" } }` |
 
 A key that belongs to another arm is refused, so a `toMany` cannot carry
 `references` and a `toOne` cannot carry `through`.
+
+A junction action is either one action for both foreign keys (`onDelete`) or
+one per key (`onDeleteSides: { "source": "cascade", "target": "noAction" }`,
+both keys required), never both for the same action. The serializer writes the
+side map only when the two sides differ; equal sides come back as `onDelete`.
 
 ### Native types
 
@@ -194,6 +200,37 @@ capability: `s.string({ db, type })` in TypeScript takes any type you like,
 because you wrote it. `serializeSchema` applies the identical rule, so a schema
 holding a type the document cannot carry is named rather than written into a
 document its own parser would reject.
+
+A map by dialect is written as `nativeByDialect`, and every entry is held to the
+same catalog as `native` (`J011` at the entry's `type`). Its keys are exactly
+`pg`, `mysql` and `sqlite` (`J003` for any other), each entry's `db` is its own
+key (`J004`), and a field with both `native` and `nativeByDialect` is refused
+(`J003`). A map that names no dialect is refused by the scalar factory (`J010`).
+The serializer writes a map as `nativeByDialect` with every entry, in the order
+`pg`, `mysql`, `sqlite`, and a single constant as `native` — so a one-entry map
+and the constant it resembles stay distinct declarations through a round trip.
+Unlike `native`, a map in TypeScript takes only catalog values too, so any map a
+schema holds can be written.
+
+```json
+{
+  "version": 1,
+  "models": {
+    "note": {
+      "fields": {
+        "id": { "type": "string", "id": true },
+        "body": {
+          "type": "string",
+          "nativeByDialect": {
+            "pg": { "db": "pg", "type": "citext" },
+            "mysql": { "db": "mysql", "type": "LONGTEXT" }
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 ### Enums
 
@@ -406,7 +443,7 @@ Validation failed for schema-json: 2 validation errors
 | `J008` | a default is outside the field's own domain |
 | `J009` | the document spells a surface v1 refuses |
 | `J010` | a builder refused the declaration this node denotes |
-| `J011` | a `native.type` is not in the declared dialect's native type catalog |
+| `J011` | a `native.type` (or a `nativeByDialect` entry's `type`) is not in the declared dialect's native type catalog |
 
 Anything the document itself can be wrong about is reported **all at once**.
 Anything semantic — a foreign key that does not pair, a graph that does not

@@ -670,6 +670,8 @@ dependency-safe clear are compiled before anything is dropped.
 | Live physical fingerprint | `push-fingerprint.ts` `fingerprintLive` |
 | Operation execution order | `utils.ts` `sortOperations` |
 | Generated schema compile order | `utils.ts` `prepareSchemaProgram` |
+| Table drop order, its delete-action rule and the refusal of drops no order satisfies | `drop-order.ts` `orderTableDrops`; namespace reset shares only its `childrenBeforeParents` rule |
+| A generated program's inverse, including which keys a recreated table restores inline (none the program dropped by itself: their own inverse restores them after every table exists) | `invert.ts` `invertOperations` |
 | RFC 8785 canonical JSON bytes | `canonical-json.ts` |
 | Closed V1 persisted and operation-input shapes | `v1-types.ts` |
 | Frozen non-executable graph views | `public-view.ts` |
@@ -692,6 +694,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Capability-sensitive migration client composition | `client.ts` |
 | Package export boundary | `index.ts` |
 | Identifier column type and physical form | `@schema/scalars/string/id-domain` `idStorageOf` — the three `mapScalarType`s derive from it |
+| Which native type a scalar selects on this dialect (shorthand or per-dialect map) | `@schema/scalars/native-types` `nativeTypeFor` — each driver asks for its own dialect; a snapshot records only that answer |
 | Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
 | Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
 

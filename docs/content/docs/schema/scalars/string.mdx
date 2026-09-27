@@ -14,7 +14,7 @@ s.string().nullable(); // string | null
 s.string().array(); // string[] (native on PG, JSON on MySQL/SQLite)
 ```
 
-Common modifiers (`.nullable()`, `.unique()`, `.default()`, `.map()`, `.schema()`) are covered in the [modifier reference](/docs/schema/scalars). To override the column type (`varchar(n)`, `uuid`, `citext`, ...), see [Native Types](/docs/schema/native-types).
+Common modifiers (`.nullable()`, `.unique()`, `.default()`, `.map()`, `.schema()`) are covered in the [modifier reference](/docs/schema/scalars). To override the column type (`varchar(n)`, `uuid`, `citext`, ...), see [Native Types](/docs/schema/native-types); `s.string({ pg: PG.STRING.CITEXT, mysql: MYSQL.STRING.LONGTEXT })` chooses one per database.
 
 ## IDs and Auto-Generation
 
@@ -154,7 +154,10 @@ PostgreSQL accepts `text`, `citext`, `varchar(n)`, `bytea` and — for the two
 uuid formats — `uuid`. MySQL accepts its TEXT family, `BINARY(n)`,
 `VARBINARY(n)` and `BLOB`, where `n` must be the format's own width. SQLite
 accepts `TEXT` and `BLOB`. Anything else is refused where it is declared, with a
-message naming the spellings that format does accept.
+message naming the spellings that format does accept. A map with one entry per
+database applies this per dialect: `s.string({ pg: PG.STRING.VARCHAR(40) }).id().uuid()`
+keeps text on PostgreSQL and compact storage on MySQL and SQLite, and a foreign
+key to it follows each dialect's choice.
 
 PostgreSQL's `char(n)` is **not** among them, though it is an ordinary string
 override: `character(n)` blank-pads to its full width, so a 36-character uuid in

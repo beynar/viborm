@@ -1,4 +1,4 @@
-import type { NativeType } from "@schema/scalars/native-types";
+import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import type { Sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type {
@@ -151,7 +151,7 @@ export interface DatabaseAdapter {
      * then refuses. The dialects that DO have a temporal type ignore it — their
      * own native types all name a column that accepts this same spelling.
      */
-    dateTime: (iso: string, nativeType?: NativeType) => Sql;
+    dateTime: (iso: string, nativeType?: NativeTypeDeclaration) => Sql;
     /**
      * Decimal operand from a canonical decimal string, in the DOMAIN it is
      * being compared or assigned against.

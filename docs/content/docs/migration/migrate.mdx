@@ -158,6 +158,8 @@ const preview = await migrations.generate({ dryRun: true });
 
 `--from empty` and `from: null` mean the virtual empty root. A second virtual-root transition is refused. Numeric file indexes do not exist.
 
+A state that removes several related tables drops each table before the tables it references, in the same order `push` uses; SQLite tables that no order can drop are refused before the state is published. See [Removing Related Tables](/docs/migration/push#removing-related-tables).
+
 ### Manual Transitions
 
 Some work moves data, not just structure. VibORM refuses to invent that movement. You supply complete parent transitions before generation. The estate stores the final SQL and closed manifest — not a durable TypeScript migration language.

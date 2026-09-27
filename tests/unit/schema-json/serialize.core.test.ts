@@ -12,6 +12,7 @@ import { s } from "@schema";
 import type { Schema } from "@schema/hydration";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { attachFieldSchemas, parseSchema, serializeSchema } from "@schema/json";
+import { nativeTypeFor } from "@schema/scalars/native-types";
 import { SchemaValidationError } from "@schema/validation/error";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { JsonValue } from "@validation";
@@ -271,7 +272,9 @@ describe("refusal witnesses", () => {
       throw new Error("the slug field carries a native declaration");
     }
     Object.assign(field.native, { type: "text" });
-    expect(scalar["~"].nativeType?.type).toBe("varchar(255)");
+    expect(nativeTypeFor(scalar["~"].nativeType, "pg")?.type).toBe(
+      "varchar(255)"
+    );
   });
 
   /**

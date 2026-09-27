@@ -174,14 +174,58 @@ export const getScalarsSchemas = <Source extends AnyModel>(
   const scalars = source["~"].state.scalars;
   for (const scalar in scalars) {
     const state = scalars[scalar]!["~"].state;
-    builders[scalar] = () => getScalarSchemas(state, derived?.get(scalar));
+    builders[scalar] = () => {
+      const schemas = getScalarSchemas(state, derived?.get(scalar));
+      return state.autoGenerate?.kind === "now" ? insertOnly(schemas) : schemas;
+    };
   }
   return lazyRecord(builders) as GetScalarsSchemas<Source>;
 };
 
+/**
+ * A `.now()` creation timestamp is INSERT-ONLY: its record keeps `base`,
+ * `create` and `filter`, and its `update` is `undefined`.
+ *
+ * The rule is read here, once per model field, from the field's EFFECTIVE
+ * generator: `autoGenerate` is the declaration standing after every modifier,
+ * so `.now().updatedAt()` stays updatable, `.updatedAt().now()` does not, and a
+ * modifier that keeps the generator (`.nullable()`, `.map()`, `.default(v)`)
+ * keeps the restriction. `.default(v)` alone declares no generator.
+ *
+ * Omission is the whole mechanism. `fromObject(scalars, "update")` builds no
+ * entry for an `undefined` member, so the strict update object refuses the key
+ * as `Unknown key` — beside a valid key, inside `{ set }`, and spelled
+ * `undefined`, which a present entry would skip as absent — and the kind's
+ * interned value validators are never consulted, so access order between two
+ * fields with the same flags cannot hand one the other's permission.
+ *
+ * It restricts what the typed ORM assigns, not the column: raw SQL, other
+ * writers and database cascades are not blocked.
+ */
+const insertOnly = <T extends object>(schemas: T): T =>
+  Object.defineProperty(schemas, "update", {
+    value: undefined,
+    enumerable: true,
+  });
+
+/**
+ * The type half of {@link insertOnly}. Its `update` is `undefined`, which
+ * `V.FromObject` turns into a `never` entry: the update input still NAMES the
+ * key, as `?: never`, so a payload held in a variable is refused too — a key
+ * that is merely absent refuses only a fresh literal.
+ */
+type UpdateAdmission<Schemas, State> = State extends {
+  readonly autoGenerate: { readonly kind: "now" };
+}
+  ? Omit<Schemas, "update"> & { readonly update: undefined }
+  : Schemas;
+
 export type GetScalarsSchemas<Source extends AnyModel> = {
-  [F in keyof Source["~"]["state"]["scalars"]]: GetScalarSchemas<
-    Source["~"]["state"]["scalars"][F]["~"]["state"],
-    OperandCtx<Source>
+  [F in keyof Source["~"]["state"]["scalars"]]: UpdateAdmission<
+    GetScalarSchemas<
+      Source["~"]["state"]["scalars"][F]["~"]["state"],
+      OperandCtx<Source>
+    >,
+    Source["~"]["state"]["scalars"][F]["~"]["state"]
   >;
 };

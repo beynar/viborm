@@ -114,7 +114,7 @@ describe("junction referential actions (§11.2.17)", () => {
     ).toThrow("cannot null a membership-key member");
   });
 
-  it("carries the surviving actions onto the resolved edge", () => {
+  it("carries the surviving actions onto both resolved junction sides", () => {
     const post = s.model({
       id: s.string().id(),
       tags: s
@@ -126,8 +126,12 @@ describe("junction referential actions (§11.2.17)", () => {
     const edge = junctionEdge({ post, tag });
 
     if (edge.kind !== "junction") throw new Error("wrong kind");
-    expect(edge.onDelete).toBe("cascade");
-    expect(edge.onUpdate).toBe("restrict");
+    // The symmetric shorthand states one action for BOTH foreign keys; each
+    // side of the one topology carries its own copy.
+    for (const side of [edge.topology.source, edge.topology.target]) {
+      expect(side.onDelete).toBe("cascade");
+      expect(side.onUpdate).toBe("restrict");
+    }
   });
 });
 
@@ -189,8 +193,10 @@ describe("one configuration owner (§11.2.18)", () => {
     expect(edge.topology.table).toBe("post_tag");
     expect(edge.topology.source.token).toBe("postId");
     expect(edge.topology.target.token).toBe("tagId");
-    expect(edge.onDelete).toBe("cascade");
-    expect(edge.onUpdate).toBe("restrict");
+    for (const side of [edge.topology.source, edge.topology.target]) {
+      expect(side.onDelete).toBe("cascade");
+      expect(side.onUpdate).toBe("restrict");
+    }
   });
 
   it("refuses configuration on BOTH endpoints, agreeing or not", () => {

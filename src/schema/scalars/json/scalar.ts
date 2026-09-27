@@ -7,7 +7,13 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
+import { admitNativeType } from "../native-catalog";
+import type {
+  ExactNativeTypeMap,
+  NativeDialect,
+  NativeTypeArgument,
+  NativeTypeDeclaration,
+} from "../native-types";
 
 const jsonBase = v.json();
 
@@ -15,8 +21,8 @@ export class JsonScalar<
   State extends ScalarState<"json"> = ScalarState<"json">,
 > {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
-  constructor(state: State, _nativeType?: NativeType) {
+  private readonly _nativeType?: NativeTypeDeclaration | undefined;
+  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
     this.state = state;
     this._nativeType = _nativeType;
   }
@@ -79,5 +85,13 @@ export class JsonScalar<
   }
 }
 
-export const json = (nativeType?: NativeType) =>
-  new JsonScalar(createDefaultState("json", jsonBase), nativeType);
+export const json = <
+  Db extends NativeDialect = never,
+  const Given extends ExactNativeTypeMap<Given> = never,
+>(
+  nativeType?: NativeTypeArgument<Db, Given>
+) =>
+  new JsonScalar(
+    createDefaultState("json", jsonBase),
+    admitNativeType("s.json", nativeType)
+  );

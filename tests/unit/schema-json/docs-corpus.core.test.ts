@@ -102,9 +102,9 @@ describe("docs acceptance corpus", () => {
       byLanguage[fence.language] = (byLanguage[fence.language] ?? 0) + 1;
     }
     expect(byLanguage).toEqual({
-      ts: 159,
+      ts: 160,
       sql: 8,
-      json: 4,
+      json: 5,
       text: 3,
       mermaid: 1,
     });
@@ -160,6 +160,7 @@ describe("documented JSON documents", () => {
       "json.mdx#2",
       "json.mdx#4",
       "json.mdx#5",
+      "json.mdx#6",
     ]);
   });
 

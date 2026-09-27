@@ -358,10 +358,12 @@ describe("deep live reset planning", () => {
         table("child", [foreignKey("child_parent_fk", "parent")]),
         table("self", [foreignKey("self_fk", "self")]),
         table("catalog_only", [foreignKey("ignored_fk", "parent")]),
+        table("base", []),
+        table("kid", [foreignKey("kid_base_fk", "base")]),
       ],
       enums: [{ name: "status", values: ["open", "closed"] }],
     };
-    const tables = ["_track", "kept", "parent", "child", "self"];
+    const tables = ["_track", "kept", "parent", "child", "self", "base", "kid"];
     const enums = ["status"];
     const driver = pgEstateDriver("tenant");
     driver.respond = inventoryRespond({ tables, enums });
@@ -378,9 +380,13 @@ describe("deep live reset planning", () => {
 
     expect(plan.tables).toEqual(tables);
     expect(plan.clearTracking).toContain("_track");
-    expect(plan.dropForeignKeys).toHaveLength(3);
+    expect(plan.dropForeignKeys).toHaveLength(4);
+    // Children before parents; the cycle, whose keys are already dropped,
+    // follows in inventory order.
     expect(plan.dropTables.map(({ name }) => name)).toEqual([
       "self",
+      "kid",
+      "base",
       "parent",
       "child",
     ]);

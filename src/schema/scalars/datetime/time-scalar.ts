@@ -10,7 +10,13 @@ import {
   type ScalarState,
   updateState,
 } from "../common";
-import type { NativeType } from "../native-types";
+import { admitNativeType } from "../native-catalog";
+import type {
+  ExactNativeTypeMap,
+  NativeDialect,
+  NativeTypeArgument,
+  NativeTypeDeclaration,
+} from "../native-types";
 
 const defaultNow = generatorDefault(() => {
   return new Date().toISOString().slice(11, 19);
@@ -22,9 +28,9 @@ const timeBase = v.isoTime();
 
 export class TimeScalar<State extends ScalarState<"time">> {
   private readonly state: State;
-  private readonly _nativeType?: NativeType | undefined;
+  private readonly _nativeType?: NativeTypeDeclaration | undefined;
 
-  constructor(state: State, _nativeType?: NativeType) {
+  constructor(state: State, _nativeType?: NativeTypeDeclaration) {
     this.state = state;
     this._nativeType = _nativeType;
   }
@@ -161,8 +167,13 @@ export class TimeScalar<State extends ScalarState<"time">> {
   }
 }
 
-export const time = (nativeType?: NativeType) =>
+export const time = <
+  Db extends NativeDialect = never,
+  const Given extends ExactNativeTypeMap<Given> = never,
+>(
+  nativeType?: NativeTypeArgument<Db, Given>
+) =>
   new TimeScalar(
     { ...createDefaultState("time", timeBase), withTimezone: true },
-    nativeType
+    admitNativeType("s.time", nativeType)
   );

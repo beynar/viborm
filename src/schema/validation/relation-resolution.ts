@@ -31,7 +31,7 @@ import {
 import type { PolymorphicStorageColumn } from "../relation/polymorphic";
 import type {
   AnyRelation,
-  JunctionReferentialAction,
+  JunctionSideActions,
   ReferentialAction,
   RelationCardinality,
   RelationSlot,
@@ -111,9 +111,8 @@ export type ResolvedRelationEdge =
   | {
       readonly kind: "junction";
       readonly endpoints: readonly [RelationSlot, RelationSlot];
+      /** Each side's foreign-key actions travel on that side. */
       readonly topology: ResolvedJunctionTopology;
-      readonly onDelete?: JunctionReferentialAction;
-      readonly onUpdate?: JunctionReferentialAction;
     }
   | {
       readonly kind: "variantRowCarrier";
@@ -808,27 +807,21 @@ function resolveJunctionEdge(
         modelName: first.node.modelName,
         rowKey: sourceRowKey,
         token: names.sourceToken,
+        ...sideActions(overrides, "source"),
       },
       target: {
         model: second.node.slot.source,
         modelName: second.node.modelName,
         rowKey: targetRowKey,
         token: names.targetToken,
+        ...sideActions(overrides, "target"),
       },
       pairName: first.name,
     });
     topology.foreignKeyName("source");
     topology.foreignKeyName("target");
     publication.junctionNames.push(names.table, topology.reverseIndexName());
-    const onDelete = overrides?.onDelete;
-    const onUpdate = overrides?.onUpdate;
-    return {
-      kind: "junction",
-      endpoints,
-      topology,
-      ...(onDelete ? { onDelete } : {}),
-      ...(onUpdate ? { onUpdate } : {}),
-    };
+    return { kind: "junction", endpoints, topology };
   } catch (error) {
     issues.push({
       code:
@@ -931,7 +924,10 @@ function reportRequiredCycles(
   }
 }
 
-/** The other endpoint's view of one owner's overrides: the two sides swap. */
+/**
+ * The other endpoint's view of one owner's overrides: the two sides swap —
+ * the side tokens and, with them, each action pair's sides.
+ */
 function mirrorOverrides(
   overrides: JunctionOverrideView
 ): JunctionOverrideView {
@@ -941,10 +937,27 @@ function mirrorOverrides(
     ...(overrides.source === undefined ? {} : { target: overrides.source }),
     ...(overrides.onDelete === undefined
       ? {}
-      : { onDelete: overrides.onDelete }),
+      : { onDelete: swapSides(overrides.onDelete) }),
     ...(overrides.onUpdate === undefined
       ? {}
-      : { onUpdate: overrides.onUpdate }),
+      : { onUpdate: swapSides(overrides.onUpdate) }),
+  };
+}
+
+function swapSides(actions: JunctionSideActions): JunctionSideActions {
+  return { source: actions.target, target: actions.source };
+}
+
+/** One oriented side's slice of the owner's actions, for the topology. */
+function sideActions(
+  overrides: JunctionOverrideView | undefined,
+  side: "source" | "target"
+) {
+  const onDelete = overrides?.onDelete?.[side];
+  const onUpdate = overrides?.onUpdate?.[side];
+  return {
+    ...(onDelete === undefined ? {} : { onDelete }),
+    ...(onUpdate === undefined ? {} : { onUpdate }),
   };
 }
 

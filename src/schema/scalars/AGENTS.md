@@ -187,6 +187,41 @@ native type, array, ID, unique, custom-schema, or configurable-SRID mode.
 Definition validation owns compound key, foreign-key, and spatial-index roles.
 All value normalization stays in the validation GeoPoint codec, not the scalar.
 
+### Rule 9: A Native Type Is One Declaration, Resolved Per Dialect
+
+A scalar factory's native-type argument is either the tagged shorthand
+(`PG.STRING.CITEXT`, one dialect) or a map by dialect
+(`{ pg?, mysql?, sqlite? }`). `native-catalog.ts` `admitNativeType` is the
+factory boundary: the shorthand is stored AS GIVEN (its open historical
+contract, custom TypeScript spellings and extra keys included, is not
+tightened) once its `db` is one of the three dialects and its `type` a string —
+exactly what every reader relies on — and a dialect key beside its `db` is
+refused; a map is held to its whole contract
+there — exact keys, at least one, each an own entry of its own key's dialect
+and in that dialect's catalog — and stored as a frozen snapshot. The class keeps
+the declaration in `_nativeType`, outside `State`, and every modifier carries
+it by identity.
+
+`native-types.ts` `nativeTypeFor(declaration, dialect)` is the ONE bound-dialect
+resolver. Every physical reader — the three `mapScalarType`s, `idStorageOf`,
+`sqliteDateTimePhysicalForm`, the adapters' `idRepresentation` /
+`dateTimeRepresentation` / `literals.dateTime`, and the L5 storage rules (F013,
+FK012, the SQLite DateTime FK form), which ask every dialect because none is
+bound yet — asks it; none of them inspects the declaration's form. Only the
+schema-document serializer reads the form (`isTaggedNativeType`), to restate
+the declaration as it was written. The query engine threads the declaration
+to the adapter and never picks a dialect. The type half is
+`NativeTypeArgument<Db, Given>` with `Given` bounded by `ExactNativeTypeMap`:
+the shorthand's open shape (`Db` exists only so a tagged value counts as
+matched and never reaches `Given`), or a naked `Given` that must be a map —
+every key a dialect, each entry its own dialect's, at least one key — refused
+structurally, fresh and non-fresh. Never constrain `Given` to the weak
+`NativeTypeMap` (TypeScript falls back to it and admits any object held in a
+variable) and never wrap it as `Given & NoInfer<…>` (a union argument is then
+inferred from one member); `tests/types/scalars/native-type-map.core.types.ts`
+pins both. Parameterized constants return `DialectNativeType<D>` so a
+wrong-dialect entry cannot type-check.
+
 ---
 
 ## Anti-Patterns

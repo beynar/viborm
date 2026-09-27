@@ -439,6 +439,12 @@ const tag = s.model({
 });
 ```
 
+A junction action is one action for both foreign keys, or one per key:
+`.onDelete({ source: "cascade", target: "noAction" })`, where `source` is the
+key to the declaring model and `target` the key to its target. Either spelling
+is stored as that side pair, and moving the configuration to the other endpoint
+swaps the sides with the tokens.
+
 ### Terminal Capability Surfaces
 
 Four private terminals, reached only through the two factories:
@@ -705,7 +711,7 @@ const scalar = s.string().nullable().id();
 
 scalar["~"].state        // ScalarState object
 scalar["~"].state.base   // Base scalar schema
-scalar["~"].nativeType   // Optional native DB type
+scalar["~"].nativeType   // Optional native-type declaration (tagged or per-dialect map); read it through nativeTypeFor
 ```
 
 ### Model Internals
@@ -732,7 +738,7 @@ rel["~"].state.cardinality       // "one" | "many" — the factory that was call
 rel["~"].state.target            // { kind: "model", getter } | { kind: "variants", entries }
 rel["~"].state.name              // undefined | the disambiguating relation name
 rel["~"].state.foreignKey        // undefined | { fields, references, onDelete?, onUpdate? }
-rel["~"].state.junction          // undefined | ordinary junction overrides (toMany only)
+rel["~"].state.junction          // undefined | ordinary junction overrides (toMany only); actions as { source, target }
 rel["~"].state.optional          // undefined | true (variant toOne only)
 rel["~"].settleTarget()          // Lazy once-cell over the target getter
 ```

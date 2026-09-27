@@ -16,6 +16,7 @@ const localExtendedMigrationTests = Object.freeze([
   "sqlite-recreation-foreign-key-parent.test.ts",
   "sqlite-recreation-indexes.test.ts",
   "sqlite-unique-constraint.test.ts",
+  "table-drop-order.test.ts",
 ]);
 
 export const MIGRATION_COVERAGE_TESTS = Object.freeze(

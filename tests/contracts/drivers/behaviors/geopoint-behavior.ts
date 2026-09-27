@@ -9,6 +9,7 @@ import type { AnyDriver } from "@drivers";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { serializeModels } from "@migrations/serializer";
 import { s } from "@schema";
+import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
 import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
@@ -68,13 +69,20 @@ const marker = s
  * distance. The COLUMN name does not: `rank` reads and writes the column
  * `_distance`, and a distance selected beside it still publishes under the
  * output key `_distance`, at the top level, in a nested node and in a
- * recursive node.
+ * recursive node. `rank` states a native type per dialect (#45), each
+ * dialect's own default, which must not move that reading.
  */
 const landmark = s
   .model({
     id: s.string().id(),
     location: s.point(),
-    rank: s.int().map("_distance"),
+    rank: s
+      .int({
+        pg: PG.INT.INTEGER,
+        mysql: MYSQL.INT.INT,
+        sqlite: SQLITE.INT.INTEGER,
+      })
+      .map("_distance"),
     parentId: s.string().nullable(),
     parent: s
       .toOne(() => landmark)

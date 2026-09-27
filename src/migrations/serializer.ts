@@ -690,12 +690,6 @@ export function serializeResolvedModels(
       );
     }
 
-    // Referential actions are configured on the one endpoint that owns every
-    // override. Prisma parity: implicit junction FKs default to CASCADE so
-    // deleting an endpoint row removes its associations.
-    const onDelete = mapReferentialAction(edge.onDelete, "cascade");
-    const onUpdate = mapReferentialAction(edge.onUpdate, "cascade");
-
     const sourcePkFields = getPrimaryKeyFieldDefs(
       model,
       migrationDriver,
@@ -720,16 +714,24 @@ export function serializeResolvedModels(
     }));
 
     // Canonical column order: sorted model names decide (as the generated
-    // table name does), so both sides serialize the identical table.
+    // table name does), so both sides serialize the identical table. Each
+    // side carries its own foreign key's actions, so the reorder below moves
+    // an action with the table and columns it constrains. Prisma parity: an
+    // action the owner left unstated is CASCADE, so deleting an endpoint row
+    // removes its associations.
     const sourceSide = {
       members: sourceMembers,
       table: sourceTableName,
       sortKey: modelName.toLowerCase(),
+      onDelete: mapReferentialAction(topology.source.onDelete, "cascade"),
+      onUpdate: mapReferentialAction(topology.source.onUpdate, "cascade"),
     };
     const targetSide = {
       members: targetMembers,
       table: targetTableName,
       sortKey: targetModelName.toLowerCase(),
+      onDelete: mapReferentialAction(topology.target.onDelete, "cascade"),
+      onUpdate: mapReferentialAction(topology.target.onUpdate, "cascade"),
     };
     let [first, second] = [sourceSide, targetSide];
     if (!topology.sourceIsFirst) {
@@ -771,8 +773,8 @@ export function serializeResolvedModels(
           columns: firstColumns,
           referencedTable: first.table,
           referencedColumns: first.members.map((member) => member.pk.column),
-          onDelete,
-          onUpdate,
+          onDelete: first.onDelete,
+          onUpdate: first.onUpdate,
         },
         {
           name: topology.foreignKeyName(
@@ -781,8 +783,8 @@ export function serializeResolvedModels(
           columns: secondColumns,
           referencedTable: second.table,
           referencedColumns: second.members.map((member) => member.pk.column),
-          onDelete,
-          onUpdate,
+          onDelete: second.onDelete,
+          onUpdate: second.onUpdate,
         },
       ],
       uniqueConstraints: [],

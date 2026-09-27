@@ -5,6 +5,99 @@ Versioning.
 
 ## Unreleased
 
+- **Breaking: `.now()` creation timestamps are insert-only** (#47). A
+  `s.dateTime().now()`, `s.date().now()` or `s.time().now()` field was
+  documented as a creation timestamp that is "set once", yet an ordinary
+  `update` accepted it and overwrote the stored creation time. It is now
+  refused by every update surface — `update`, `updateMany`, the `update` arm of
+  `upsert`, and nested `update` / `updateMany` / `upsert.update` at any depth —
+  in TypeScript (the key is typed `?: never`, so a payload held in a variable
+  is refused too) and at runtime, where the call fails with `Unknown key:
+  <field>` before any SQL is sent, whether the value is spelled directly,
+  inside `{ set }`, or as `undefined`. An explicit `<field>: undefined` is the
+  one spelling TypeScript cannot refuse, because an optional key always admits
+  `undefined`: it compiles and is refused at runtime. Create, `createMany`, nested create,
+  `upsert.create` and `connectOrCreate.create` still accept an explicit value,
+  and an omitted one is still generated. Filtering, ordering and reading the
+  field are unchanged. The generator declared last decides:
+  `.now().updatedAt()` stays updatable, `.updatedAt().now()` does not, and
+  `.now().default(value)` / `.nullable().now()` keep the restriction.
+  `.updatedAt()` and ordinary temporal fields are unaffected. The schema
+  registry exported by `viborm/validation` shows the same rule: for such a
+  field, `createSchemaRegistry(...).proxy.<model>.scalars.<field>.update` is
+  now `undefined` (and typed `undefined`), while its `base`, `create` and
+  `filter` are unchanged. To change a
+  creation timestamp deliberately, use raw SQL — the restriction covers what
+  the typed client writes, not the column.
+- **Fix: table removal follows foreign keys, not table names** (#42). A push or
+  generated migration that removed a populated parent and child on SQLite
+  failed with `Foreign key constraint violation` whenever the parent's name
+  sorted first, and succeeded with the names swapped. Drops are now ordered
+  child-first from the foreign keys the database holds; unrelated drops keep
+  their order, and the preview, consent and executed program agree. On SQLite
+  a generated rollback recreates referenced tables first. PostgreSQL and MySQL
+  keep their forward order: they drop the keys before the tables. Their
+  generated rollback of such a removal now recreates every table before it
+  restores the keys, once each; it used to restore a child's key before the
+  parent existed and then a second time, so it failed. Tables that reference
+  each other are dropped in an order their `onDelete` actions allow, when one
+  exists: a `setNull` or `cascade` key can let one of them go first. **Newly
+  refused on SQLite:** removing tables that no order can drop, such as a cycle
+  of `restrict`/`noAction` keys, a cycle whose `cascade` reaches rows a
+  `restrict` key still guards, or a table whose `restrict` key references
+  itself, is refused before any statement runs (`V11009`, naming each blocked
+  table and the key that refuses it). The refusal is decided from the schema
+  alone, because no order safe for every row set can be established from it.
+  Such a plan used to run in catalog order: it failed and rolled back unless
+  the rows happened to satisfy that order, and it succeeded on empty tables,
+  which are now refused too. Remove one relation, or change its action to
+  `setNull`, in a separate change first.
+- **One native type per dialect** (#45). Every scalar factory that takes a
+  native type — `s.string`, `s.int`, `s.number`, `s.bigInt`, `s.boolean`,
+  `s.dateTime`, `s.date`, `s.time`, `s.json`, `s.blob`, `s.vector`, and the
+  second argument of `s.enum` — also takes a map by dialect:
+  `s.string({ pg: PG.STRING.CITEXT, mysql: MYSQL.STRING.LONGTEXT, sqlite:
+  SQLITE.STRING.TEXT })`. Each migration, adapter and identifier-storage
+  decision uses its own dialect's entry, or the automatic column when the map
+  omits it, so a DDL change to one entry is a migration on that dialect only.
+  The map's keys are exact in TypeScript (beside a real key, and in a map held
+  in a variable) and at runtime; an object with no dialect key must be a whole
+  `{ db, type }` value; each entry must be its key's dialect and, at runtime, a
+  value the `PG` / `MYSQL` / `SQLITE` constants produce; `{}` and an object that
+  is both a `{ db, type }` constant and a map are refused. A union of two maps
+  that share no dialect key needs a `NativeTypeMap` annotation. The factory
+  stores a frozen copy. Parameterized constants (`PG.STRING.VARCHAR(n)` and
+  the rest) now return their dialect in their type (`DialectNativeType<"pg">`,
+  still a `NativeType`). Schema documents carry a map as the new optional
+  `nativeByDialect` field, mutually exclusive with `native`, with the same
+  catalog check (`J011`); `NativeTypeMap` is exported from `viborm/schema`.
+  The single `{ db, type }` argument is unchanged in TypeScript, including
+  custom spellings outside the catalog. At runtime (untyped callers only) it
+  must now name `pg`, `mysql` or `sqlite` as `db` and carry a string `type`;
+  before, an unknown `db` was silently ignored on every dialect, and a
+  `db: "pg"` value with a missing, misspelled or non-string `type` crashed
+  `serializeModels` with a `TypeError`. Before, a map was accepted at runtime,
+  silently ignored on every dialect, and crashed `serializeSchema` with a
+  `TypeError`.
+- **A many-to-many junction's two foreign keys can have different actions
+  (#46).** `.onDelete()` and `.onUpdate()` on a model-target `s.toMany` now
+  also take `{ source, target }`: `source` is the junction's key to the model
+  that declares the configuration, `target` its key to the target model (not
+  the column order). `s.toMany(() => topic).onDelete({ source: "cascade",
+  target: "noAction" })` removes a post's memberships when the post is deleted
+  and refuses to delete a topic that is still assigned (a nested `delete`
+  through a post first removes that post's own membership). Both sides are
+  required; an extra key or `setNull` on either side is refused where it is
+  written, at runtime and in TypeScript. A bare action keeps meaning "both
+  keys", and existing declarations produce the same DDL. The one-owner rule
+  (R011) is unchanged: moving the configuration to the other endpoint means
+  swapping the sides, and that migrates to nothing. Schema JSON adds
+  `junction.onDeleteSides` / `junction.onUpdateSides`, each exclusive with the
+  symmetric key (`J004`); the serializer writes them only for unequal sides.
+  Internal state: `relation["~"].state.junction.onDelete` / `onUpdate` now
+  always hold the `{ source, target }` pair, and a resolved junction edge
+  carries its actions on `topology.source` / `topology.target` instead of
+  beside the topology.
 - **Breaking: `_count` is a reserved member name.** A schema whose model
   declares a scalar, a relation or a polymorphic slot named `_count` is now
   refused where the schema is validated — client construction, migrations and

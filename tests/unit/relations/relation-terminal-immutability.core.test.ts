@@ -87,9 +87,11 @@ describe("ordinary junction overrides", () => {
       .toMany(() => target)
       .onDelete("cascade")
       .onUpdate("restrict");
+    // The symmetric shorthand is stored in the one normalized form, the side
+    // pair a `{ source, target }` map spells.
     expect(stateOf(configured).junction).toEqual({
-      onDelete: "cascade",
-      onUpdate: "restrict",
+      onDelete: { source: "cascade", target: "cascade" },
+      onUpdate: { source: "restrict", target: "restrict" },
     });
   });
 });

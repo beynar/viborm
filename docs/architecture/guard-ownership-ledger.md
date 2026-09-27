@@ -2993,3 +2993,143 @@ inherited sentence "A distance result cannot be selected together with a model
 field named '_distance'." and its three sites leave (inherited 79 sites / 77
 sentences → 76 / 76, total 206 → 203); invariant, candidate and sentence-less
 counts are unchanged.
+
+---
+
+## Addendum — `.now()` timestamps are insert-only (issue #47, 2026-09-27)
+
+No guard was added or removed; one existing refusal was NARROWED. The rule
+itself is not a guard: `getScalarsSchemas` (`src/validation/scalars/index.ts`)
+gives a field whose effective generator is `now` no `update` schema, and the
+strict update object's existing unknown-key refusal (`Unknown key: <field>`)
+is what refuses the assignment.
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `src/validation/primitives/from-object.ts` `fromObject` · `fromObject path "<path>" did not match any entries in the source object` (schema-builder, `builder: "fromObject"`) | A `fromObject` path names a schema some member holds: a misspelled path is a builder bug, not an empty object. | Schema construction, where the path meets the source record. | **NARROWED.** It now also requires that no member DECLARES the path (`declaresPath`: the key is present, even holding `undefined`). An insert-only scalar declares `update` as `undefined`, so a model whose every scalar is insert-only builds an empty scalar update object and its relation updates still work; without the narrowing, the #47 rule would make that model's update schema throw at construction. Unique coverage kept: a path no member names — a typo, or a path that stops at a missing or `null` intermediate. Measured: making `declaresPath` always true fails 4 of `tests/unit/validation/fromObject.core.test.ts`'s cells (`throws when a path matches no entries…` :43, `a member that DECLARES the path…` :67, `reports a path that stops at a null intermediate value` :90, `throws when a nested path matches no entries…` :128); removing the exemption fails `a member that DECLARES the path as undefined is not a path typo` (:67) and `tests/unit/operation-schemas/update/insert-only-timestamps.core.test.ts` `a model with no updatable scalar still admits a relation update` (:381). |
+
+Deliberately NOT added: a `.now()` check in any relation verb, in
+`update.ts`, or in Raptor 3. Every update surface reads the one scalar record,
+so a second check would have no coverage of its own. The Raptor 3 refusal
+census is unaffected.
+
+---
+
+## Addendum — table drops follow foreign keys (issue #42, 2026-09-27)
+
+One refusal was added and none was removed. `orderTableDrops`
+(`src/migrations/drop-order.ts`, reached only through `prepareSchemaProgram`)
+orders a generated program's `dropTable` operations child-first from the
+CURRENT snapshot's foreign keys; a key matters while it is still active when
+its tables go (both tables dropped, no explicit `dropForeignKey` for it in the
+program). Where the keys form a cycle, it drops next a table whose implicit
+delete no remaining key can refuse (`refusalOf`: CASCADE extends the delete,
+SET NULL clears, RESTRICT refuses, NO ACTION and SET DEFAULT refuse unless the
+key is held by the table being dropped).
+
+| Site | Invariant | First knowable boundary | Disposition |
+|---|---|---|---|
+| `drop-order.ts` `cyclicDropRefusal` · `Tables "<t>", … cannot be dropped in an order that satisfies their foreign keys: dropping "<t>" is refused by <from>(<columns>) -> <to> ON DELETE <action>; …` (`V11009`, `meta.type: "cyclic-table-drop"`) | No table is dropped while a remaining active key may refuse its implicit delete, directly or through a CASCADE it triggers. | Program preparation: the first point where the effective key removals are known, before statements, consent hashes and artifacts are sealed. | **ADDED.** Unique coverage: a SQLite/LibSQL program in which every remaining table's drop can be refused: a cycle of RESTRICT/NO ACTION/SET DEFAULT keys, a cycle whose CASCADE reaches rows a RESTRICT key still guards, or a RESTRICT self-reference. Measured on better-sqlite3 over random populated rows (every action pair on a two-table cycle, both drop orders, and each self-reference action): these shapes fail in every order on some valid rows, while every shape the rule orders succeeds on all of them. Without the refusal the plan ran in catalog order: it failed mid-transaction and rolled back unless the rows happened to satisfy that order (for example a single west/east row pair under RESTRICT/CASCADE), and succeeded on empty tables. PostgreSQL and MySQL never reach it: `materializeDroppedTableForeignKeys` removes every key that touches a dropped table first. |
+
+Deliberately NOT added: a check that no RETAINED table keeps an active key into
+a dropped one. The desired snapshot cannot reference a table it does not
+contain, so the differ always removes such a key, and `sortOperations` runs
+every `dropForeignKey` (priority 2) before every `dropTable` (priority 7); the
+unique coverage of such a check cannot be named. Nor a check that a SET NULL
+key's columns are nullable: RA004 owns that for declared schemas, and a
+hand-written key that breaks it makes the drop fail with a NOT NULL
+violation (measured on better-sqlite3), inside the transaction the push rolls
+back.
+Falsifiers: `tests/unit/migrations/table-drop-order.core.test.ts` ("SQLite
+refuses a cycle before anything is published, naming each blocked table and
+why", "SQLite refuses a cascade into rows that RESTRICT still guards", "SQLite
+refuses a RESTRICT self-reference and names only it") and
+`tests/unit/migrations/table-drop-order.test.ts` (the three "refused before any
+statement runs" cells); the cycles the rule orders instead are pinned beside
+them ("SQLite breaks a cycle …", "a populated cycle drops when a delete action
+gives an order"). Neither file touches Raptor 3; its refusal census is
+unaffected.
+
+---
+
+## Addendum — a native type per dialect (issue #45, 2026-09-27)
+
+A scalar factory's native-type argument may now be a map by dialect
+(`s.string({ pg: PG.STRING.CITEXT, mysql: MYSQL.STRING.LONGTEXT })`), and the
+schema document carries it as `nativeByDialect`. The semantic owner of the
+declaration is `admitNativeType` (`src/schema/scalars/native-catalog.ts`, moved
+from `src/schema/json/` so the factories can reach the catalog); the one
+reader of it is `nativeTypeFor` (`src/schema/scalars/native-types.ts`). Guards
+added — none removed:
+
+| Site | Refuses | Unique coverage |
+|---|---|---|
+| `admitNativeType` · a declaration that is not an object | `s.string("citext")`, `s.string(null)` | Untyped callers only: TypeScript refuses both. Before, a string was stored and ignored by every reader, and `null` crashed `idStorageOf` on an identifier field. |
+| `admitNativeType` · a tagged value whose `db` is not a dialect or whose `type` is not a string | `{ db: "oracle", type }`, `{ db: "pg" }`, `{ db: "pg", typ }`, `{ db: "pg", type: 5 }` | Untyped callers only: `NativeTypeArgument` refuses all four in TypeScript. Measured on origin/main: an unknown `db` was ignored by every dialect, and a `db: "pg"` value without a string `type` crashed `serializeModels` with a `TypeError`. It is the shorthand's half of the plan's "never silently ignore an unknown dialect key" (the map's half is `admitEntry`); nothing downstream checks either fact. Added by the review repair. |
+| `admitNativeType` · a tagged value beside a dialect key | `{ db, type, mysql }` | The one object that is two declarations; its TypeScript half is `NativeTypeArgument`'s `Partial<Record<dialect, never>>`, which a `as any` caller bypasses. |
+| `admitNativeTypeMap` · an unknown key, an empty map, an entry of another dialect or shape, an entry outside its catalog | `{ pg, oracle }`, `{}`, `{ mysql: PG.STRING.CITEXT }`, `{ pg: { db: "pg", type: "text UNIQUE" } }` | The runtime half of the new map contract for code callers (the plan's "runtime rejection when types are bypassed"); a map is new surface, so it is catalog-checked where a tagged value is not. For a schema DOCUMENT it is reached only by the empty map (`J010`); every other case is refused by the reader first (below). |
+| `read.ts` · `nativeByDialect` beside `native`, or on a decimal | `J003` | The document's two spellings of one declaration; no builder sees both. |
+| `read.ts` · `readDialectEntry`'s `db` agreement | `J004` at `…/nativeByDialect/<key>/db` | **Overlaps** `admitEntry`'s mismatched-tag refusal for documents (which would report `J010` at the field). Kept because it is the narrowing that lets the reader produce the typed `NativeTypeMap` document value without an assertion, and it locates the entry. It exists only because a document entry repeats its key as `db`; the compact entry form (`{ pg: "citext" }`) would delete it. That entry-shape choice is the owner's (#45 review, open). |
+
+Reused, not added: the reader's closed-key (`J003`), plain-record and string
+shape (`J004`) and catalog (`J011`) checks now also run on each map entry
+through the existing `refuseUnknownKeys` / `readNativeNode`; `J011` on a map
+entry overlaps `admitEntry`'s catalog refusal for documents. It is not a second
+site: it is the one `readNativeNode` that already checks the `native` form,
+and the plan requires the document to keep its strict catalog boundary for
+every form, before any builder runs.
+The serializer does not catalog-check a map: every map a scalar holds passed
+`admitEntry`.
+
+Widened, not added: `F013` and `FK012` (`schema/validation/id-domains.ts`) and
+the SQLite DateTime foreign-key form (`rules/fk.ts`) now ask every dialect the
+declaration selects, through `nativeTypeFor`, instead of only the dialect a
+tagged value names — the same clause, over a declaration that can name several.
+`storageDisagreement` visits `pg`, `mysql`, `sqlite` in that order; a dialect
+neither side selects cannot disagree.
+
+Deliberately NOT added: a check that a map entry suits the scalar's kind
+(`s.string({ pg: PG.INT.INTEGER })` is admitted, as the tagged
+`s.string(PG.INT.INTEGER)` always was). The plan asks for "that dialect's
+existing catalog", and the constant trees' categories are not a kind rule:
+`s.string({ pg: PG.BLOB.BYTEA }).uuid().id()` is the identifier storage the
+native-type-map and issue-combination fixtures run live, and it crosses
+categories on purpose. A narrower map would be a new public-type decision, and
+narrowing the tagged form would break legacy declarations; both are the
+owner's. `docs/content/docs/schema/native-types.mdx` states the contract.
+
+Falsifiers: `tests/unit/scalars/native-type-map.core.test.ts` (factory
+refusals), `tests/unit/schema-json/native-type-map.core.test.ts` (document
+refusals), `tests/unit/schema-validation/native-type-map-validation.core.test.ts`
+(the widened L5 rules). The Raptor 3 refusal census is unchanged: the engine
+only threads the declaration's type (`query.ts`), and no sentence moved.
+
+---
+
+## Addendum — asymmetric junction actions (issue #46, 2026-09-27)
+
+A model-target `s.toMany` takes `.onDelete()` / `.onUpdate()` as a bare action
+(both junction keys) or an exact `{ source, target }` map, `source` being the
+key to the declaring model. The declaration is normalized ONCE, by
+`normalizeJunctionActions` (`src/schema/relation/terminal.ts`), into the side
+pair trusted state holds; the resolver orients it onto the topology's sides
+(`mirrorOverrides` swaps them with the tokens) and each `ResolvedJunctionSide`
+carries its own key's actions to the migration serializer. No guard was
+removed; the engine gained none (it reads no junction action — the constraint
+owns it, see non-census item N9).
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `terminal.ts` `normalizeJunctionActions` · `A junction '<action>' map is a plain record naming exactly 'source' … and 'target' …` (V4002, `s.toMany`, path `onDelete` / `onUpdate`) | Every object argument is read as a side map, and a side map is a plain record stating both keys and nothing else. | The modifier call: the map's keys are all it needs. | Without it an omitted side would silently keep the `cascade` default the author did not choose, and an extra key would be ignored. No later owner sees the map: the resolver reads the normalized pair. A class instance, inherited map or array is refused here as a map (the layer's `isPlainRecord` rule), not told the action vocabulary. | `tests/unit/relations/junction-side-actions.core.test.ts` "refuses an unknown key beside both sides", "refuses a map that omits a side, or names neither", "refuses a value that is neither an action nor a plain map, in the words of what it was read as". |
+| same function, each side through the existing `normalizeJunctionAction` (now module-private) at path `onDelete.source` … | A side action is `cascade` / `restrict` / `noAction`. | The modifier call. | The existing action rule, not a second one: the shorthand and both sides pass through the same function. | same file, "refuses `setNull` on either side", "refuses an explicit undefined side". |
+| `src/schema/json/read.ts` `readJunctionNode` · `` `onDelete` and `onDeleteSides` are exclusive … `` (J004) | One action has one spelling in a document. | The reader: the document node is the only place both keys coexist. | Both keys would otherwise become two builder calls, and last-call-wins would silently discard one. The `JunctionDocument` type's `?: never` arms state the same rule to a typed author; they are not a second runtime guard, and the reader stays the authority for untyped input. | `tests/unit/schema-json/junction-side-actions.core.test.ts` "refuses a symmetric action beside its side map"; type: `tests/types/relations/junction-side-actions.core.types.ts` `_deleteSpelledTwice`, `_updateSpelledTwice`. |
+| `read.ts` `readJunctionSides` (J003 unknown key, J004 non-object / missing side / bad action) | The document node has the shape its `JunctionSidesDocument` type claims. | The reader, which owns the document's shape and pointer (`src/schema/AGENTS.md` §5), exactly as it already checks the symmetric `onDelete` value. | The typed document the interpreter receives; without it the type would be an unchecked claim. The builder's refusal stays the semantic owner for hand-written declarations. | same file, "refuses an unknown key inside a side map", "refuses a side map that omits a side", "refuses `setNull` or an unknown action on either side", "refuses a side map that is not an object". |
+
+R011 (two configuring endpoints) and R012 (junction configuration on a slot
+that resolves to a row reference) are unchanged and cover the side map with no
+new code: `tests/unit/schema-validation/junction-side-actions.core.test.ts`.
+
+`junction-topology.ts` filters nothing: the resolver hands each side only its
+stated actions (an unstated one is omitted, never `undefined`) and the
+topology copies the side through, so absence has one producer. Variant member
+junctions state no action and so carry none.

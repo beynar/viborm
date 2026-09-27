@@ -18,6 +18,63 @@ s.json(PG.JSON.JSON);             // json instead of jsonb
 
 A native type only applies when it matches the database you run against (`PG.*` on PostgreSQL, `MYSQL.*` on MySQL, `SQLITE.*` on SQLite); otherwise the default mapping below is used. This keeps schemas portable across databases.
 
+## One native type per dialect
+
+To choose a native type on several databases at once, pass a map keyed by
+dialect instead of a single constant:
+
+```ts
+import { s } from "viborm";
+import { MYSQL, PG, SQLITE } from "viborm/schema";
+
+s.string({
+  pg: PG.STRING.CITEXT,
+  mysql: MYSQL.STRING.LONGTEXT,
+  sqlite: SQLITE.STRING.TEXT,
+});
+
+s.dateTime({ sqlite: SQLITE.DATETIME.INTEGER }); // epoch ms on SQLite only
+```
+
+Each migration uses only its own dialect's entry; a dialect the map leaves out
+keeps the default mapping below. So the map above creates `citext` on
+PostgreSQL, `LONGTEXT` on MySQL and `TEXT` on SQLite, and changing the `mysql`
+entry alone is a migration on MySQL and nothing on PostgreSQL or SQLite. The
+same entry decides how values are stored and read back — a SQLite `INTEGER`
+DateTime is written and decoded as epoch milliseconds, and an identifier format
+takes each dialect's entry exactly as it takes a single native type.
+
+The map is exact:
+
+- its keys are `pg`, `mysql` and `sqlite`, at least one of them — an unknown key
+  is a type error, beside a real key and in a map held in a variable, and an
+  object with no dialect key at all must be a whole `{ db, type }` constant;
+- each entry is a constant of its own key's dialect. A parameterized constant
+  keeps its dialect in its type, so `PG.STRING.VARCHAR(80)` fills the `pg` entry
+  and is refused as the `mysql` one;
+- a single `{ db, type }` constant and a map are two spellings: an object that
+  is both is refused.
+- an entry is checked against its dialect, not against the scalar. As with a
+  single constant, choosing a type that holds the scalar's values is yours:
+  `s.string({ pg: PG.BLOB.BYTEA }).uuid().id()` stores an identifier as bytes on
+  purpose, and `s.string({ pg: PG.INT.INTEGER })` is accepted just the same and
+  gives that string an `integer` column.
+
+The same rules hold at runtime for untyped callers, where every entry must also
+be a value the constants produce. A single constant keeps its historical
+behavior, custom `type` spellings included; at runtime it must name `pg`,
+`mysql` or `sqlite` as its `db` and carry a string `type`. The factory keeps a
+frozen copy of the map, so later changes to the object you passed do not reach
+the schema.
+
+A variable typed `NativeType | NativeTypeMap`, or a helper parameter of that
+type, is accepted as it is. A union of two maps that share no dialect key is
+not: annotate such a variable with the exported `NativeTypeMap` type.
+
+Like a single constant, a map applies to a scalar column. A list keeps its
+dialect's container (a PostgreSQL array of the entry, JSON elsewhere), and an
+enum column keeps its enum spelling.
+
 Fixed decimals are the deliberate exception. `s.decimal({ precision, scale })`
 derives its physical type from that one portable descriptor and accepts no
 native-type override.

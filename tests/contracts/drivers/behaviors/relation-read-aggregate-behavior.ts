@@ -5,6 +5,7 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
+import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
 import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -52,11 +53,21 @@ const archive = s
 // `_count` is reserved as a member name (schema validation refuses it, F010);
 // the COLUMN name is not. `ledger.tally` and the model-hidden `vault.sealed`
 // both live in a column named `_count`, beside a to-many relation whose counts
-// publish under the output key `_count`.
+// publish under the output key `_count`. `tally` also states a native type per
+// dialect (#45): `smallint` on PostgreSQL and `SMALLINT` on MySQL instead of
+// their automatic `integer` / `INT` (SQLite's catalog has one integer type), so
+// a map the column ignored would be seen, and the reading beside the counts
+// must not move for it.
 const ledger = s
   .model({
     id: s.string().id(),
-    tally: s.int().map("_count"),
+    tally: s
+      .int({
+        pg: PG.INT.SMALLINT,
+        mysql: MYSQL.INT.SMALLINT,
+        sqlite: SQLITE.INT.INTEGER,
+      })
+      .map("_count"),
     entries: s.toMany(() => entry),
   })
   .map("rel_agg_ledgers");
@@ -87,6 +98,13 @@ const entry = s
   .map("rel_agg_entries");
 
 const schema = { user, post, archive, ledger, vault, entry };
+
+/** The `_count` column's definition `tally`'s map names, by dialect. */
+const TALLY_COLUMN: Record<AnyDriver["dialect"], RegExp> = {
+  postgresql: /"_count" smallint NOT NULL/,
+  mysql: /`_count` SMALLINT NOT NULL/,
+  sqlite: /"_count" INTEGER NOT NULL/,
+};
 
 type RelationReadAggregateClientConfig = VibORMConfig<typeof schema>;
 
@@ -121,10 +139,14 @@ export function runRelationReadAggregateBehavior({
 }: RelationReadAggregateBehaviorOptions) {
   describe(`${driverName} relation read/aggregate behavior`, () => {
     let client: RelationReadAggregateClient;
+    let dialect: AnyDriver["dialect"];
+    let setupSql: readonly string[];
 
     beforeEach(async () => {
-      client = createClient({ schema, driver: createDriver() });
-      await syncLiveSchema(client);
+      const driver = createDriver();
+      dialect = driver.dialect;
+      client = createClient({ schema, driver });
+      setupSql = (await syncLiveSchema(client)).sql;
 
       await client.user.createMany({
         data: [
@@ -654,6 +676,14 @@ export function runRelationReadAggregateBehavior({
             { id: "e3", ledgerId: "L2", vaultId: null },
           ],
         });
+      });
+
+      test("the column has the type `tally`'s map names on this dialect", () => {
+        const created = setupSql.find(
+          (sql) =>
+            sql.startsWith("CREATE TABLE") && sql.includes("rel_agg_ledgers")
+        );
+        expect(created).toMatch(TALLY_COLUMN[dialect]);
       });
 
       test("the column reads under its member name, and `_count` is the counts", async () => {

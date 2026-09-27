@@ -103,8 +103,8 @@ s.toMany(() => tag)
   .through("post_tags")         // Junction table name
   .source("postId")             // THIS endpoint's token
   .target("tagId")              // The other endpoint's token
-  .onDelete("cascade")          // Junction referential action
-  .onUpdate("cascade")
+  .onDelete("cascade")          // Junction referential action, both keys
+  .onUpdate({ source: "cascade", target: "restrict" }) // or one per key
 ```
 
 The junction overrides are independent, meaningful facts rather than stages of
@@ -133,6 +133,23 @@ physical names.
 `JunctionReferentialAction` excludes `setNull` at the TYPE level: every junction
 side is a non-null membership-key member, so the action would null the column
 that carries the membership itself.
+
+**One junction, two foreign keys, one action each.** `.onDelete()` /
+`.onUpdate()` take a bare action (the symmetric shorthand) or an exact
+`{ source, target }` map (`JunctionSideActions`). `source` is the key to the
+DECLARING endpoint's model and `target` the key to its target, the same words
+`.source()` / `.target()` use: never the alphabetical column order, never the
+traversed direction. `normalizeJunctionActions` (`terminal.ts`) is the one
+normalization: trusted state always holds the side pair, whichever spelling
+declared it, and refuses a missing side, an extra key or `setNull` at the call.
+`mirrorOverrides` swaps the pair's sides together with the tokens, and the
+resolver hands each side's slice to `resolveJunctionTopology`, so each
+`ResolvedJunctionSide` carries its own foreign key's `onDelete` / `onUpdate`
+(absent = the junction default). The resolved junction edge publishes no
+action beside its topology, and the migration serializer reads each side's
+actions with that side's table and columns, so the canonical reorder moves them
+together. Variant member junctions state no action; their keys keep `cascade`.
+The engine reads no junction action: the database constraint owns it.
 
 ### Variant targets — a map instead of a getter
 

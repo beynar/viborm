@@ -5,6 +5,7 @@
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { MigrationDriver } from "./drivers";
+import { orderTableDrops } from "./drop-order";
 import type { Dialect, DiffOperation, SchemaSnapshot } from "./types";
 
 // DIALECT UTILITIES
@@ -335,18 +336,22 @@ export function materializeDroppedTableForeignKeys(
 
 /**
  * One compile-order owner for generated schema programs. Generate and push
- * both hand this result to the compiler. Do not lift or materialize at a
- * second call site.
+ * both hand this result to the compiler, and nothing sorts it afterwards. Do
+ * not lift, materialize or order drops at a second call site. Drops are
+ * ordered last, once every foreign-key removal the program makes is known.
  */
 export function prepareSchemaProgram(
   operations: DiffOperation[],
   current: SchemaSnapshot,
   migrationDriver: MigrationDriver
 ): DiffOperation[] {
-  return materializeDroppedTableForeignKeys(
-    extractForwardReferenceForeignKeys(operations, migrationDriver),
-    current,
-    migrationDriver
+  return orderTableDrops(
+    materializeDroppedTableForeignKeys(
+      extractForwardReferenceForeignKeys(operations, migrationDriver),
+      current,
+      migrationDriver
+    ),
+    current
   );
 }
 
