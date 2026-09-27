@@ -6,10 +6,21 @@
 
 import type { AnyModel } from "@schema/model";
 import type { ScalarState } from "@schema/scalars";
+import {
+  currentTemporalValue,
+  type TemporalKind,
+} from "@schema/scalars/datetime/current";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { EnumValues } from "@validation/primitives/enum";
+import { createSchema, validateSchema } from "@validation/primitives/helpers";
 import type { IdDomain } from "@validation/primitives/id-codec";
 import type { OperandCtx } from "@validation/primitives/operand";
-import { lazyRecord } from "../lazy";
+import type { VibSchema } from "@validation/types";
+import {
+  lazyRecord,
+  lazyScalarSchemas,
+  type ScalarVariantSchemas,
+} from "../lazy";
 import { type BigIntSchemas, buildBigIntSchema } from "./bigint";
 import { type BlobSchemas, buildBlobSchema } from "./blob";
 import { type BooleanSchemas, buildBooleanSchema } from "./boolean";
@@ -176,7 +187,10 @@ export const getScalarsSchemas = <Source extends AnyModel>(
     const state = scalars[scalar]!["~"].state;
     builders[scalar] = () => {
       const schemas = getScalarSchemas(state, derived?.get(scalar));
-      return state.autoGenerate?.kind === "now" ? insertOnly(schemas) : schemas;
+      if (state.autoGenerate?.kind === "now") return insertOnly(schemas);
+      if (state.autoGenerate?.kind === "updatedAt" && !state.array)
+        return updatesAt(schemas, state.type);
+      return schemas;
     };
   }
   return lazyRecord(builders) as GetScalarsSchemas<Source>;
@@ -208,6 +222,68 @@ const insertOnly = <T extends object>(schemas: T): T =>
     enumerable: true,
   });
 
+type DefaultedUpdate<S extends VibSchema> = VibSchema<
+  StandardSchemaV1.InferInput<S> | undefined,
+  StandardSchemaV1.InferOutput<S>
+> & { readonly acceptsUndefined: true };
+
+/**
+ * Give one field's update schema its `.updatedAt()` omission default without
+ * putting field-specific state into the kind-wide update interner.
+ *
+ * The wrapper is the admission lifetime: every missing field occurrence reads
+ * the wall clock once, then passes that value through the same update schema as
+ * an explicit value. The shorthand arm therefore validates and normalizes it
+ * into `{ set: value }` exactly once. A caller-supplied value bypasses the
+ * clock, and a replay of admitted data never reaches this wrapper again.
+ */
+const updatedAtUpdate = <S extends VibSchema>(
+  update: S,
+  kind: TemporalKind
+): DefaultedUpdate<S> => {
+  const metadata = {
+    acceptsUndefined: true,
+    wrapped: update,
+  } satisfies {
+    readonly acceptsUndefined: true;
+    readonly wrapped: S;
+  };
+  return Object.assign(
+    createSchema<
+      StandardSchemaV1.InferInput<S> | undefined,
+      StandardSchemaV1.InferOutput<S>
+    >("optional", (value) =>
+      validateSchema(
+        update,
+        value === undefined ? currentTemporalValue(kind) : value
+      )
+    ),
+    metadata
+  );
+};
+
+type UpdatedAtSchemas<
+  T extends ScalarVariantSchemas & { readonly update: VibSchema },
+> = {
+  readonly base: T["base"];
+  readonly create: T["create"];
+  readonly update: DefaultedUpdate<T["update"]>;
+  readonly filter: T["filter"];
+};
+
+const updatesAt = <
+  T extends ScalarVariantSchemas & { readonly update: VibSchema },
+>(
+  schemas: T,
+  kind: TemporalKind
+): UpdatedAtSchemas<T> =>
+  lazyScalarSchemas<UpdatedAtSchemas<T>>({
+    base: schemas.base,
+    create: () => schemas.create,
+    update: () => updatedAtUpdate(schemas.update, kind),
+    filter: () => schemas.filter,
+  });
+
 /**
  * The type half of {@link insertOnly}. Its `update` is `undefined`, which
  * `V.FromObject` turns into a `never` entry: the update input still NAMES the
@@ -218,7 +294,15 @@ type UpdateAdmission<Schemas, State> = State extends {
   readonly autoGenerate: { readonly kind: "now" };
 }
   ? Omit<Schemas, "update"> & { readonly update: undefined }
-  : Schemas;
+  : State extends { readonly array: true }
+    ? Schemas
+    : State extends {
+          readonly autoGenerate: { readonly kind: "updatedAt" };
+        }
+      ? Schemas extends ScalarVariantSchemas & { readonly update: VibSchema }
+        ? UpdatedAtSchemas<Schemas>
+        : Schemas
+      : Schemas;
 
 export type GetScalarsSchemas<Source extends AnyModel> = {
   [F in keyof Source["~"]["state"]["scalars"]]: UpdateAdmission<

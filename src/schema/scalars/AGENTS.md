@@ -156,6 +156,13 @@ above that leaf, do not add a `Math.random()` path, and do not draw entropy at
 import or declaration time — every generator is lazy so that loading VibORM and
 describing a schema draw none.
 
+Temporal `now` and `updatedAt` generators share their one wall-clock spelling
+in `datetime/current.ts`. Scalar declarations install zero-argument closures
+over that owner for create defaults; update admission invokes the same owner
+for an omitted non-list `updatedAt` occurrence. A custom create default can
+replace the create closure without replacing the field's `updatedAt` update
+generator.
+
 A NAMED format is also a DOMAIN, and `.id()` alone is not. Naming
 `.uuid()`/`.ulid()`/… promises that every value of the field belongs to that
 format, which is what lets VibORM admit those values, normalize their aliases

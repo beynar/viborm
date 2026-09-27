@@ -5,6 +5,17 @@ Versioning.
 
 ## Unreleased
 
+- **Fix: omitted `.updatedAt()` fields refresh on update** (#54). Non-array
+  DateTime, Date and Time fields now receive the application's current UTC
+  value at update admission, including explicit empty update payloads, bulk
+  updates, upsert update arms and nested updates. Explicit values still win;
+  create defaults, `.now()` restrictions and ordinary temporal fields are
+  unchanged. A create-default override does not replace the update clock.
+  Each admitted occurrence evaluates once; reusing admitted input does not
+  regenerate it during retry. Temporal arrays keep their prior explicit-value
+  behavior and do not gain an automatic list default. Validation failures from
+  omitted-field defaults now propagate with their field path rather than being
+  silently discarded by the object validator.
 - **Breaking: `.now()` creation timestamps are insert-only** (#47). A
   `s.dateTime().now()`, `s.date().now()` or `s.time().now()` field was
   documented as a creation timestamp that is "set once", yet an ordinary
@@ -13,7 +24,7 @@ Versioning.
   `upsert`, and nested `update` / `updateMany` / `upsert.update` at any depth —
   in TypeScript (the key is typed `?: never`, so a payload held in a variable
   is refused too) and at runtime, where the call fails with `Unknown key:
-  <field>` before any SQL is sent, whether the value is spelled directly,
+  <field>` before the forbidden assignment executes, whether the value is spelled directly,
   inside `{ set }`, or as `undefined`. An explicit `<field>: undefined` is the
   one spelling TypeScript cannot refuse, because an optional key always admits
   `undefined`: it compiles and is refused at runtime. Create, `createMany`, nested create,
@@ -22,7 +33,8 @@ Versioning.
   field are unchanged. The generator declared last decides:
   `.now().updatedAt()` stays updatable, `.updatedAt().now()` does not, and
   `.now().default(value)` / `.nullable().now()` keep the restriction.
-  `.updatedAt()` and ordinary temporal fields are unaffected. The schema
+  This insert-only rule does not apply to `.updatedAt()` or ordinary temporal
+  fields; automatic `.updatedAt()` refresh is described above. The schema
   registry exported by `viborm/validation` shows the same rule: for such a
   field, `createSchemaRegistry(...).proxy.<model>.scalars.<field>.update` is
   now `undefined` (and typed `undefined`), while its `base`, `create` and

@@ -134,6 +134,35 @@ describe("object schema", () => {
       const result = parse(schema, { name: "Alice" });
       expect(result.issues).toBeUndefined();
     });
+
+    test.each([
+      undefined,
+      { partial: false },
+    ] as const)("surfaces a missing field's rejected default with its field path (%j)", (options) => {
+      const acceptsExpected: StandardSchemaV1<string, string> = {
+        "~standard": {
+          version: 1,
+          vendor: "object-default-test",
+          validate: (value) =>
+            value === "expected"
+              ? { value }
+              : { issues: [{ message: "default rejected" }] },
+        },
+      };
+      const schema = v.object(
+        {
+          label: v.string({
+            default: () => "generated",
+            schema: acceptsExpected,
+          }),
+        },
+        options
+      );
+
+      expect(parse(schema, {})).toEqual({
+        issues: [{ message: "default rejected", path: ["label"] }],
+      });
+    });
   });
 
   describe("object options", () => {

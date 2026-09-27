@@ -17,13 +17,10 @@ import type {
   NativeTypeArgument,
   NativeTypeDeclaration,
 } from "../native-types";
+import { currentTemporalValue } from "./current";
 
-const defaultNow = generatorDefault(
-  () => new Date().toISOString().split("T")[0]!
-);
-const defaultUpdatedAt = generatorDefault(
-  () => new Date().toISOString().split("T")[0]!
-);
+const defaultNow = generatorDefault(() => currentTemporalValue("date"));
+const defaultUpdatedAt = generatorDefault(() => currentTemporalValue("date"));
 const dateBase = v.isoDate();
 
 export class DateScalar<State extends ScalarState<"date">> {

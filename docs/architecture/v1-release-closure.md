@@ -1,267 +1,171 @@
 # V1 Release Closure
 
-## Status
+Updated 2026-09-27 against `main` at `e94b8ea3c` (PR #53), with the issue #54
+fix in the accompanying change. This is the remaining-work
+checklist, not a replacement for historical engine evidence.
 
-Release-readiness record, updated 2026-08-30. The database namespace, exact
-decimal, authenticated migration V1, stable GeoPoint, approximate-number
-rename, and upstream defect-closure programs are merged into `main`.
+**V1 needs release closure, not another engine rewrite.** Recursive reads,
+Raptor 3, compiled decoding, relation topology, exact decimals, namespaces,
+GeoPoint and authenticated migrations are already implemented. Further
+performance experiments and broad abstraction work are not release gates.
 
-The remaining release program is operational: close the final public package
-contract, enforce provider evidence, install the publication pipeline, and
-complete the RC-to-stable rehearsal. [Releasing VibORM](../../RELEASING.md) is
-the maintainer-owned publication and recovery runbook.
+[RELEASING.md](../../RELEASING.md) owns publication and recovery procedures.
+This checklist distinguishes implemented mechanisms from an executed release.
+A checked implementation item does not claim that the current RC has passed it.
 
-## Verdict
+## 1. Correctness closure
 
-VibORM has enough ORM capability for V1. No further large query-engine,
-relation, scalar, or migration program is required before the release.
+- [x] PR #52 merged (`778912983`): retired cache decoder removed, prepared
+  update projection reused, captured mutation count owned once.
+- [x] PR #53 merged (`e94b8ea3c`): issues #47, #42, #45 and #46 closed through
+  insert-only `.now()`, dependency-ordered drops, dialect-native type maps and
+  directed junction actions. Its documentation distinguishes conservative
+  schema-only SQLite drop refusals from what an empty database could execute.
+- [x] Issue [#54](https://github.com/beynar/viborm/issues/54) is corrected in
+  this change: non-array `.updatedAt()` refresh is owned by update admission.
+  Explicit values, create defaults and `.now()` admission are preserved.
+  SQLite3, PGlite, native PostgreSQL and native MySQL execute the same focused
+  contract; public types, admission lifetimes and the existing replay rule
+  have checks. Temporal arrays retain their prior behavior. The DateTime guide
+  and changelog describe the contract instead of the former known defect.
+  The issue remains open until the fix PR merges.
+- [ ] On the release commit, classify every failing or skipped required gate.
+  Missing seed corpora, absent PostGIS and unavailable providers are missing
+  evidence, not correctness passes. Use the existing runners and manifests;
+  do not reopen old campaigns simply to produce another report.
 
-The remaining work is a release-closure program:
+No other open GitHub issue was returned by the repository query on 2026-09-27.
+That is an inventory observation, not proof that the code has no defects.
 
-1. cut the final public package and API contract;
-2. prove or accurately tier every advertised provider;
-3. install an enforceable build and publication pipeline;
-4. make the public documentation executable; and
-5. complete one release-candidate rehearsal.
+## 2. Public contract — implementation present, release freeze remains
 
-Full-text search, recursive queries, complete RBAC, and the other deferred
-features in this record are not V1 blockers.
+- [x] The built-package export inventory and declaration checks exist:
+  [public-surface-golden.mjs](../../tests/package/public-surface-golden.mjs)
+  and [its smoke test](../../tests/package/public-surface-golden-smoke.mjs).
+  They pin runtime exports, type exports, client capabilities, schema factories
+  and intentionally absent names/subpaths.
+- [x] The earlier checklist's removal work is no longer a new implementation
+  program: safe raw methods take tagged templates/`Sql`, unsafe strings have
+  explicitly unsafe methods, `QueryMetadata` is absent, migration exports are
+  intentional, and internal cache-key helpers are absent from the package
+  entry point. Internal module exports are not the public package surface.
+- [x] ESM packaging, MIT metadata, tarball allowlist and size limits have
+  executable contracts in [release-package-contract.json](../../scripts/release-package-contract.json)
+  and the package tests. Runtime and declaration floor probes exist for Node
+  22.0.0 and TypeScript 5.8. The documentation site's Node floor is separate.
+- [ ] Run the existing export/declaration, public-type and packed-consumer
+  probes on the final RC commit. Review any changed public contract against
+  its release notes; do not add another export registry or compatibility language.
+- [ ] Publish a `0.1.0` → V1 upgrade guide. Cover the changed relation language,
+  decimal/identifier/temporal storage, migration estate, extensions, raw APIs,
+  `.now()` update rejection and `.updatedAt()` behavior. Link to the exact
+  current owners and migration guidance rather than creating aliases.
 
-## 1. Migration estate integrity — implemented
+## 3. Provider claims must match executed evidence
 
-The canonical implementation program is
-[Migration V1: Authenticated State Graph and Safe Push](./migration-v1-plan.md),
-backed by the current Prisma/Drizzle/source research in
-[Migration V1 Systems Research](./migration-v1-systems-research.md).
+- [x] Provider runners and release jobs exist for the local, Docker, Bun and
+  Workers boundaries. Recursive queries are shipped and belong in that
+  qualification inventory; they are **not** a deferred V1 feature.
+- [x] The LibSQL migration hazard has an explicit safety boundary. The
+  [SQLite-family migration guide](../content/docs/migration/drivers/sqlite.mdx#libsql--turso)
+  documents refusal of effectful `apply`, `down`, `reset`, `verify` and `push`.
+  Offline/read-only operations and dry-run push remain available. Implementing
+  production LibSQL migrations is not required if this limit stays explicit.
+- [ ] Reconcile one public support matrix with the registered gates and
+  per-capability documentation. In particular, the overview's LibSQL
+  "Migration Atomicity: Full" and Neon/D1 "Push only" labels must agree with
+  the migration V1 restrictions; shared transport code is not live-provider
+  evidence. Do not promote a tier by changing prose alone.
+- [ ] Run the release-blocking PostgreSQL (including required PostGIS), MySQL,
+  SQLite/PGlite/LibSQL and declared Bun/Workers lanes on the exact RC source.
+  Record executed counts, skips, substrate versions and restrictions. A
+  missing prerequisite blocks only the capability claimed as qualified.
+- [ ] Keep hosted Neon, hosted D1 and PlanetScale evidence limits explicit.
+  Hosted qualification is deferred for now; fixtures/local emulators must not
+  be described as hosted runs. Either retain honest preview/conditional claims
+  or supply provider evidence before promoting those claims.
 
-The implemented system replaces the mutable global journal and latest snapshot
-with an immutable target descriptor, content-addressed snapshots and SQL,
-atomically published state manifests, a database current-state marker, and an
-append-only execution ledger. It also closes SQL framing, branch convergence,
-live drift, non-transactional recovery, baseline, rollback, and stale push
-consent as one coherent program.
+Do not make hosted-driver access a prerequisite for shipping a narrower,
+truthfully documented V1. Database-family equivalence alone cannot establish
+the concrete provider's transaction, migration or failure contract.
 
-That dedicated implementation supersedes the namespace plan's proposed
-version-3 journal shape, but retains its exact migration target, bound driver,
-pinned session, lock, containment, and reset decisions. V1 is unreleased, so it
-ships no legacy journal reader or conversion layer.
+## 4. Publication — workflow implemented, administration partly verified
 
-## 2. Final public API cut
+- [x] [.github/workflows/release.yml](../../.github/workflows/release.yml) and
+  [scripts/release.mjs](../../scripts/release.mjs) implement the workflow path:
+  build one tarball, test its bytes, publish through OIDC and verify the registry
+  artifact. [scripts/github-release.mjs](../../scripts/github-release.mjs)
+  creates/verifies the GitHub release. Administration below still needs closure.
+- [x] On 2026-09-27, the GitHub API reported an `npm-production` environment
+  with a required reviewer and a branch policy selecting `main`.
+- [x] The effective `main` rules require pull requests.
+- [ ] Require the intended CI checks on `main` and verify force-push/deletion
+  protection. The effective branch-rules API returned a pull-request rule but
+  **no required-status-checks rule** on 2026-09-27. Green checks on one PR do
+  not establish enforcement.
+- [ ] Verify npm trusted publishing, tag protection, immutable releases and
+  private vulnerability reporting using the runbook. These settings were not
+  all verified by this refresh; do not label them missing or complete without
+  checking. No repository or npm settings were changed here.
+- [ ] Exercise the publication workflow with an RC. No `Release` workflow
+  runs or GitHub releases were returned by the read-only queries on
+  2026-09-27. Existing workflow source is not end-to-end publication evidence.
 
-V1 must contain one current language rather than compatibility surfaces already
-scheduled for deletion.
+## 5. Documentation and RC rehearsal
 
-Remove or explicitly adjudicate before the API freeze:
+- [x] The obsolete quick-start `push(orm, schema)` example is gone. The current
+  [quick start](../content/docs/getting-started/quick-start.mdx) uses a config
+  file and CLI push. Error examples and Schema JSON documentation already have
+  focused executable checks.
+- [x] The release workflow validates and builds the documentation site.
+- [ ] During the runbook's packed-consumer and migration rehearsal, execute
+  the current quick start and upgrade-guide instructions as written. Keep the
+  existing error-example and Schema JSON checks. Site rendering alone does not
+  establish executable examples; repair demonstrated gaps, not every snippet
+  through a new documentation-testing framework.
+- [ ] Finish the capability/support tables and upgrade guide before the RC
+  freeze; make known refusals, partial-progress semantics and extension trust
+  boundaries visible. No complete RBAC claim.
+- [ ] Prepare the RC release PR: change `package.json` from `0.1.0` to
+  `1.0.0-rc.1`, update changelog/release notes, make package metadata and
+  README/site/LICENSE agree, and pass required checks on clean committed source.
+  Do not create a local release tag.
+- [ ] Release `1.0.0-rc.1` to `next` through the runbook. Rehearse its fresh
+  consumer, upgrade, CLI, schema push and migration/recovery workflows on
+  PostgreSQL, MySQL and SQLite in disposable
+  databases with explicit authority for destructive steps. Platform claims
+  additionally need their declared substrate, not a Node simulation.
+- [ ] Retain a compact RC result record: commit, tarball digest, executed
+  provider/runtime matrix, failures, skips, upgrade outcomes and remaining
+  limits. Fix blockers and publish a later RC rather than replacing a version.
+- [ ] Promote to `1.0.0` through the same exact-artifact gate only after the
+  final RC is accepted. Neither this checklist nor a PR merge authorizes an
+  npm publication.
 
-- the deprecated string overloads of `$queryRaw` and `$executeRaw`;
-- the deprecated exported `QueryMetadata` alias;
-- legacy migration resolver APIs beside the unified resolver language;
-- legacy cache-key helpers that are not a supported extension-author surface;
-- broad migration internals such as the raw differ, serializer, snapshot, and
-  DDL machinery; and
-- every other public symbol whose only reason is pre-V1 compatibility.
+## Execution order and stop condition
 
-The exact retained exports must be intentional and pinned through the built
-package. Add a golden entry-point/member inventory and declaration comparison so
-an accidental export becomes a failing change rather than a new public promise.
+1. Merge the qualified #54 fix.
+2. Close the support-table discrepancies and executable-documentation/upgrade
+   gaps; verify the one-time release settings in parallel.
+3. Freeze the RC contract and run its existing required gates once on stable
+   source. Re-run affected checks after repairs, not the full estate per edit.
+4. Publish and rehearse the RC, then release stable through `RELEASING.md`.
 
-### GeoPoint scalar — implemented
+V1 is ready when the declared support matrix, public contract, actual tarball
+and executed evidence agree; release authority is enforced; the rehearsal
+succeeds; and no known correctness, data-loss, security or publication blocker
+remains. Completed architecture programs are not to be reopened to satisfy
+this checklist.
 
-`s.point()` and `v.point()` now form one stable GeoPoint language with exact
-public values, query operators, provider tiers, migration behavior, result
-types, executed provider evidence, and public documentation. Conditional and
-preview providers remain named as such; their narrower evidence must not be
-promoted by the release pipeline.
+## Explicitly not V1 blockers
 
-## 3. Provider qualification and support tiers
+Full-text search, graph-wide RBAC, arbitrary extension-driven input/result
+type mutation, `db pull`, Studio/seeding commands, views, reusable prepared
+query handles, cross-namespace relations, CJS packaging and further positional
+transport experiments remain separate work. So does removing a documented,
+necessary write refusal merely to lower the census. A refusal hiding an
+admitted operation's correctness bug is different and must be fixed or the
+public contract explicitly narrowed before release.
 
-V1 must not advertise every stock driver as equally proven when their evidence
-differs.
-
-The current provider matrix gives broad shared contracts to the principal local
-and Docker providers. Its documented boundaries remain:
-
-- D1 proves its Workers transport and native batch boundary but lacks a shared
-  schema-lifecycle fixture;
-- hosted Neon HTTP and PlanetScale tests are read-only sentinels;
-- Bun SQL and Bun SQLite principally prove their runtime boundary; and
-- some postgres.js behavior delegates to the canonical PostgreSQL fixture.
-
-Before V1, choose one honest outcome per provider:
-
-1. run representative schema, CRUD, relation, scalar, transaction/batch, raw,
-   error, namespace, decimal, and migration contracts on the actual provider; or
-2. label the provider preview/experimental and state its narrower evidence.
-
-The release support table must distinguish database-family equivalence from a
-provider contract actually executed on that provider.
-
-### LibSQL migration safety
-
-The LibSQL migration driver records that native `ALTER COLUMN` validates future
-writes but not existing rows. Tightening nullability, type, or another constraint
-can therefore leave stored rows outside the declared model domain.
-
-Before LibSQL can claim full production migration support, each affected change
-must either:
-
-- prevalidate all existing rows and then alter;
-- use the proven SQLite reconstruction path; or
-- refuse before effects with the exact unsupported transition.
-
-V1 must not publish a non-null result type over a table that migration work left
-with existing null values.
-
-### Runtime and compiler floors
-
-Define and test the actual support contract:
-
-- the Node.js versions supported by the root package and each Node-only driver;
-- the minimum TypeScript version required by emitted declarations;
-- ESM-only packaging;
-- Bun versions for both Bun providers; and
-- the Workers compatibility date/runtime used by D1.
-
-The package now promises Node `>=22` and TypeScript `5.8+`. Both floors are
-tested against the built declarations; TypeScript 5.0 was measured and refused
-the public client types with TS2589/TS2590, so the earlier claim was retired.
-
-## 4. Release and publication pipeline
-
-V1 requires the automated release gate specified by
-[Releasing VibORM](../../RELEASING.md). Publication uses a manually authorized
-workflow on protected `main`, one exact tested tarball, npm OIDC trusted
-publishing, registry verification, and a final immutable GitHub release.
-
-Required jobs are:
-
-- public type tests;
-- core and coverage gates;
-- package build and packed-install tests;
-- documentation validation and executable examples;
-- local PGlite, SQLite3, and LibSQL providers;
-- Docker PostgreSQL, postgres.js, and MySQL2 providers;
-- Bun SQL and Bun SQLite runtime jobs;
-- the D1 Workers job;
-- the deterministic Neon HTTP transport contract; and
-- Node 22/24 plus TypeScript 5.8/current package-floor probes.
-
-Hosted Neon remains conditional and PlanetScale remains preview in the public
-support tables, so absent hosted credentials do not produce a counterfeit
-green release job. Their hosted legs become required when those tiers are
-promoted. Fixed-decimal, namespace, and GeoPoint performance evidence belongs
-to the V1 RC report; noisy cross-provider benchmarks are not rerun as a package
-publication authority.
-
-Protect `main` with the required release checks. Publication must build from a
-clean protected commit, inspect the tarball, install that exact tarball in fresh
-consumer projects, run the CLI, and only then publish it. `dist` from a
-developer worktree must never be accepted as publication input. The workflow
-creates the version tag only after npm accepts and verifies the package.
-
-MIT, the root `LICENSE`, repository/homepage/issue metadata, changelog,
-deterministic package allowlist, and size budgets are now checked release
-facts. npm trusted publishing, the protected GitHub environment, branch rules,
-and immutable releases remain one-time repository settings documented in the
-maintainer runbook.
-
-## 5. Executable documentation and release candidate
-
-Navigation and frontmatter validation do not prove that a code example compiles.
-The public quick start currently calls `push(orm, schema)`, although the second
-argument is the push options object.
-
-Create an example gate that compiles or executes the canonical snippets for:
-
-- installation and each supported driver;
-- schema declaration and relations;
-- push and file migrations;
-- CRUD, nested writes, raw SQL, transactions, and extensions;
-- fixed decimals and decimal arrays;
-- PostgreSQL/MySQL namespaces;
-- cache and instrumentation; and
-- Schema JSON.
-
-The documentation freeze must publish:
-
-- one current capability matrix;
-- one provider support-tier matrix;
-- exact provider transaction and migration limitations;
-- the extension trust and RBAC non-claim;
-- a V1 error-code reference;
-- physical naming and namespace rules; and
-- a `0.1.0` to `1.0.0` upgrade guide covering every breaking API and storage
-  change, without adding compatibility aliases merely for the guide.
-
-Publish `1.0.0-rc.1` under the `next` tag before `latest`. Rehearse fresh install,
-upgrade, push, generate, apply, down, reset, tampered-estate refusal, and
-interrupted-generation recovery on PostgreSQL, MySQL, and SQLite plus at least
-one edge provider. Fix release blockers, repeat the rehearsal, then publish
-`1.0.0`.
-
-## Explicit post-V1 work
-
-These are valuable capabilities, but none is required for a truthful V1:
-
-- full-text search and relevance ordering;
-- recursive queries;
-- complete graph-wide RBAC;
-- arbitrary extension-driven input/result type mutation and computed fields;
-- database introspection into TypeScript schemas (`db pull`);
-- Studio and first-class seeding commands;
-- views and read-only models;
-- first-class reusable prepared-query handles;
-- cross-namespace relations, per-query namespace switching, or SQLite
-  attachments;
-- CJS packaging;
-- broader Prisma parity where VibORM already documents and rejects a smaller
-  safe subset; and
-- lifting the remaining classified write-engine refusals.
-
-The residual `UnsupportedOperationError` census is not a release backlog. Those
-sites are retained only where the engine lacks a required identity, atomicity
-proof, or non-contradictory assignment. Each must remain fail-closed and
-falsified, but their mere existence does not block V1.
-
-## Remaining execution order
-
-1. Freeze the final export inventory and remove or explicitly retain every
-   transitional public spelling.
-2. Establish the release-blocking provider matrix and prove every required job
-   executes rather than silently skips.
-3. Install CI, exact-tarball publication, package metadata, the chosen license,
-   trusted publishing, and immutable releases.
-4. Make the remaining documentation examples executable and publish the
-   `0.1.0` upgrade guide.
-5. Run `1.0.0-rc.1`, repair only release blockers, and repeat the complete gate
-   with a later RC when needed.
-6. Publish `1.0.0` through the same gate.
-
-## Completion criteria
-
-VibORM is ready for V1 only when all of these are true:
-
-1. Namespace and fixed-decimal completion criteria are fully green.
-2. Exact state, SQL, transition, parameter, and snapshot bytes are
-   authenticated before effects.
-3. The state graph, current marker, and append-only ledger agree with the live
-   managed schema.
-4. Interrupted state publication is atomic in visibility and recoverable.
-5. Generated and manual SQL cannot be split by textual delimiter accidents.
-6. Push consent is plan-specific, reset dry-run is effect-free, and final live
-   state is verified.
-7. LibSQL cannot publish a stricter model domain over unvalidated existing rows.
-8. No intentionally transitional API remains in the V1 public surface.
-9. `point` is either removed or supported as a complete stable scalar.
-10. Every advertised provider has executed evidence matching its support tier.
-11. Runtime, compiler, module, and platform floors are accurate and tested.
-12. Required CI and branch-protection gates enforce the release contract.
-13. The packed tarball and CLI pass fresh-consumer installation tests.
-14. License and package metadata are internally consistent.
-15. Canonical documentation examples compile or execute.
-16. The `0.1.0` to V1 upgrade guide covers every breaking contract.
-17. One complete release-candidate rehearsal succeeds on the declared provider
-    matrix.
-18. No open correctness, data-loss, security, or publication blocker remains.
-
-At that point, further feature development should not delay V1.
+Recursive queries and the Raptor 3 rewrite are already implemented. They must
+be qualified and documented, not scheduled for implementation again.

@@ -173,6 +173,16 @@ access order; do not move the rule into a kind builder, where the interner
 would key it by flags alone
 (`tests/unit/operation-schemas/update/insert-only-timestamps.core.test.ts`).
 
+A non-list temporal `.updatedAt()` field is decided at that same boundary
+(#54). Its field-local lazy shell wraps the interned update value without
+mutating it: omitted update admission reads the shared temporal clock once,
+then validates the generated value through the ordinary update schema so every
+consumer receives the same `{ set: value }` language. Explicit values bypass
+the clock. Keep `create`, `update`, and `filter` pay-per-use, and never put this
+field-specific omission default into the kind-wide interner. Object validation
+must propagate issues from missing-field defaults; a rejected generated value
+must not disappear and fail later as a query error.
+
 Each public operation owns its exact args language. In particular, `exist`
 accepts only its optional `where` clause; it must not reuse `count`, whose
 ordering, pagination, cursor, and selection clauses describe a larger query.
