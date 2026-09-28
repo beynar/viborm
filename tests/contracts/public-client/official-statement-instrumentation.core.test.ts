@@ -843,6 +843,64 @@ describe("official statement instrumentation", () => {
     expect(logs.events[0]?.sql).toBe("SELECT ?");
   });
 
+  /**
+   * The statement's completion marks its failure logged, then the array owner
+   * replaces that failure with a package-owned successor (the commit-certainty
+   * clone) before the operation completes. With tracing on, the official
+   * continuation runs inside `startActiveSpan`, later than core's completion,
+   * so only a mark made synchronously in core and carried to the successor at
+   * clone time keeps the operation from logging the same failure again.
+   */
+  test("logs a statement failure once when a successor replaces it under tracing", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const logs = captureLogs();
+      const driver = new NativeStatementDriver();
+      driver.failBatchIndex = 1;
+      const client = trackedClient(driver)
+        .$extends(
+          instrumentation({
+            logging: { error: logs.callback, query: logs.callback },
+            tracing: true,
+          })
+        )
+        .$extends({
+          name: "successor-error-dedup",
+          async query({ proceed }) {
+            return proceed();
+          },
+        });
+
+      const failure = await client
+        .$transaction([
+          client.record.findMany(),
+          client.$queryRaw(sql`SELECT ${2}`),
+        ])
+        .catch((error) => error);
+      await waitFor(() =>
+        recorder.spans().some(({ name }) => name === SPAN_EXECUTE)
+      );
+      for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+
+      expect(failure).toBeInstanceOf(QueryError);
+      expect(failure).toMatchObject({
+        meta: { commitCertainty: expect.any(String) },
+      });
+      expect(logs.events).toHaveLength(1);
+      expect(logs.events[0]).toMatchObject({
+        level: "error",
+        operation: "$queryRaw",
+      });
+      const executeSpans = recorder
+        .spans()
+        .filter(({ name }) => name === SPAN_EXECUTE);
+      expect(executeSpans).toHaveLength(1);
+      expect(executeSpans[0]?.status.code).toBe(SpanStatusCode.ERROR);
+    } finally {
+      await recorder.dispose();
+    }
+  });
+
   test("skips execute presentation when transform, render, or acquisition fails", async () => {
     const logs = captureLogs();
     let completions = 0;
