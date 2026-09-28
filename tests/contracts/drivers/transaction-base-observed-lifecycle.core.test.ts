@@ -28,7 +28,11 @@ import {
 import type { QueryExecutionContext, QueryResult } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
 import type { ObservationCompletion } from "@extensions/observation";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
+import {
+  getOfficialInstrumentationChainCapability,
+  registerOfficialInstrumentationChain,
+} from "@extensions/observation";
+import type { ObservationNeed } from "@extensions/official-facts";
 import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import { sql } from "@sql";
 import {
@@ -331,6 +335,63 @@ describe("observed transaction spans", () => {
 
     expect(driver.shape()).toEqual(["BEGIN", "SELECT $1", "COMMIT"]);
     expect(traced.find(SPAN_TRANSACTION)).toBeDefined();
+  });
+});
+
+describe("observed lifecycle needs", () => {
+  /**
+   * Each lifecycle boundary asks the official capability for its own need at
+   * the gate: a connection splits into connect and disconnect, and a savepoint
+   * asks as a savepoint, not as its enclosing transaction. The span names the
+   * extension then applies cannot show a wrong question, because an ignored
+   * name is skipped by the tracer as well.
+   */
+  test("asks the capability for each boundary's own need", async () => {
+    const chain = appendResolvedExtension(
+      undefined,
+      instrumentation({ tracing: true }),
+      {}
+    );
+    const official = getOfficialInstrumentationChainCapability(chain);
+    if (official === undefined) {
+      throw new Error("Official instrumentation capability was not registered");
+    }
+    const needs: ObservationNeed[] = [];
+    registerOfficialInstrumentationChain(
+      chain,
+      Object.freeze({
+        ...official,
+        wants(need: ObservationNeed): boolean {
+          needs.push(need);
+          return official.wants(need);
+        },
+      })
+    );
+    const context = createExecutionContext(
+      { operation: "$transaction" },
+      official.context,
+      undefined,
+      chain
+    );
+    const driver = new PhasedDriver();
+
+    await driver._connect(context);
+    await driver.withTransaction(
+      (txDriver) => txDriver._transaction(() => Promise.resolve("inner")),
+      undefined,
+      context
+    );
+    await driver._disconnect(context);
+
+    expect(
+      needs.filter(
+        (need) =>
+          need === "connect" ||
+          need === "disconnect" ||
+          need === "transaction" ||
+          need === "savepoint"
+      )
+    ).toEqual(["connect", "transaction", "savepoint", "disconnect"]);
   });
 });
 

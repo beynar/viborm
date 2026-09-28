@@ -95,8 +95,9 @@ function wants(
       return logs(context, "query");
     case "error-log":
       return logs(context, "error");
-    // The one remaining need of the closed union: "parameters".
+    // The last need of the closed union; another need fails to compile here.
     default:
+      need satisfies "parameters";
       return disclosesParameters(context);
   }
 }
