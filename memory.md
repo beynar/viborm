@@ -342,6 +342,10 @@
 - A documented release protection is not an implemented protection until the
   live repository or registry setting is provisioned. Separate code readiness
   from one-time control-plane setup and name both before the first release.
+- Diagnose pipeline latency from step timings, including checkout and setup.
+  Reuse verified exact-commit qualification instead of rerunning it; retain
+  artifact-specific checks. Prove sparse inputs with a fresh checkout and
+  normal dependency installation, not cross-checkout dependency symlinks.
 - When Arnaud says to merge a completed branch, finish the operation by pushing
   the resulting target branch unless he explicitly asks for a local-only merge.
 - Derive lifecycle-order witnesses from the boundary that owns the failure.

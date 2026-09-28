@@ -2,7 +2,8 @@
 
 This is the maintainer runbook for the public `viborm` npm package. The
 release unit is one tarball built from protected `main`. The `Release` GitHub
-Actions workflow builds that tarball once, tests those exact bytes, publishes
+Actions workflow reuses successful CI for the exact protected-main commit,
+builds that tarball once, tests those exact bytes, publishes
 them through npm trusted publishing, verifies the registry copy, and then
 creates the matching immutable GitHub release.
 
@@ -92,6 +93,20 @@ npm is immutable and cannot be reused.
 
 ## Required release evidence
 
+Source qualification has one owner: the `CI` workflow's latest push run on
+`main` for the exact release SHA. `scripts/release-ci.mjs` requires all eight
+jobs to succeed in its latest attempt. A green PR run, a matching tree at a
+different commit, a skipped job, or an older green attempt is not sufficient.
+The release waits for pending CI for up to 120 minutes; failed or cancelled CI
+stops it. Recheck the same evidence after human approval, before publication.
+
+Release does not rerun the source test estate, coverage, or provider jobs.
+The tarball build and documentation build run in parallel with CI verification;
+publication requires all three plus the Node 22.0.0 exact-artifact consumer.
+The registry consumer, provenance checks, protected environment, and immutable
+GitHub release remain mandatory. Shallow sparse checkouts omit historical
+architecture evidence only from release jobs, not from CI qualification.
+
 A provider is a required gate when the public support matrix calls its relevant
 surface production-ready. A missing runtime, container, credential, extension,
 or executed test count is a failure for a required provider, not a skip.
@@ -110,8 +125,9 @@ non-blocking. Its job must still report that it did not execute and the public
 support table must state the same limitation. Database-family equivalence is
 not proof that a concrete provider ran.
 
-The publication gate also proves public types, core behavior, coverage,
-package exports, documentation examples, CLI execution, the exact Node 22.0.0
+The publication gate requires CI proof of public types, core behavior and
+coverage, plus release proof of package exports, documentation examples,
+CLI execution, the exact Node 22.0.0
 and TypeScript 5.8 floors, the tarball allowlist, and the package-size budget.
 The publish job may consume only the tarball and digest produced by that gate.
 

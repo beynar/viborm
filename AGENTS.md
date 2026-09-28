@@ -841,6 +841,12 @@ publication. The `Release` workflow on protected `main` is the sole publication
 owner: it builds one tarball, tests those exact bytes, publishes them through
 npm OIDC with automatic provenance, verifies registry integrity and that
 provenance, and only then creates the matching immutable GitHub tag and release.
+Source tests, coverage and providers are qualified once by the latest successful
+`CI` push run on the exact release main SHA. `scripts/release-ci.mjs` verifies
+all eight jobs in the latest attempt and rechecks before npm publication;
+release jobs must not duplicate that estate or accept PR/tree-equivalent proof.
+Release-specific documentation and exact-tarball checks remain mandatory.
+Release checkouts are shallow and sparse; CI retains the full evidence tree.
 Never publish from a worktree, use an
 `NPM_TOKEN`, rebuild between testing and publication, or create the version tag
 by hand.

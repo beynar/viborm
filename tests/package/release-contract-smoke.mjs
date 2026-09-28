@@ -1,4 +1,6 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { test } from "node:test";
 import {
   auditPackedPackage,
   compareReleaseVersions,
@@ -249,6 +251,60 @@ const releaseWorkflow = readFileSync(
   new URL(`../../${workflowPath}`, import.meta.url),
   "utf8"
 );
+test("release reuses exact-main CI and retains artifact gates", () => {
+  const releaseJobs = new Map(
+    [
+      ...releaseWorkflow.matchAll(
+        /^ {2}([a-z][a-z-]*):\n([\s\S]*?)(?=^ {2}[a-z][a-z-]*:|$(?![\s\S]))/gm
+      ),
+    ].map((match) => [match[1], match[2]])
+  );
+  const publishJob = releaseJobs.get("publish");
+  assert.ok(publishJob, "Release must retain its publication job");
+  for (const gate of ["source-ci", "docs", "artifact", "node-floor"]) {
+    assert.ok(
+      publishJob.includes(`      - ${gate}\n`),
+      `${gate} must gate publication`
+    );
+  }
+  assert.ok(publishJob.includes("name: npm-production"));
+  assert.ok(publishJob.includes("run: node scripts/release-ci.mjs\n"));
+  assert.ok(
+    releaseJobs
+      .get("source-ci")
+      ?.includes("run: node scripts/release-ci.mjs --wait")
+  );
+  assert.ok(releaseJobs.get("artifact")?.includes("    needs: authorize\n"));
+  assert.ok(
+    releaseJobs.get("artifact")?.includes("node scripts/release.mjs artifact")
+  );
+  assert.ok(releaseJobs.get("node-floor")?.includes('node-version: "22.0.0"'));
+  for (const retired of [
+    "full-tests",
+    "coverage",
+    "docker-providers",
+    "platform-providers",
+  ]) {
+    assert.equal(
+      releaseJobs.has(retired),
+      false,
+      `${retired} belongs to exact-main CI`
+    );
+  }
+  for (const [name, job] of releaseJobs) {
+    assert.ok(
+      job.includes("fetch-depth: 1"),
+      `${name} must use a shallow checkout`
+    );
+    assert.ok(
+      job.includes("sparse-checkout:"),
+      `${name} must limit checkout files`
+    );
+  }
+  for (const name of ["docs", "artifact"]) {
+    assert.ok(releaseJobs.get(name)?.includes("!/docs/architecture/"));
+  }
+});
 // Without ./, npm parses release/<archive> as GitHub owner/repository shorthand.
 if (!/npm publish "\.\/release\/\$\{RELEASE_TARBALL\}"/.test(releaseWorkflow)) {
   throw new Error(
