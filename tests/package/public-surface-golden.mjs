@@ -378,6 +378,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "CountResultType",
       "ExtendedClient",
       "GroupByResultType",
+      "InferDatabase",
       "InferSelectInclude",
       "MutationOperations",
       "ObservationCompletion",

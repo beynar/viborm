@@ -363,3 +363,7 @@
   by the patch. Source-only lint misses those files. After formatting evidence,
   compare parsed values to the original so presentation changes cannot alter
   measurements.
+- When preparing a release version, compare the README and upgrade-guide
+  installation guidance with package metadata. Distinguish the candidate being
+  prepared from the last verified publication; changing package metadata alone
+  does not update those reader-facing instructions.

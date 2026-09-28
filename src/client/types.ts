@@ -18,6 +18,7 @@ import type { ScalarState } from "@schema/scalars";
 import type { Prettify } from "@validation";
 import type {
   ModelArgsSchemas,
+  ModelCoreInput,
   ModelOperationInput,
   ModelOperationOutput,
 } from "@validation/model";
@@ -44,6 +45,21 @@ import type {
 } from "./result-types";
 
 export type Schema = Record<string, Model<any>>;
+
+/**
+ * Schema-only application types, keyed by the schema's model names.
+ * Row uses the default scalar projection and respects schema-level omission;
+ * client extensions and defaultOmit are not part of this schema-only view.
+ */
+export type InferDatabase<S extends Schema> = {
+  [K in keyof S]: {
+    Row: OperationResult<"findMany", S[K], Record<never, never>>[number];
+    Create: ModelCoreInput<S[K], "create">;
+    Update: ModelCoreInput<S[K], "update">;
+    Where: ModelCoreInput<S[K], "where">;
+    FindMany: OperationPayload<"findMany", S[K]>;
+  };
+};
 
 export type Operations =
   | "findFirst"
