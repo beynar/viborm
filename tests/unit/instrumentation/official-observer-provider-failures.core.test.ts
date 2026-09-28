@@ -1,15 +1,13 @@
 import type { LifecycleUnit } from "@extensions/observation";
 import { runProtectedObservers } from "@extensions/observation";
+import type { CacheUnitFacts } from "@extensions/official-facts";
 import type {
-  CacheInstrumentationFacts,
   DriverLifecycleInstrumentationFacts,
   InstrumentationLifecycleFacts,
   SegmentInstrumentationFacts,
 } from "@instrumentation/lifecycle-facts";
 import {
-  ATTR_CACHE_RESULT,
   ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
-  SPAN_CACHE_GET,
   SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
@@ -116,13 +114,10 @@ describe("official observer provider failures", () => {
     {
       facts: Object.freeze({
         kind: "cache",
-        spanOptions: Object.freeze({ name: SPAN_CACHE_GET }),
-        complete: () =>
-          Object.freeze({
-            kind: "cache",
-            spanAttributes: Object.freeze({ [ATTR_CACHE_RESULT]: "hit" }),
-          }),
-      }) satisfies CacheInstrumentationFacts,
+        context: undefined,
+        driverName: "memory",
+        complete: () => Object.freeze({ kind: "cache", result: "hit" }),
+      }) satisfies CacheUnitFacts,
       unit: Object.freeze({
         kind: "cache",
         operation: "get",

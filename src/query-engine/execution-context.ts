@@ -1,4 +1,4 @@
-import { createOfficialCacheExecutionLogReader } from "@cache/cache-instrumentation";
+import { readCacheExecutionOutcomes } from "@cache/driver";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import {
@@ -135,10 +135,11 @@ function createOperationInstrumentationFacts(
         : undefined;
     return Object.freeze({
       kind: "operation" as const,
+      context,
       ...(spanOptions === undefined ? {} : { spanOptions }),
       complete(outcome) {
-        const readCacheLogEvents = skipSpan
-          ? createOfficialCacheExecutionLogReader(context)
+        const readCacheOutcomes = skipSpan
+          ? readCacheExecutionOutcomes(context)
           : undefined;
         const errorLogEvent =
           outcome.status === "failure" &&
@@ -152,12 +153,12 @@ function createOperationInstrumentationFacts(
                 duration: outcome.durationMs,
               })
             : undefined;
-        if (readCacheLogEvents === undefined && errorLogEvent === undefined) {
+        if (readCacheOutcomes === undefined && errorLogEvent === undefined) {
           return undefined;
         }
         return Object.freeze({
           kind: "operation" as const,
-          ...(readCacheLogEvents === undefined ? {} : { readCacheLogEvents }),
+          ...(readCacheOutcomes === undefined ? {} : { readCacheOutcomes }),
           ...(errorLogEvent === undefined ? {} : { errorLogEvent }),
         });
       },

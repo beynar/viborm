@@ -34,6 +34,7 @@ logger, disclosure, or correlation.
 | `src/instrumentation/extension.ts` | Fixed-name factory and the one trusted protected-observer handler |
 | `context.ts` | Hostile-safe config snapshot and instrumentation context |
 | `lifecycle-facts.ts` | Private facts keyed by core-created frozen lifecycle units |
+| `presentation.ts` | Span options, attributes, and log events built from core's neutral facts (`src/extensions/official-facts.ts`) |
 | `tracer.ts` | Optional OTel loading, active spans, containment, span mutation |
 | `logger.ts` | Level selection, callback containment, pretty presentation |
 | `driver-instrumentation.ts` | Provider-dispatch facts and instrumentation presentation only; no generic extension runner |
@@ -108,18 +109,20 @@ unhandled rejection.
 - `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, `viborm.segment`,
   connection, and cache spans represent only real lifecycle boundaries.
 - There are no separate validate/build/parse spans.
-- `db.namespace` reports `adapter.namespace` and is added in exactly one place,
-  `Driver.getBaseAttributes()` in `src/drivers/driver-instrumentation.ts` —
-  outside this layer's 100% coverage glob, and the single choke point every
-  `db.*`-carrying unit already flows through. When the adapter is unqualified the
+- `db.namespace` reports `adapter.namespace`. It is added by
+  `Driver.getBaseAttributes()` in `src/drivers/driver-instrumentation.ts` for
+  the units core still presents, and by `createDriverAttributes` in
+  `presentation.ts` for the cache revalidation, which the extension presents
+  (the driver units move there too, and then that builder is the one place). When the adapter is unqualified the
   KEY IS ABSENT; never emit `null`, `""`, or the text `undefined`. Do not add the
   attribute to a unit that carries no other `db.*` (write segments, the cache
   backend's own get/set spans), and do not invent a lifecycle kind for it — the
   five kinds are fixed. Immutability rides the non-writable `adapter.namespace`
   install, NOT a ban on copies: `getBaseAttributes()` returns a fresh literal on
-  every call, and the cache unit's span is deliberately built from a snapshot of
-  one, taken at `$withCache` and carried as `options.dbAttributes`. That
-  snapshot cannot go stale, because the property it read cannot be reassigned —
+  every call, and the cache revalidation span is deliberately built from a
+  `readDriverIdentity` snapshot (`src/drivers/driver-identity.ts`), taken at
+  `$withCache` and carried as `options.driverIdentity`. That snapshot cannot go
+  stale, because the property it read cannot be reassigned —
   which is also why no reader may take its namespace from anywhere else.
 - The unobserved native-batch phase must keep calling `getBaseAttributes` zero
   times; it is pinned, and any new base attribute has to preserve that.

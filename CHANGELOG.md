@@ -16,6 +16,9 @@ Versioning.
     log decisions, `canDiscloseParameters()` and `getErrorDisclosure()` read the
     extension installed on the executing client's chain, so overriding a hook
     has no effect.
+  - `CacheDriver.getBaseAttributes()` is removed. Cache spans and cache log
+    events are built by the extension; the backend's name still comes from
+    `CacheDriver.driverName`.
 
 ## 1.0.0-rc.2 — Release candidate (not yet published)
 

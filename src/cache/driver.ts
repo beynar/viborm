@@ -7,42 +7,25 @@
  */
 
 import type { QueryExecutionContext } from "@drivers";
-import {
-  getExecutionExtensionChain,
-  getExecutionInstrumentation,
-} from "@drivers/execution-context";
+import type { DriverIdentity } from "@drivers/driver-identity";
+import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { CacheInvalidKeyError } from "@errors";
-import { runProtectedObservers } from "@extensions/observation";
 import {
-  ATTR_CACHE_DRIVER,
-  ATTR_CACHE_RESULT,
-  ATTR_CACHE_TTL,
-  SPAN_CACHE_CLEAR,
-  SPAN_CACHE_DELETE,
-  SPAN_CACHE_GET,
-  SPAN_CACHE_INVALIDATE,
-  SPAN_CACHE_SET,
-  SPAN_OPERATION,
-  type VibORMSpanName,
-} from "@instrumentation/spans";
-import type { VibORMSpanOptions } from "@instrumentation/tracer";
-import type { LogEvent } from "@instrumentation/types";
+  getOfficialInstrumentationChainCapability,
+  runProtectedObservers,
+  selectTrustedObservers,
+} from "@extensions/observation";
+import type {
+  CacheCompletionFacts,
+  CacheOutcome,
+  CacheUnitFacts,
+} from "@extensions/official-facts";
 import { type Clock, systemClock } from "../clock";
 import {
   REVALIDATING_SUFFIX,
   REVALIDATING_TTL_MS,
   scheduleBackground,
 } from "./cache-background";
-import {
-  type CacheLogEvent,
-  completeOfficialCacheSetFailure,
-  createCacheInstrumentationLogEvent,
-  createCacheLifecycleInstrumentationFacts,
-  emitCacheLogEvent,
-  getCacheOperationAttributes,
-  hasOfficialCacheInstrumentation,
-  hasOfficialCacheLogging,
-} from "./cache-instrumentation";
 import {
   CACHE_PREFIX,
   generateUnprefixedCacheKey,
@@ -78,26 +61,14 @@ export interface CacheExecutionOptions {
   bypass: boolean;
   key?: string;
   waitUntil?: WaitUntilFn;
-  dbAttributes?: Record<string, string>;
+  /** The database driver's identity, read once at `$withCache`. */
+  driverIdentity?: DriverIdentity;
   executionContext?: QueryExecutionContext;
 }
-
-type ObservedCacheOperation = "get" | "set" | "revalidate" | "invalidate";
 
 export interface DetachedCacheResultCodec<T> {
   snapshot(value: T): unknown;
   materialize(snapshot: unknown): T;
-}
-
-interface ObservedCacheSpanCompletion {
-  readonly readSpanAttributes?: () =>
-    | NonNullable<VibORMSpanOptions["attributes"]>
-    | undefined;
-  readonly logSetFailure?: boolean;
-}
-
-interface RevalidationPresentationState {
-  terminalLogEvent?: Omit<LogEvent, "level">;
 }
 
 interface ObservedRevalidationFailure {
@@ -129,6 +100,82 @@ type InvalidateOfficialCache = (
 let invalidateOfficialCacheFriend: InvalidateOfficialCache;
 
 const officialCacheNamespaces = new WeakMap<object, string>();
+
+interface CacheOutcomeList {
+  readonly outcomes: CacheOutcome[];
+  /** Set once the operation completion has read the list. */
+  completed: boolean;
+}
+
+/** One outcome list per logical cache execution, keyed by its context. */
+const executionOutcomes = new WeakMap<
+  QueryExecutionContext,
+  CacheOutcomeList
+>();
+
+const completeWithoutFacts = (): undefined => undefined;
+
+function createCacheOutcome(
+  event: CacheOutcome["event"],
+  status?: string,
+  error?: unknown
+): CacheOutcome {
+  return { event, status, at: Date.now(), error };
+}
+
+/** Record one decision of this execution when its capability wants outcomes. */
+function recordCacheOutcome(
+  context: QueryExecutionContext | undefined,
+  event: CacheOutcome["event"],
+  status?: string,
+  error?: unknown
+): void {
+  if (
+    context === undefined ||
+    getOfficialInstrumentationChainCapability(
+      getExecutionExtensionChain(context)
+    )?.wants("cache-outcomes") !== true
+  ) {
+    return;
+  }
+  let list = executionOutcomes.get(context);
+  if (list === undefined) {
+    list = { outcomes: [], completed: false };
+    executionOutcomes.set(context, list);
+  }
+  list.outcomes.push(createCacheOutcome(event, status, error));
+}
+
+/**
+ * A background set failure joins its execution's list while that list is still
+ * open, so it presents after the logical miss; otherwise it completes the set
+ * unit itself.
+ */
+function placeCacheSetFailure(
+  context: QueryExecutionContext | undefined,
+  failure: unknown
+): CacheCompletionFacts | undefined {
+  const outcome = createCacheOutcome("miss", "cache-set-failed", failure);
+  const list =
+    context === undefined ? undefined : executionOutcomes.get(context);
+  if (list !== undefined && !list.completed) {
+    list.outcomes.push(outcome);
+    return undefined;
+  }
+  return Object.freeze({ kind: "cache", outcomes: [outcome] });
+}
+
+/** Close and read one execution's outcome list at its operation completion. */
+export function readCacheExecutionOutcomes(
+  context: QueryExecutionContext
+): (() => readonly CacheOutcome[]) | undefined {
+  const list = executionOutcomes.get(context);
+  if (list === undefined) return undefined;
+  return () => {
+    list.completed = true;
+    return Object.freeze([...list.outcomes]);
+  };
+}
 
 /** Create one opaque scope recognized only by this module's private namespace map. */
 export function createOfficialCacheScope(namespace: string): object {
@@ -277,7 +324,7 @@ export abstract class CacheDriver {
       if (options.bypass) {
         const result = await executor();
         this.setResultInBackground(cacheKey, result, options, codec, namespace);
-        this.logExecutionCacheEvent(options, cacheKey, "bypass");
+        recordCacheOutcome(options.executionContext, "bypass");
         return result;
       }
 
@@ -295,7 +342,7 @@ export abstract class CacheDriver {
 
         if (!isStale) {
           // Fresh cache hit
-          this.logExecutionCacheEvent(options, cacheKey, "hit");
+          recordCacheOutcome(options.executionContext, "hit");
           return cached.value;
         }
 
@@ -315,7 +362,7 @@ export abstract class CacheDriver {
             ),
             options.waitUntil
           );
-          this.logExecutionCacheEvent(options, cacheKey, "hit", "stale");
+          recordCacheOutcome(options.executionContext, "hit", "stale");
           return cached.value;
         }
 
@@ -325,7 +372,7 @@ export abstract class CacheDriver {
       // Cache miss or stale without SWR - execute query
       const result = await executor();
       this.setResultInBackground(cacheKey, result, options, codec, namespace);
-      this.logExecutionCacheEvent(options, cacheKey, "miss");
+      recordCacheOutcome(options.executionContext, "miss");
       return result;
     };
 
@@ -359,9 +406,8 @@ export abstract class CacheDriver {
     try {
       stored = codec.snapshot(value);
     } catch (error) {
-      this.logExecutionCacheEvent(
-        options,
-        key,
+      recordCacheOutcome(
+        options.executionContext,
         "miss",
         "cache-set-failed",
         error
@@ -380,6 +426,8 @@ export abstract class CacheDriver {
     options: CacheExecutionOptions,
     namespace: string
   ): void {
+    // The observed set unit presents a failure; without the catch it would
+    // become an unhandled rejection.
     const cachePromise = this.setScoped(
       key,
       value,
@@ -390,17 +438,7 @@ export abstract class CacheDriver {
       options.executionContext,
       namespace,
       true
-    ).catch((error) => {
-      if (!hasOfficialCacheInstrumentation(options.executionContext)) {
-        this.logExecutionCacheEvent(
-          options,
-          key,
-          "miss",
-          "cache-set-failed",
-          error
-        );
-      }
-    });
+    ).catch(() => undefined);
 
     scheduleBackground(cachePromise, options.waitUntil);
   }
@@ -439,13 +477,7 @@ export abstract class CacheDriver {
       observers === undefined || observers.length === 0
         ? undefined
         : { failed: false, error: undefined };
-    const officialPresentation = hasOfficialCacheInstrumentation(
-      options.executionContext
-    );
-    const officialCacheLogging = hasOfficialCacheLogging(
-      options.executionContext
-    );
-    const presentationState: RevalidationPresentationState = {};
+    let terminal: CacheOutcome | undefined;
 
     const doRevalidate = async () => {
       try {
@@ -461,49 +493,14 @@ export abstract class CacheDriver {
           options.executionContext,
           namespace
         );
-
-        if (officialPresentation) {
-          if (officialCacheLogging) {
-            presentationState.terminalLogEvent =
-              createCacheInstrumentationLogEvent(
-                options.executionContext,
-                "revalidate",
-                "success"
-              );
-          }
-        } else {
-          this.logExecutionCacheEvent(
-            options,
-            cacheKey,
-            "revalidate",
-            "success"
-          );
-        }
+        terminal = createCacheOutcome("revalidate", "success");
       } catch (error) {
         // Log error but don't throw - this is background operation
         if (observedFailure !== undefined) {
           observedFailure.failed = true;
           observedFailure.error = error;
         }
-        if (officialPresentation) {
-          if (officialCacheLogging) {
-            presentationState.terminalLogEvent =
-              createCacheInstrumentationLogEvent(
-                options.executionContext,
-                "revalidate",
-                "error",
-                error
-              );
-          }
-        } else {
-          this.logExecutionCacheEvent(
-            options,
-            cacheKey,
-            "revalidate",
-            "error",
-            error
-          );
-        }
+        terminal = createCacheOutcome("revalidate", "error", error);
       } finally {
         if (observedFailure === undefined) {
           await this.clearRevalidatingScoped(cacheKey, namespace).catch(
@@ -529,29 +526,6 @@ export abstract class CacheDriver {
       }
     };
 
-    const instrumentationFacts = officialPresentation
-      ? createCacheLifecycleInstrumentationFacts({
-          context: options.executionContext,
-          spanName: SPAN_OPERATION,
-          spanAttributes: getCacheOperationAttributes(
-            modelName,
-            operation,
-            options.dbAttributes
-          ),
-          rootSpan: true,
-          readStartLogEvents: () => [
-            createCacheInstrumentationLogEvent(
-              options.executionContext,
-              "revalidate",
-              "start"
-            ),
-          ],
-          readCompletionLogEvents: () =>
-            presentationState.terminalLogEvent === undefined
-              ? undefined
-              : [presentationState.terminalLogEvent],
-        })
-      : undefined;
     const revalidationPromise =
       observedFailure === undefined
         ? doRevalidate()
@@ -563,23 +537,23 @@ export abstract class CacheDriver {
               if (observedFailure.failed) throw observedFailure.error;
             },
             undefined,
-            instrumentationFacts
+            (): CacheUnitFacts =>
+              Object.freeze({
+                kind: "cache",
+                context: options.executionContext,
+                read: Object.freeze({
+                  model: modelName,
+                  operation,
+                  identity: options.driverIdentity,
+                }),
+                complete: () =>
+                  terminal === undefined
+                    ? undefined
+                    : Object.freeze({ kind: "cache", outcomes: [terminal] }),
+              })
           );
 
     await revalidationPromise;
-  }
-
-  /**
-   * Log cache events
-   */
-  private logExecutionCacheEvent(
-    options: CacheExecutionOptions,
-    key: string,
-    event: CacheLogEvent,
-    status?: string,
-    error?: unknown
-  ): void {
-    emitCacheLogEvent(key, event, status, error, options.executionContext);
   }
 
   // ============================================================
@@ -587,71 +561,40 @@ export abstract class CacheDriver {
   // ============================================================
 
   /**
-   * Get base attributes for tracing
+   * Run one cache step inside its exact chain's observers. A backend delete or
+   * clear has no public unit and reaches only the trusted observer.
    */
-  getBaseAttributes(): Record<string, string> {
-    return {
-      [ATTR_CACHE_DRIVER]: this.driverName,
-    };
-  }
-
-  /**
-   * Wrap an operation with a cache span if tracer is available
-   */
-  private withSpan<T>(
-    spanName: VibORMSpanName,
+  private observe<T>(
+    step: "clear" | "delete" | "get" | "invalidate" | "set",
+    context: QueryExecutionContext | undefined,
     execute: () => Promise<T>,
-    extraAttributes?: Record<string, string>,
-    context?: QueryExecutionContext,
-    observedOperation?: ObservedCacheOperation,
-    completion?: ObservedCacheSpanCompletion
+    complete: CacheUnitFacts["complete"] = completeWithoutFacts,
+    ttl?: number
   ): Promise<T> {
-    if (observedOperation === undefined) {
-      const tracer = getExecutionInstrumentation(context)?.tracer;
-      return tracer === undefined
-        ? execute()
-        : tracer.startActiveSpan(
-            {
-              name: spanName,
-              attributes: {
-                ...this.getBaseAttributes(),
-                ...extraAttributes,
-              },
-            },
-            execute
-          );
-    }
     const observers = getExecutionExtensionChain(context)?.observe;
-    if (observers === undefined || observers.length === 0) {
-      return execute();
-    }
-    if (hasOfficialCacheInstrumentation(context)) {
-      const instrumentationFacts = createCacheLifecycleInstrumentationFacts({
-        context,
-        driverName: this.driverName,
-        spanName,
-        spanAttributes: extraAttributes,
-        readSpanAttributes: completion?.readSpanAttributes,
-        readCompletionLogEvents:
-          completion?.logSetFailure === true
-            ? (outcome) =>
-                outcome.status === "failure"
-                  ? completeOfficialCacheSetFailure(context, outcome.failure)
-                  : undefined
-            : undefined,
-      });
-      return runProtectedObservers(
-        { kind: "cache", operation: observedOperation },
-        observers,
-        () => execute(),
-        undefined,
-        instrumentationFacts
-      );
-    }
+    const backend = step === "clear" || step === "delete";
     return runProtectedObservers(
-      { kind: "cache", operation: observedOperation },
-      observers,
-      execute
+      { kind: "cache", operation: backend ? "invalidate" : step },
+      backend ? selectTrustedObservers(observers) : observers,
+      execute,
+      undefined,
+      () =>
+        Object.freeze(
+          backend
+            ? {
+                kind: "cache-backend",
+                boundary: step,
+                driverName: this.driverName,
+                complete: completeWithoutFacts,
+              }
+            : {
+                kind: "cache",
+                context,
+                driverName: this.driverName,
+                ...(ttl === undefined ? {} : { ttl }),
+                complete,
+              }
+        )
     );
   }
 
@@ -680,8 +623,9 @@ export abstract class CacheDriver {
     const prefixedKey = this.prefixKey(key, namespace);
     let cacheResult: "hit" | "miss" | "stale" | undefined;
 
-    return this.withSpan(
-      SPAN_CACHE_GET,
+    return this.observe(
+      "get",
+      context,
       async () => {
         const entry = await this.get<T>(prefixedKey);
         if (entry) {
@@ -692,15 +636,10 @@ export abstract class CacheDriver {
         }
         return entry;
       },
-      undefined,
-      context,
-      "get",
-      {
-        readSpanAttributes: () =>
-          cacheResult === undefined
-            ? undefined
-            : { [ATTR_CACHE_RESULT]: cacheResult },
-      }
+      () =>
+        cacheResult === undefined
+          ? undefined
+          : Object.freeze({ kind: "cache", result: cacheResult })
     );
   }
 
@@ -745,13 +684,15 @@ export abstract class CacheDriver {
     // Use SWR TTL if provided, otherwise just use regular TTL
     const storageTtl = options.swrTtl ?? options.ttl;
 
-    return this.withSpan(
-      SPAN_CACHE_SET,
-      () => this.set(prefixedKey, storageTtl, entry),
-      { [ATTR_CACHE_TTL]: String(options.ttl) },
-      context,
+    return this.observe(
       "set",
-      logSetFailure ? { logSetFailure: true } : undefined
+      context,
+      () => this.set(prefixedKey, storageTtl, entry),
+      (outcome) =>
+        logSetFailure && outcome.status === "failure"
+          ? placeCacheSetFailure(context, outcome.failure)
+          : undefined,
+      options.ttl
     );
   }
 
@@ -885,23 +826,17 @@ export abstract class CacheDriver {
         });
       }
     }
-    return this.withSpan(
-      SPAN_CACHE_INVALIDATE,
-      async () => {
-        const promises: Promise<void>[] = [];
-        for (const target of targets) {
-          promises.push(
-            target.kind === "clear"
-              ? this.clearPrefixed(target.prefixedKey, context)
-              : this.deletePrefixed(target.prefixedKey, context)
-          );
-        }
-        await Promise.all(promises);
-      },
-      undefined,
-      context,
-      "invalidate"
-    );
+    return this.observe("invalidate", context, async () => {
+      const promises: Promise<void>[] = [];
+      for (const target of targets) {
+        promises.push(
+          target.kind === "clear"
+            ? this.clearPrefixed(target.prefixedKey, context)
+            : this.deletePrefixed(target.prefixedKey, context)
+        );
+      }
+      await Promise.all(promises);
+    });
   }
 
   /**
@@ -923,24 +858,14 @@ export abstract class CacheDriver {
     context?: QueryExecutionContext
   ): Promise<void> {
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
-    return this.withSpan(
-      SPAN_CACHE_DELETE,
-      () => this.delete(keys),
-      undefined,
-      context
-    );
+    return this.observe("delete", context, () => this.delete(keys));
   }
 
   private clearPrefixed(
     prefixedKey: string,
     context?: QueryExecutionContext
   ): Promise<void> {
-    return this.withSpan(
-      SPAN_CACHE_CLEAR,
-      () => this.clear(prefixedKey),
-      undefined,
-      context
-    );
+    return this.observe("clear", context, () => this.clear(prefixedKey));
   }
 
   /**

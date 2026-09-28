@@ -143,6 +143,20 @@ export function getTrustedProtectedObserverCapability(
     : undefined;
 }
 
+/**
+ * The exact chain's one trusted observer, alone, or `undefined`. Dispatch
+ * through it reaches no ordinary observer: cache backend delete/clear, which
+ * have no public unit, run through the one runner this way.
+ */
+export function selectTrustedObservers(
+  observers: readonly ResolvedExtensionHandler[] | undefined
+): readonly ResolvedExtensionHandler[] | undefined {
+  const trusted = observers?.find(({ handler }) =>
+    trustedObservers.has(handler)
+  );
+  return trusted === undefined ? undefined : [trusted];
+}
+
 /** Resolve the one trusted readiness once before a coordinated array starts. */
 export function prewarmProtectedObservers(
   observers: readonly ResolvedExtensionHandler[] | undefined

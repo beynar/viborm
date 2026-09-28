@@ -14,7 +14,8 @@ import {
   invalidateOfficialCache,
   type WaitUntilFn,
 } from "@cache/driver";
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import type { QueryExecutionContext } from "@drivers";
+import type { DriverIdentity } from "@drivers/driver-identity";
 import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
@@ -233,7 +234,7 @@ export function validateCacheableOperation(operation: string): void {
 export function createCacheExecutionOptions(
   config: WithCacheOptions | undefined,
   waitUntil: WaitUntilFn | undefined,
-  dbAttributes: ReturnType<AnyDriver["getBaseAttributes"]>
+  driverIdentity: DriverIdentity
 ): CacheExecutionOptions {
   const parsed = parse(withCacheSchema, config);
   if (parsed.issues) {
@@ -251,7 +252,7 @@ export function createCacheExecutionOptions(
     bypass,
     key,
     waitUntil,
-    dbAttributes,
+    driverIdentity,
   };
 }
 

@@ -90,8 +90,8 @@ export interface DatabaseAdapter {
    * MySQL and every SQLite adapter. It is selected once at construction and
    * installed non-writable, and THAT INSTALL is where its immutability lives —
    * not a ban on copies: the two readers that capture it once, the bound
-   * migration driver at bind time and the `dbAttributes` snapshot a cached read
-   * takes, cannot go stale because the property they read can never be
+   * migration driver at bind time and the `readDriverIdentity` snapshot a cached
+   * read takes, cannot go stale because the property they read can never be
    * reassigned.
    */
   readonly namespace?: string;

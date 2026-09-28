@@ -1,16 +1,17 @@
-import type { CacheLogEvent } from "@cache/cache-instrumentation";
 import { appendResolvedExtension } from "@extensions/chain";
 import {
   getOfficialInstrumentationChainCapability,
   type LifecycleUnit,
   runProtectedObservers,
+  selectTrustedObservers,
 } from "@extensions/observation";
 import type {
+  CacheOutcome,
+  CacheUnitFacts,
   ObservationNeed,
   OfficialObservationCapability,
 } from "@extensions/official-facts";
 import type {
-  CacheInstrumentationFacts,
   DriverLifecycleInstrumentationFacts,
   InstrumentationLifecycleFacts,
   OperationInstrumentationFacts,
@@ -27,7 +28,7 @@ import {
   SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
-import type { InstrumentationConfig, LogEvent } from "@instrumentation/types";
+import type { InstrumentationConfig } from "@instrumentation/types";
 import {
   instrumentation,
   type OfficialInstrumentationExtension,
@@ -61,15 +62,11 @@ async function waitFor(check: () => boolean): Promise<void> {
   throw new Error("Expected official observation work to settle");
 }
 
-function cacheLogEvent(
-  event: CacheLogEvent,
+function cacheOutcome(
+  event: CacheOutcome["event"],
   status?: string
-): Omit<LogEvent, "level"> {
-  return Object.freeze({
-    timestamp: new Date(0),
-    operation: "get",
-    meta: Object.freeze({ event, status }),
-  });
+): CacheOutcome {
+  return Object.freeze({ event, status, at: 0 });
 }
 
 describe("official protected observer", () => {
@@ -102,14 +99,12 @@ describe("official protected observer", () => {
     });
     const facts: OperationInstrumentationFacts = Object.freeze({
       kind: "operation",
+      context: {},
       complete: () =>
         Object.freeze({
           kind: "operation",
-          readCacheLogEvents: () =>
-            Object.freeze([
-              cacheLogEvent("hit"),
-              cacheLogEvent("hit", "stale"),
-            ]),
+          readCacheOutcomes: () =>
+            Object.freeze([cacheOutcome("hit"), cacheOutcome("hit", "stale")]),
         }),
     });
     const childValue = Object.freeze({ source: "child" });
@@ -141,10 +136,11 @@ describe("official protected observer", () => {
     const readerFailure = new Error("hostile late reader");
     const facts: OperationInstrumentationFacts = Object.freeze({
       kind: "operation",
+      context: {},
       complete: () =>
         Object.freeze({
           kind: "operation",
-          readCacheLogEvents() {
+          readCacheOutcomes() {
             throw readerFailure;
           },
         }),
@@ -162,10 +158,11 @@ describe("official protected observer", () => {
 
     const loggerFacts: OperationInstrumentationFacts = Object.freeze({
       kind: "operation",
+      context: {},
       complete: () =>
         Object.freeze({
           kind: "operation",
-          readCacheLogEvents: () => Object.freeze([cacheLogEvent("hit")]),
+          readCacheOutcomes: () => Object.freeze([cacheOutcome("hit")]),
         }),
     });
     await expect(
@@ -326,14 +323,11 @@ describe("official protected observer", () => {
           },
         },
       });
-      const getFacts: CacheInstrumentationFacts = Object.freeze({
+      const getFacts: CacheUnitFacts = Object.freeze({
         kind: "cache",
-        spanOptions: Object.freeze({ name: SPAN_CACHE_GET }),
-        complete: () =>
-          Object.freeze({
-            kind: "cache",
-            spanAttributes: Object.freeze({ [ATTR_CACHE_RESULT]: "miss" }),
-          }),
+        context: undefined,
+        driverName: "memory",
+        complete: () => Object.freeze({ kind: "cache", result: "miss" }),
       });
       const childValue = Object.freeze({ cache: "authoritative" });
 
@@ -346,14 +340,18 @@ describe("official protected observer", () => {
         )
       ).resolves.toBe(childValue);
 
-      const revalidationFacts: CacheInstrumentationFacts = Object.freeze({
+      const revalidationFacts: CacheUnitFacts = Object.freeze({
         kind: "cache",
-        spanOptions: Object.freeze({ name: SPAN_OPERATION, root: true }),
-        startLogEvents: Object.freeze([cacheLogEvent("revalidate", "start")]),
+        context: undefined,
+        read: Object.freeze({
+          model: "record",
+          operation: "findMany",
+          identity: undefined,
+        }),
         complete: () =>
           Object.freeze({
             kind: "cache",
-            logEvents: Object.freeze([cacheLogEvent("revalidate", "success")]),
+            outcomes: Object.freeze([cacheOutcome("revalidate", "success")]),
           }),
       });
       await expect(
@@ -390,8 +388,9 @@ describe("official protected observer", () => {
   it("contains spanless cache failures and completion-fact failures", async () => {
     const extension = instrumentation({ logging: { cache: true } });
     const childFailure = new Error("cache child failed");
-    const facts: CacheInstrumentationFacts = Object.freeze({
+    const facts: CacheUnitFacts = Object.freeze({
       kind: "cache",
+      context: undefined,
       complete: () => undefined,
     });
 
@@ -402,8 +401,9 @@ describe("official protected observer", () => {
     ).rejects.toBe(childFailure);
 
     const completionFailure = new Error("cache completion facts failed");
-    const hostileFacts: CacheInstrumentationFacts = Object.freeze({
+    const hostileFacts: CacheUnitFacts = Object.freeze({
       kind: "cache",
+      context: undefined,
       complete() {
         throw completionFailure;
       },
@@ -461,6 +461,20 @@ describe("official protected observer", () => {
     } finally {
       await recorder.dispose();
     }
+  });
+});
+
+describe("trusted-only dispatch", () => {
+  it("selects the exact chain's trusted observer and nothing else", () => {
+    const official = instrumentation({ tracing: true });
+    const trusted = { extension: official.name, handler: official.observe };
+    const ordinary = { extension: "ordinary", handler: () => undefined };
+
+    expect(selectTrustedObservers([ordinary, trusted, ordinary])).toEqual([
+      trusted,
+    ]);
+    expect(selectTrustedObservers([ordinary])).toBeUndefined();
+    expect(selectTrustedObservers(undefined)).toBeUndefined();
   });
 });
 

@@ -8,6 +8,8 @@ import {
   registerTrustedProtectedObserver,
 } from "@extensions/observation";
 import type {
+  CacheBackendFacts,
+  CacheUnitFacts,
   ObservationNeed,
   WarningNotice,
 } from "@extensions/official-facts";
@@ -16,11 +18,12 @@ import {
   type InstrumentationContext,
 } from "./context";
 import type {
-  CacheInstrumentationFacts,
   OfficialInstrumentationCapability,
   SegmentInstrumentationCompletionFacts,
 } from "./lifecycle-facts";
+import { createCacheLogEvent, createCacheSpanOptions } from "./presentation";
 import {
+  ATTR_CACHE_RESULT,
   SPAN_CONNECT,
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
@@ -171,8 +174,17 @@ function observeOfficialInstrumentation(
       }
     );
   }
-  if (facts?.kind === "cache") {
-    return observeCacheInstrumentation(capability, unit, facts, proceed);
+  if (
+    unit.kind === "cache" &&
+    (facts?.kind === "cache" || facts?.kind === "cache-backend")
+  ) {
+    return observeCacheInstrumentation(
+      capability,
+      unit.operation,
+      unit,
+      facts,
+      proceed
+    );
   }
   if (facts?.kind === "statement" || facts?.kind === "driver-lifecycle") {
     const completion = proceed();
@@ -212,10 +224,12 @@ function observeOfficialInstrumentation(
       const completionFacts = readProtectedLifecycleCompletionFacts(unit);
       if (
         completionFacts?.kind === "operation" &&
-        completionFacts.readCacheLogEvents !== undefined
+        completionFacts.readCacheOutcomes !== undefined
       ) {
-        for (const event of completionFacts.readCacheLogEvents()) {
-          capability.context.logger?.cache(event);
+        for (const outcome of completionFacts.readCacheOutcomes()) {
+          capability.context.logger?.cache(
+            createCacheLogEvent(facts.context, outcome)
+          );
         }
       }
       if (
@@ -238,41 +252,50 @@ function observeOfficialInstrumentation(
 
 function observeCacheInstrumentation(
   capability: OfficialInstrumentationCapability,
+  operation: Extract<LifecycleUnit, { kind: "cache" }>["operation"],
   unit: LifecycleUnit,
-  facts: CacheInstrumentationFacts,
+  facts: CacheBackendFacts | CacheUnitFacts,
   proceed: () => Promise<ObservationCompletion>
 ): Promise<void> {
+  const { logger, tracer } = capability.context;
+  const traced = capability.wants("cache");
+  const context = facts.kind === "cache" ? facts.context : undefined;
+  const logged = facts.kind === "cache" && capability.wants("cache-outcomes");
+  // A revalidation presents its start at the instant it is observed.
+  const startedAt = Date.now();
   const observeCompletion = async (span?: Span): Promise<void> => {
-    if (facts.startLogEvents !== undefined) {
-      for (const event of facts.startLogEvents) {
-        capability.context.logger?.cache(event);
-      }
+    if (logged && operation === "revalidate") {
+      logger?.cache(
+        createCacheLogEvent(context, {
+          event: "revalidate",
+          status: "start",
+          at: startedAt,
+        })
+      );
     }
     const outcome = await proceed();
     const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-    if (
-      completionFacts?.kind === "cache" &&
-      completionFacts.spanAttributes !== undefined
-    ) {
-      setCacheSpanAttributes(span, completionFacts.spanAttributes);
-    }
-    if (
-      completionFacts?.kind === "cache" &&
-      completionFacts.logEvents !== undefined
-    ) {
-      for (const event of completionFacts.logEvents) {
-        capability.context.logger?.cache(event);
+    if (completionFacts?.kind === "cache") {
+      if (traced && completionFacts.result !== undefined) {
+        setCacheSpanAttributes(span, {
+          [ATTR_CACHE_RESULT]: completionFacts.result,
+        });
+      }
+      if (logged && completionFacts.outcomes !== undefined) {
+        for (const cacheOutcome of completionFacts.outcomes) {
+          logger?.cache(createCacheLogEvent(context, cacheOutcome));
+        }
       }
     }
     if (outcome.status === "failure") throw createObservedFailure();
   };
 
-  return facts.spanOptions === undefined
-    ? observeCompletion()
-    : capability.context.tracer.startActiveSpan(
-        facts.spanOptions,
+  return traced
+    ? tracer.startActiveSpan(
+        createCacheSpanOptions(operation, facts),
         observeCompletion
-      );
+      )
+    : observeCompletion();
 }
 
 async function observeStatementCompletion(

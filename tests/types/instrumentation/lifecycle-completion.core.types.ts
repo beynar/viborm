@@ -1,6 +1,8 @@
 import type {
-  CacheInstrumentationCompletionFacts,
-  CacheInstrumentationFacts,
+  CacheCompletionFacts,
+  CacheUnitFacts,
+} from "@extensions/official-facts";
+import type {
   InstrumentationLifecycleCompletionFacts,
   OperationInstrumentationFacts,
   SegmentInstrumentationFacts,
@@ -40,12 +42,12 @@ type _segmentStartAndCompletionKindsMatch = Expect<
 >;
 type _cacheStartAndCompletionKindsMatch = Expect<
   Equal<
-    CacheInstrumentationFacts["kind"],
-    NonNullable<ReturnType<CacheInstrumentationFacts["complete"]>>["kind"]
+    CacheUnitFacts["kind"],
+    NonNullable<ReturnType<CacheUnitFacts["complete"]>>["kind"]
   >
 >;
 
-const cacheCompletion: CacheInstrumentationCompletionFacts = {
+const cacheCompletion: CacheCompletionFacts = {
   kind: "cache",
 };
 
@@ -60,7 +62,7 @@ declare const completion: InstrumentationLifecycleCompletionFacts;
 
 if (completion.kind === "operation") {
   completion.errorLogEvent;
-  completion.readCacheLogEvents;
+  completion.readCacheOutcomes;
   // @ts-expect-error - operation completion cannot be read as segment completion
   completion.spanAttributes;
 }
@@ -68,7 +70,7 @@ if (completion.kind === "operation") {
 if (completion.kind === "statement") {
   completion.logEvent;
   // @ts-expect-error - statement completion cannot be read as cache completion
-  completion.logEvents;
+  completion.outcomes;
 }
 
 if (completion.kind === "segment") {
@@ -78,8 +80,8 @@ if (completion.kind === "segment") {
 }
 
 if (completion.kind === "cache") {
-  completion.spanAttributes;
-  completion.logEvents;
+  completion.result;
+  completion.outcomes;
   // @ts-expect-error - cache completion cannot be read as statement completion
   completion.logEvent;
 }

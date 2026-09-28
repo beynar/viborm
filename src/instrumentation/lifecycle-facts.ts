@@ -1,4 +1,12 @@
-import type { OfficialObservationCapability } from "@extensions/official-facts";
+import type { QueryExecutionContext } from "@drivers/types";
+import type {
+  CacheBackendFacts,
+  CacheCompletionFacts,
+  CacheOutcome,
+  CacheUnitFacts,
+  ObservationOutcome,
+  OfficialObservationCapability,
+} from "@extensions/official-facts";
 import type { InstrumentationContext } from "./context";
 import type { VibORMSpanOptions } from "./tracer";
 import type { LogEvent } from "./types";
@@ -13,16 +21,13 @@ export interface OfficialInstrumentationCapability
   readonly context: InstrumentationContext;
 }
 
-export interface InstrumentationLifecycleOutcome {
-  readonly status: "success" | "failure";
-  readonly durationMs: number;
-  readonly failure?: unknown;
-}
+export type InstrumentationLifecycleOutcome = ObservationOutcome;
 
 export interface OperationInstrumentationCompletionFacts {
   readonly kind: "operation";
   readonly errorLogEvent?: Omit<LogEvent, "level">;
-  readonly readCacheLogEvents?: () => readonly Omit<LogEvent, "level">[];
+  /** Close and read the cache-managed execution's outcome list. */
+  readonly readCacheOutcomes?: () => readonly CacheOutcome[];
 }
 
 export interface StatementInstrumentationCompletionFacts {
@@ -36,12 +41,6 @@ export interface StatementInstrumentationCompletionFacts {
 export interface SegmentInstrumentationCompletionFacts {
   readonly kind: "segment";
   readonly spanAttributes: NonNullable<VibORMSpanOptions["attributes"]>;
-}
-
-export interface CacheInstrumentationCompletionFacts {
-  readonly kind: "cache";
-  readonly spanAttributes?: NonNullable<VibORMSpanOptions["attributes"]>;
-  readonly logEvents?: readonly Omit<LogEvent, "level">[];
 }
 
 export interface InstrumentationExecutionPresentation {
@@ -69,6 +68,7 @@ export interface DriverLifecycleInstrumentationFacts {
 
 export interface OperationInstrumentationFacts {
   readonly kind: "operation";
+  readonly context: QueryExecutionContext;
   readonly spanOptions?: VibORMSpanOptions;
   readonly complete: (
     outcome: InstrumentationLifecycleOutcome
@@ -83,17 +83,9 @@ export interface SegmentInstrumentationFacts {
   ) => SegmentInstrumentationCompletionFacts;
 }
 
-export interface CacheInstrumentationFacts {
-  readonly kind: "cache";
-  readonly spanOptions?: VibORMSpanOptions;
-  readonly startLogEvents?: readonly Omit<LogEvent, "level">[];
-  readonly complete: (
-    outcome: InstrumentationLifecycleOutcome
-  ) => CacheInstrumentationCompletionFacts | undefined;
-}
-
 export type InstrumentationLifecycleFacts =
-  | CacheInstrumentationFacts
+  | CacheBackendFacts
+  | CacheUnitFacts
   | DriverLifecycleInstrumentationFacts
   | OperationInstrumentationFacts
   | SegmentInstrumentationFacts
@@ -104,7 +96,7 @@ export type InstrumentationLifecycleFactsReader = () =>
   | undefined;
 
 export type InstrumentationLifecycleCompletionFacts =
-  | CacheInstrumentationCompletionFacts
+  | CacheCompletionFacts
   | OperationInstrumentationCompletionFacts
   | SegmentInstrumentationCompletionFacts
   | StatementInstrumentationCompletionFacts;
