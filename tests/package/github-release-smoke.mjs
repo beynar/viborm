@@ -1,6 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   GithubReleaseError,
   readGithubReleaseIntent,
@@ -315,5 +324,227 @@ expectRefusal(
     ]),
   "supplied more than once"
 );
+
+const cliFixtureRoot = mkdtempSync(
+  join(tmpdir(), "viborm-github-release-cli-")
+);
+try {
+  const cliTarball = Buffer.from("authoritative release bytes");
+  const cliHashes = hashArtifactBytes(cliTarball);
+  const cliManifest = {
+    channel: "latest",
+    commit,
+    integrity: cliHashes.integrity,
+    main: commit,
+    package: "viborm",
+    ref: "refs/heads/main",
+    schemaVersion: 1,
+    sha256: cliHashes.sha256,
+    tarball: "viborm-1.0.0.tgz",
+    version: "1.0.0",
+  };
+  const cliManifestPath = join(cliFixtureRoot, "viborm-release.json");
+  const fakeBinPath = join(cliFixtureRoot, "bin");
+  const fakeGhPath = join(fakeBinPath, "gh");
+  const fakeStatePath = join(cliFixtureRoot, "github-state.json");
+  mkdirSync(fakeBinPath);
+  writeFileSync(join(cliFixtureRoot, cliManifest.tarball), cliTarball);
+  writeFileSync(cliManifestPath, `${JSON.stringify(cliManifest, null, 2)}\n`);
+  writeFileSync(
+    fakeStatePath,
+    `${JSON.stringify({ calls: [], listingVisible: false, release: undefined })}\n`
+  );
+  writeFileSync(
+    fakeGhPath,
+    `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+const method = args[args.indexOf("--method") + 1];
+const endpoint = args.find(
+  (argument) => argument.startsWith("repos/") || argument.startsWith("https://")
+);
+const statePath = process.env.FAKE_GITHUB_STATE;
+const commit = process.env.FAKE_GITHUB_COMMIT;
+const state = JSON.parse(readFileSync(statePath, "utf8"));
+state.calls.push({ endpoint, method });
+
+function save() {
+  writeFileSync(statePath, JSON.stringify(state));
+}
+
+function json(value) {
+  save();
+  process.stdout.write(JSON.stringify(value));
+}
+
+function body() {
+  return JSON.parse(readFileSync(0, "utf8"));
+}
+
+if (method === "GET" && endpoint.includes("/commits/")) {
+  json({ sha: commit });
+} else if (method === "GET" && endpoint.includes("/releases?")) {
+  json([state.listingVisible ? [state.release] : []]);
+} else if (method === "POST" && endpoint.endsWith("/releases")) {
+  const input = body();
+  state.release = {
+    assets: [],
+    draft: input.draft,
+    id: 42,
+    immutable: false,
+    name: input.name,
+    prerelease: input.prerelease,
+    tag_name: process.env.FAKE_GITHUB_CREATE_TAG ?? input.tag_name,
+  };
+  json(state.release);
+} else if (method === "GET" && endpoint.endsWith("/releases/42")) {
+  json(state.release);
+} else if (method === "POST" && endpoint.startsWith("https://uploads.github.com/")) {
+  const inputPath = args[args.indexOf("--input") + 1];
+  const name = new URL(endpoint).searchParams.get("name");
+  const id = state.release.assets.length + 100;
+  const assetPath = statePath + ".asset-" + id;
+  writeFileSync(assetPath, readFileSync(inputPath));
+  state.release.assets.push({ id, name, path: assetPath, state: "uploaded" });
+  json(state.release.assets.at(-1));
+} else if (method === "GET" && endpoint.includes("/releases/assets/")) {
+  const id = Number(endpoint.split("/").at(-1));
+  const asset = state.release.assets.find((candidate) => candidate.id === id);
+  save();
+  process.stdout.write(readFileSync(asset.path));
+} else if (method === "PATCH" && endpoint.endsWith("/releases/42")) {
+  const input = body();
+  state.release = {
+    ...state.release,
+    draft: input.draft,
+    immutable: true,
+    name: input.name,
+    prerelease: input.prerelease,
+    tag_name: input.tag_name,
+  };
+  json(state.release);
+} else if (method === "GET" && endpoint.endsWith("/releases/latest")) {
+  json(state.release);
+} else {
+  save();
+  process.stderr.write("Unexpected fake gh call: " + method + " " + endpoint + "\\n");
+  process.exitCode = 1;
+}
+`
+  );
+  chmodSync(fakeGhPath, 0o755);
+
+  function runCli(extraEnvironment = {}) {
+    return spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL("../../scripts/github-release.mjs", import.meta.url)
+        ),
+        "publish",
+        "--manifest",
+        cliManifestPath,
+        "--repository",
+        "example/viborm",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ...extraEnvironment,
+          FAKE_GITHUB_COMMIT: commit,
+          FAKE_GITHUB_STATE: fakeStatePath,
+          PATH: `${fakeBinPath}:${process.env.PATH}`,
+        },
+      }
+    );
+  }
+
+  const cliExecution = runCli();
+  if (cliExecution.status !== 0) {
+    throw new Error(
+      `CLI did not trust the authoritative mutation responses:\n${cliExecution.stderr}`
+    );
+  }
+  const fakeState = JSON.parse(readFileSync(fakeStatePath, "utf8"));
+  const listingCalls = fakeState.calls.filter((call) =>
+    call.endpoint.includes("/releases?")
+  );
+  const directReleaseCalls = fakeState.calls.filter(
+    (call) => call.method === "GET" && call.endpoint.endsWith("/releases/42")
+  );
+  if (listingCalls.length !== 1 || directReleaseCalls.length !== 1) {
+    throw new Error(
+      "CLI did not limit discovery to one listing and reobserve the known release by id"
+    );
+  }
+
+  const uploadedTarballPath = `${fakeStatePath}.resume-tarball`;
+  writeFileSync(uploadedTarballPath, cliTarball);
+  writeFileSync(
+    fakeStatePath,
+    JSON.stringify({
+      calls: [],
+      listingVisible: true,
+      release: {
+        assets: [
+          {
+            id: 100,
+            name: cliManifest.tarball,
+            path: uploadedTarballPath,
+            state: "uploaded",
+          },
+        ],
+        draft: true,
+        id: 42,
+        immutable: false,
+        name: "VibORM 1.0.0",
+        prerelease: false,
+        tag_name: "v1.0.0",
+      },
+    })
+  );
+  const resumedExecution = runCli();
+  if (resumedExecution.status !== 0) {
+    throw new Error(
+      `CLI did not resume the listed partial draft:\n${resumedExecution.stderr}`
+    );
+  }
+  const resumedState = JSON.parse(readFileSync(fakeStatePath, "utf8"));
+  if (
+    resumedState.calls.some(
+      (call) => call.method === "POST" && call.endpoint.endsWith("/releases")
+    )
+  ) {
+    throw new Error("CLI recreated a draft instead of resuming it");
+  }
+
+  writeFileSync(
+    fakeStatePath,
+    JSON.stringify({ calls: [], listingVisible: false, release: undefined })
+  );
+  const mismatchedExecution = runCli({
+    FAKE_GITHUB_CREATE_TAG: "v1.0.1",
+  });
+  if (
+    mismatchedExecution.status === 0 ||
+    !mismatchedExecution.stderr.includes("does not match")
+  ) {
+    throw new Error("CLI accepted a mismatched create response");
+  }
+  const mismatchedState = JSON.parse(readFileSync(fakeStatePath, "utf8"));
+  if (
+    mismatchedState.calls.some(
+      (call) =>
+        call.method === "PATCH" ||
+        call.endpoint.startsWith("https://uploads.github.com/")
+    )
+  ) {
+    throw new Error("CLI mutated a release after a mismatched create response");
+  }
+} finally {
+  rmSync(cliFixtureRoot, { force: true, recursive: true });
+}
 
 console.log("GitHub release protocol: pass");

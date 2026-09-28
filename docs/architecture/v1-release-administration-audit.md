@@ -118,3 +118,20 @@ This audit did not dispatch or approve a workflow, publish a package, change
 GitHub/npm settings, or execute the RC provider matrix. Passing administration
 checks cannot replace green checks on the final release commit, the approved
 environment deployment, registry provenance, or the consumer soak.
+
+## Publication follow-up — 2026-09-28
+
+This later attestation does not replace the initial read-only observations.
+After the recorded main-rule changes and Arnaud's confirmation of npm account
+2FA and trusted-publisher settings, authorized Release run `36397517876`
+published `1.0.0-rc.1` through OIDC from `8a42fcb56`. Human environment
+approval was provided by Arnaud, not by the agent. Registry integrity, channel
+and provenance verified; `next` is RC1 and `latest` remains `0.1.0`.
+
+Failed-job-only recovery reused the existing version and artifact. The fresh
+registry consumer passed, and at 11:23:46 UTC the workflow verified immutable
+GitHub release `398179047` with the matching protected tag and both exact
+assets. [The release closure record](v1-release-closure.md) retains the failed
+attempts, successful recovery, digests and timestamps. No protection was
+weakened for recovery. npm's post-first-release token restriction/revocation
+step and the application upgrade/migration soak are not claimed complete.
