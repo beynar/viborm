@@ -21,9 +21,21 @@ No public contract or provider support tier changes.
 - [ ] Verify registry integrity/provenance, the fresh consumer, and the immutable
   GitHub release. Keep `latest` at `0.1.0`.
 
-The homepage comparison uses saved development measurements, not RC2 artifact
-measurements. The separately deployed docs changes do not alter this release
-source. RC1's publication record below remains historical evidence.
+The separately deployed homepage now uses a six-round, three-library campaign
+on the clean `d7d7aa748` RC2 candidate build, not the published npm artifact.
+Those docs changes do not alter this release source. RC1's publication record
+below remains historical evidence.
+
+CI run `36450425424` found nine formatting/lint errors in four measurement
+summaries and two test files. The same changed-file gate reproduced all nine
+locally. A bounded repair reformats the JSON without changing its parsed
+values, sorts test imports, and hoists three test regexes. The gate then passes
+and the prepared-operation suite passes 8/8; production source is unchanged.
+The Node 24 package job was cancelled near its 15-minute ceiling after checkout
+alone consumed over 14 minutes; its next run must succeed without a ceiling
+increase. Devin's review advertises one flag but its public page currently
+shows analysis in progress without the finding. Its substance is requested
+from Arnaud before the merge decision; a green badge is not review clearance.
 
 ## RC1 publication complete — 2026-09-28
 

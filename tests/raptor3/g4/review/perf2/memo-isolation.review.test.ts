@@ -19,13 +19,16 @@
  */
 
 import assert from "node:assert/strict";
-import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import type { Sql } from "@sql";
 import { describe, it } from "vitest";
+
+const FIRST_ALIAS = /"q0"/;
+const NEXT_ALIAS = /"q1"/;
 
 function names(projection: { fields: readonly { name: string }[] }): string[] {
   return projection.fields.map((field) => field.name);
@@ -159,8 +162,8 @@ describe("review/perf2 — what the (adapter, model) memo may not share", () => 
       text(zero),
       "lowering the shared projection twice under one alias drifted"
     );
-    assert.match(text(zero), /"q0"/);
-    assert.doesNotMatch(text(zero), /"q1"/);
+    assert.match(text(zero), FIRST_ALIAS);
+    assert.doesNotMatch(text(zero), NEXT_ALIAS);
     // The shared value itself is untouched, and is still the memo's answer.
     assert.equal(JSON.stringify(names(shared)), snapshot);
     assert.equal(queries.prepareProjection(schema.account, {}), shared);

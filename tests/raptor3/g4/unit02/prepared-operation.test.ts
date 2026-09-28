@@ -21,6 +21,7 @@ import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 import { createWorld, type World, worldSchema } from "./world";
 
+const SELECT_STATEMENT = /^SELECT\b/;
 let world: World | undefined;
 
 afterEach(async () => {
@@ -135,24 +136,26 @@ describe("G4-02 prepared operation boundary", () => {
       assert.equal(otherWorld.driver.statements.length, 0);
 
       await Promise.all(
-        prepared.map(async ({ request, handle, admitted, statement, codec }) => {
-          const value = await handle.execute({
-            context: { model: "author", operation: request.operation },
-            engineDriver: request.driver,
-            driverOverride: undefined,
-            isWrite: false,
-            committedWriteSegment: undefined,
-            writeMayBeVisible: undefined,
-          });
-          assert.deepEqual(value, request.expected);
-          assert.deepEqual(
-            codec.materialize(codec.snapshot(value)),
-            request.expected
-          );
-          assert.equal(handle.preparedArgs, admitted);
-          assert.equal(handle.buildStatement(), statement);
-          assert.equal(handle.cacheResultCodec(), codec);
-        })
+        prepared.map(
+          async ({ request, handle, admitted, statement, codec }) => {
+            const value = await handle.execute({
+              context: { model: "author", operation: request.operation },
+              engineDriver: request.driver,
+              driverOverride: undefined,
+              isWrite: false,
+              committedWriteSegment: undefined,
+              writeMayBeVisible: undefined,
+            });
+            assert.deepEqual(value, request.expected);
+            assert.deepEqual(
+              codec.materialize(codec.snapshot(value)),
+              request.expected
+            );
+            assert.equal(handle.preparedArgs, admitted);
+            assert.equal(handle.buildStatement(), statement);
+            assert.equal(handle.cacheResultCodec(), codec);
+          }
+        )
       );
       assert.equal(world.driver.statements.length, 2);
       assert.equal(otherWorld.driver.statements.length, 1);
@@ -249,7 +252,7 @@ describe("G4-02 prepared operation boundary", () => {
     });
     assert.ok(packaged, "a pure read must be packageable");
     assert.equal(packaged.queries.length, 1);
-    assert.match(packaged.queries[0]?.sql ?? "", /^SELECT\b/);
+    assert.match(packaged.queries[0]?.sql ?? "", SELECT_STATEMENT);
     const rows = await world.driver._executeBatch(packaged.queries);
     assert.deepEqual(packaged.parseResult(rows), [{ id: 1, name: "Ada" }]);
   });

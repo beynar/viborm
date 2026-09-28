@@ -347,3 +347,8 @@
   observers settle; an admission error has no statement boundary. Inspect the
   existing log owner, then verify both event order and one-log deduplication
   instead of copying an admission-failure timeline onto provider rejection.
+- Before pushing a release candidate, run CI's exact changed-file formatting
+  command against its base, including evidence JSON and historical tests touched
+  by the patch. Source-only lint misses those files. After formatting evidence,
+  compare parsed values to the original so presentation changes cannot alter
+  measurements.
