@@ -28,7 +28,7 @@ import {
 import type { QueryExecutionContext, QueryResult } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
 import type { ObservationCompletion } from "@extensions/observation";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import { sql } from "@sql";
 import {

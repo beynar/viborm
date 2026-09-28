@@ -1,9 +1,9 @@
 import type { AnyDriver } from "@drivers";
 import { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
 import type { ResolvedExtensionChain } from "@extensions/chain";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import type { TransactionWriteOutcomes } from "@extensions/query";
 import type { InstrumentationContext } from "@instrumentation";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import type { Model } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@schema/validation/validator";

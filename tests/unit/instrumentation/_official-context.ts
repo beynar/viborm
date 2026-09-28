@@ -1,7 +1,7 @@
 import { createExecutionContext } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import {
   type InstrumentationConfig,
   instrumentation,

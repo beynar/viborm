@@ -28,7 +28,7 @@ import type {
   QueryResult,
 } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,

@@ -7,7 +7,7 @@ import type {
 } from "@instrumentation/lifecycle-facts";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionHandler } from "./chain";
+import type { ResolvedExtensionChain, ResolvedExtensionHandler } from "./chain";
 
 /** The exact public facts carried by each protected lifecycle boundary. */
 export type LifecycleUnit =
@@ -102,7 +102,28 @@ const lifecycleFacts = new WeakMap<
   LifecycleUnit,
   ProtectedLifecycleFactsState
 >();
+const officialCapabilitiesByChain = new WeakMap<
+  ResolvedExtensionChain,
+  OfficialInstrumentationCapability
+>();
 const settleObserverReturn = (): undefined => undefined;
+
+/** The one official capability registered for this exact chain, if any. */
+export function getOfficialInstrumentationChainCapability(
+  chain: ResolvedExtensionChain | undefined
+): OfficialInstrumentationCapability | undefined {
+  return chain === undefined
+    ? undefined
+    : officialCapabilitiesByChain.get(chain);
+}
+
+/** Bind the admitted official capability to one exact resolved chain. */
+export function registerOfficialInstrumentationChain(
+  chain: ResolvedExtensionChain,
+  capability: OfficialInstrumentationCapability
+): void {
+  officialCapabilitiesByChain.set(chain, capability);
+}
 
 /** Register one package-owned observer identity without publishing a marker. */
 export function registerTrustedProtectedObserver(

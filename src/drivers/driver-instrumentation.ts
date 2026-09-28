@@ -9,6 +9,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import {
+  getOfficialInstrumentationChainCapability,
   type LifecycleUnitKind,
   type ObservationCompletionFactsReader,
   observeDriverLifecycle,
@@ -16,7 +17,6 @@ import {
 } from "@extensions/observation";
 import { applyStatementTransforms } from "@extensions/statement";
 import type { InstrumentationContext } from "@instrumentation/context";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import type {
   InstrumentationExecutionPresentation,
   InstrumentationLifecycleFactsReader,
@@ -31,6 +31,7 @@ import {
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_CORRELATION_ID,
+  SPAN_DISCONNECT,
   SPAN_EXECUTE,
   type VibORMSpanName,
 } from "@instrumentation/spans";
@@ -524,12 +525,16 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     if (observers === undefined || observers.length === 0) {
       return child(undefined);
     }
-    const official = getOfficialInstrumentationChainCapability(
-      getExecutionExtensionChain(context)
-    );
+    const official = readOfficialCapability(context);
     const gate =
       official?.observesLifecycle === true &&
-      this.isTracingEnabled(context, spanName)
+      official.wants(
+        kind === "connection"
+          ? spanName === SPAN_DISCONNECT
+            ? "disconnect"
+            : "connect"
+          : kind
+      )
         ? this.createOfficialDriverLifecycleExecutionGate(context, spanName)
         : undefined;
     return observeDriverLifecycle(
@@ -608,15 +613,14 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   private createOfficialStatementExecutionGate(
     context: QueryExecutionContext
   ): OfficialStatementExecutionGate | undefined {
-    const official = getOfficialInstrumentationChainCapability(
-      getExecutionExtensionChain(context)
-    );
+    const official = readOfficialCapability(context);
     if (official?.observesLifecycle !== true) return undefined;
-    const logger = official.context.logger;
     if (
-      !this.isTracingEnabled(context) &&
-      logger?.isLevelEnabled("query") !== true &&
-      logger?.isLevelEnabled("error") !== true
+      !(
+        official.wants("statement") ||
+        official.wants("query-log") ||
+        official.wants("error-log")
+      )
     ) {
       return undefined;
     }
@@ -694,7 +698,9 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     params: unknown[],
     context: QueryExecutionContext
   ): VibORMSpanOptions | undefined {
-    if (!this.isTracingEnabled(context)) return undefined;
+    if (readOfficialCapability(context)?.wants("statement") !== true) {
+      return undefined;
+    }
     const disclosure = this.getTracingDisclosure(context);
     const spanSql =
       disclosure.includeSql || disclosure.includeParams
@@ -729,7 +735,11 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         ? presentation.context
         : getErrorExecutionContext(failure, presentation.context));
     const level = failure === undefined ? "query" : "error";
-    if (this.getLogger(context)?.isLevelEnabled(level) !== true) {
+    if (
+      readOfficialCapability(context)?.wants(
+        failure === undefined ? "query-log" : "error-log"
+      ) !== true
+    ) {
       return undefined;
     }
     if (failure !== undefined) markErrorLogged(failure);
@@ -948,27 +958,11 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   }
 
   protected canDiscloseParameters(context?: QueryExecutionContext): boolean {
-    const instrumentation = this.getInstrumentation(context);
-    if (!instrumentation) return false;
-    if (instrumentation.config.diagnostics.includeParams) return true;
-
-    const logging = instrumentation.config.logging;
-    if (
-      logging &&
-      logging !== true &&
-      logging.includeParams === true &&
-      (instrumentation.logger?.isLevelEnabled("query") === true ||
-        instrumentation.logger?.isLevelEnabled("error") === true)
-    ) {
-      return true;
-    }
-
-    const tracing = instrumentation.config.tracing;
+    const official = readOfficialCapability(context);
     return (
-      tracing !== undefined &&
-      tracing !== true &&
-      tracing.includeParams === true &&
-      shouldTraceSpan(instrumentation.tracer, SPAN_EXECUTE)
+      official !== undefined &&
+      (official.diagnostics.includeParams === true ||
+        official.wants("parameters"))
     );
   }
 
@@ -1014,4 +1008,11 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   ): InstrumentationContext["logger"] {
     return this.getInstrumentation(context)?.logger;
   }
+}
+
+/** The official capability of the exact chain this trusted context carries. */
+function readOfficialCapability(context: QueryExecutionContext | undefined) {
+  return getOfficialInstrumentationChainCapability(
+    getExecutionExtensionChain(context)
+  );
 }

@@ -8,6 +8,7 @@ import {
 } from "@drivers/execution-context";
 import { sanitizeErrorForLogging } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_OPERATION_NAME,
@@ -16,7 +17,6 @@ import {
   SPAN_OPERATION,
 } from "@instrumentation";
 import type { InstrumentationContext } from "@instrumentation/context";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import type { InstrumentationLifecycleFactsReader } from "@instrumentation/lifecycle-facts";
 import { isErrorLogged } from "@instrumentation/logged-errors";
 import type { VibORMSpanOptions } from "@instrumentation/tracer";
@@ -142,7 +142,7 @@ function createOperationInstrumentationFacts(
           : undefined;
         const errorLogEvent =
           outcome.status === "failure" &&
-          official.context.logger !== undefined &&
+          official.wants("error-log") &&
           isUnloggedError(outcome.failure)
             ? createErrorLogEvent({
                 error: sanitizeErrorForLogging(outcome.failure),

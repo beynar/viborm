@@ -7,7 +7,7 @@ import { Driver } from "@drivers";
 import type { CommittedBatchNotification } from "@drivers/types";
 import { ClientInitializationError, isVibORMError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import { ATTR_DB_OPERATION_NAME, SPAN_OPERATION } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { createClient, s, sql } from "@src/index";

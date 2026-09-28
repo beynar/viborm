@@ -42,7 +42,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { brotliCompressSync, gzipSync, constants as Z } from "node:zlib";
 
@@ -208,8 +208,11 @@ const measureFixtures = async (root, out) => {
         const bytes = built.outputFiles[0].contents;
         const output = Object.values(built.metafile.outputs)[0];
         const inputs = {};
+        // The throwaway fixture path is random; key it by role so two runs diff.
+        const fixtureInput = relative(root, file);
         for (const [inputName, input] of Object.entries(output.inputs)) {
-          const key = inputKey(inputName);
+          const key =
+            inputName === fixtureInput ? "fixture" : inputKey(inputName);
           inputs[key] = (inputs[key] ?? 0) + input.bytesInOutput;
         }
         row[mode] = {

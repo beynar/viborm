@@ -1,8 +1,14 @@
 import type { CacheLogEvent } from "@cache/cache-instrumentation";
+import { appendResolvedExtension } from "@extensions/chain";
 import {
+  getOfficialInstrumentationChainCapability,
   type LifecycleUnit,
   runProtectedObservers,
 } from "@extensions/observation";
+import type {
+  ObservationNeed,
+  OfficialObservationCapability,
+} from "@extensions/official-facts";
 import type {
   CacheInstrumentationFacts,
   DriverLifecycleInstrumentationFacts,
@@ -15,11 +21,13 @@ import {
   ATTR_CACHE_RESULT,
   ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
   SPAN_CACHE_GET,
+  SPAN_DISCONNECT,
+  SPAN_EXECUTE,
   SPAN_OPERATION,
   SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
-import type { LogEvent } from "@instrumentation/types";
+import type { InstrumentationConfig, LogEvent } from "@instrumentation/types";
 import {
   instrumentation,
   type OfficialInstrumentationExtension,
@@ -453,5 +461,107 @@ describe("official protected observer", () => {
     } finally {
       await recorder.dispose();
     }
+  });
+});
+
+describe("official observation capability", () => {
+  function capabilityOf(config: InstrumentationConfig) {
+    const chain = appendResolvedExtension(
+      undefined,
+      instrumentation(config),
+      {}
+    );
+    const capability = getOfficialInstrumentationChainCapability(chain);
+    if (capability === undefined) {
+      throw new Error("Official instrumentation capability was not registered");
+    }
+    return capability;
+  }
+
+  const NEEDS: readonly ObservationNeed[] = [
+    "statement",
+    "transaction",
+    "savepoint",
+    "connect",
+    "disconnect",
+    "cache",
+    "cache-outcomes",
+    "parameters",
+    "query-log",
+    "error-log",
+  ];
+
+  function answers(capability: OfficialObservationCapability) {
+    return Object.fromEntries(
+      NEEDS.map((need) => [need, capability.wants(need)])
+    );
+  }
+
+  it("answers every need from the exact chain's configuration", () => {
+    const quiet = capabilityOf({ diagnostics: { includeParams: true } });
+    expect(answers(quiet)).toEqual(
+      Object.fromEntries(NEEDS.map((need) => [need, false]))
+    );
+    expect(quiet.diagnostics).toEqual({
+      includeParams: true,
+      includeSql: false,
+    });
+
+    const logs = captureLogs();
+    const traced = capabilityOf({
+      logging: { cache: logs.callback, query: logs.callback },
+      tracing: { ignoreSpanTypes: [SPAN_DISCONNECT], includeParams: true },
+    });
+    expect(answers(traced)).toEqual({
+      statement: true,
+      transaction: true,
+      savepoint: true,
+      connect: true,
+      disconnect: false,
+      cache: true,
+      "cache-outcomes": true,
+      parameters: true,
+      "query-log": true,
+      "error-log": false,
+    });
+
+    const logged = capabilityOf({
+      logging: { error: logs.callback, includeParams: true },
+    });
+    expect([logged.wants("parameters"), logged.wants("error-log")]).toEqual([
+      true,
+      true,
+    ]);
+    expect(
+      capabilityOf({
+        tracing: { ignoreSpanTypes: [SPAN_EXECUTE], includeParams: true },
+      }).wants("parameters")
+    ).toBe(false);
+  });
+
+  it("presents a warning only through an enabled warning level", () => {
+    const notice = {
+      correlationId: "correlation",
+      message: "skip dropped",
+      model: "record",
+      operation: "createMany",
+    };
+    const logs = captureLogs();
+    expect(
+      capabilityOf({ logging: { query: logs.callback } }).warn(notice)
+    ).toBe(false);
+    expect(
+      capabilityOf({ logging: { warning: logs.callback } }).warn(notice)
+    ).toBe(true);
+    expect(logs.events).toEqual([
+      {
+        correlationId: "correlation",
+        level: "warning",
+        meta: { notice: "skip dropped" },
+        model: "record",
+        operation: "createMany",
+        timestamp: expect.any(Date),
+      },
+    ]);
   });
 });

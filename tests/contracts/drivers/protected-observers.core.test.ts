@@ -13,9 +13,25 @@ import {
   runProtectedObservers,
 } from "@extensions/observation";
 import { createInstrumentationContext } from "@instrumentation/context";
+import type { OfficialInstrumentationCapability } from "@instrumentation/lifecycle-facts";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 type ObserverEntry = ResolvedExtensionHandler<ObserveHandler>;
+
+/** An observing official capability that wants nothing presented. */
+function trustedTestCapability(
+  readiness: Pick<OfficialInstrumentationCapability, "prewarm"> = {}
+): OfficialInstrumentationCapability {
+  const context = createInstrumentationContext({});
+  return Object.freeze({
+    context,
+    diagnostics: context.config.diagnostics,
+    observesLifecycle: true,
+    wants: () => false,
+    warn: () => false,
+    ...readiness,
+  });
+}
 
 function createDeferred<Value>() {
   let resolveValue: ((value: Value | PromiseLike<Value>) => void) | undefined;
@@ -110,13 +126,10 @@ describe("protected observer fast path", () => {
   });
 
   test("contains trusted readiness throws and rejections as fulfilled fallthrough", async () => {
-    const context = createInstrumentationContext({});
     const throwing = () => undefined;
     registerTrustedProtectedObserver(
       throwing,
-      Object.freeze({
-        context,
-        observesLifecycle: true,
+      trustedTestCapability({
         prewarm() {
           throw new Error("readiness threw");
         },
@@ -126,9 +139,7 @@ describe("protected observer fast path", () => {
     const rejecting = () => undefined;
     registerTrustedProtectedObserver(
       rejecting,
-      Object.freeze({
-        context,
-        observesLifecycle: true,
+      trustedTestCapability({
         prewarm: () => Promise.reject(new Error("readiness rejected")),
       }),
       (_unit, proceed) => proceed()
@@ -185,10 +196,7 @@ describe("protected observer lifecycle", () => {
     const handler = () => undefined;
     registerTrustedProtectedObserver(
       handler,
-      Object.freeze({
-        context: createInstrumentationContext({}),
-        observesLifecycle: true,
-      }),
+      trustedTestCapability(),
       () => undefined
     );
     const childPromise = Promise.resolve("core-result");
@@ -207,10 +215,7 @@ describe("protected observer lifecycle", () => {
 
   test("falls through trusted setup rejection and preserves the exact child outcome", async () => {
     const handler = () => undefined;
-    const capability = Object.freeze({
-      context: createInstrumentationContext({}),
-      observesLifecycle: true,
-    });
+    const capability = trustedTestCapability();
     const setupFailure = new Error("trusted setup failed");
     registerTrustedProtectedObserver(handler, capability, () =>
       Promise.reject(setupFailure)
@@ -687,16 +692,9 @@ describe("protected observer lifecycle", () => {
 describe("protected observer failure isolation", () => {
   test("falls through a synchronous trusted setup failure", async () => {
     const handler = () => undefined;
-    registerTrustedProtectedObserver(
-      handler,
-      Object.freeze({
-        context: createInstrumentationContext({}),
-        observesLifecycle: true,
-      }),
-      () => {
-        throw new Error("trusted setup threw");
-      }
-    );
+    registerTrustedProtectedObserver(handler, trustedTestCapability(), () => {
+      throw new Error("trusted setup threw");
+    });
     const child = vi.fn(() => Promise.resolve("application"));
 
     await expect(
@@ -713,10 +711,7 @@ describe("protected observer failure isolation", () => {
     const handler = () => undefined;
     registerTrustedProtectedObserver(
       handler,
-      Object.freeze({
-        context: createInstrumentationContext({}),
-        observesLifecycle: true,
-      }),
+      trustedTestCapability(),
       (_unit, proceed) => proceed()
     );
     const readFacts = vi.fn(() => {

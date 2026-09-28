@@ -1,7 +1,7 @@
 import type { QueryExecutionContext } from "@drivers";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { sanitizeErrorForLogging } from "@errors";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import type {
   InstrumentationLifecycleFactsReader,
   InstrumentationLifecycleOutcome,
@@ -57,9 +57,7 @@ export function hasOfficialCacheLogging(
   context: QueryExecutionContext | undefined
 ): boolean {
   return (
-    getOfficialCacheInstrumentation(context)?.context.logger?.isLevelEnabled(
-      "cache"
-    ) === true
+    getOfficialCacheInstrumentation(context)?.wants("cache-outcomes") === true
   );
 }
 
@@ -86,7 +84,7 @@ export function emitCacheLogEvent(
   if (
     capability !== undefined &&
     context !== undefined &&
-    capability.context.logger?.isLevelEnabled("cache") === true
+    capability.wants("cache-outcomes")
   ) {
     const state = executionLogEvents.get(context) ?? {
       completed: false,
@@ -137,9 +135,8 @@ export function createCacheLifecycleInstrumentationFacts(
 ): InstrumentationLifecycleFactsReader | undefined {
   const capability = getOfficialCacheInstrumentation(options.context);
   if (capability?.observesLifecycle !== true) return undefined;
-  const hasTracing = capability.context.config.tracing !== undefined;
-  const hasCacheLogging =
-    capability.context.logger?.isLevelEnabled("cache") === true;
+  const hasTracing = capability.wants("cache");
+  const hasCacheLogging = capability.wants("cache-outcomes");
   if (!(hasTracing || hasCacheLogging)) return undefined;
 
   return () => {

@@ -1,11 +1,16 @@
+import type { OfficialObservationCapability } from "@extensions/official-facts";
 import type { InstrumentationContext } from "./context";
 import type { VibORMSpanOptions } from "./tracer";
 import type { LogEvent } from "./types";
 
-export interface OfficialInstrumentationCapability {
+/**
+ * The registered official capability: the neutral surface core reads, plus the
+ * instrumentation context that the presentation still built in core reads
+ * until it moves into the extension.
+ */
+export interface OfficialInstrumentationCapability
+  extends OfficialObservationCapability {
   readonly context: InstrumentationContext;
-  readonly observesLifecycle: boolean;
-  readonly prewarm?: () => void | Promise<void>;
 }
 
 export interface InstrumentationLifecycleOutcome {

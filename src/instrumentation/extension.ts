@@ -1,4 +1,4 @@
-import type { ResolvedExtensionChain } from "@extensions/chain";
+import { OFFICIAL_INSTRUMENTATION_NAME } from "@extensions/chain";
 import {
   type LifecycleUnit,
   type ObservationCompletion,
@@ -7,20 +7,33 @@ import {
   readProtectedLifecycleFacts,
   registerTrustedProtectedObserver,
 } from "@extensions/observation";
-import { createInstrumentationContext } from "./context";
+import type {
+  ObservationNeed,
+  WarningNotice,
+} from "@extensions/official-facts";
+import {
+  createInstrumentationContext,
+  type InstrumentationContext,
+} from "./context";
 import type {
   CacheInstrumentationFacts,
   OfficialInstrumentationCapability,
   SegmentInstrumentationCompletionFacts,
 } from "./lifecycle-facts";
+import {
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
+  SPAN_EXECUTE,
+  SPAN_TRANSACTION,
+  type VibORMSpanName,
+} from "./spans";
 import type { Span } from "./tracer";
-import { prewarmTracer } from "./tracer";
+import { prewarmTracer, shouldTraceSpan } from "./tracer";
 import type {
   ExactInstrumentationConfig,
   InstrumentationConfig,
+  LogLevel,
 } from "./types";
-
-export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
 
 /** The exact official contribution accepted by every concrete client schema. */
 export type OfficialInstrumentationExtension = {
@@ -28,17 +41,12 @@ export type OfficialInstrumentationExtension = {
   readonly observe: ObserveHandler;
 };
 
-const capabilitiesByChain = new WeakMap<
-  ResolvedExtensionChain,
-  OfficialInstrumentationCapability
->();
-
 /** Create VibORM's fixed-name instrumentation extension. */
 export function instrumentation<const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
 ): OfficialInstrumentationExtension {
   const context = createInstrumentationContext(config);
-  const capability = Object.freeze({
+  const capability: OfficialInstrumentationCapability = Object.freeze({
     context,
     observesLifecycle:
       context.config.tracing !== undefined ||
@@ -46,6 +54,9 @@ export function instrumentation<const Config>(
     ...(context.config.tracing === undefined
       ? {}
       : { prewarm: () => prewarmTracer(context.tracer) }),
+    diagnostics: context.config.diagnostics,
+    wants: (need: ObservationNeed) => wants(context, need),
+    warn: (notice: WarningNotice) => warn(context, notice),
   });
   const handler: ObserveHandler =
     function officialInstrumentationObserver(): undefined {
@@ -60,17 +71,80 @@ export function instrumentation<const Config>(
   });
 }
 
-export function getOfficialInstrumentationChainCapability(
-  chain: ResolvedExtensionChain | undefined
-): OfficialInstrumentationCapability | undefined {
-  return chain === undefined ? undefined : capabilitiesByChain.get(chain);
+/** Answer one core enablement question from this chain's live context. */
+function wants(
+  context: InstrumentationContext,
+  need: ObservationNeed
+): boolean {
+  switch (need) {
+    case "statement":
+      return traces(context, SPAN_EXECUTE);
+    // Savepoints present under the transaction span name; there is no other.
+    case "transaction":
+    case "savepoint":
+      return traces(context, SPAN_TRANSACTION);
+    case "connect":
+      return traces(context, SPAN_CONNECT);
+    case "disconnect":
+      return traces(context, SPAN_DISCONNECT);
+    case "cache":
+      return context.config.tracing !== undefined;
+    case "cache-outcomes":
+      return logs(context, "cache");
+    case "query-log":
+      return logs(context, "query");
+    case "error-log":
+      return logs(context, "error");
+    // The one remaining need of the closed union: "parameters".
+    default:
+      return disclosesParameters(context);
+  }
 }
 
-export function registerOfficialInstrumentationChain(
-  chain: ResolvedExtensionChain,
-  capability: OfficialInstrumentationCapability
-): void {
-  capabilitiesByChain.set(chain, capability);
+function traces(
+  context: InstrumentationContext,
+  name: VibORMSpanName
+): boolean {
+  return (
+    context.config.tracing !== undefined &&
+    shouldTraceSpan(context.tracer, name)
+  );
+}
+
+function logs(context: InstrumentationContext, level: LogLevel): boolean {
+  return context.logger?.isLevelEnabled(level) === true;
+}
+
+/** Whether a logging or tracing channel discloses statement parameters. */
+function disclosesParameters(context: InstrumentationContext): boolean {
+  const { logging, tracing } = context.config;
+  if (
+    logging !== undefined &&
+    logging !== true &&
+    logging.includeParams === true &&
+    (logs(context, "query") || logs(context, "error"))
+  ) {
+    return true;
+  }
+  return (
+    tracing !== undefined &&
+    tracing !== true &&
+    tracing.includeParams === true &&
+    shouldTraceSpan(context.tracer, SPAN_EXECUTE)
+  );
+}
+
+function warn(context: InstrumentationContext, notice: WarningNotice): boolean {
+  const logger = context.logger;
+  if (logger?.isLevelEnabled("warning") !== true) return false;
+  logger.warn({
+    timestamp: new Date(),
+    model: notice.model,
+    operation: notice.operation,
+    correlationId: notice.correlationId,
+    meta: { notice: notice.message },
+  });
+  return true;
 }
 
 function observeOfficialInstrumentation(
