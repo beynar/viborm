@@ -1,9 +1,40 @@
 # V1 Release Closure
 
-Updated 2026-09-27 against `main` at `53eed0012`, the squash merge of
-[PR #55](https://github.com/beynar/viborm/pull/55).
+Updated 2026-09-28 (UTC) against `main` at `4beec52a5`, the squash merge of
+[PR #56](https://github.com/beynar/viborm/pull/56).
 The #54 fix is merged, and issue #54 is closed. RC preparation now sets the
 candidate version to `1.0.0-rc.1`; no release has been published.
+PR #56 merged at 22:09:03 UTC after all eight jobs in
+[CI run 36352208516](https://github.com/beynar/viborm/actions/runs/36352208516)
+passed on `a1db10853`. The merge used an exact head-SHA guard; its tree equals
+the reviewed head. No new inline review finding was posted; Arnaud reported
+nothing from Devin after its inaccessible flag badge was raised. This is not
+a claim that the bot produced an independently verified clean review.
+
+Main's required checks and force-push/deletion protections are now enforced.
+Arnaud's screenshot confirms the correct npm publisher and direct-publish
+permission. npm's always-allowed staged permission is not a blocker. Arnaud
+confirmed account 2FA. The [RC1 Release run](https://github.com/beynar/viborm/actions/runs/36386640811)
+was dispatched at 06:28:25 UTC on 2026-09-28 against `4beec52a5` with version
+`1.0.0-rc.1`. Before dispatch, the registry had only `latest: 0.1.0`, no RC1
+version, and the remote RC1 tag was absent. At 07:09 UTC all eight pre-publication
+jobs had passed: authorization, complete estate, both provider jobs, coverage,
+docs, tarball build/tests, and exact Node 22.0.0 consumer. The tested artifact
+`viborm-release` is GitHub artifact `10955532206` (1,850,969 bytes; archive digest
+`sha256:5b6b946469d68dfa7a1aee801951a08465bd47ba0c33c19e1d41073883b8d153`).
+After human approval, publication failed at 07:44 UTC before reaching npm:
+`npm publish "release/<archive>"` parsed the path as GitHub repository shorthand
+and attempted SSH access. The registry still had no RC1 version at the failure
+check. The bounded repair prefixes the path with `./`; npm 11.15.0's parser
+then identifies a local file, and an offline `--dry-run --ignore-scripts` on
+the workflow's exact downloaded archive passes with matching integrity and
+size. The existing package release-contract test now pins the workflow spelling
+(red before repair, green after). No engine, dependency or gate changes.
+
+The failed run must not be blindly retried: its workflow revision still contains
+the bug. Merge the repair through required CI, then dispatch a new release run
+from protected main for the still-unused `1.0.0-rc.1`. Requalify that revision's
+artifact and retain human approval. No package or GitHub release is yet claimed.
 This is the existing remaining-work checklist, not a new implementation
 program or a replacement for historical engine evidence.
 

@@ -23,7 +23,8 @@ The package already exists on npm, so it can use trusted publishing.
    - repository: `viborm`;
    - workflow filename: `release.yml`;
    - environment: `npm-production`;
-   - allowed action: `npm publish` only.
+   - allowed actions: enable direct `npm publish`. npm always allows
+     `npm stage publish`; that permission cannot be disabled.
 4. Do not create an `NPM_TOKEN` repository secret. The publish job obtains one
    short-lived credential through GitHub OIDC.
 5. Run the first release-candidate rehearsal and verify its provenance on npm.
@@ -31,7 +32,7 @@ The package already exists on npm, so it can use trusted publishing.
    authentication and disallow tokens**. Revoke any old automation tokens.
 
 The workflow filename and environment must match the npm settings exactly.
-npm supports one trusted-publisher configuration per package. See npm's
+npm supports up to ten trusted-publisher configurations per package. See npm's
 [trusted publishing guide](https://docs.npmjs.com/trusted-publishers/).
 
 The current release contract performs the human approval in the protected

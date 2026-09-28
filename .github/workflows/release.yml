@@ -444,7 +444,7 @@ jobs:
           RELEASE_CHANNEL: ${{ steps.registry.outputs.channel }}
           RELEASE_TARBALL: ${{ steps.registry.outputs.tarball }}
         run: >-
-          npm publish "release/${RELEASE_TARBALL}"
+          npm publish "./release/${RELEASE_TARBALL}"
           --tag "${RELEASE_CHANNEL}"
 
       - name: Verify published registry bytes
