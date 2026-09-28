@@ -39,7 +39,7 @@ AssertionError: expected [ 'A.in:false', 'B.in:true', …(5) ] to deeply equal [
 
  ❯ tests/contracts/public-client/official-instrumentation-extension.core.test.ts:368:24
     366|       await waitFor(() => timeline.includes("A.out:failure:true"));
-    367| 
+    367|
     368|       expect(timeline).toEqual([
        |                        ^
     369|         "A.in:false",

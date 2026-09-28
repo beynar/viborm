@@ -33,9 +33,16 @@ values, sorts test imports, and hoists three test regexes. The gate then passes
 and the prepared-operation suite passes 8/8; production source is unchanged.
 The Node 24 package job was cancelled near its 15-minute ceiling after checkout
 alone consumed over 14 minutes; its next run must succeed without a ceiling
-increase. Devin's review advertises one flag but its public page currently
-shows analysis in progress without the finding. Its substance is requested
-from Arnaud before the merge decision; a green badge is not review clearance.
+increase. That package job passed in run `36452841566`, as did formatting and
+documentation. Its whitespace step found three trailing spaces in saved logs.
+The exact base-to-head check reproduced them locally; the bounded repair
+removes only those spaces and updates the receipt checksums, with original
+bytes retained in Git as documented in the RC2 review. Production is unchanged.
+All eight jobs must still pass on the repaired head.
+
+Devin's review advertises one inaccessible flag. Arnaud explicitly said to
+ignore that badge; this is a user waiver, not an independently clean review.
+Any new concrete finding still needs assessment.
 
 ## RC1 publication complete — 2026-09-28
 

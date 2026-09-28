@@ -132,6 +132,12 @@ engine receipt, the same launcher with `--project=layer-client` and
 `tests/contracts/public-client/official-instrumentation-extension.core.test.ts`,
 the same launcher with `--project=layer-instrumentation`, and `pnpm test:types`.
 Receipt SHA-256 values are retained in [the checksum file](rc2-performance/integrated-receipts.sha256).
+Three receipts have one trailing space removed each to meet the PR whitespace
+gate: `integrated-client-instrumentation-checks.log`,
+`integrated-memo-isolation.log`, and `integrated-memo-isolation-corrected.log`.
+Their original bytes and original checksums remain in commit
+`2db5cf70bbe59e359a0601807554325d46178007`; the current checksum file describes
+the normalized copies. No test output content or outcome changed.
 
 The adapted historical `memo-isolation.review.test.ts` was typechecked, but
 has no runtime proof in this qualification. Both attempted selections collected

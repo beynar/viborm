@@ -320,7 +320,9 @@
 - In CI, `git diff --check` on a clean checkout proves nothing, and a full-estate
   formatter can turn historical debt into an unrelated permanent red gate.
   Resolve the event's exact base commit, fetch it, and run whitespace and
-  formatting checks over that committed delta.
+  formatting checks over that committed delta before every push, not only in
+  CI. Include saved logs; when normalizing a receipt, preserve its original
+  bytes in Git, document the normalization, and update its checksum.
 - Test a declared runtime floor at the exact minimum version against the packed
   consumer artifact. The repository's development toolchain can require a
   newer patch without raising the package runtime floor; do not conflate those
