@@ -1,5 +1,30 @@
 # V1 Release Closure
 
+## RC2 performance candidate — 2026-09-28
+
+Arnaud authorized a second candidate if the bounded engine performance work
+survived review. The six-file production delta has two independent source
+reviews and integrated local qualification: 280 runtime tests and the whole
+typecheck pass. The [RC2 review](rc2-performance-review.md) retains measured
+identities, exact scope, the one corrected test oracle, and raw check receipts.
+No public contract or provider support tier changes.
+
+- [x] Rebase the isolated candidate onto main `b524e692a`, including PR #58's
+  release-draft identity repair, without changing the performance patch.
+- [x] Prepare `1.0.0-rc.2` metadata and release notes.
+- [x] Pass the bounded package build and all 11 package-contract tests with
+  `1.0.0-rc.2` metadata. The root also reran the new dispatched-read failure
+  witness successfully after inspecting its logging-order correction.
+- [ ] Pass all eight required PR checks on the reviewed head.
+- [ ] Merge that exact safe head through the protected-main PR path.
+- [ ] Release only `1.0.0-rc.2` to `next`, with human environment approval.
+- [ ] Verify registry integrity/provenance, the fresh consumer, and the immutable
+  GitHub release. Keep `latest` at `0.1.0`.
+
+The homepage comparison uses saved development measurements, not RC2 artifact
+measurements. The separately deployed docs changes do not alter this release
+source. RC1's publication record below remains historical evidence.
+
 ## RC1 publication complete — 2026-09-28
 
 Install the candidate with `npm install viborm@next`. Stable `latest` remains
