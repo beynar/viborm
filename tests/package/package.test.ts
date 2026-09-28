@@ -24,6 +24,7 @@ const scripts = [
   ["preserves packaged error names", "./error-names-smoke.mjs"],
   ["works without the optional OpenTelemetry peer", "./otel-absent-smoke.mjs"],
   ["enforces the release artifact contract", "./release-contract-smoke.mjs"],
+  ["requires exact-main CI before release", "./release-ci-smoke.mjs"],
   [
     "resumes and verifies GitHub release publication",
     "./github-release-smoke.mjs",

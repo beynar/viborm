@@ -244,9 +244,9 @@ const stages = [
   packageScriptStage("test:package"),
 ];
 
-// `--only <substring>` runs just the matching stages. The full estate is 54
-// process groups; verifying one lane's memory ceiling should not cost a run of
-// all of them. Parsed BEFORE the lock is taken: its early exits must not leave
+// `--only <substring>` runs just the matching stages. Verifying one lane's
+// memory ceiling should not cost a run of all of them. Parsed BEFORE the lock
+// is taken: its early exits must not leave
 // a stale lock behind, and they did once.
 const onlyIndex = process.argv.indexOf("--only");
 const onlyFilter = onlyIndex === -1 ? undefined : process.argv[onlyIndex + 1];
@@ -254,7 +254,7 @@ if (onlyIndex !== -1 && !onlyFilter) {
   process.stderr.write("[test:all] --only needs a substring to match\n");
   process.exit(2);
 }
-const selectedStages = onlyFilter
+const matchingStages = onlyFilter
   ? [
       ...stages,
       ...G1_PROVIDER_BASELINE_TESTS.map((file) => ({
@@ -263,9 +263,35 @@ const selectedStages = onlyFilter
       })),
     ].filter((stage) => stage.label.includes(onlyFilter))
   : stages;
+// CI has dedicated required jobs for these stages. The default local aggregate
+// remains exhaustive; only the Local providers job opts into this partition.
+const ciCoveredStages = new Set([
+  "pnpm test:types",
+  "pnpm test:core",
+  "provider-bun (visible skips when Bun is absent)",
+  "provider-d1",
+  "pnpm test:package",
+]);
+const selectedStages = process.argv.includes("--ci-local")
+  ? matchingStages.filter((stage) => !ciCoveredStages.has(stage.label))
+  : matchingStages;
 if (onlyFilter && selectedStages.length === 0) {
   process.stderr.write(`[test:all] --only ${onlyFilter} matched no stage\n`);
   process.exit(2);
+}
+if (process.argv.includes("--list")) {
+  // Never include env: Raptor stages carry the parent's environment snapshot.
+  const listing = `${JSON.stringify(
+    selectedStages.map(({ env: _env, ...stage }) => stage),
+    null,
+    2
+  )}\n`;
+  await new Promise((resolve, reject) =>
+    process.stdout.write(listing, (error) =>
+      error ? reject(error) : resolve()
+    )
+  );
+  process.exit(0);
 }
 
 /**
