@@ -25,12 +25,15 @@ import ts from "typescript";
  *   precise call/import/chain patterns, never a bare word, so Prisma field
  *   names and prose survive it.
  *
- * Both enumerate the estate through `git ls-files` rather than a directory
+ * Both enumerate the live estate through `git ls-files` rather than a directory
  * walk, so no subtree can be forgotten. The enumeration deliberately adds
  * `--others --exclude-standard` to the tracked set and subtracts `--deleted`:
  * a file that is already in the worktree but not yet in the index is part of
  * the estate a commit is about to publish, while a tracked path deleted from
  * the worktree is not available to inspect and is leaving that estate.
+ * The historical Raptor3 receipt archive is not live code or documentation;
+ * its frozen source snapshots, logs, and compressed measurements stay outside
+ * this census. All other architecture plans and public docs remain checked.
  *
  * Package A froze each original detector's exact baseline manifest. Package F
  * retired those manifests: every detector now carries its final zero assertion
@@ -141,6 +144,7 @@ const CENSUS_SELF_EXEMPTION_MARKER = "census-pattern-table";
  * detector pattern reaches them.
  */
 const HISTORICAL_PLAN_DIRECTORY = "docs/architecture/";
+const HISTORICAL_RECEIPT_ARCHIVE = "docs/architecture/raptor3-evidence/";
 const SUPERSEDED_API_BANNER = "**Superseded relation spellings.**";
 
 function isBanneredHistoricalPlan(file: string, text: string): boolean {
@@ -208,8 +212,8 @@ function censusRegion(file: string): CensusRegion {
 }
 
 /**
- * Every existing file the estate is about to publish: tracked files plus
- * worktree files git does not ignore, minus tracked working-tree deletions.
+ * Every existing live file: tracked files plus worktree files git does not
+ * ignore, minus tracked working-tree deletions and frozen receipt archives.
  * `git ls-files` is the enumerator so no directory can be missed and no gate
  * has to keep its own directory list.
  */
@@ -228,7 +232,12 @@ function censusFiles(repositoryRoot: string): string[] {
     deleted.split("\0").filter((file) => file.length > 0)
   );
   const files = new Set(listed.split("\0").filter((file) => file.length > 0));
-  return [...files].filter((file) => !deletedFiles.has(file)).sort();
+  return [...files]
+    .filter(
+      (file) =>
+        !(deletedFiles.has(file) || file.startsWith(HISTORICAL_RECEIPT_ARCHIVE))
+    )
+    .sort();
 }
 
 function scriptKindOf(file: string): ts.ScriptKind {
