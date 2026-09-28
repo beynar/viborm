@@ -4,6 +4,11 @@ import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { Driver } from "@drivers";
 import { QueryError } from "@errors";
 import {
+  type LifecycleUnit,
+  readProtectedLifecycleFacts,
+} from "@extensions/observation";
+import { isErrorLogged } from "@instrumentation/logged-errors";
+import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
   ATTR_VIBORM_CORRELATION_ID,
@@ -846,10 +851,15 @@ describe("official statement instrumentation", () => {
   /**
    * The statement's completion marks its failure logged, then the array owner
    * replaces that failure with a package-owned successor (the commit-certainty
-   * clone) before the operation completes. With tracing on, the official
-   * continuation runs inside `startActiveSpan`, later than core's completion,
-   * so only a mark made synchronously in core and carried to the successor at
-   * clone time keeps the operation from logging the same failure again.
+   * clone) before the operation completes. Only evidence copied to the
+   * successor at clone time keeps the operation from logging the same failure
+   * again; disabling that transfer turns this test red.
+   *
+   * It does not decide WHERE the mark is made. The clone runs several turns
+   * after the statement completion settles, so a mark moved into the
+   * extension's continuation would still land first and this test would stay
+   * green; no client path reaches a successor clone sooner. The synchronous
+   * mark is pinned by the next test.
    */
   test("logs a statement failure once when a successor replaces it under tracing", async () => {
     const recorder = withOtelRecorder();
@@ -899,6 +909,49 @@ describe("official statement instrumentation", () => {
     } finally {
       await recorder.dispose();
     }
+  });
+
+  /**
+   * Core owns error-log selection and exact-error de-duplication: the
+   * statement completion that decides to log a failure marks it before it
+   * returns, in the tick the child settles, so no successor cloned afterwards
+   * can miss the evidence. A mark deferred into the extension's continuation,
+   * even by one microtask, turns this red.
+   */
+  test("marks the failure it logs before the statement completion returns", async () => {
+    const logs = captureLogs();
+    const driver = new StatementDriver();
+    driver.failAtProviderCall = 1;
+    let statementUnit: LifecycleUnit | undefined;
+    const client = trackedClient(driver)
+      .$extends(instrumentation({ logging: { error: logs.callback } }))
+      .$extends(
+        defineExtension<typeof schema>()({
+          name: "statement-unit-capture",
+          observe(unit) {
+            if (unit.kind === "statement") statementUnit = unit;
+          },
+        })
+      );
+
+    await expect(client.$queryRaw(sql`SELECT ${1}`)).rejects.toBeInstanceOf(
+      QueryError
+    );
+    await waitFor(() => logs.events.length > 0);
+
+    const facts =
+      statementUnit === undefined
+        ? undefined
+        : readProtectedLifecycleFacts(statementUnit);
+    expect(facts?.kind).toBe("statement");
+    const failure = new QueryError("statement completion probe");
+    const completion =
+      facts?.kind === "statement"
+        ? facts.complete({ status: "failure", durationMs: 0, failure })
+        : undefined;
+    expect(isErrorLogged(failure)).toBe(true);
+    expect(completion?.logEvent?.level).toBe("error");
+    expect(logs.events).toHaveLength(1);
   });
 
   test("skips execute presentation when transform, render, or acquisition fails", async () => {
