@@ -984,22 +984,20 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   protected getErrorDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    return (
-      this.getInstrumentation(context)?.config.diagnostics ?? EMPTY_DISCLOSURE
-    );
+    return readOfficialCapability(context)?.diagnostics ?? EMPTY_DISCLOSURE;
   }
 
   protected getLoggingDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    const logging = this.getInstrumentation(context)?.config.logging;
+    const logging = readOfficialCapability(context)?.context.config.logging;
     return logging && logging !== true ? logging : EMPTY_DISCLOSURE;
   }
 
   protected getTracingDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
-    const tracing = this.getInstrumentation(context)?.config.tracing;
+    const tracing = readOfficialCapability(context)?.context.config.tracing;
     return tracing && tracing !== true ? tracing : EMPTY_DISCLOSURE;
   }
 

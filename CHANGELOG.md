@@ -5,6 +5,18 @@ Versioning.
 
 ## Unreleased
 
+- **Breaking: instrumentation presentation moves into the `instrumentation()`
+  extension.** Core no longer builds span names, span attributes, log events or
+  per-channel SQL/parameter disclosure; it asks the fixed-name extension what it
+  wants and hands it neutral facts, so a client without the extension no longer
+  carries that code. Spans, log events and thrown-error diagnostics of an
+  installed extension are unchanged. Custom driver subclasses see these changes:
+  - the protected `getInstrumentation()`, `isTracingEnabled()` and `getLogger()`
+    hooks of `Driver` no longer steer anything: statement and lifecycle gates,
+    log decisions, `canDiscloseParameters()` and `getErrorDisclosure()` read the
+    extension installed on the executing client's chain, so overriding a hook
+    has no effect.
+
 ## 1.0.0-rc.2 — Release candidate (not yet published)
 
 - Reduce temporary engine allocations by sharing stateless operation methods,
