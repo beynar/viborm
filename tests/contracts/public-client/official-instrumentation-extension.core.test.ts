@@ -370,8 +370,8 @@ describe("official logical operation presentation", () => {
         "B.in:true",
         "provider",
         "provider:reject",
-        "B.out:failure:false",
         "I.error",
+        "B.out:failure:false",
         "A.out:failure:true",
       ]);
       expect(driver.events).toEqual(["provider"]);

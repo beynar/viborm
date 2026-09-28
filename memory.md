@@ -342,3 +342,8 @@
   from one-time control-plane setup and name both before the first release.
 - When Arnaud says to merge a completed branch, finish the operation by pushing
   the resulting target branch unless he explicitly asks for a local-only merge.
+- Derive lifecycle-order witnesses from the boundary that owns the failure.
+  A provider error can be logged at statement completion before operation
+  observers settle; an admission error has no statement boundary. Inspect the
+  existing log owner, then verify both event order and one-log deduplication
+  instead of copying an admission-failure timeline onto provider rejection.

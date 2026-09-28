@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /Users/arnaud/.codex/worktrees/rc2-performance/viborm
+
+ ✓ |raptor3| tests/raptor3/result-decoder.test.ts (26 tests) 50ms
+ ✓ |raptor3| tests/raptor3/result-decoder-placements.test.ts (11 tests) 118ms
+ ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (8 tests) 16ms
+ ✓ |raptor3| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 10ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/prepared-operation.test.ts (8 tests) 18ms
+ ✓ |raptor3| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests) 9ms
+ ✓ |raptor3| tests/raptor3/g4/parity/read-only-build-contract.test.ts (3 tests) 3ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/filters.test.ts (8 tests) 9ms
+ ✓ |raptor3| tests/raptor3/g4/unit01/order-projection.test.ts (6 tests) 7ms
+
+ Test Files  9 passed (9)
+      Tests  77 passed (77)
+   Start at  18:14:19
+   Duration  2.42s (transform 1.11s, setup 15ms, collect 2.00s, tests 240ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 4.37s wall, 660.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

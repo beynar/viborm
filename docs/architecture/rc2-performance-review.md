@@ -88,16 +88,57 @@ protocol; these results do not demonstrate zero-copy decoding.
 
 ## Qualification
 
-Local qualification is paused: the filesystem had only about 227 MiB free
-after integration. No integrated tests, typecheck, build, or new performance
-measurement has run. The two requested witnesses are written but unexecuted.
-Do not interpret source-review acceptance as release readiness. Free several
-GiB before starting the bounded validation runners.
+Local correctness qualification completed on 2026-09-28 after disk space was
+restored. The clean task-owned commit `03624d412` rebased without conflicts onto
+PR #58's exact main revision `b524e692aa1b65457f85778f284490ef1571331a`, becoming
+`c47ed1c2a82e8f5407cbda6f16dd52a5091d89af`. `git range-diff` reports the task
+patch unchanged. The original dirty checkout remains untouched.
 
-PR #58 merged as `b524e692a` after all eight CI jobs passed; its merged tree
-matches reviewed head `4d7984ff8`. Before opening the RC 2 pull request, rebase
-this task-owned checkpoint onto that main revision (or inspect any newer main
-delta). The original dirty checkout and local homepage branch remain untouched.
+All checks used Node **24.21.0** through
+`/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin` at the front of `PATH`.
+Repository launchers serialized execution under the shared Git-common-directory
+lock and verified process-group teardown. No build, packaging, native-provider
+run, or new performance measurement was performed.
+
+| Check | Result | Bounded wall / peak RSS | Receipt |
+| --- | --- | --- | --- |
+| Nine selected `raptor3` files | 77 tests passed | 4.37 s / 660.5 MiB | [Engine](rc2-performance/integrated-engine-checks.log) |
+| Full official instrumentation extension file, `layer-client` | 14 tests passed | 2.77 s / 456.8 MiB | [Client instrumentation](rc2-performance/integrated-client-instrumentation-corrected.log) |
+| Complete registered `layer-instrumentation` project | 189 tests in 16 files passed | 2.85 s / 475.3 MiB | [Instrumentation core](rc2-performance/integrated-instrumentation-core.log) |
+| `pnpm test:types`, whole-estate native compiler | Passed | 7.39 s / 6981.0 MiB | [Typecheck](rc2-performance/integrated-typecheck.log) |
+
+The engine selection covers prepared operations (including concurrent handle
+and factory isolation), projection preparation, both base and placement result
+decoders, filters, ordering/projection, cacheable-read vocabulary, read-only
+build, and write-outcome composition. The new provider-read failure witness
+passed with the complete official instrumentation file. All 280 runtime tests
+passed. Runtime checks stayed below the 1536 MiB ceiling; the existing
+whole-estate native typecheck used its designated 8192 MiB ceiling.
+
+The first client instrumentation run had one failed assertion (13/14 passed),
+retained in [its original receipt](rc2-performance/integrated-client-instrumentation-checks.log).
+The new witness had incorrectly copied admission-failure logging order: a
+provider error is logged at the statement boundary before the enclosing
+operation's inner observer completes. Inspection of the existing driver log
+owner confirmed this order. Only the witness's `I.error` expectation moved
+before `B.out`; no production repair was needed. The passing rerun and typecheck
+used the rebased source plus this one-line test correction, whose file Git blob
+is `595be6411a7d7c94278c5f5fb7d0731e47e23157`. Engine and instrumentation-core
+sources did not change between their checks and the final test correction.
+
+Commands were `node scripts/run-vitest-safe.mjs run --workspace
+vitest.workspace.ts --project=raptor3` with the nine filenames recorded in the
+engine receipt, the same launcher with `--project=layer-client` and
+`tests/contracts/public-client/official-instrumentation-extension.core.test.ts`,
+the same launcher with `--project=layer-instrumentation`, and `pnpm test:types`.
+Receipt SHA-256 values are retained in [the checksum file](rc2-performance/integrated-receipts.sha256).
+
+The adapted historical `memo-isolation.review.test.ts` was typechecked, but
+has no runtime proof in this qualification. Both attempted selections collected
+zero files ([raptor3](rc2-performance/integrated-memo-isolation.log),
+[extended-local](rc2-performance/integrated-memo-isolation-corrected.log));
+the existing manifest explicitly excludes these historical scratch reviews.
+No registration was changed and neither attempt counts as a passing check.
 
 Integrated local checks, required PR CI, and release-artifact gates must name
 their executed source. Historical focused tests do not qualify a different
