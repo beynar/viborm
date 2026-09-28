@@ -1,5 +1,83 @@
 # V1 Release Closure
 
+## RC1 publication complete — 2026-09-28
+
+Install the candidate with `npm install viborm@next`. Stable `latest` remains
+`0.1.0`; stable V1 promotion and the application upgrade/migration soak remain
+separate work. The [immutable RC1 release](https://github.com/beynar/viborm/releases/tag/v1.0.0-rc.1)
+and the successful workflow below bind the published package to `8a42fcb56`.
+
+[Repair PR #57](https://github.com/beynar/viborm/pull/57) merged as `8a42fcb56`
+at 08:27:44 UTC after all eight required jobs in
+[CI run 36393905288](https://github.com/beynar/viborm/actions/runs/36393905288)
+passed. Devin reported no issues; there were no inline review findings. The
+exact-head guarded squash has the same tree as reviewed `bb590d7c1`.
+
+The replacement [Release run 36397517876](https://github.com/beynar/viborm/actions/runs/36397517876)
+was dispatched at 08:27:59 UTC against `8a42fcb56` for `1.0.0-rc.1` only.
+The npm version and remote tag were still absent; `latest` remained `0.1.0`.
+The old failed run is preserved below, not retried. The new run qualified
+its own artifact and received human publication approval as recorded below.
+
+At 09:12 UTC, all eight pre-publication jobs in the replacement run passed,
+including the tarball build/tests and exact Node 22.0.0 consumer. After human
+approval, npm accepted the upload at 10:09:14 UTC and signed provenance
+(transparency-log index `2981790224`). Post-publish verification failed at
+10:10:18 UTC because the version was not yet visible. npm explicitly reported
+that processing could take a few minutes. Its
+[publish-time scanning notice](https://github.blog/changelog/2026-07-28-npm-publish-time-malware-scanning-and-dual-use-metadata)
+describes a typical five-minute availability delay, sometimes 15 minutes or
+more, not a guaranteed upper bound. The verifier's 60-second retry ladder is
+insufficient for that documented behavior; this is not evidence of OIDC failure.
+
+Do not upload again or dispatch a new release revision. The accepted version
+must first become visible and match the existing artifact's integrity,
+channel and provenance. Only then rerun failed jobs on this same run/commit,
+whose pre-publish registry check must skip upload. Preserve the successful
+test/build jobs and their original artifact. The actual artifact downloaded
+from run `36397517876` passed `verify-artifact` locally.
+
+At the 10:18 UTC recovery check, RC1 was publicly visible under `next`, with
+`latest` unchanged at `0.1.0`. The existing `verify-registry --require-present`
+command passed against this run's manifest: integrity, channel and provenance
+verified, with `publish: false`. Protected main still named the exact release
+commit `8a42fcb568646da817d7ee9e6ccaf252ae280b40`. Only failed jobs were
+rerun on run `36397517876`. After renewed human approval, attempt 2 passed
+publication verification and the fresh registry consumer. No second upload or
+artifact rebuild was needed. The workflow created the correct annotated tag,
+then created draft release `398179047`, but failed at 11:18:40 UTC because its
+immediate release-list read did not return the newly created draft.
+
+Recovery confirmed the draft directly and in the authenticated release list:
+correct title, prerelease state, tag and source commit, with no assets uploaded.
+The tag and current main both resolved to the exact release commit. Registry
+verification passed again, and the existing GitHub state resolver identified
+`complete-draft` with only the two expected assets missing. Attempt 3 reruns
+only the failed GitHub-release job on the same source and artifact. npm and
+the successful test/consumer jobs were not rerun. The attempt succeeded:
+GitHub publication verification completed at 11:23:46 UTC. Release `398179047`
+is published (`draft: false`) and immutable, with these exact assets:
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `viborm-1.0.0-rc.1.tgz` | 1,850,101 | `84640407021de8af69fe5e1fa5502bd6a17d169f44c28a25c424c0d49fe714ce` |
+| `viborm-release.json` | 582 | `ed10f62109891ad6413a4bfd11c178e27e0c7833300a12bf3f955478e4c25f11` |
+
+Attempt 2's registry precheck explicitly reported `already-published` and
+`publish: false`; upload was skipped. Its finalizer verified the artifact and
+registry at 11:17:12 UTC and the fresh registry consumer, signature audit,
+exports and CLI at 11:17:16 UTC. Thus publication is complete, not merely an
+accepted upload. The release monitor is paused. The immediate GitHub-list
+lookup defect has a separate repair: retain the validated creation/publication
+response and read the known release ID after uploading assets, rather than
+rediscovering it in the collection. Its actual CLI-boundary regression fails
+before the fix and passes after it, alongside partial-draft resume and
+mismatched-response refusal. Independent review accepted the bounded diff;
+the root reran both release smoke scripts and Biome successfully. This repair
+does not alter RC1's source, tag or package bytes.
+
+## Initial RC preparation and failed attempt
+
 Updated 2026-09-28 (UTC) against `main` at `4beec52a5`, the squash merge of
 [PR #56](https://github.com/beynar/viborm/pull/56).
 The #54 fix is merged, and issue #54 is closed. RC preparation now sets the
@@ -143,20 +221,21 @@ the concrete provider's transaction, migration or failure contract.
 - [x] On 2026-09-27, the GitHub API reported an `npm-production` environment
   with a required reviewer and a branch policy selecting `main`.
 - [x] The effective `main` rules require pull requests.
-- [ ] Require the intended CI checks on `main` and verify force-push/deletion
-  protection. The effective branch-rules API returned a pull-request rule but
-  **no required-status-checks rule** on 2026-09-27. Green checks on one PR do
-  not establish enforcement.
+- [x] Require the eight intended CI checks on `main` with strict current-base
+  enforcement and verify force-push/deletion protection. Ruleset `21923106`
+  now enforces these without a bypass. The initial read-only audit's missing
+  rule observation remains historical evidence, not the current state.
 - [x] Verify tag protection, immutable releases and private vulnerability
   reporting. The [read-only administration audit](v1-release-administration-audit.md)
   records the endpoints, results and exact missing-main-rule remediation.
-- [ ] Verify npm trusted publishing and maintainer 2FA in authenticated npm
-  settings; public package metadata cannot establish them. After the first RC
-  proves provenance, complete the runbook's token restriction/revocation step.
-  No repository or npm settings were changed by the audit.
-- [ ] Exercise the publication workflow with an RC. No `Release` workflow
-  runs or GitHub releases were returned by the read-only queries on
-  2026-09-27. Existing workflow source is not end-to-end publication evidence.
+- [x] Verify npm trusted publishing and maintainer 2FA. Arnaud supplied the
+  publisher settings and confirmed account 2FA; successful OIDC publication
+  and signed provenance now provide execution evidence as well.
+- [ ] Complete the runbook's post-first-RC token restriction/revocation step.
+  Publication success does not establish that this administrative step ran.
+- [x] Exercise the publication workflow with RC1. Run `36397517876` completed
+  on the same source and artifact through failed-job-only recovery, with a
+  fresh registry consumer and immutable GitHub release as recorded above.
 
 ## 5. Documentation and RC rehearsal
 
@@ -176,11 +255,12 @@ the concrete provider's transaction, migration or failure contract.
 - [x] Prepare `1.0.0-rc.1` metadata, candidate release notes and README/site
   guidance; the MIT license is unchanged. Local package evidence is recorded
   in [the RC preflight](v1-rc1-preflight.md). No release tag is created.
-- [ ] Pass all eight CI jobs on the final release PR head and merge only after
+- [x] Pass all eight CI jobs on the final release PR head and merge only after
   release blockers are resolved. Local preflight is not the protected-main
   release workflow's exact-artifact qualification or publication authority.
-- [ ] Release `1.0.0-rc.1` to `next` through the runbook. Rehearse its fresh
-  consumer, upgrade, CLI, schema push and migration/recovery workflows on
+- [x] Release `1.0.0-rc.1` to `next` through the runbook and verify its fresh
+  registry consumer and CLI. Exact evidence is recorded above.
+- [ ] Rehearse the application upgrade, schema push and migration/recovery workflows on
   PostgreSQL, MySQL and SQLite in disposable
   databases with explicit authority for destructive steps. Platform claims
   additionally need their declared substrate, not a Node simulation.

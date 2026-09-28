@@ -334,6 +334,25 @@ function findRelease(repository, tag) {
   return matches[0];
 }
 
+function requireReleaseResponse(release, description, expectedId) {
+  if (!isRecord(release)) {
+    refuse(`${description} must be a record`);
+  }
+  const id = requireIdentifier(release.id, `${description} id`);
+  if (expectedId !== undefined && id !== expectedId) {
+    refuse(`${description} id ${id} does not match ${expectedId}`);
+  }
+  return release;
+}
+
+function readRelease(repository, id) {
+  return requireReleaseResponse(
+    apiJson("GET", `repos/${repository}/releases/${id}`),
+    "GitHub release response",
+    id
+  );
+}
+
 function readTagCommit(repository, tag) {
   const commit = apiJson("GET", `repos/${repository}/commits/${tag}`);
   if (!isRecord(commit)) {
@@ -374,15 +393,18 @@ function downloadReleaseAssets(repository, release) {
 }
 
 function createDraft(repository, intent) {
-  return apiJson("POST", `repos/${repository}/releases`, {
-    draft: true,
-    generate_release_notes: true,
-    make_latest: "false",
-    name: intent.title,
-    prerelease: intent.prerelease,
-    tag_name: intent.tag,
-    target_commitish: intent.commit,
-  });
+  return requireReleaseResponse(
+    apiJson("POST", `repos/${repository}/releases`, {
+      draft: true,
+      generate_release_notes: true,
+      make_latest: "false",
+      name: intent.title,
+      prerelease: intent.prerelease,
+      tag_name: intent.tag,
+      target_commitish: intent.commit,
+    }),
+    "Created GitHub release"
+  );
 }
 
 function uploadAsset(repository, release, asset) {
@@ -401,13 +423,17 @@ function uploadAsset(repository, release, asset) {
 
 function publishDraft(repository, release, intent) {
   const id = requireIdentifier(release.id, "GitHub release id");
-  return apiJson("PATCH", `repos/${repository}/releases/${id}`, {
-    draft: false,
-    make_latest: intent.latest ? "true" : "false",
-    name: intent.title,
-    prerelease: intent.prerelease,
-    tag_name: intent.tag,
-  });
+  return requireReleaseResponse(
+    apiJson("PATCH", `repos/${repository}/releases/${id}`, {
+      draft: false,
+      make_latest: intent.latest ? "true" : "false",
+      name: intent.title,
+      prerelease: intent.prerelease,
+      tag_name: intent.tag,
+    }),
+    "Published GitHub release",
+    id
+  );
 }
 
 function latestReleaseId(repository) {
@@ -452,11 +478,7 @@ export function publishGithubRelease({ manifestPath, repository }) {
   );
 
   if (state.action === "create-draft") {
-    createDraft(repository, intent);
-    release = findRelease(repository, intent.tag);
-    if (release === undefined) {
-      refuse(`Created GitHub draft ${intent.tag} was not observable`);
-    }
+    release = createDraft(repository, intent);
     state = resolveGithubReleaseState(
       intent,
       observeRelease(repository, intent, tagCommit, release)
@@ -470,10 +492,10 @@ export function publishGithubRelease({ manifestPath, repository }) {
     for (const name of state.missingAssets) {
       uploadAsset(repository, release, findExpectedAsset(intent, name));
     }
-    release = findRelease(repository, intent.tag);
-    if (release === undefined) {
-      refuse(`GitHub draft ${intent.tag} disappeared before publication`);
-    }
+    release = readRelease(
+      repository,
+      requireIdentifier(release.id, "GitHub release id")
+    );
     state = resolveGithubReleaseState(
       intent,
       observeRelease(repository, intent, tagCommit, release)
@@ -481,11 +503,7 @@ export function publishGithubRelease({ manifestPath, repository }) {
     if (state.action !== "complete-draft" || state.missingAssets.length > 0) {
       refuse(`GitHub draft ${intent.tag} was not ready for publication`);
     }
-    publishDraft(repository, release, intent);
-    release = findRelease(repository, intent.tag);
-    if (release === undefined) {
-      refuse(`Published GitHub release ${intent.tag} was not observable`);
-    }
+    release = publishDraft(repository, release, intent);
     state = resolveGithubReleaseState(
       intent,
       observeRelease(repository, intent, tagCommit, release)

@@ -1,5 +1,11 @@
 # Albert's procedural memory
 
+- A successful remote creation response owns the new resource identity. Keep
+  that identity for subsequent reads instead of immediately rediscovering it
+  through a potentially delayed collection listing. Exercise the real CLI/API
+  orchestration boundary with a stale-list fixture, not only the pure state
+  resolver. After an interrupted publication, verify existing bytes and resume
+  the recorded resource; never infer that a failed read authorizes recreation.
 - Rehearse the actual publication command with the workflow's exact tool
   version and artifact in dry-run mode. A verified archive does not prove that
   the CLI argument selects it: use an explicit `./` or absolute local path
