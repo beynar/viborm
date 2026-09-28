@@ -2141,7 +2141,7 @@ export class OperationContext {
     const q = this.queries;
     const output = projection
       ? sql`${statement} ${this.driver.adapter.mutations.returning(
-          sql.join(q.lowerProjection(projection).columns, ", ")
+          sql.join(q.lowerProjection(projection), ", ")
         )}`
       : statement;
     return this.setMutation(
@@ -2258,7 +2258,7 @@ export class OperationContext {
     }
     const returning = projection
       ? adapter.mutations.returning(
-          sql.join(q.lowerProjection(projection).columns, ", ")
+          sql.join(q.lowerProjection(projection), ", ")
         )
       : undefined;
     const groups: { readonly columns: string[]; readonly rows: Input[] }[] = [];
@@ -2842,7 +2842,7 @@ export class OperationContext {
         );
       if (producedProjection && adapter.capabilities.supportsReturning)
         statement = sql`${statement} ${adapter.mutations.returning(
-          sql.join(q.lowerProjection(producedProjection).columns, ", ")
+          sql.join(q.lowerProjection(producedProjection), ", ")
         )}`;
       this.attempt.rejectedInsert = undefined;
       let response: QueryResult<Input>;
@@ -2931,7 +2931,7 @@ export class OperationContext {
         const resultIndex = this.queued.length;
         const inserted = this.queue(
           sql`${statement} ${adapter.mutations.returning(
-            sql.join(q.lowerProjection(projection).columns, ", ")
+            sql.join(q.lowerProjection(projection), ", ")
           )}`,
           context,
           member
@@ -3139,7 +3139,7 @@ export class OperationContext {
       const response = await this.dispatch(1, false, () =>
         this.transport._execute<Input>(
           sql`${statement} ${adapter.mutations.returning(
-            sql.join(q.lowerProjection(projection).columns, ", ")
+            sql.join(q.lowerProjection(projection), ", ")
           )}`,
           context
         )

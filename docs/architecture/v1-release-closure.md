@@ -1,5 +1,49 @@
 # V1 Release Closure
 
+## RC2 performance candidate — 2026-09-28
+
+Arnaud authorized a second candidate if the bounded engine performance work
+survived review. The six-file production delta has two independent source
+reviews and integrated local qualification: 280 runtime tests and the whole
+typecheck pass. The [RC2 review](rc2-performance-review.md) retains measured
+identities, exact scope, the one corrected test oracle, and raw check receipts.
+No public contract or provider support tier changes.
+
+- [x] Rebase the isolated candidate onto main `b524e692a`, including PR #58's
+  release-draft identity repair, without changing the performance patch.
+- [x] Prepare `1.0.0-rc.2` metadata and release notes.
+- [x] Pass the bounded package build and all 11 package-contract tests with
+  `1.0.0-rc.2` metadata. The root also reran the new dispatched-read failure
+  witness successfully after inspecting its logging-order correction.
+- [ ] Pass all eight required PR checks on the reviewed head.
+- [ ] Merge that exact safe head through the protected-main PR path.
+- [ ] Release only `1.0.0-rc.2` to `next`, with human environment approval.
+- [ ] Verify registry integrity/provenance, the fresh consumer, and the immutable
+  GitHub release. Keep `latest` at `0.1.0`.
+
+The separately deployed homepage now uses a six-round, three-library campaign
+on the clean `d7d7aa748` RC2 candidate build, not the published npm artifact.
+Those docs changes do not alter this release source. RC1's publication record
+below remains historical evidence.
+
+CI run `36450425424` found nine formatting/lint errors in four measurement
+summaries and two test files. The same changed-file gate reproduced all nine
+locally. A bounded repair reformats the JSON without changing its parsed
+values, sorts test imports, and hoists three test regexes. The gate then passes
+and the prepared-operation suite passes 8/8; production source is unchanged.
+The Node 24 package job was cancelled near its 15-minute ceiling after checkout
+alone consumed over 14 minutes; its next run must succeed without a ceiling
+increase. That package job passed in run `36452841566`, as did formatting and
+documentation. Its whitespace step found three trailing spaces in saved logs.
+The exact base-to-head check reproduced them locally; the bounded repair
+removes only those spaces and updates the receipt checksums, with original
+bytes retained in Git as documented in the RC2 review. Production is unchanged.
+All eight jobs must still pass on the repaired head.
+
+Devin's review advertises one inaccessible flag. Arnaud explicitly said to
+ignore that badge; this is a user waiver, not an independently clean review.
+Any new concrete finding still needs assessment.
+
 ## RC1 publication complete — 2026-09-28
 
 Install the candidate with `npm install viborm@next`. Stable `latest` remains

@@ -320,7 +320,9 @@
 - In CI, `git diff --check` on a clean checkout proves nothing, and a full-estate
   formatter can turn historical debt into an unrelated permanent red gate.
   Resolve the event's exact base commit, fetch it, and run whitespace and
-  formatting checks over that committed delta.
+  formatting checks over that committed delta before every push, not only in
+  CI. Include saved logs; when normalizing a receipt, preserve its original
+  bytes in Git, document the normalization, and update its checksum.
 - Test a declared runtime floor at the exact minimum version against the packed
   consumer artifact. The repository's development toolchain can require a
   newer patch without raising the package runtime floor; do not conflate those
@@ -342,3 +344,13 @@
   from one-time control-plane setup and name both before the first release.
 - When Arnaud says to merge a completed branch, finish the operation by pushing
   the resulting target branch unless he explicitly asks for a local-only merge.
+- Derive lifecycle-order witnesses from the boundary that owns the failure.
+  A provider error can be logged at statement completion before operation
+  observers settle; an admission error has no statement boundary. Inspect the
+  existing log owner, then verify both event order and one-log deduplication
+  instead of copying an admission-failure timeline onto provider rejection.
+- Before pushing a release candidate, run CI's exact changed-file formatting
+  command against its base, including evidence JSON and historical tests touched
+  by the patch. Source-only lint misses those files. After formatting evidence,
+  compare parsed values to the original so presentation changes cannot alter
+  measurements.

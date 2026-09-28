@@ -1,0 +1,56 @@
+
+ RUN  v3.1.4 /Users/arnaud/.codex/worktrees/rc2-performance/viborm
+
+ ❯ |layer-client| tests/contracts/public-client/official-instrumentation-extension.core.test.ts (14 tests | 1 failed) 37ms
+   ✓ official instrumentation extension construction > snapshots hostile config once and keeps one fixed private capability 1ms
+   ✓ official instrumentation extension construction > refuses a cloned, renamed, or structurally forged instance 3ms
+   ✓ official instrumentation extension construction > does not read or activate a hostile removed core config key 3ms
+   ✓ official instrumentation extension construction > keeps diagnostics-only capability without a lifecycle handler or array friend 1ms
+   ✓ official logical operation presentation > preserves exact observer order and the first async OTel active span for raw reads 3ms
+   ✓ official logical operation presentation > preserves exact observer order and the first async OTel active span for model reads 6ms
+   × official logical operation presentation > preserves observer completion order when a dispatched model read rejects 4ms
+     → expected [ 'A.in:false', 'B.in:true', …(5) ] to deeply equal [ 'A.in:false', 'B.in:true', …(5) ]
+   ✓ official logical operation presentation > keeps child failure primary and presents one selected error log 1ms
+   ✓ official logical operation presentation > keeps OrThrow display spans and base-operation error logs 3ms
+   ✓ official logical operation presentation > isolates official contexts across sibling clients sharing one driver 1ms
+   ✓ official logical operation presentation > keeps one operation span for cached reads and each array member 6ms
+   ✓ official array observation readiness > enters every intercepted native member before admission and pays async prewarm once 3ms
+   ✓ official array observation readiness > enters every observe-only native member before provider admission 1ms
+   ✓ official array observation readiness > enters intercepted fallback members before request and query admission 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/official-instrumentation-extension.core.test.ts > official logical operation presentation > preserves observer completion order when a dispatched model read rejects
+AssertionError: expected [ 'A.in:false', 'B.in:true', …(5) ] to deeply equal [ 'A.in:false', 'B.in:true', …(5) ]
+
+- Expected
++ Received
+
+  [
+    "A.in:false",
+    "B.in:true",
+    "provider",
+    "provider:reject",
+-   "B.out:failure:false",
+    "I.error",
++   "B.out:failure:false",
+    "A.out:failure:true",
+  ]
+
+ ❯ tests/contracts/public-client/official-instrumentation-extension.core.test.ts:368:24
+    366|       await waitFor(() => timeline.includes("A.out:failure:true"));
+    367|
+    368|       expect(timeline).toEqual([
+       |                        ^
+    369|         "A.in:false",
+    370|         "B.in:true",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+   Start at  18:14:31
+   Duration  1.27s (transform 703ms, setup 8ms, collect 1.11s, tests 37ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 2.90s wall, 485.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

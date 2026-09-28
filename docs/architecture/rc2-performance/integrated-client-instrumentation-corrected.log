@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/.codex/worktrees/rc2-performance/viborm
+
+ ✓ |layer-client| tests/contracts/public-client/official-instrumentation-extension.core.test.ts (14 tests) 34ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  18:15:20
+   Duration  1.16s (transform 655ms, setup 8ms, collect 999ms, tests 34ms, environment 0ms, prepare 23ms)
+
+Vitest resources: 2.77s wall, 456.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

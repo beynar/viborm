@@ -1,0 +1,5 @@
+
+> viborm@1.0.0-rc.1 test:types /Users/arnaud/.codex/worktrees/rc2-performance/viborm
+> node scripts/run-typecheck.mjs
+
+TypeScript (whole estate, native): 7.39s wall, 6981.0 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
