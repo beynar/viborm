@@ -125,7 +125,7 @@ function sqliteDecimalSumOperandPrecision(
  * the FIELD at all, which is exactly what {@link overflowCoefficient} depends
  * on below.
  */
-const SQLITE_INTERMEDIATE_LIMIT = sql.raw`1000000000000000000`;
+const SQLITE_INTERMEDIATE_LIMIT = sql.raw("1000000000000000000");
 
 /**
  * The coefficient an unsafe or out-of-domain arithmetic result becomes: 10^p,
@@ -296,9 +296,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     ...createStandardLiterals(),
 
     // SQLite uses 1/0 for booleans
-    true: (): Sql => sql.raw`1`,
+    true: (): Sql => sql.raw("1"),
 
-    false: (): Sql => sql.raw`0`,
+    false: (): Sql => sql.raw("0"),
 
     // SQLite requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
@@ -419,7 +419,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     // String concatenation via ||
     concat: (...parts: Sql[]): Sql => {
-      if (parts.length === 0) return sql.raw`''`;
+      if (parts.length === 0) return sql.raw("''");
       if (parts.length === 1) return parts[0]!;
       return sql`(${sql.join(parts, " || ")})`;
     },
@@ -499,17 +499,17 @@ export class SQLiteAdapter implements DatabaseAdapter {
     document: (expression: Sql): Sql => sql`json(${expression})`,
 
     object: (pairs: [string, Sql][]): Sql => {
-      if (pairs.length === 0) return sql.raw`json_object()`;
+      if (pairs.length === 0) return sql.raw("json_object()");
       const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
       return sql`json_object(${sql.join(args, ", ")})`;
     },
 
     array: (items: Sql[]): Sql => {
-      if (items.length === 0) return sql.raw`json_array()`;
+      if (items.length === 0) return sql.raw("json_array()");
       return sql`json_array(${sql.join(items, ", ")})`;
     },
 
-    emptyArray: (): Sql => sql.raw`json_array()`,
+    emptyArray: (): Sql => sql.raw("json_array()"),
 
     // Use json() to ensure the aggregated value is treated as JSON, not string
     // Without json(), json_group_array produces ["{...}"] instead of [{...}]
@@ -517,7 +517,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       sql`COALESCE(json_group_array(json(${expr})), json_array())`,
 
     objectFromColumns: (columns: [string, Sql][]): Sql => {
-      if (columns.length === 0) return sql.raw`json_object()`;
+      if (columns.length === 0) return sql.raw("json_object()");
       const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
       return sql`json_object(${sql.join(args, ", ")})`;
     },
@@ -560,7 +560,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
   arrays = {
     // SQLite uses JSON arrays
     literal: (items: Sql[]): Sql => {
-      if (items.length === 0) return sql.raw`json_array()`;
+      if (items.length === 0) return sql.raw("json_array()");
       return sql`json_array(${sql.join(items, ", ")})`;
     },
 
@@ -717,7 +717,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // ============================================================
 
   // SQLite has no bare OFFSET; LIMIT -1 means "no limit"
-  noLimitValue = sql.raw`-1`;
+  noLimitValue = sql.raw("-1");
 
   readonly #assemble = {
     select: (parts: QueryParts): Sql => {
@@ -842,7 +842,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     supportsMutationRowLimit: false,
   };
 
-  lastInsertId = (): Sql => sql.raw`last_insert_rowid()`;
+  lastInsertId = (): Sql => sql.raw("last_insert_rowid()");
 
   readonly #batchRefs: BatchReferenceSqlAdapter;
 
@@ -862,9 +862,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     );
     return createOnConflictBatchRefs({
       table,
-      batchIdColumn: sql.raw`"batch_id"`,
-      keyColumn: sql.raw`"ref_key"`,
-      valueColumn: sql.raw`"ref_value"`,
+      batchIdColumn: sql.raw('"batch_id"'),
+      keyColumn: sql.raw('"ref_key"'),
+      valueColumn: sql.raw('"ref_value"'),
       createTable: sql`${create} ${table} ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))`,
       castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
       lastInsertId: () => this.lastInsertId(),

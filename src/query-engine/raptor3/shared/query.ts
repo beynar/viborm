@@ -727,6 +727,26 @@ function defaultSelection(model: AnyModel): Record<string, true> {
   return selection;
 }
 
+function rowSet(query: Query): ProjectionShape {
+  return { kind: "collection", row: query.shape };
+}
+
+function firstRow(rows: Input[]): Input | null {
+  return rows[0] ?? null;
+}
+
+function aggregateRow(rows: Input[]): Input {
+  return rows[0] ?? {};
+}
+
+function rowIdentity(rows: Input[]): Input[] {
+  return rows;
+}
+
+function reversedRows(rows: Input[]): Input[] {
+  return rows.reverse();
+}
+
 export class Queries {
   readonly schema: EngineSchema;
   readonly adapter: DatabaseAdapter;
@@ -1831,27 +1851,35 @@ export class Queries {
             path: Object.freeze([...(filter.path as string[])]),
           })
         : target;
+    const predicates: PreparedPredicate[] = [];
+    for (const name of Object.keys(filter)) {
+      if (name === "mode" || name === "path") continue;
+      const operand = filter[name];
+      if (name === "equals") {
+        predicates.push(
+          this.prepareOperations(scoped, operand, folded, positive)
+        );
+      } else if (name === "not") {
+        predicates.push(
+          Object.freeze({
+            kind: "not",
+            predicate: this.prepareOperations(
+              scoped,
+              operand,
+              folded,
+              !positive
+            ),
+          })
+        );
+      } else {
+        predicates.push(
+          this.prepareOperation(scoped, name, operand, folded, positive)
+        );
+      }
+    }
     return Object.freeze({
       kind: "and",
-      predicates: Object.freeze(
-        Object.entries(filter)
-          .filter(([name]) => name !== "mode" && name !== "path")
-          .map(([name, operand]) =>
-            name === "equals"
-              ? this.prepareOperations(scoped, operand, folded, positive)
-              : name === "not"
-                ? Object.freeze({
-                    kind: "not",
-                    predicate: this.prepareOperations(
-                      scoped,
-                      operand,
-                      folded,
-                      !positive
-                    ),
-                  })
-                : this.prepareOperation(scoped, name, operand, folded, positive)
-          )
-      ),
+      predicates: Object.freeze(predicates),
     });
   }
   /** One admitted operator, with its operand resolved once. */
@@ -1863,10 +1891,6 @@ export class Queries {
     positive = true
   ): PreparedPredicate {
     const owner = target.scalar;
-    const operand = () =>
-      owner
-        ? this.prepareOperand(owner, value)
-        : { kind: "value" as const, value };
     switch (operator) {
       case "in":
       case "notIn":
@@ -1895,7 +1919,9 @@ export class Queries {
           kind: "operation",
           operator,
           target,
-          operand: operand(),
+          operand: owner
+            ? this.prepareOperand(owner, value)
+            : ({ kind: "value", value } satisfies PreparedOperand),
           value,
           insensitive,
         });
@@ -2176,12 +2202,20 @@ export class Queries {
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
     switch (predicate.kind) {
       case "and":
+        if (predicate.predicates.length === 1)
+          return a.operators.and(
+            this.lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+          );
         return a.operators.and(
           ...predicate.predicates.map((member) =>
             this.lowerPredicate(member, alias, mutationTarget)
           )
         );
       case "or":
+        if (predicate.predicates.length === 1)
+          return a.operators.or(
+            this.lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+          );
         return a.operators.or(
           ...predicate.predicates.map((member) =>
             this.lowerPredicate(member, alias, mutationTarget)
@@ -2841,13 +2875,15 @@ export class Queries {
     cursored = false
   ): OrderTerm[] {
     if (!input) return [];
-    return entries(input).flatMap((order) =>
-      Object.entries(order).flatMap(([field, direction]) =>
-        direction === undefined
-          ? []
-          : [this.orderTerm(model, field, direction, alias, cursored)]
-      )
-    );
+    const terms: OrderTerm[] = [];
+    for (const order of entries(input)) {
+      for (const field of Object.keys(order)) {
+        const direction = order[field];
+        if (direction !== undefined)
+          terms.push(this.orderTerm(model, field, direction, alias, cursored));
+      }
+    }
+    return terms;
   }
   private orderTerm(
     model: AnyModel,
@@ -3064,10 +3100,14 @@ export class Queries {
     cursorFields: readonly string[] = []
   ): OrderTerm[] {
     const terms = [...requested];
-    const ordered = new Set(
-      terms.flatMap((term) => (term.field === undefined ? [] : [term.field]))
-    );
-    for (const field of [...this.identityOrder(model), ...cursorFields]) {
+    const ordered = new Set<string>();
+    for (const term of terms) {
+      if (term.field !== undefined) ordered.add(term.field);
+    }
+    const identity = this.identityOrder(model);
+    const completion =
+      cursorFields.length === 0 ? identity : [...identity, ...cursorFields];
+    for (const field of completion) {
       if (ordered.has(field)) continue;
       ordered.add(field);
       const physical = physicalField(this.schema, model, field);
@@ -3248,7 +3288,7 @@ export class Queries {
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
     return {
       sql: assembleAdapterSelect(this.adapter, {
-        columns: sql.join(projection.columns, ", "),
+        columns: sql.join(projection, ", "),
         from: this.table(model, alias),
         where: this.adapter.operators.and(
           ...(membership
@@ -3272,7 +3312,7 @@ export class Queries {
         ...(page.distinct
           ? {
               distinct: page.distinct,
-              distinctColumnAliases: projection.names,
+              distinctColumnAliases: prepared.fields.map((field) => field.name),
             }
           : {}),
       }),
@@ -3284,10 +3324,6 @@ export class Queries {
    * select, projection and decoder owners.
    */
   read(model: AnyModel, operation: ReadOperation, args: Arguments): Read {
-    const rowSet = (query: Query): ProjectionShape => ({
-      kind: "collection",
-      row: query.shape,
-    });
     // biome-ignore lint/style/useDefaultSwitchClause: the read operation union is exhaustive; a default would be dead code.
     switch (operation) {
       case "findUnique": {
@@ -3305,7 +3341,7 @@ export class Queries {
           query,
           single: true,
           value: query.shape,
-          result: (rows) => rows[0] ?? null,
+          result: firstRow,
         };
       }
       case "findFirst": {
@@ -3317,7 +3353,7 @@ export class Queries {
           query,
           single: true,
           value: query.shape,
-          result: (rows) => rows[0] ?? null,
+          result: firstRow,
         };
       }
       case "findMany": {
@@ -3327,7 +3363,7 @@ export class Queries {
           query,
           single: false,
           value: rowSet(query),
-          result: (rows) => (backward ? rows.reverse() : rows),
+          result: backward ? reversedRows : rowIdentity,
         };
       }
       case "count":
@@ -3396,7 +3432,7 @@ export class Queries {
           query,
           single: true,
           value: query.shape,
-          result: (rows) => rows[0] ?? {},
+          result: aggregateRow,
         };
       }
       case "groupBy": {
@@ -3405,7 +3441,7 @@ export class Queries {
           query,
           single: false,
           value: rowSet(query),
-          result: (rows) => rows,
+          result: rowIdentity,
         };
       }
     }
@@ -3585,7 +3621,7 @@ export class Queries {
     );
     return {
       sql: assembleAdapterSelect(this.adapter, {
-        columns: sql.join(projection.columns, ", "),
+        columns: sql.join(projection, ", "),
         from: this.table(model, alias),
         where: this.adapter.operators.or(...predicates),
         orderBy: this.adapter.expressions.caseWhen(
@@ -3636,14 +3672,13 @@ export class Queries {
     }
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
-    const selected = {
-      ...(args.select ?? defaultSelection(model)),
-      ...args.include,
-    };
+    let selected = args.select ?? defaultSelection(model);
+    if (args.include !== undefined) selected = { ...selected, ...args.include };
     const prepared: PreparedProjectionField[] = [];
     const fields: Record<string, Shape | Leaf> = {};
     let distanceSelected = false;
-    for (const [name, selection] of Object.entries(selected)) {
+    for (const name of Object.keys(selected)) {
+      const selection = selected[name];
       if (!selection) continue;
       // `_count` is the relation-count key and nothing else: schema
       // validation refuses a member of that name (F010).
@@ -3952,111 +3987,114 @@ export class Queries {
       variants: carrier !== undefined,
     });
   }
-  lowerProjection(
-    projection: PreparedProjection,
-    alias?: string
-  ): {
-    readonly columns: Sql[];
-    readonly entries: [string, Sql][];
-    readonly names: string[];
-  } {
-    const a = this.adapter;
+  lowerProjection(projection: PreparedProjection, alias?: string): Sql[] {
     const columns: Sql[] = [];
-    const entries: [string, Sql][] = [];
     for (const field of projection.fields) {
-      let expression: Sql;
-      if (field.kind === "scalar") {
-        expression = this.projectedColumn(projection.model, field.name, alias);
-      } else if (field.kind === "sentinel") {
-        expression = a.expressions.cast(a.literals.value(1), "integer");
-      } else if (field.kind === "relation") {
-        expression = this.duplicateMembershipGuard(
-          field.edge,
-          alias ?? "",
-          field.recurrence
-            ? this.lowerRecursiveRelationProjection(
-                field,
-                field.recurrence,
-                alias ?? ""
-              )
-            : this.lowerRelationProjection(field, alias ?? "")
-        );
-      } else if (field.kind === "counts") {
-        expression = a.json.objectFromColumns(
-          field.counts.map((count) => [
-            count.relation,
-            this.correlatedCount(
-              count.edges,
-              count.selector,
-              alias ?? "",
-              count.negated
-            ),
-          ])
-        );
-      } else if (field.kind === "distance") {
-        expression = this.distanceExpression(
-          this.column(projection.model, field.field, alias),
-          physicalField(this.schema, projection.model, field.field).scalar["~"]
-            .state,
-          field.field,
-          field.specification,
-          "select"
-        );
-      } else {
-        // The slot's own document: one entry per SELECTED arm, and — for a
-        // junction-carried slot — one integrity entry naming every CONFIGURED
-        // member (D-26). The integrity entry is a sibling of the arms, so it is
-        // answered whatever `only` selected, including nothing at all.
-        const integrity: [string, Sql][] =
-          field.memberships.length === 0
-            ? []
-            : [
-                [
-                  POLYMORPHIC_COLLECTION_ORPHANS_KEY,
-                  a.json.document(
-                    a.json.objectFromColumns(
-                      field.memberships.map((member) => [
-                        member.variant,
-                        this.orphanedMemberships(member.edge, alias ?? ""),
-                      ])
-                    )
-                  ),
-                ],
-              ];
-        expression = a.json.object([
-          ...field.arms.map((arm) => {
-            const row = this.lowerRelationProjection(arm, alias ?? "");
-            const claim = field.many
-              ? undefined
-              : this.parentClaimsArm(arm.edge, alias ?? "");
-            // A claimed arm always carries a DOCUMENT: the empty one says
-            // "linked, and the row is gone", which the decoder refuses from
-            // the arm's own selected keys (Arnaud's D-19 — no private carrier
-            // column). An unclaimed arm stays null, which is an empty slot.
-            return [
-              arm.variant,
-              a.json.document(
-                claim
-                  ? a.expressions.caseWhen(
-                      [
-                        {
-                          when: claim,
-                          then: a.expressions.coalesce(row, a.json.object([])),
-                        },
-                      ],
-                      a.literals.null()
-                    )
-                  : row
-              ),
-            ] as [string, Sql];
-          }),
-          ...integrity,
-        ]);
-      }
-      columns.push(a.identifiers.aliased(expression, field.name));
-      entries.push([field.name, expression]);
+      columns.push(
+        this.adapter.identifiers.aliased(
+          this.lowerProjectionField(projection, field, alias),
+          field.name
+        )
+      );
     }
-    return { columns, entries, names: projection.fields.map((f) => f.name) };
+    return columns;
+  }
+  private lowerProjectionField(
+    projection: PreparedProjection,
+    field: PreparedProjectionField,
+    alias?: string
+  ): Sql {
+    const a = this.adapter;
+    let expression: Sql;
+    if (field.kind === "scalar") {
+      expression = this.projectedColumn(projection.model, field.name, alias);
+    } else if (field.kind === "sentinel") {
+      expression = a.expressions.cast(a.literals.value(1), "integer");
+    } else if (field.kind === "relation") {
+      expression = this.duplicateMembershipGuard(
+        field.edge,
+        alias ?? "",
+        field.recurrence
+          ? this.lowerRecursiveRelationProjection(
+              field,
+              field.recurrence,
+              alias ?? ""
+            )
+          : this.lowerRelationProjection(field, alias ?? "")
+      );
+    } else if (field.kind === "counts") {
+      expression = a.json.objectFromColumns(
+        field.counts.map((count) => [
+          count.relation,
+          this.correlatedCount(
+            count.edges,
+            count.selector,
+            alias ?? "",
+            count.negated
+          ),
+        ])
+      );
+    } else if (field.kind === "distance") {
+      expression = this.distanceExpression(
+        this.column(projection.model, field.field, alias),
+        physicalField(this.schema, projection.model, field.field).scalar["~"]
+          .state,
+        field.field,
+        field.specification,
+        "select"
+      );
+    } else {
+      // The slot's own document: one entry per SELECTED arm, and — for a
+      // junction-carried slot — one integrity entry naming every CONFIGURED
+      // member (D-26). The integrity entry is a sibling of the arms, so it is
+      // answered whatever `only` selected, including nothing at all.
+      const integrity: [string, Sql][] =
+        field.memberships.length === 0
+          ? []
+          : [
+              [
+                POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+                a.json.document(
+                  a.json.objectFromColumns(
+                    field.memberships.map((member) => [
+                      member.variant,
+                      this.orphanedMemberships(member.edge, alias ?? ""),
+                    ])
+                  )
+                ),
+              ],
+            ];
+      expression = a.json.object([
+        ...field.arms.map((arm) => {
+          const row = this.lowerRelationProjection(arm, alias ?? "");
+          const claim = field.many
+            ? undefined
+            : this.parentClaimsArm(arm.edge, alias ?? "");
+          // A claimed arm always carries a DOCUMENT: the empty one says
+          // "linked, and the row is gone", which the decoder refuses from
+          // the arm's own selected keys (Arnaud's D-19 — no private carrier
+          // column). An unclaimed arm stays null, which is an empty slot.
+          return [
+            arm.variant,
+            a.json.document(
+              claim
+                ? a.expressions.caseWhen(
+                    [
+                      {
+                        when: claim,
+                        then: a.expressions.coalesce(row, a.json.object([])),
+                      },
+                    ],
+                    a.literals.null()
+                  )
+                : row
+            ),
+          ] as [string, Sql];
+        }),
+        ...integrity,
+      ]);
+    }
+    return expression;
   }
   /**
    * How many of this member's memberships name a row that is gone.
@@ -4237,7 +4275,7 @@ export class Queries {
     // correlation scope; `take: -n` reverses the window exactly as at the root.
     const window = this.page(edge.target, nested, childAlias);
     const page = assembleAdapterSelect(a, {
-      columns: sql.join(child.columns, ", "),
+      columns: sql.join(child, ", "),
       from: this.table(edge.target, childAlias),
       where: a.operators.and(
         this.correlation(edge, alias, childAlias),
@@ -4265,7 +4303,10 @@ export class Queries {
         : this.value(1),
       offset: window.offset,
       ...(window.distinct
-        ? { distinct: window.distinct, distinctColumnAliases: child.names }
+        ? {
+            distinct: window.distinct,
+            distinctColumnAliases: projection.fields.map((field) => field.name),
+          }
         : {}),
     });
     const pageAlias = this.alias();
@@ -4428,11 +4469,13 @@ export class Queries {
       from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),
     });
     const node = this.alias();
-    const nodeProjection = this.lowerProjection(relation.projection, node);
     const nodeDocument = a.json.object(
-      nodeProjection.entries.map(([field, expression]) => [
-        field,
-        this.carriedValue(relation.projection.shape.fields[field]!, expression),
+      relation.projection.fields.map((field) => [
+        field.name,
+        this.carriedValue(
+          relation.projection.shape.fields[field.name]!,
+          this.lowerProjectionField(relation.projection, field, node)
+        ),
       ])
     );
     const nodeCarrier = a.json.object([
@@ -5094,9 +5137,9 @@ export class Queries {
       // Its arms, compiled once, in `shape.arms` order. A junction-carried
       // slot's arm is a collection, so its reader answers the arm's rows.
       if (shape.many) {
-        const arms = Object.entries(shape.arms).map(([type, arm]) => ({
+        const arms = Object.keys(shape.arms).map((type) => ({
           type,
-          read: this.compileCollection(arm, internal),
+          read: this.compileCollection(shape.arms[type]!, internal),
         }));
         return (value) => {
           const variants = slot(value);
@@ -5107,11 +5150,10 @@ export class Queries {
           return values;
         };
       }
-      const arms = Object.entries(shape.arms).map(([type, arm]) => ({
-        type,
-        arm,
-        read: this.compileReader(arm, internal, true),
-      }));
+      const arms = Object.keys(shape.arms).map((type) => {
+        const arm = shape.arms[type]!;
+        return { type, arm, read: this.compileReader(arm, internal, true) };
+      });
       return (value) => {
         const variants = slot(value);
         for (const { type, arm, read } of arms) {
@@ -5135,14 +5177,15 @@ export class Queries {
     // per row: materialising it per row as pairs (`Object.entries` read back
     // by `Object.fromEntries`) made this decoder allocate 2.5x the shipped
     // engine's bytes per row (`g4/release/p1/note.md`).
-    const members = Object.entries(shape.fields).map(([field, nested]) => ({
-      field,
-      read: this.compileReader(
+    const fields = Object.keys(shape.fields);
+    const readers = fields.map((field) => {
+      const nested = shape.fields[field]!;
+      return this.compileReader(
         nested,
         internal,
         carried || nested.kind !== "scalar"
-      ),
-    }));
+      );
+    });
     return (value) => {
       const source = providerDocument(providerJson(value));
       if (source === null) {
@@ -5167,8 +5210,10 @@ export class Queries {
       // hydration — or one of this engine's own carrier names, which is the
       // same write the shape owners take to build `fields`.
       const document: Input = {};
-      for (const { field, read } of members)
-        document[field] = read(own(source, field));
+      for (let index = 0; index < fields.length; index++) {
+        const field = fields[index]!;
+        document[field] = readers[index]!(own(source, field));
+      }
       return document;
     };
   }

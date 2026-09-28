@@ -150,8 +150,8 @@ describe("review/perf2 — what the (adapter, model) memo may not share", () => 
     const one = queries.lowerProjection(shared, "q1");
     const zeroAgain = queries.lowerProjection(shared, "q0");
 
-    const text = (lowered: { readonly columns: readonly Sql[] }) =>
-      lowered.columns.map((column) => column.toStatement("?")).join(", ");
+    const text = (lowered: readonly Sql[]) =>
+      lowered.map((column) => column.toStatement("?")).join(", ");
 
     assert.notEqual(text(zero), text(one), "the alias did not reach the SQL");
     assert.equal(

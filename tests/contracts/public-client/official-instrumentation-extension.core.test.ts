@@ -9,7 +9,7 @@ import { ClientInitializationError, isVibORMError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import { ATTR_DB_OPERATION_NAME, SPAN_OPERATION } from "@instrumentation/spans";
-import { trace } from "@opentelemetry/api";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { createClient, s, sql } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
@@ -26,6 +26,7 @@ class OperationDriver extends Driver<object, object> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly events: string[] = [];
   timeline: string[] | undefined;
+  readFailure: Error | undefined;
 
   constructor() {
     super("sqlite", "official-instrumentation-test");
@@ -46,6 +47,11 @@ class OperationDriver extends Driver<object, object> {
   ): Promise<QueryResult<T>> {
     this.events.push("provider");
     this.timeline?.push("provider");
+    if (this.readFailure && statement.trimStart().startsWith("SELECT")) {
+      await Promise.resolve();
+      this.timeline?.push("provider:reject");
+      throw this.readFailure;
+    }
     const rows = statement.trimStart().startsWith("SELECT")
       ? [{ id: "record-1", name: "Ada" }]
       : [];
@@ -246,7 +252,10 @@ describe("official instrumentation extension construction", () => {
 });
 
 describe("official logical operation presentation", () => {
-  test("preserves exact observer order and the first async OTel active span", async () => {
+  test.each([
+    "raw",
+    "model",
+  ])("preserves exact observer order and the first async OTel active span for %s reads", async (kind) => {
     const recorder = withOtelRecorder();
     try {
       const timeline: string[] = [];
@@ -285,7 +294,9 @@ describe("official logical operation presentation", () => {
       driver.events.length = 0;
 
       await expect(
-        client.$queryRaw<{ id: string }>(sql`SELECT 1`)
+        kind === "raw"
+          ? client.$queryRaw<{ id: string }>(sql`SELECT 1`)
+          : client.record.findMany()
       ).resolves.toEqual([{ id: "record-1", name: "Ada" }]);
       await outerCompleted;
 
@@ -299,6 +310,83 @@ describe("official logical operation presentation", () => {
       expect(
         recorder.spans().filter(({ name }) => name === SPAN_OPERATION)
       ).toHaveLength(1);
+    } finally {
+      await recorder.dispose();
+    }
+  });
+
+  test("preserves observer completion order when a dispatched model read rejects", async () => {
+    const recorder = withOtelRecorder();
+    try {
+      const timeline: string[] = [];
+      const logs = captureLogs();
+      const { client: base, driver } = baseClient();
+      driver.timeline = timeline;
+      driver.readFailure = new Error("provider read failed");
+      const client = base
+        .$extends({
+          name: "before-failed-read",
+          observe(unit, proceed) {
+            if (unit.kind !== "operation") return;
+            timeline.push(`A.in:${trace.getActiveSpan() !== undefined}`);
+            return proceed().then((completion) => {
+              timeline.push(
+                `A.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
+              );
+            });
+          },
+        })
+        .$extends(
+          instrumentation({
+            tracing: true,
+            logging: {
+              error(event) {
+                timeline.push("I.error");
+                logs.callback(event, () => undefined);
+              },
+            },
+          })
+        )
+        .$extends({
+          name: "after-failed-read",
+          observe(unit, proceed) {
+            if (unit.kind !== "operation") return;
+            timeline.push(`B.in:${trace.getActiveSpan() !== undefined}`);
+            return proceed().then((completion) => {
+              timeline.push(
+                `B.out:${completion.status}:${recorder.find(SPAN_OPERATION) !== undefined}`
+              );
+            });
+          },
+        });
+
+      await expect(client.record.findMany()).rejects.toMatchObject({
+        name: "QueryError",
+      });
+      await waitFor(() => timeline.includes("A.out:failure:true"));
+
+      expect(timeline).toEqual([
+        "A.in:false",
+        "B.in:true",
+        "provider",
+        "provider:reject",
+        "B.out:failure:false",
+        "I.error",
+        "A.out:failure:true",
+      ]);
+      expect(driver.events).toEqual(["provider"]);
+      expect(logs.events).toHaveLength(1);
+      expect(logs.events[0]).toMatchObject({
+        level: "error",
+        model: "record",
+        operation: "findMany",
+        error: { name: "QueryError" },
+      });
+      const operationSpans = recorder
+        .spans()
+        .filter(({ name }) => name === SPAN_OPERATION);
+      expect(operationSpans).toHaveLength(1);
+      expect(operationSpans[0]?.status.code).toBe(SpanStatusCode.ERROR);
     } finally {
       await recorder.dispose();
     }

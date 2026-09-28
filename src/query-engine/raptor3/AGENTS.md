@@ -126,6 +126,13 @@ carries every fact the decoder needs, including the direction of a reversed
 window (`relationShape`), so a nested negative `take` is restored per parent by
 the same decoder rather than by a second reversal site.
 
+Prepared command and routed-operation handles keep admission, prepared reads,
+and cache codecs local to each operation. Their methods and getters are shared
+on factory-scoped prototypes; internal consumers call them with their handle
+receiver. Read execution forwards the existing promise, while synchronous
+preparation failures still become rejections. Write completion alone owns the
+awaited post-execution outcome notification.
+
 `Queries.fieldValue` is the single destination-aware operand owner for filters,
 cursors, identities and assignments, and `decodeScalar` — reached only through
 the readers `compileReader` builds for `decodeQuery`/`decodeProjection` — is
@@ -205,7 +212,9 @@ asked about once and the output name is stated once.
 
 `Queries.prepareProjection` owns one immutable alias-free projection description
 and decoder shape. `lowerProjection` binds that description to fresh statement
-aliases for SELECT, RETURNING, recursive reads, and reference-value projection;
+aliases for SELECT, RETURNING, and reference-value projection. Its per-field
+lowering also supplies recursive JSON documents, without building unused aliased
+columns. DISTINCT names are read from the prepared projection only when needed;
 `decodeProjection` consumes its shape without rebuilding SQL. When one mutation
 uses RETURNING plus a required stored-row continuation, both lowerings reuse the
 same prepared description while keeping distinct query-local aliases. `Queries.assertExpectedRows` is
@@ -214,6 +223,11 @@ a single-statement read and `publishedTerminal` asks it per terminal window,
 where the window's own count still is a fact. Do not assemble a
 SELECT merely to obtain decoder shape, re-prepare a continuation's projection,
 or remove a SELECT that verifies stored output.
+
+Selection and ordering walkers read own keys from ordinary records produced by
+admission; they do not mutate those records. A selection needs a separate merged
+record only when `include` is present. Keep this traversal below admission, where
+caller accessors and proxies have already been removed.
 
 `Queries.prepareSelector` owns one alias-free symbolic selector description and
 its dependency facts. `lowerSelector` binds statement-local aliases and current

@@ -8,17 +8,18 @@
  */
 
 import assert from "node:assert/strict";
+import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { NotFoundError } from "@errors";
+import { NotFoundError, ValidationError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import type { ReadOperation } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
-import { createClient } from "@client/client";
 import { afterEach, describe, it } from "vitest";
-import { createWorld, worldSchema, type World } from "./world";
+import { createWorld, type World, worldSchema } from "./world";
 
 let world: World | undefined;
 
@@ -28,6 +29,21 @@ afterEach(async () => {
 });
 
 describe("G4-02 prepared operation boundary", () => {
+  it("rejects invalid prepared reads asynchronously before dispatch", async () => {
+    world = await createWorld();
+    const engine = createCommandEngine({
+      schema: worldSchema,
+      driver: world.driver,
+    });
+    const prepared = engine.prepare("author", "findMany", { take: "invalid" });
+    world.driver.reset();
+
+    const pending = prepared.execute();
+    assert.ok(pending instanceof Promise);
+    await assert.rejects(pending, ValidationError);
+    assert.equal(world.driver.statements.length, 0);
+  });
+
   it("admits exactly once however many times the handle is asked", async () => {
     let transforms = 0;
     const note = s
@@ -64,6 +80,87 @@ describe("G4-02 prepared operation boundary", () => {
     }
   });
 
+  it("isolates admission, prepared reads, and cache codecs across concurrent handles and factories", async () => {
+    world = await createWorld();
+    const otherWorld = await createWorld();
+    try {
+      await otherWorld.client.author.update({
+        where: { id: 1 },
+        data: { name: "Grace" },
+      });
+      const route = createCandidateRoute(worldSchema, world.driver);
+      const otherRoute = createCandidateRoute(worldSchema, otherWorld.driver);
+      const requests = [
+        {
+          route,
+          driver: world.driver,
+          operation: "findUnique",
+          args: { where: { id: 1 }, select: { name: true } },
+          expected: { name: "Ada" },
+        },
+        {
+          route,
+          driver: world.driver,
+          operation: "findMany",
+          args: { where: { id: 2 }, select: { age: true } },
+          expected: [{ age: 41 }],
+        },
+        {
+          route: otherRoute,
+          driver: otherWorld.driver,
+          operation: "findUnique",
+          args: { where: { id: 1 }, select: { name: true } },
+          expected: { name: "Grace" },
+        },
+      ];
+      world.driver.reset();
+      otherWorld.driver.reset();
+      const prepared = requests.map((request) => {
+        const handle = request.route.operation(
+          worldSchema.author,
+          request.operation,
+          request.args
+        );
+        const admitted = handle.preparedArgs;
+        const statement = handle.buildStatement();
+        const codec = handle.cacheResultCodec();
+        assert.ok(statement);
+        assert.deepEqual(admitted.select, request.args.select);
+        return { request, handle, admitted, statement, codec };
+      });
+      assert.equal(new Set(prepared.map(({ admitted }) => admitted)).size, 3);
+      assert.equal(new Set(prepared.map(({ statement }) => statement)).size, 3);
+      assert.equal(new Set(prepared.map(({ codec }) => codec)).size, 3);
+      assert.equal(world.driver.statements.length, 0);
+      assert.equal(otherWorld.driver.statements.length, 0);
+
+      await Promise.all(
+        prepared.map(async ({ request, handle, admitted, statement, codec }) => {
+          const value = await handle.execute({
+            context: { model: "author", operation: request.operation },
+            engineDriver: request.driver,
+            driverOverride: undefined,
+            isWrite: false,
+            committedWriteSegment: undefined,
+            writeMayBeVisible: undefined,
+          });
+          assert.deepEqual(value, request.expected);
+          assert.deepEqual(
+            codec.materialize(codec.snapshot(value)),
+            request.expected
+          );
+          assert.equal(handle.preparedArgs, admitted);
+          assert.equal(handle.buildStatement(), statement);
+          assert.equal(handle.cacheResultCodec(), codec);
+        })
+      );
+      assert.equal(world.driver.statements.length, 2);
+      assert.equal(otherWorld.driver.statements.length, 1);
+    } finally {
+      await otherWorld.close();
+    }
+  });
+
   it("publishes the prepared read shape and cardinality before the statement runs", async () => {
     world = await createWorld();
     const engine = createCommandEngine({
@@ -79,10 +176,10 @@ describe("G4-02 prepared operation boundary", () => {
     assert.equal(prepared.read.single, true);
     const shape = prepared.read.shape;
     assert.equal(shape.kind, "object");
-    assert.deepEqual(
-      Object.keys(shape.kind === "object" ? shape.fields : {}),
-      ["id", "name"]
-    );
+    assert.deepEqual(Object.keys(shape.kind === "object" ? shape.fields : {}), [
+      "id",
+      "name",
+    ]);
     // Publishing the shape reaches no provider.
     assert.equal(world.driver.statements.length, 0);
     assert.deepEqual(await prepared.execute(), { id: 1, name: "Ada" });

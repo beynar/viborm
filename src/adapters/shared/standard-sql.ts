@@ -70,9 +70,9 @@ export const buildJsonPath = (path: string[]): string => {
 
 export const createStandardLiterals = (): StandardLiterals => ({
   value: (v: unknown): Sql => sql`${v}`,
-  null: (): Sql => sql.raw`NULL`,
+  null: (): Sql => sql.raw("NULL"),
   list: (values: Sql[]): Sql => {
-    if (values.length === 0) return sql.raw`()`;
+    if (values.length === 0) return sql.raw("()");
     return sql`(${sql.join(values, ", ")})`;
   },
   // A temporal column accepts ISO-8601 directly, and the declared native type
@@ -122,7 +122,8 @@ type StandardAggregates = Omit<
  * admission of an operand compared with a widened sum.
  */
 export const createAggregateFunctions = (): StandardAggregates => ({
-  count: (expr?: Sql): Sql => (expr ? sql`COUNT(${expr})` : sql.raw`COUNT(*)`),
+  count: (expr?: Sql): Sql =>
+    expr ? sql`COUNT(${expr})` : sql.raw("COUNT(*)"),
   countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
   sum: (expr: Sql): Sql => sql`SUM(${expr})`,
   avg: (expr: Sql): Sql => sql`AVG(${expr})`,
@@ -153,7 +154,7 @@ export const createDirectionOrderBy = (): DirectionOrderBy => ({
 });
 
 const directionKeyword = (direction: "asc" | "desc"): Sql =>
-  direction === "desc" ? sql.raw`DESC` : sql.raw`ASC`;
+  direction === "desc" ? sql.raw("DESC") : sql.raw("ASC");
 
 /**
  * NULLS FIRST/LAST emulation for dialects without native support
@@ -295,7 +296,8 @@ export const createCteBuilders = (
     recursive: Sql,
     union: "all" | "distinct" = "all"
   ): Sql => {
-    const unionKeyword = union === "all" ? sql.raw`UNION ALL` : sql.raw`UNION`;
+    const unionKeyword =
+      union === "all" ? sql.raw("UNION ALL") : sql.raw("UNION");
     return sql`WITH RECURSIVE ${sql.raw(quoteIdent(name))} AS (
         ${anchor}
         ${unionKeyword}

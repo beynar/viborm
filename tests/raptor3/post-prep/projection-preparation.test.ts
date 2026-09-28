@@ -171,25 +171,22 @@ describe("post-G3 projection preparation", () => {
       firstAssemblyCount > 0,
       "nested lowering must exercise SELECT assembly"
     );
-    const leftSql = renderedColumns(left.columns);
+    const leftSql = renderedColumns(left);
     assert.match(leftSql, LEFT_SOURCE);
     assert.doesNotMatch(leftSql, RIGHT_SOURCE);
 
     const right = queries.lowerProjection(prepared, "right_source");
     assert.equal(selectAssembly.calls - firstAssemblyCount, firstAssemblyCount);
-    const rightSql = renderedColumns(right.columns);
+    const rightSql = renderedColumns(right);
     assert.match(rightSql, RIGHT_SOURCE);
     assert.doesNotMatch(rightSql, LEFT_SOURCE);
-    assert.notEqual(left.columns, right.columns);
-    assert.notEqual(left.entries, right.entries);
-    assert.deepEqual(
-      left.entries.map(([field]) => field),
-      ["id", "amount", "author", "subject"]
-    );
-    assert.deepEqual(
-      right.entries.map(([field]) => field),
-      ["id", "amount", "author", "subject"]
-    );
+    assert.notEqual(left, right);
+    const names = ["id", "amount", "author", "subject"];
+    for (const columns of [left, right]) {
+      assert.equal(columns.length, names.length);
+      for (const [index, column] of columns.entries())
+        assert(column.toStatement("?").endsWith(` AS "${names[index]}"`));
+    }
   });
 
   it("decodes one prepared mapped decimal, nested, and variant shape freshly", () => {
