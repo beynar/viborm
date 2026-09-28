@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -163,6 +169,48 @@ const post = s.model({ author: s.manyToOne(() => user) });
 `;
 
 describe("relation-language census: estate enumeration", () => {
+  it("excludes archived receipts but still checks live docs and architecture plans", () => {
+    const repositoryRoot = mkdtempSync(join(tmpdir(), "viborm-census-"));
+    try {
+      execFileSync("git", ["init", "--quiet"], { cwd: repositoryRoot });
+      for (const directory of [
+        "docs/architecture/raptor3-evidence",
+        "docs/architecture/raptor3-evidence-live",
+        "docs/content",
+      ]) {
+        mkdirSync(join(repositoryRoot, directory), { recursive: true });
+      }
+      writeFileSync(
+        join(repositoryRoot, "docs/architecture/raptor3-evidence/receipt.ts"),
+        "const getRelationInfo = 1;\n"
+      );
+      for (const file of [
+        "docs/architecture/current-plan.md",
+        "docs/architecture/raptor3-evidence-live/current.md",
+        "docs/content/relations.mdx",
+      ]) {
+        writeFileSync(join(repositoryRoot, file), MARKDOWN_WITNESS);
+      }
+      execFileSync("git", ["add", "docs"], { cwd: repositoryRoot });
+
+      const census = collectRelationLanguageCensus(repositoryRoot);
+      expect(census.identifiers).toEqual([]);
+      expect(census.text).toEqual([
+        "docs/architecture/current-plan.md factoryCall 1",
+        "docs/architecture/current-plan.md junctionSideCall 1",
+        "docs/architecture/current-plan.md namedImport 1",
+        "docs/architecture/raptor3-evidence-live/current.md factoryCall 1",
+        "docs/architecture/raptor3-evidence-live/current.md junctionSideCall 1",
+        "docs/architecture/raptor3-evidence-live/current.md namedImport 1",
+        "docs/content/relations.mdx factoryCall 1",
+        "docs/content/relations.mdx junctionSideCall 1",
+        "docs/content/relations.mdx namedImport 1",
+      ]);
+    } finally {
+      rmSync(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
   it("includes existing tracked and untracked files but excludes tracked deletions", () => {
     const repositoryRoot = mkdtempSync(join(tmpdir(), "viborm-census-"));
     try {

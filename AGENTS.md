@@ -610,6 +610,7 @@ pnpm test:types          # COMPLETE typecheck: every file the root tsconfig inte
 pnpm test                # test:types then test:core - the trusted gate, budgeted under five minutes
 pnpm test:core           # All core runtime projects
 pnpm test:all            # Core, extended-local, local providers, optional Bun, local D1, and package checks
+pnpm test:all --ci-local # CI partition: extended-local and local providers; sibling CI jobs own types/core/package/Bun/D1
 pnpm test:coverage       # Sequential subsystem shards, merged global report, and working-tree metadata
 
 # Nine subsystems hold 100% statements, branches, functions and lines.
@@ -846,7 +847,13 @@ Source tests, coverage and providers are qualified once by the latest successful
 all eight jobs in the latest attempt and rechecks before npm publication;
 release jobs must not duplicate that estate or accept PR/tree-equivalent proof.
 Release-specific documentation and exact-tarball checks remain mandatory.
-Release checkouts are shallow and sparse; CI retains the full evidence tree.
+Release and CI checkouts are shallow and sparse. CI excludes only the historical
+`docs/architecture/raptor3-evidence/` receipt archive, not live docs or architecture
+plans. The relation-language census uses the same archival boundary. Quality
+checks fetch only their comparison commit and materialize all changed files,
+including changed receipts, before linting. The eight required CI jobs still
+own the complete live test estate; `test:all --ci-local` removes only the five
+stages already owned by sibling jobs. Default local `test:all` stays exhaustive.
 Never publish from a worktree, use an
 `NPM_TOKEN`, rebuild between testing and publication, or create the version tag
 by hand.

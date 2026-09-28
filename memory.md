@@ -1,5 +1,10 @@
 # Albert's procedural memory
 
+- Diagnose CI latency from per-step timestamps before adding retries or time.
+  Measure tracked checkout bytes separately from test execution. Exclude only
+  proven historical archives, keep changed-file lint coverage, and prove that
+  parallel job selections cover the original estate before removing duplicates.
+
 - A successful remote creation response owns the new resource identity. Keep
   that identity for subsequent reads instead of immediately rediscovering it
   through a potentially delayed collection listing. Exercise the real CLI/API
