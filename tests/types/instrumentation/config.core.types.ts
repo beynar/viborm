@@ -63,6 +63,44 @@ declare const platformTracer: Tracer;
 const _platformTracer = () =>
   instrumentation({ tracing: { tracer: platformTracer } });
 
+/** Cloudflare Workers' `tracing`, as its documentation declares it. */
+declare namespace workersTracing {
+  type Exception =
+    | string
+    | { code: string | number; name?: string; message?: string; stack?: string }
+    | { code?: string | number; name: string; message?: string; stack?: string }
+    | {
+        code?: string | number;
+        name?: string;
+        message: string;
+        stack?: string;
+      };
+  class Span {
+    readonly isTraced: boolean;
+    setAttribute(key: string, value: string | number | boolean): this;
+    setAttributes(
+      attributes: Record<string, string | number | boolean | undefined>
+    ): this;
+    recordException(exception: Exception): void;
+    end(): void;
+  }
+  function enterSpan<T, A extends unknown[]>(
+    name: string,
+    callback: (span: Span, ...args: A) => T,
+    ...args: A
+  ): T;
+  function startActiveSpan<T, A extends unknown[]>(
+    name: string,
+    callback: (span: Span, ...args: A) => T,
+    ...args: A
+  ): T;
+  function startSpan(name: string): Span;
+  function getActiveSpan(): Span | undefined;
+}
+
+const _workersTracer = () =>
+  instrumentation({ tracing: { tracer: workersTracing } });
+
 const _platformTracerBesideOptions = () =>
   instrumentation({
     tracing: {
@@ -74,7 +112,7 @@ const _platformTracerBesideOptions = () =>
 
 const _notATracer = () =>
   instrumentation({
-    // @ts-expect-error - an empty object is not an OpenTelemetry Tracer
+    // @ts-expect-error - an empty object cannot start spans
     tracing: { tracer: {} },
   });
 

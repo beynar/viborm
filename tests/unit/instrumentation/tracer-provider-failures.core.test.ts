@@ -8,19 +8,23 @@ type ProviderMode =
   | "context-reenters"
   | "context-twice"
   | "get-tracer-throws"
+  | "kind-throws"
   | "normal"
   | "set-span-throws"
   | "span-methods-throw"
-  | "start-span-throws";
+  | "start-span-throws"
+  | "status-codes-own";
 
 interface ProviderState {
   callbackCalls: number;
+  spanCalls: string[];
   mode: ProviderMode;
   reenter?: (() => void) | undefined;
 }
 
 const provider = vi.hoisted<ProviderState>(() => ({
   callbackCalls: 0,
+  spanCalls: [],
   mode: "normal",
   reenter: undefined,
 }));
@@ -35,17 +39,19 @@ vi.mock("@opentelemetry/api", () => {
         throw new Error("recordException failed");
       }
     },
-    setStatus() {
+    setStatus(status: unknown) {
+      provider.spanCalls.push(`status:${JSON.stringify(status)}`);
       if (provider.mode === "span-methods-throw") {
         throw new Error("setStatus failed");
       }
     },
   };
   const tracer = {
-    startSpan() {
+    startSpan(_name: string, options: { kind: unknown }) {
       if (provider.mode === "start-span-throws") {
         throw new Error("startSpan failed");
       }
+      provider.spanCalls.push(`start:${String(options.kind)}`);
       return span;
     },
   };
@@ -82,8 +88,16 @@ vi.mock("@opentelemetry/api", () => {
   return {
     context,
     ROOT_CONTEXT: {},
-    SpanKind: { INTERNAL: 0 },
-    SpanStatusCode: { ERROR: 2, OK: 1 },
+    // The auto-detected path reads the kind and status codes from the api.
+    get SpanKind() {
+      if (provider.mode === "kind-throws") throw new Error("SpanKind failed");
+      return { INTERNAL: 0 };
+    },
+    get SpanStatusCode() {
+      return provider.mode === "status-codes-own"
+        ? { ERROR: 12, OK: 11 }
+        : { ERROR: 2, OK: 1 };
+    },
     trace: {
       getTracer() {
         if (provider.mode === "get-tracer-throws") {
@@ -106,6 +120,7 @@ import { createTracerWrapper } from "@src/instrumentation/tracer";
 
 beforeEach(() => {
   provider.callbackCalls = 0;
+  provider.spanCalls = [];
   provider.mode = "normal";
   provider.reenter = undefined;
 });
@@ -129,6 +144,7 @@ describe("OpenTelemetry provider failure boundary", () => {
     "context-reenters",
     "context-twice",
     "get-tracer-throws",
+    "kind-throws",
     "set-span-throws",
     "start-span-throws",
   ] satisfies ProviderMode[])("preserves async work when %s", async (mode) => {
@@ -152,38 +168,23 @@ describe("OpenTelemetry provider failure boundary", () => {
     expect(provider.callbackCalls).toBe(1);
   });
 
-  it.each([
-    "active-throws",
-    "context-skips",
-    "context-throws-after",
-    "context-throws-before",
-    "context-reenters",
-    "context-twice",
-  ] satisfies ProviderMode[])("preserves sync work when %s", async (mode) => {
-    const tracer = createTracerWrapper();
-    await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
-    provider.mode = mode;
+  it("reads the span kind and status codes from the detected api", async () => {
+    await expect(runAsync("kind-throws")).resolves.toBe("authoritative");
+    // An api whose SpanKind cannot be read starts no span.
+    expect(provider.spanCalls).toEqual([]);
 
-    const value = tracer.startActiveSpanSync({ name: SPAN_OPERATION }, () => {
-      provider.callbackCalls += 1;
-      provider.reenter?.();
-      return "authoritative";
-    });
-
-    expect(value).toBe("authoritative");
-    expect(provider.callbackCalls).toBe(1);
-  });
-
-  it("preserves sync failures when span observers fail", async () => {
-    const tracer = createTracerWrapper();
-    await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
-    provider.mode = "span-methods-throw";
-    const failure = new Error("sync application failure");
-
-    expect(() =>
-      tracer.startActiveSpanSync({ name: SPAN_OPERATION }, () => {
+    await expect(runAsync("status-codes-own")).resolves.toBe("authoritative");
+    const failure = new Error("application failure");
+    await expect(
+      createTracerWrapper().startActiveSpan({ name: SPAN_OPERATION }, () => {
         throw failure;
       })
-    ).toThrow(failure);
+    ).rejects.toBe(failure);
+    expect(provider.spanCalls).toEqual([
+      "start:0",
+      `status:${JSON.stringify({ code: 11 })}`,
+      "start:0",
+      `status:${JSON.stringify({ code: 12, message: "Operation failed" })}`,
+    ]);
   });
 });

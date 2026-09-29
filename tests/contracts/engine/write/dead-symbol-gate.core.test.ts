@@ -134,8 +134,10 @@ const DELETED_INSTRUMENTATION_SYMBOLS = [
   // U1 repair — the capability type that handed core the extension's context.
   "OfficialInstrumentationCapability",
   "InstrumentationLifecycleFacts",
-  // Platform tracer — the late active-span attribute hook D2 left consumerless.
+  // Platform tracer — the late active-span attribute hook D2 left consumerless,
+  // and the synchronous span entry no src caller reached.
   "setActiveSpanAttributes",
+  "startActiveSpanSync",
 ] as const;
 
 /** Deleted source files of the instrumentation encapsulation, relative to src. */

@@ -30,27 +30,4 @@ describe("createTracerWrapper without the optional OTel peer", () => {
     ).rejects.toBe(failure);
     expect(callback).toHaveBeenCalledTimes(1);
   });
-
-  it("executes sync success callbacks exactly once", () => {
-    const callback = vi.fn(() => "success");
-    const tracer = createTracerWrapper();
-
-    expect(tracer.startActiveSpanSync({ name: SPAN_EXECUTE }, callback)).toBe(
-      "success"
-    );
-    expect(callback).toHaveBeenCalledTimes(1);
-  });
-
-  it("preserves sync callback failures without retrying", () => {
-    const failure = new Error("operation failed");
-    const callback = vi.fn(() => {
-      throw failure;
-    });
-    const tracer = createTracerWrapper();
-
-    expect(() =>
-      tracer.startActiveSpanSync({ name: SPAN_EXECUTE }, callback)
-    ).toThrow(failure);
-    expect(callback).toHaveBeenCalledTimes(1);
-  });
 });

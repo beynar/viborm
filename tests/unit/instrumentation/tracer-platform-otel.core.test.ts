@@ -2,13 +2,13 @@
  * A REAL OpenTelemetry tracer handed over explicitly presents what
  * auto-detection presents.
  *
- * Cloudflare Workers' pattern is `trace.getTracer("app")` from the
- * application's own `@opentelemetry/api`, passed as `tracing: { tracer }`. Here
- * that tracer comes from a real `NodeTracerProvider`; the golden transcript's
- * `statement/single` scenario runs once per mode and the spans, read through
- * the golden's own normalization, must be equal to each other and to the
- * committed transcript. Root spans keep their meaning through the SpanOptions
- * `root` flag.
+ * An OpenTelemetry `Tracer` satisfies the handed-tracer contract through its
+ * two-argument `startActiveSpan(name, fn)`. Here it comes from a real
+ * `NodeTracerProvider`; the golden transcript's `statement/single` scenario
+ * runs once per mode and the spans, read through the golden's own
+ * normalization, must be equal to each other and to the committed transcript.
+ * The one documented difference is `root`: a handed tracer takes no parent, so
+ * a span VibORM would start as a new root nests under the active span.
  */
 import { readFileSync } from "node:fs";
 import { trace } from "@opentelemetry/api";
@@ -88,19 +88,23 @@ describe("tracing.tracer with a real OpenTelemetry tracer", () => {
     expect(handed).toEqual(golden["statement/single"]?.spans);
   });
 
-  it("keeps a root span out of the caller's trace in both modes", async () => {
-    const expected = [
+  it("keeps a root span out of the caller's trace only when auto-detected", async () => {
+    await expect(
+      rootInsideParent(() => createTracerWrapper())
+    ).resolves.toEqual([
       { name: SPAN_EXECUTE, parent: null, trace: "trace-1" },
       { name: SPAN_OPERATION, parent: null, trace: "trace-2" },
       { name: SPAN_EXECUTE, parent: "span-4", trace: "trace-3" },
       { name: SPAN_OPERATION, parent: null, trace: "trace-3" },
-    ];
-
-    await expect(
-      rootInsideParent(() => createTracerWrapper())
-    ).resolves.toEqual(expected);
+    ]);
+    // A handed tracer decides parenthood itself: both nest under the caller.
     await expect(
       rootInsideParent((tracer) => createTracerWrapper({ tracer }))
-    ).resolves.toEqual(expected);
+    ).resolves.toEqual([
+      { name: SPAN_EXECUTE, parent: "span-2", trace: "trace-1" },
+      { name: SPAN_OPERATION, parent: null, trace: "trace-1" },
+      { name: SPAN_EXECUTE, parent: "span-4", trace: "trace-2" },
+      { name: SPAN_OPERATION, parent: null, trace: "trace-2" },
+    ]);
   });
 });

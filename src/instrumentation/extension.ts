@@ -35,12 +35,17 @@ import {
   SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";
-import type { Span, VibORMSpanOptions } from "./tracer";
-import { prewarmTracer, shouldTraceSpan } from "./tracer";
+import {
+  prewarmTracer,
+  setSpanAttributes,
+  shouldTraceSpan,
+  type VibORMSpanOptions,
+} from "./tracer";
 import type {
   ExactInstrumentationConfig,
   InstrumentationConfig,
   LogLevel,
+  TracingSpan,
 } from "./types";
 
 /** The exact official contribution accepted by every concrete client schema. */
@@ -272,7 +277,7 @@ function observeCacheInstrumentation(
     facts.kind === "cache" && wants(instrumentationContext, "cache-outcomes");
   // A revalidation presents its start at the instant it is observed.
   const startedAt = Date.now();
-  const observeCompletion = async (span?: Span): Promise<void> => {
+  const observeCompletion = async (span?: TracingSpan): Promise<void> => {
     if (logged && operation === "revalidate") {
       logger?.cache(
         presentCacheOutcome(context, {
@@ -286,7 +291,7 @@ function observeCacheInstrumentation(
     const completionFacts = readProtectedLifecycleCompletionFacts(unit);
     if (completionFacts?.kind === "cache") {
       if (traced && completionFacts.result !== undefined) {
-        setCacheSpanAttributes(span, {
+        setSpanAttributes(span, {
           [ATTR_CACHE_RESULT]: completionFacts.result,
         });
       }
@@ -357,17 +362,6 @@ async function observeLifecycleCompletion(
 ): Promise<void> {
   const outcome = await completion;
   if (outcome.status === "failure") throw createObservedFailure();
-}
-
-function setCacheSpanAttributes(
-  span: Span | undefined,
-  attributes: NonNullable<VibORMSpanOptions["attributes"]>
-): void {
-  try {
-    span?.setAttributes(attributes);
-  } catch {
-    // Instrumentation cannot change the cache outcome.
-  }
 }
 
 function createObservedFailure(): Error {

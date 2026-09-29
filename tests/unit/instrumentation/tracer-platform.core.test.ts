@@ -1,16 +1,23 @@
 /**
- * A platform-provided tracer (`tracing: { tracer }`), against a fake `Tracer`.
+ * A handed tracer (`tracing: { tracer }`), against fake tracers.
  *
  * The library must never import `@opentelemetry/api` when the application hands
- * it a tracer: on Cloudflare Workers the runtime supplies the tracer and the
- * library's own import is a bundler bet. The api module is mocked to count
- * every import attempt and to fail, so an import would both be counted and
- * turn tracing into the no-op (the last cell proves the counter sees one).
+ * it a tracer: on Cloudflare Workers the runtime supplies the tracer
+ * (`tracing` from `cloudflare:workers`) and the library's own import is a
+ * bundler bet. The api module is mocked to count every import attempt and to
+ * fail, so an import would both be counted and turn tracing into the no-op
+ * (the control cell proves the counter sees one).
+ *
+ * Spans start through the two-argument `startActiveSpan(name, fn)`, the form
+ * both an OpenTelemetry `Tracer` and the Workers runtime accept. The runtime
+ * refuses a second argument that is not a function and hands a span with only
+ * `isTraced`, `setAttribute` and `end` (measured on workerd 1.20260801.1); the
+ * `workerdTracer` fake reproduces both.
  *
  * The containment is the auto-detected path's: the application callback runs
- * exactly once whatever the tracer does with it (twice, never, re-entrantly,
- * throwing before or after), and the span it received is settled inside that
- * one run.
+ * exactly once whatever the tracer does with it (twice, never, late,
+ * re-entrantly, throwing before or after), and every span a callback receives
+ * is settled once with that run's outcome.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,7 +27,6 @@ vi.mock("@opentelemetry/api", () => {
   throw new Error("the library imported @opentelemetry/api");
 });
 
-import type { Span, Tracer } from "@opentelemetry/api";
 import { createClient, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
 import { instrumentation } from "@src/instrumentation/exports";
@@ -35,11 +41,14 @@ import {
   prewarmTracer,
   shouldTraceSpan,
 } from "@src/instrumentation/tracer";
+import type { SpanTracer, TracingSpan } from "@src/instrumentation/types";
 import { StatementDriver } from "./_fake-driver";
 
 type Mode =
   | "normal"
   | "calls-twice"
+  | "calls-twice-new-span"
+  | "late"
   | "never-calls"
   | "throws-after"
   | "throws-before"
@@ -47,48 +56,88 @@ type Mode =
 
 interface SpanRecord {
   readonly name: string;
-  readonly options: unknown;
   readonly calls: string[];
+}
+
+/** An OpenTelemetry-shaped span that records what VibORM does to it. */
+function recordingSpan(calls: string[], hostile: boolean): TracingSpan {
+  const act = (entry: string) => {
+    calls.push(entry);
+    if (hostile) throw new Error(`${entry} failed`);
+  };
+  return {
+    setAttribute: (key, value) => act(`attr:${key}=${String(value)}`),
+    end: () => act("end"),
+    setStatus: (status) => act(`status:${JSON.stringify(status)}`),
+    recordException: (error) => act(`exception:${String(error)}`),
+  };
 }
 
 function fakeTracer(mode: Mode = "normal", hostileSpan = false) {
   const spans: SpanRecord[] = [];
-  const tracer = {
-    startActiveSpan(
-      name: string,
-      options: unknown,
-      fn: (span: Span) => unknown
-    ): unknown {
+  const arities: number[] = [];
+  const late: Promise<unknown>[] = [];
+  const open = (name: string): TracingSpan => {
+    const calls: string[] = [];
+    spans.push({ name, calls });
+    return recordingSpan(calls, hostileSpan);
+  };
+  const tracer: SpanTracer = {
+    startActiveSpan<T>(name: string, fn: (span: TracingSpan) => T): T {
+      // biome-ignore lint/complexity/noArguments: the call's arity is the witness
+      arities.push(arguments.length);
       if (mode === "throws-before") throw new Error("tracer failed before");
-      const calls: string[] = [];
-      spans.push({ name, options, calls });
-      const span = {
-        end: () => {
-          calls.push("end");
-          if (hostileSpan) throw new Error("end failed");
-        },
-        recordException: (error: unknown) => {
-          calls.push(`exception:${String(error)}`);
-          if (hostileSpan) throw new Error("recordException failed");
-        },
-        setStatus: (status: unknown) => {
-          calls.push(`status:${JSON.stringify(status)}`);
-          if (hostileSpan) throw new Error("setStatus failed");
-        },
-      };
-      if (mode === "never-calls") return undefined;
-      const value = fn(span as unknown as Span);
-      if (mode === "calls-twice") fn(span as unknown as Span);
+      const span = open(name);
+      if (mode === "never-calls") return undefined as T;
+      if (mode === "late") {
+        // After the operation settled: a macrotask, past its microtasks.
+        const afterSettled = new Promise((resolve) => setTimeout(resolve, 0));
+        late.push(afterSettled.then(() => fn(span)));
+        return undefined as T;
+      }
+      const value = fn(span);
+      if (mode === "calls-twice") fn(span);
+      if (mode === "calls-twice-new-span") fn(open(name));
       if (mode === "throws-after") throw new Error("tracer failed after");
       if (mode === "rejects-after") {
         return Promise.resolve(value).then(() => {
           throw new Error("tracer post-work failed");
-        });
+        }) as T;
       }
       return value;
     },
   };
-  return { spans, tracer: tracer as unknown as Tracer };
+  return { arities, late, spans, tracer };
+}
+
+/**
+ * The Workers runtime tracer as measured on workerd 1.20260801.1: a second
+ * argument that is not a function is a TypeError, and its span has only
+ * `isTraced`, `setAttribute` and `end` (no `setStatus`, no `recordException`).
+ */
+function workerdTracer() {
+  const spans: SpanRecord[] = [];
+  const tracer = {
+    startActiveSpan<T>(name: string, fn: unknown): T {
+      if (typeof fn !== "function") {
+        throw new TypeError(
+          "Failed to execute 'startActiveSpan' on 'Tracing': parameter 2 is not of type 'Function'."
+        );
+      }
+      const calls: string[] = [];
+      spans.push({ name, calls });
+      return fn({
+        isTraced: true,
+        setAttribute: (key: string, value: unknown) => {
+          calls.push(`attr:${key}=${String(value)}`);
+        },
+        end: () => {
+          calls.push("end");
+        },
+      });
+    },
+  };
+  return { spans, tracer };
 }
 
 const EXECUTE_PATTERN = /execute/;
@@ -97,94 +146,97 @@ const ERROR = `status:${JSON.stringify({ code: 2, message: "Operation failed" })
 const EXCEPTION = "exception:Error: Operation failed";
 
 describe("tracing.tracer: spans start through the handed tracer", () => {
-  it("starts an async span with the name, INTERNAL kind, root flag and attributes", async () => {
-    const { spans, tracer } = fakeTracer();
+  it("starts a span by name with the two-argument form and sets its attributes on the span", async () => {
+    const { arities, spans, tracer } = fakeTracer();
     const wrapper = createTracerWrapper({ tracer });
 
     await expect(
       wrapper.startActiveSpan(
-        { name: SPAN_OPERATION, attributes: { "db.collection.name": "user" } },
+        {
+          name: SPAN_OPERATION,
+          attributes: { "db.collection.name": "user", "server.port": 5432 },
+        },
         () => "value"
       )
     ).resolves.toBe("value");
+    // Kind and root have no meaning to a handed tracer: never passed.
     await wrapper.startActiveSpan(
       { name: SPAN_CONNECT, kind: 2, root: true },
       () => undefined
     );
 
-    expect(spans.map(({ name, options }) => ({ name, options }))).toEqual([
-      {
-        name: SPAN_OPERATION,
-        options: {
-          attributes: { "db.collection.name": "user" },
-          kind: 0,
-          root: false,
-        },
-      },
-      { name: SPAN_CONNECT, options: { attributes: {}, kind: 2, root: true } },
-    ]);
-  });
-
-  it("starts a sync span through the same tracer and options", () => {
-    const { spans, tracer } = fakeTracer();
-    const wrapper = createTracerWrapper({ tracer });
-
-    expect(
-      wrapper.startActiveSpanSync({ name: SPAN_EXECUTE, root: true }, () => 7)
-    ).toBe(7);
+    expect(arities).toEqual([2, 2]);
     expect(spans).toEqual([
       {
-        name: SPAN_EXECUTE,
-        options: { attributes: {}, kind: 0, root: true },
-        calls: [OK, "end"],
+        name: SPAN_OPERATION,
+        calls: [
+          "attr:db.collection.name=user",
+          "attr:server.port=5432",
+          OK,
+          "end",
+        ],
       },
+      { name: SPAN_CONNECT, calls: [OK, "end"] },
     ]);
   });
 
   it("hands the application callback the span the tracer created", async () => {
     let received: unknown;
-    const tracer = {
-      startActiveSpan: (
-        _name: string,
-        _options: unknown,
-        fn: (span: unknown) => unknown
-      ) => fn("the-platform-span"),
-    } as unknown as Tracer;
+    const span = recordingSpan([], false);
+    const tracer: SpanTracer = {
+      startActiveSpan: (_name, fn) => fn(span),
+    };
     await createTracerWrapper({ tracer }).startActiveSpan(
       { name: SPAN_OPERATION },
-      (span) => {
-        received = span;
+      (given) => {
+        received = given;
       }
     );
-    expect(received).toBe("the-platform-span");
+    expect(received).toBe(span);
+  });
+
+  it("presents spans through the Workers runtime shape: attributes, then end, on success and failure", async () => {
+    const { spans, tracer } = workerdTracer();
+    const wrapper = createTracerWrapper({ tracer });
+    const failure = new Error("application failure");
+
+    await expect(
+      wrapper.startActiveSpan(
+        { name: SPAN_EXECUTE, attributes: { "db.system.name": "d1" } },
+        async () => "rows"
+      )
+    ).resolves.toBe("rows");
+    await expect(
+      wrapper.startActiveSpan({ name: SPAN_OPERATION }, async () => {
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+
+    expect(spans).toEqual([
+      { name: SPAN_EXECUTE, calls: ["attr:db.system.name=d1", "end"] },
+      { name: SPAN_OPERATION, calls: ["end"] },
+    ]);
   });
 
   it("settles OK then ends on success, ERROR + exception then ends on failure", async () => {
     const { spans, tracer } = fakeTracer();
     const wrapper = createTracerWrapper({ tracer });
-    const asyncFailure = new Error("async application failure");
-    const syncFailure = new Error("sync application failure");
+    const failure = new Error("application failure");
 
     await wrapper.startActiveSpan({ name: SPAN_OPERATION }, async () => "ok");
     await expect(
       wrapper.startActiveSpan({ name: SPAN_OPERATION }, async () => {
-        throw asyncFailure;
+        throw failure;
       })
-    ).rejects.toBe(asyncFailure);
+    ).rejects.toBe(failure);
     await expect(
       wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => {
-        throw asyncFailure;
+        throw failure;
       })
-    ).rejects.toBe(asyncFailure);
-    expect(() =>
-      wrapper.startActiveSpanSync({ name: SPAN_EXECUTE }, () => {
-        throw syncFailure;
-      })
-    ).toThrow(syncFailure);
+    ).rejects.toBe(failure);
 
     expect(spans.map(({ calls }) => calls)).toEqual([
       [OK, "end"],
-      [ERROR, EXCEPTION, "end"],
       [ERROR, EXCEPTION, "end"],
       [ERROR, EXCEPTION, "end"],
     ]);
@@ -207,9 +259,9 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
     await expect(
       ignoring.startActiveSpan({ name: SPAN_CONNECT }, () => "ignored")
     ).resolves.toBe("ignored");
-    expect(
-      ignoring.startActiveSpanSync({ name: SPAN_EXECUTE }, () => "ignored")
-    ).toBe("ignored");
+    await expect(
+      ignoring.startActiveSpan({ name: SPAN_EXECUTE }, () => "ignored")
+    ).resolves.toBe("ignored");
     expect(shouldTraceSpan(ignoring, SPAN_EXECUTE)).toBe(false);
     expect(shouldTraceSpan(ignoring, SPAN_OPERATION)).toBe(true);
     expect(spans).toEqual([]);
@@ -222,16 +274,14 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
       { name: SPAN_EXECUTE, sql: sqlFacts },
       () => undefined
     );
-    expect(spans.map(({ options }) => options)).toEqual([
-      {
-        attributes: {
-          "db.query.parameter.0": "alice",
-          "db.query.text": "SELECT $1",
-        },
-        kind: 0,
-        root: false,
-      },
-      { attributes: {}, kind: 0, root: false },
+    expect(spans.map(({ calls }) => calls)).toEqual([
+      [
+        "attr:db.query.text=SELECT $1",
+        "attr:db.query.parameter.0=alice",
+        OK,
+        "end",
+      ],
+      [OK, "end"],
     ]);
   });
 
@@ -251,12 +301,14 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
 describe("tracing.tracer: the application callback runs exactly once", () => {
   it.each([
     "calls-twice",
+    "calls-twice-new-span",
+    "late",
     "never-calls",
     "throws-after",
     "throws-before",
     "rejects-after",
-  ] satisfies Mode[])("async: a tracer that %s cannot repeat, skip, or replace the operation", async (mode) => {
-    const { tracer } = fakeTracer(mode);
+  ] satisfies Mode[])("a tracer that %s cannot repeat, skip, or replace the operation", async (mode) => {
+    const { late, tracer } = fakeTracer(mode);
     const wrapper = createTracerWrapper({ tracer });
     let runs = 0;
     const failure = new Error("application failure");
@@ -273,91 +325,100 @@ describe("tracing.tracer: the application callback runs exactly once", () => {
         throw failure;
       })
     ).rejects.toBe(failure);
+    await Promise.allSettled(late);
     expect(runs).toBe(2);
   });
 
-  it.each([
-    "calls-twice",
-    "never-calls",
-    "throws-after",
-    "throws-before",
-  ] satisfies Mode[])("sync: a tracer that %s cannot repeat, skip, or replace the operation", (mode) => {
-    const { tracer } = fakeTracer(mode);
+  it("settles a span once when the tracer calls back twice with it", async () => {
+    const { spans, tracer } = fakeTracer("calls-twice");
+
+    await createTracerWrapper({ tracer }).startActiveSpan(
+      { name: SPAN_OPERATION },
+      () => "value"
+    );
+
+    expect(spans.map(({ calls }) => calls)).toEqual([[OK, "end"]]);
+  });
+
+  it("settles a second span the tracer hands a second callback", async () => {
+    const { spans, tracer } = fakeTracer("calls-twice-new-span");
     const wrapper = createTracerWrapper({ tracer });
-    let runs = 0;
     const failure = new Error("application failure");
 
-    expect(
-      wrapper.startActiveSpanSync({ name: SPAN_OPERATION }, () => {
-        runs += 1;
-        return "authoritative";
-      })
-    ).toBe("authoritative");
-    expect(() =>
-      wrapper.startActiveSpanSync({ name: SPAN_OPERATION }, () => {
-        runs += 1;
+    await wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => "value");
+    await expect(
+      wrapper.startActiveSpan({ name: SPAN_OPERATION }, async () => {
         throw failure;
       })
-    ).toThrow(failure);
-    expect(runs).toBe(2);
-  });
-
-  it("settles the span once when the tracer calls back twice", async () => {
-    const { spans, tracer } = fakeTracer("calls-twice");
-    const wrapper = createTracerWrapper({ tracer });
-
-    await wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => "value");
-    wrapper.startActiveSpanSync({ name: SPAN_EXECUTE }, () => "value");
+    ).rejects.toBe(failure);
 
     expect(spans.map(({ calls }) => calls)).toEqual([
       [OK, "end"],
       [OK, "end"],
+      [ERROR, EXCEPTION, "end"],
+      [ERROR, EXCEPTION, "end"],
     ]);
+  });
+
+  it("runs unspanned when the tracer calls back after the operation settled, then settles the late span", async () => {
+    const { late, spans, tracer } = fakeTracer("late");
+    const received: unknown[] = [];
+
+    await expect(
+      createTracerWrapper({ tracer }).startActiveSpan(
+        { name: SPAN_OPERATION },
+        (span) => {
+          received.push(span);
+          return "value";
+        }
+      )
+    ).resolves.toBe("value");
+    await expect(Promise.all(late)).resolves.toEqual(["value"]);
+
+    expect(received).toEqual([undefined]);
+    expect(spans.map(({ calls }) => calls)).toEqual([[OK, "end"]]);
   });
 
   it("runs unspanned when the tracer never calls back", async () => {
     const { spans, tracer } = fakeTracer("never-calls");
-    const wrapper = createTracerWrapper({ tracer });
     const received: unknown[] = [];
 
-    await wrapper.startActiveSpan({ name: SPAN_OPERATION }, (span) => {
-      received.push(span);
-    });
-    wrapper.startActiveSpanSync({ name: SPAN_EXECUTE }, (span) => {
-      received.push(span);
-    });
+    await createTracerWrapper({ tracer }).startActiveSpan(
+      { name: SPAN_OPERATION },
+      (span) => {
+        received.push(span);
+      }
+    );
 
-    expect(received).toEqual([undefined, undefined]);
-    expect(spans.map(({ calls }) => calls)).toEqual([[], []]);
+    expect(received).toEqual([undefined]);
+    expect(spans.map(({ calls }) => calls)).toEqual([[]]);
   });
 
-  it("refuses a synchronous re-entry while the first run is in flight", async () => {
+  it("refuses a synchronous re-entry while the first run is in flight, and settles its span", async () => {
     const reentries: unknown[] = [];
+    const calls: string[] = [];
     let reenter: (() => unknown) | undefined;
-    const tracer = {
-      startActiveSpan(_name: string, _options: unknown, fn: () => unknown) {
-        reenter = fn;
-        return fn();
+    const tracer: SpanTracer = {
+      startActiveSpan(_name, fn) {
+        reenter = () => fn(recordingSpan(calls, false));
+        return fn(recordingSpan([], false));
       },
-    } as unknown as Tracer;
-    const wrapper = createTracerWrapper({ tracer });
+    };
     let runs = 0;
 
-    await wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => {
-      runs += 1;
-      const again = reenter?.();
-      reentries.push(again);
-      if (again instanceof Promise) again.catch(() => undefined);
-    });
-    expect(() =>
-      wrapper.startActiveSpanSync({ name: SPAN_EXECUTE }, () => {
+    await createTracerWrapper({ tracer }).startActiveSpan(
+      { name: SPAN_OPERATION },
+      () => {
         runs += 1;
-        reenter?.();
-      })
-    ).toThrow("Operation failed");
+        const again = reenter?.();
+        reentries.push(again);
+        if (again instanceof Promise) again.catch(() => undefined);
+      }
+    );
 
-    expect(runs).toBe(2);
+    expect(runs).toBe(1);
     await expect(reentries[0]).rejects.toThrow("Operation failed");
+    expect(calls).toEqual([OK, "end"]);
   });
 
   it("contains span methods that throw on success and failure", async () => {
@@ -366,16 +427,16 @@ describe("tracing.tracer: the application callback runs exactly once", () => {
     const failure = new Error("application failure");
 
     await expect(
-      wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => "value")
+      wrapper.startActiveSpan(
+        { name: SPAN_OPERATION, attributes: { "db.collection.name": "user" } },
+        () => "value"
+      )
     ).resolves.toBe("value");
     await expect(
       wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => {
         throw failure;
       })
     ).rejects.toBe(failure);
-    expect(
-      wrapper.startActiveSpanSync({ name: SPAN_EXECUTE }, () => "value")
-    ).toBe("value");
   });
 });
 
@@ -396,9 +457,7 @@ describe("tracing.tracer: the configured extension", () => {
       SPAN_EXECUTE,
       SPAN_DISCONNECT,
     ]);
-    expect(spans[1]?.options).toMatchObject({
-      attributes: { "db.query.text": "SELECT ?" },
-    });
+    expect(spans[1]?.calls).toContain("attr:db.query.text=SELECT ?");
     // A dynamic import resolves on a later task: wait for any to settle.
     await vi.dynamicImportSettled();
     expect(api.imports).toBe(0);
@@ -431,8 +490,9 @@ describe("tracing.tracer: the configured extension", () => {
 
   // After the control: a refused value auto-detects, which imports.
   it("refuses a value that cannot start spans and auto-detects instead", () => {
+    const notATracer: unknown = {};
     const refused = createInstrumentationContext({
-      tracing: { tracer: {} as unknown as Tracer, includeSql: true },
+      tracing: { tracer: notATracer as SpanTracer, includeSql: true },
     });
 
     expect(refused.config.tracing).toEqual({

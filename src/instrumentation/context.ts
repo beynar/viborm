@@ -7,7 +7,6 @@
  */
 
 import type { ResolvedDiagnosticDisclosure } from "@errors";
-import type { Tracer } from "@opentelemetry/api";
 import { isFunction, isString } from "@validation/value-guards";
 import {
   isArrayValue,
@@ -27,6 +26,7 @@ import type {
   LogCallback,
   LoggingConfig,
   LogLevelHandler,
+  SpanTracer,
   TracingConfig,
 } from "./types";
 
@@ -132,7 +132,7 @@ function snapshotTracingConfig(value: Record<string, unknown>): TracingConfig {
  * value without `startActiveSpan`, the one member spans start through, is not
  * a tracer: the api is auto-detected instead.
  */
-function isPlatformTracer(value: unknown): value is Tracer {
+function isPlatformTracer(value: unknown): value is SpanTracer {
   return isRecord(value) && isFunction(safeRead(value, "startActiveSpan"));
 }
 

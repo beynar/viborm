@@ -31,15 +31,4 @@ describe("createTracerWrapper (OTel loaded, no provider registered)", () => {
 
     expect(result).toBe("async-value");
   });
-
-  it("startActiveSpanSync runs the callback and returns its value without throwing", () => {
-    const tracer = createTracerWrapper();
-
-    const result = tracer.startActiveSpanSync(
-      { name: SPAN_OPERATION },
-      () => "sync-value"
-    );
-
-    expect(result).toBe("sync-value");
-  });
 });

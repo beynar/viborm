@@ -5,7 +5,6 @@
  */
 
 import type { DiagnosticDisclosure, VibORMError } from "@errors";
-import type { Tracer } from "@opentelemetry/api";
 import type { Operation } from "../query-engine/types";
 
 /**
@@ -73,12 +72,35 @@ export interface TracingConfig extends DiagnosticDisclosure {
   ignoreSpanTypes?: ReadonlyArray<string | RegExp> | undefined;
 
   /**
-   * The OpenTelemetry tracer to present spans through, for a runtime that
-   * supplies its own (Cloudflare Workers: `trace.getTracer("app")` from the
-   * application's `@opentelemetry/api`). When given, VibORM never imports
+   * The tracer to present spans through, for a runtime that supplies its own:
+   * Cloudflare Workers' `tracing` (from `cloudflare:workers`, or `ctx.tracing`)
+   * or an OpenTelemetry `Tracer`. When given, VibORM never imports
    * `@opentelemetry/api` itself; when omitted, it auto-detects the api.
    */
-  tracer?: Tracer | undefined;
+  tracer?: SpanTracer | undefined;
+}
+
+/**
+ * The span members VibORM uses on a span a handed tracer creates. An
+ * OpenTelemetry `Span` and the Cloudflare Workers runtime span both have
+ * `setAttribute` and `end`; `setStatus` and `recordException` are used when
+ * the span has them (the Workers span has no `setStatus`).
+ */
+export interface TracingSpan {
+  setAttribute(key: string, value: string | number | boolean): unknown;
+  end(): unknown;
+  setStatus?(status: { code: number; message?: string }): unknown;
+  recordException?(exception: Error): unknown;
+}
+
+/**
+ * A tracer VibORM can present spans through: the two-argument
+ * `startActiveSpan(name, fn)` that an OpenTelemetry `Tracer` and Cloudflare
+ * Workers' `tracing` both implement. The span is active while `fn` runs;
+ * VibORM ends it when the operation settles.
+ */
+export interface SpanTracer {
+  startActiveSpan<T>(name: string, fn: (span: TracingSpan) => T): T;
 }
 
 /**

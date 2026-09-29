@@ -34,7 +34,7 @@ logger, disclosure, or correlation.
 | `src/instrumentation/extension.ts` | Fixed-name factory, the one trusted protected-observer handler, and the private capability→context map (core holds only the neutral capability) |
 | `context.ts` | Hostile-safe config snapshot and instrumentation context |
 | `presentation.ts` | Span options, attributes, log events and per-channel disclosure built from core's neutral facts (`src/extensions/official-facts.ts`) |
-| `tracer.ts` | Active spans through a handed platform tracer (`tracing.tracer`, never importing the api) or else the auto-detected optional OTel api; the one exactly-once containment both paths share |
+| `tracer.ts` | Active spans through a handed tracer (`tracing.tracer`: OpenTelemetry or Cloudflare Workers `tracing`, never importing the api) or else the auto-detected optional OTel api; the one exactly-once containment and span settlement both paths share |
 | `logger.ts` | Level selection, callback containment, pretty presentation, and the log metadata vocabulary (`LOG_META_KEYS`) |
 | `src/drivers/driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
 | `src/extensions/official-facts.ts` | The neutral fact contract, the fact unions core produces, and `OfficialObservationCapability` (types only, never re-exported) |
@@ -153,21 +153,31 @@ unhandled rejection.
 ## Optional OTel
 
 With `tracing: { tracer }` the wrapper starts spans through that tracer's
-`startActiveSpan` and never imports `@opentelemetry/api`: the package is a
-type-only import there, and `SpanKind`/`SpanStatusCode` are the api's numeric
-contract values declared in `tracer.ts`. It is enabled at once and has no
-readiness to prewarm. The config snapshot keeps the tracer by reference only
-when it has a callable `startActiveSpan`; any other value falls back to
-auto-detection.
+two-argument `startActiveSpan(name, fn)`, the form an OpenTelemetry `Tracer`
+and Cloudflare Workers' `tracing` (from `cloudflare:workers`) both accept; the
+Workers runtime throws a TypeError on a second argument that is not a function.
+It never imports `@opentelemetry/api`: `tracer` is typed by the structural
+`SpanTracer`/`TracingSpan` in `types.ts` (no OTel type reaches the published
+d.ts), and the `SpanStatusCode` OK/ERROR values are the api 1.x contract
+values declared in `tracer.ts`. Attributes are set with `span.setAttribute`
+after the span starts; kind and `root` are not passed (the tracer decides the
+parent). `setStatus` and `recordException` are called only when the span has
+them (the Workers span has neither on workerd 1.20260801.1). It is enabled at
+once and has no readiness to prewarm. The config snapshot keeps the tracer by
+reference only when it has a callable `startActiveSpan`; any other value falls
+back to auto-detection.
 
-Without `tracer`, `@opentelemetry/api` is dynamically imported. Missing or
-hostile OTel falls back to application execution. Readiness is one-shot: after
-it settles, prewarming returns `undefined` synchronously and does not add a
-permanent microtask to traced operations.
+Without `tracer`, `@opentelemetry/api` is dynamically imported, and the span
+kind and status codes are read from that api object, as they always were.
+Missing or hostile OTel falls back to application execution. Readiness is
+one-shot: after it settles, prewarming returns `undefined` synchronously and
+does not add a permanent microtask to traced operations.
 
-Both paths share one containment: the application callback runs exactly once
-whether the tracer or context manager calls back twice, re-entrantly, never,
-or throws, and the span it received is settled inside that run.
+Both paths share one containment (`createExecution`): the application callback
+runs exactly once whether the tracer or context manager calls back twice,
+re-entrantly, late, never, or throws, and every span any callback brings is
+settled (status when available, then `end`) once with that run's outcome,
+including a second or late span a hostile tracer hands over.
 
 ## Validation
 
