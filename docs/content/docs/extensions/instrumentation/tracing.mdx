@@ -32,8 +32,7 @@ const client = createClient({ schema, driver }).$extends(
 | `ignoreSpanTypes` | `Array<string \| RegExp>` | `[]` | Skip matching exact span names |
 
 Ignoring a span does not redirect its late attributes to the active parent.
-Cache hit/miss/TTL facts target only their exact cache span, while progressive
-segment aggregate attributes retain their documented operation-parent behavior.
+Cache hit/miss/TTL facts target only their exact cache span.
 
 ## Span families
 
@@ -44,7 +43,6 @@ segment aggregate attributes retain their documented operation-parent behavior.
 | `viborm.transaction` | One real outer transaction |
 | `viborm.savepoint` | One real nested savepoint |
 | `viborm.batch` | One public array transaction |
-| `viborm.segment` | One submitted progressive write segment |
 | `viborm.connect` / `viborm.disconnect` | Connection lifecycle |
 | `viborm.cache.*` | Cache get, set, invalidate, and revalidate work |
 

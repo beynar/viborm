@@ -6,14 +6,13 @@ Versioning.
 ## Unreleased
 
 - **Breaking: instrumentation presentation moves into the `instrumentation()`
-  extension.** When this entry is complete, core no longer builds span names,
-  span attributes, log events or per-channel SQL/parameter disclosure; it asks
-  the fixed-name extension what it wants and hands it neutral facts, so a
-  client without the extension no longer carries that code. The cache, the
-  driver statement and lifecycle boundaries, and the logical operation (its
-  span and its error log) have moved. Spans, log events
-  and thrown-error diagnostics of an installed extension are unchanged. Custom
-  driver subclasses see these changes:
+  extension.** Core no longer builds span names, span attributes, log events
+  or per-channel SQL/parameter disclosure, and it has no runtime import of the
+  extension: it asks the fixed-name extension what it wants and hands it
+  neutral facts, so a client without the extension no longer carries that
+  code. Spans, log events and thrown-error diagnostics of an installed
+  extension are unchanged. These public members and exports are removed or
+  changed:
   - `Driver.getBaseAttributes()` and `Driver.getContextAttributes()` are
     removed. Span attributes, including `db.namespace`, are built by the
     extension from the driver's `dialect`, `driverName` and
@@ -35,6 +34,14 @@ Versioning.
   - `CacheDriver.getBaseAttributes()` is removed. Cache spans and cache log
     events are built by the extension; the backend's name still comes from
     `CacheDriver.driverName`.
+  - The `segment` lifecycle unit is removed from `ObservationUnit`: nothing
+    produced it. `viborm/instrumentation` no
+    longer exports `SPAN_RECORD_SERIES_SEGMENT` or the seven
+    `ATTR_VIBORM_WRITE_*` attribute names (`ATTR_VIBORM_WRITE_ATOMICITY`,
+    `ATTR_VIBORM_WRITE_COMMIT_OUTCOME`, `ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS`,
+    `ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS`,
+    `ATTR_VIBORM_WRITE_COMPLETED_MEMBERS`, `ATTR_VIBORM_WRITE_MEMBER_PATH`,
+    `ATTR_VIBORM_WRITE_STATEMENT_COUNT`), which no span carried.
 
 ## 1.0.0-rc.2 — Release candidate (not yet published)
 

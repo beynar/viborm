@@ -22,16 +22,6 @@ export {
   createQueryLogEvent,
   type Logger,
 } from "./logger";
-// Performance tracker
-export {
-  createPerfTracker,
-  formatPerfReport,
-  noopTracker,
-  type PerfEntry,
-  type PerfEntryReport,
-  type PerfReport,
-  type PerfTracker,
-} from "./perf-tracker";
 // Span names and attributes
 export {
   ATTR_CACHE_DRIVER,
@@ -53,13 +43,6 @@ export {
   ATTR_SERVER_ADDRESS,
   ATTR_SERVER_PORT,
   ATTR_VIBORM_CORRELATION_ID,
-  ATTR_VIBORM_WRITE_ATOMICITY,
-  ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
-  ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS,
-  ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS,
-  ATTR_VIBORM_WRITE_COMPLETED_MEMBERS,
-  ATTR_VIBORM_WRITE_MEMBER_PATH,
-  ATTR_VIBORM_WRITE_STATEMENT_COUNT,
   // Span names
   SPAN_CACHE_CLEAR,
   SPAN_CACHE_DELETE,
@@ -71,7 +54,6 @@ export {
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
-  SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";

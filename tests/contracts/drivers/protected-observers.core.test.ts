@@ -534,7 +534,7 @@ describe("protected observer lifecycle", () => {
     const applicationPromise = Promise.reject<never>(childFailure);
 
     const application = runProtectedObservers(
-      { kind: "segment", model: "post", operation: "create" },
+      { kind: "statement", model: "post", operation: "create" },
       [
         {
           extension: "swallowing",

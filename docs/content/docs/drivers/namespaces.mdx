@@ -514,10 +514,9 @@ qualifier.
 
 Unbound MySQL, unbound PlanetScale, and SQLite **omit the key entirely** — not
 `null`, not `""`, not the text `undefined`. A placeholder would be
-indistinguishable from a schema actually spelled that way. Write-segment units
-and the cache backend's own get/set spans describe write atomicity and a cache
-call rather than a database connection; they carry no `db.*` attribute and
-therefore no namespace either.
+indistinguishable from a schema actually spelled that way. The cache backend's
+own get/set spans describe a cache call rather than a database connection; they
+carry no `db.*` attribute and therefore no namespace either.
 
 `db.namespace` is *only* an OpenTelemetry attribute. There is no client-level
 namespace accessor to read it back from.

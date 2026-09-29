@@ -16,18 +16,13 @@ import type {
   OperationFacts,
   StatementFacts,
 } from "@extensions/official-facts";
-import type {
-  InstrumentationLifecycleFacts,
-  SegmentInstrumentationFacts,
-} from "@instrumentation/lifecycle-facts";
+import type { InstrumentationLifecycleFacts } from "@instrumentation/lifecycle-facts";
 import {
   ATTR_CACHE_RESULT,
-  ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
   SPAN_CACHE_GET,
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
-  SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
 import type { InstrumentationConfig } from "@instrumentation/types";
@@ -266,70 +261,6 @@ describe("official protected observer", () => {
       )
     ).resolves.toBe("released");
     expect(start).toHaveBeenCalledOnce();
-  });
-
-  it("records late segment attributes without changing child authority", async () => {
-    const recorder = withOtelRecorder();
-    try {
-      const extension = instrumentation({ tracing: true });
-      const facts: SegmentInstrumentationFacts = Object.freeze({
-        kind: "segment",
-        spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-        complete: () =>
-          Object.freeze({
-            kind: "segment",
-            spanAttributes: Object.freeze({
-              [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
-            }),
-          }),
-      });
-      const childValue = Object.freeze({ segment: 1 });
-
-      await expect(
-        runObserved(
-          extension,
-          { kind: "segment", operation: "createMany", model: "record" },
-          facts,
-          async () => childValue
-        )
-      ).resolves.toBe(childValue);
-      await waitFor(
-        () => recorder.find(SPAN_RECORD_SERIES_SEGMENT) !== undefined
-      );
-
-      expect(
-        recorder.find(SPAN_RECORD_SERIES_SEGMENT)?.attributes[
-          ATTR_VIBORM_WRITE_COMMIT_OUTCOME
-        ]
-      ).toBe("committed");
-
-      const completionFailure = new Error("late segment facts failed");
-      const failingFacts: SegmentInstrumentationFacts = Object.freeze({
-        kind: "segment",
-        spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-        complete() {
-          throw completionFailure;
-        },
-      });
-      const childFailure = new Error("segment child failed");
-      await expect(
-        runObserved(
-          extension,
-          { kind: "segment", operation: "createMany", model: "record" },
-          failingFacts,
-          () => Promise.reject(childFailure)
-        )
-      ).rejects.toBe(childFailure);
-      await waitFor(
-        () =>
-          recorder
-            .spans()
-            .filter(({ name }) => name === SPAN_RECORD_SERIES_SEGMENT)
-            .length === 2
-      );
-    } finally {
-      await recorder.dispose();
-    }
   });
 
   it("orders cache logs and records late cache span attributes", async () => {

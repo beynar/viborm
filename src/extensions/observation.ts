@@ -34,11 +34,6 @@ export type LifecycleUnit =
       operation?: string;
     }>
   | Readonly<{
-      kind: "segment";
-      operation?: string;
-      model?: string;
-    }>
-  | Readonly<{
       kind: "connection";
       operation?: string;
     }>

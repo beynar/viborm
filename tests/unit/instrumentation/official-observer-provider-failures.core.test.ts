@@ -5,14 +5,7 @@ import type {
   LifecycleDispatch,
   LifecycleFacts,
 } from "@extensions/official-facts";
-import type {
-  InstrumentationLifecycleFacts,
-  SegmentInstrumentationFacts,
-} from "@instrumentation/lifecycle-facts";
-import {
-  ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
-  SPAN_RECORD_SERIES_SEGMENT,
-} from "@instrumentation/spans";
+import type { InstrumentationLifecycleFacts } from "@instrumentation/lifecycle-facts";
 import type { OfficialInstrumentationExtension } from "@src/instrumentation/extension";
 import { describe, expect, it, vi } from "vitest";
 
@@ -111,24 +104,6 @@ describe("official observer provider failures", () => {
   it.each([
     {
       facts: Object.freeze({
-        kind: "segment",
-        spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-        complete: () =>
-          Object.freeze({
-            kind: "segment",
-            spanAttributes: Object.freeze({
-              [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
-            }),
-          }),
-      }) satisfies SegmentInstrumentationFacts,
-      unit: Object.freeze({
-        kind: "segment",
-        operation: "createMany",
-        model: "record",
-      }) satisfies LifecycleUnit,
-    },
-    {
-      facts: Object.freeze({
         kind: "cache",
         context: undefined,
         driverName: "memory",
@@ -149,32 +124,6 @@ describe("official observer provider failures", () => {
         extension,
         testCase.unit,
         testCase.facts,
-        async () => childValue
-      )
-    ).resolves.toBe(childValue);
-  });
-
-  it("contains span creation failure during late segment presentation", async () => {
-    provider.mode = "start-span-throws";
-    const extension = instrumentation({ tracing: true });
-    const facts: SegmentInstrumentationFacts = Object.freeze({
-      kind: "segment",
-      spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-      complete: () =>
-        Object.freeze({
-          kind: "segment",
-          spanAttributes: Object.freeze({
-            [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
-          }),
-        }),
-    });
-    const childValue = Object.freeze({ source: "segment-child" });
-
-    await expect(
-      runObserved(
-        extension,
-        { kind: "segment", operation: "createMany", model: "record" },
-        facts,
         async () => childValue
       )
     ).resolves.toBe(childValue);

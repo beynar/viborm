@@ -17,10 +17,7 @@ import {
   createInstrumentationContext,
   type InstrumentationContext,
 } from "./context";
-import type {
-  OfficialInstrumentationCapability,
-  SegmentInstrumentationCompletionFacts,
-} from "./lifecycle-facts";
+import type { OfficialInstrumentationCapability } from "./lifecycle-facts";
 import {
   createCacheSpanOptions,
   createLifecycleSpanOptions,
@@ -165,23 +162,6 @@ function observeOfficialInstrumentation(
   proceed: () => Promise<ObservationCompletion>
 ): unknown {
   const facts = readProtectedLifecycleFacts(unit);
-  if (facts?.kind === "segment") {
-    return capability.context.tracer.startActiveSpan(
-      facts.spanOptions,
-      async (span) => {
-        const outcome = await proceed();
-        const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-        if (completionFacts?.kind === "segment") {
-          setSegmentSpanAttributes(
-            capability,
-            span,
-            completionFacts.spanAttributes
-          );
-        }
-        if (outcome.status === "failure") throw createObservedFailure();
-      }
-    );
-  }
   if (
     unit.kind === "cache" &&
     (facts?.kind === "cache" || facts?.kind === "cache-backend")
@@ -368,38 +348,14 @@ async function observeLifecycleCompletion(
   if (outcome.status === "failure") throw createObservedFailure();
 }
 
-function setSegmentSpanAttributes(
-  capability: OfficialInstrumentationCapability,
-  span: Span | undefined,
-  attributes: SegmentInstrumentationCompletionFacts["spanAttributes"]
-): void {
-  setLifecycleSpanAttributes(capability, span, attributes);
-}
-
 function setCacheSpanAttributes(
   span: Span | undefined,
-  attributes: SegmentInstrumentationCompletionFacts["spanAttributes"]
+  attributes: NonNullable<VibORMSpanOptions["attributes"]>
 ): void {
   try {
     span?.setAttributes(attributes);
   } catch {
     // Instrumentation cannot change the cache outcome.
-  }
-}
-
-function setLifecycleSpanAttributes(
-  capability: OfficialInstrumentationCapability,
-  span: Span | undefined,
-  attributes: SegmentInstrumentationCompletionFacts["spanAttributes"]
-): void {
-  try {
-    if (span) {
-      span.setAttributes(attributes);
-    } else {
-      capability.context.tracer.setActiveSpanAttributes?.(attributes);
-    }
-  } catch {
-    // Instrumentation cannot change the lifecycle outcome.
   }
 }
 

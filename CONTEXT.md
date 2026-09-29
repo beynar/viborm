@@ -274,7 +274,7 @@ _Avoid_: SQL-string hook, adapter when dialect grammar is meant
 
 **Lifecycle observer**:
 A read-only wrapper around a real operation, statement, transaction, batch,
-segment, connection, or cache lifecycle unit. It receives completion metadata,
+connection, or cache lifecycle unit. It receives completion metadata,
 not the application result, and its failures cannot alter application behavior.
 _Avoid_: Query interceptor, event handler with behavioral authority
 
@@ -306,7 +306,7 @@ keys use canonical validated-operation identity; a custom key is a suffix.
 Cached values are detached snapshots and every hit materializes a fresh graph.
 
 Protected observation covers operation, statement, batch, transaction,
-savepoint, progressive segment, connection, and cache lifecycle units. Public
+savepoint, connection, and cache lifecycle units. Public
 observers receive only frozen unit/completion facts. Their failures and returned
 promises cannot affect the application. Official instrumentation uses the same
 rail with private facts and independent disclosure policy.

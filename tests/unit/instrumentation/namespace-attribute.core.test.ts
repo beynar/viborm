@@ -14,12 +14,8 @@
  * indistinguishable from a schema actually spelled that way, and would make a
  * dashboard group unrelated databases together while claiming to know which.
  *
- * The five lifecycle kinds are `operation`, `statement`, `segment`, `cache`,
- * and `driver-lifecycle`. Four of them carry `db.*` and are asserted below;
- * `segment` carries only `viborm.write.*`, and its absence of the attribute is
- * pinned too so a later reader does not mistake it for an omission — over a
- * REAL progressive record series, not over a window that happened to open no
- * segment span.
+ * The lifecycle kinds that carry `db.*` are `operation`, `statement`, `cache`
+ * (the revalidation root) and `driver-lifecycle`, and each is asserted below.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";

@@ -49,13 +49,12 @@ Parameters may contain credentials, personal data, or application secrets.
 
 Official instrumentation consumes the same real lifecycle units exposed to
 ordinary observers: logical operation, physical statement, public array batch,
-transaction, savepoint, progressive segment, connection, and cache.
+transaction, savepoint, connection, and cache.
 
 - A native array produces one batch, N logical operations, N physical statement
   units, and one provider execution presentation. It produces no fictional
   transaction.
 - A fallback array uses the real transaction or savepoint lifecycle.
-- A progressive write produces one segment unit per submitted attempt.
 - Cache revalidation contains the nested cache set and marker cleanup while the
   stale application result stays authoritative.
 - Connect and disconnect each produce one connection lifecycle.
