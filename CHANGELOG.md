@@ -6,11 +6,14 @@ Versioning.
 ## Unreleased
 
 - **Breaking: instrumentation presentation moves into the `instrumentation()`
-  extension.** Core no longer builds span names, span attributes, log events or
-  per-channel SQL/parameter disclosure; it asks the fixed-name extension what it
-  wants and hands it neutral facts, so a client without the extension no longer
-  carries that code. Spans, log events and thrown-error diagnostics of an
-  installed extension are unchanged. Custom driver subclasses see these changes:
+  extension.** When this entry is complete, core no longer builds span names,
+  span attributes, log events or per-channel SQL/parameter disclosure; it asks
+  the fixed-name extension what it wants and hands it neutral facts, so a
+  client without the extension no longer carries that code. So far the cache
+  and the driver statement and lifecycle boundaries have moved; the operation
+  span and the operation error log are still built in core. Spans, log events
+  and thrown-error diagnostics of an installed extension are unchanged. Custom
+  driver subclasses see these changes:
   - `Driver.getBaseAttributes()` and `Driver.getContextAttributes()` are
     removed. Span attributes, including `db.namespace`, are built by the
     extension from the driver's `dialect`, `driverName` and
@@ -25,6 +28,10 @@ Versioning.
     (`"connect"`, `"disconnect"`, `"transaction"`, `"savepoint"`) in place of a
     span name, and the statement and lifecycle execution gates hand the
     extension a dispatch record instead of span options.
+  - The statement gate's `execute()` no longer normalizes a statement failure.
+    Each caller passes an executor that already normalizes, so a subclass
+    that calls `observeTrustedStatement()` and relies on the gate to normalize
+    must wrap its executor in `executeNormalizedStatement()`.
   - `CacheDriver.getBaseAttributes()` is removed. Cache spans and cache log
     events are built by the extension; the backend's name still comes from
     `CacheDriver.driverName`.

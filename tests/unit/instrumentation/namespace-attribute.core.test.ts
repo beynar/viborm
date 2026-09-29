@@ -31,7 +31,9 @@ import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
 import { readDriverIdentity } from "@drivers/driver-identity";
+import { getExecutionExtensionChain } from "@drivers/execution-context";
 import type { QueryResult } from "@drivers/types";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import { createDriverAttributes } from "@instrumentation/presentation";
 import {
   ATTR_DB_NAMESPACE,
@@ -48,8 +50,10 @@ import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import {
   type OtelRecorder,
+  primeTracer,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
+import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const account = s.model({ id: s.string().id(), label: s.string() });
@@ -310,6 +314,33 @@ describe("the attribute is the adapter's value, and nothing else", () => {
       [ATTR_DB_SYSTEM]: "mysql",
       "db.system.driver": "namespace-attribute-mysql",
       [ATTR_DB_NAMESPACE]: "shop",
+    });
+  });
+});
+
+describe("context attribution presents only supplied facts", () => {
+  it("omits an empty caller-supplied model and operation", async () => {
+    // The fallback operation replaces only an ABSENT operation, so a caller
+    // context spelling `operation: ""` reaches presentation. An empty string
+    // names no collection and no operation, and is never presented.
+    const driver = new NamespaceDriver("sqlite", new SQLiteAdapter());
+    const context = createOfficialTestExecutionContext(
+      { tracing: true },
+      { model: "", operation: "" }
+    );
+    const capability = getOfficialInstrumentationChainCapability(
+      getExecutionExtensionChain(context)
+    );
+    if (capability === undefined) throw new Error("no official capability");
+    await primeTracer(capability.context.tracer);
+    const from = mark();
+    await driver._executeRaw("SELECT 1", [], context);
+    // The observer ends the span after the authoritative result settles.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(since(from, SPAN_EXECUTE)).toEqual({
+      [ATTR_DB_SYSTEM]: "sqlite",
+      "db.system.driver": "namespace-attribute-sqlite",
     });
   });
 });

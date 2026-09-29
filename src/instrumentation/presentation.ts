@@ -147,8 +147,12 @@ function readChannelDisclosure(
   return channel && channel !== true ? channel : EMPTY_DISCLOSURE;
 }
 
-/** The driver identity plus the context's model, operation and correlation. */
-export function createContextAttributes(
+/**
+ * The driver identity plus the context's model, operation and correlation.
+ * An empty attribution string is never presented: a caller-supplied context
+ * may carry `operation: ""`, which the fallback operation does not replace.
+ */
+function createContextAttributes(
   driver: DriverIdentitySource,
   context: QueryExecutionContext
 ): Record<string, string> {

@@ -102,7 +102,7 @@ test("progressive segment spans are gone, and every unit this write emits names 
   // fact as `recordSeriesProgress` error metadata, never as a span, so the unit
   // that carried `viborm.write.*` and no `db.*` no longer exists. What a
   // progressive write emits is the operation unit and its statement units, and
-  // `getBaseAttributes` (drivers/driver-instrumentation.ts) gives EVERY one of
+  // `createDriverAttributes` (instrumentation/presentation.ts) gives EVERY one of
   // them the namespace.
   expect(
     spans.filter((span) => span.name === SPAN_RECORD_SERIES_SEGMENT)
