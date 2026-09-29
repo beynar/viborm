@@ -19,6 +19,13 @@ import { describe, expect, it } from "vitest";
  * `cacheCodec` had superseded; its one live member, the `CacheResultCodec`
  * contract, moved to its consumer `cache-flow.ts`.
  *
+ * The instrumentation encapsulation
+ * (`docs/architecture/instrumentation-encapsulation-plan.md`) added a third
+ * list: the dead segment rail and its attribute names (D2), `perf-tracker.ts`
+ * (D3), the removed `Driver`/`CacheDriver` presentation members (D1), the
+ * driver-attached carrier, and the core modules that held presentation or
+ * typed core with the extension's context. Their files stay off disk too.
+ *
  * Every deleted module/class name must appear in no CODE anywhere in
  * `src/**​/*.ts` — an import of a resurrected file, a copy-pasted class, a
  * `new`/`extends`/type reference the compiler would accept via a same-named new
@@ -98,6 +105,44 @@ const DELETED_V1_SYMBOLS = [
   "compileCacheResultCodec",
 ] as const;
 
+/** Deleted by the instrumentation encapsulation (D1, D2, D3, U2, U5, U1 repair). */
+const DELETED_INSTRUMENTATION_SYMBOLS = [
+  // D2 — the segment rail no producer reached, and the names only it carried.
+  "SPAN_RECORD_SERIES_SEGMENT",
+  "SegmentInstrumentationFacts",
+  "ATTR_VIBORM_WRITE_ATOMICITY",
+  "ATTR_VIBORM_WRITE_COMMIT_OUTCOME",
+  "ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS",
+  "ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS",
+  "ATTR_VIBORM_WRITE_COMPLETED_MEMBERS",
+  "ATTR_VIBORM_WRITE_MEMBER_PATH",
+  "ATTR_VIBORM_WRITE_STATEMENT_COUNT",
+  // D3 — the tracker nothing collected from.
+  "createPerfTracker",
+  "formatPerfReport",
+  "noopTracker",
+  "PerfTracker",
+  // D1 — presentation members core no longer owns.
+  "getBaseAttributes",
+  "getContextAttributes",
+  "logExecutionCacheEvent",
+  // U2 — cache presentation in core; U5 — the driver-attached carrier.
+  "emitCacheLogEvent",
+  "hasOfficialCacheLogging",
+  "getExecutionInstrumentation",
+  // U1 repair — the capability type that handed core the extension's context.
+  "OfficialInstrumentationCapability",
+  "InstrumentationLifecycleFacts",
+] as const;
+
+/** Deleted source files of the instrumentation encapsulation, relative to src. */
+const RETIRED_INSTRUMENTATION_FILES = [
+  "cache/cache-instrumentation.ts",
+  "instrumentation/lifecycle-facts.ts",
+  "instrumentation/logged-errors.ts",
+  "instrumentation/perf-tracker.ts",
+] as const;
+
 const SRC = SOURCE_ROOT;
 const QUERY_ENGINE = join(SRC, "query-engine");
 
@@ -169,5 +214,21 @@ describe("dead-symbol gate: V1's write engine and the retired pattern estate lea
     expect(wholeWord("RelationMutations").test("RelationMutationPlan")).toBe(
       false
     );
+  });
+});
+
+describe("dead-symbol gate: the instrumentation encapsulation's deletions stay deleted", () => {
+  it.each(
+    DELETED_INSTRUMENTATION_SYMBOLS
+  )("the deleted symbol '%s' appears in no src file", (name) => {
+    expect(occurrences(name)).toEqual([]);
+  });
+
+  it("leaves none of its retired source files on disk", () => {
+    expect(
+      RETIRED_INSTRUMENTATION_FILES.filter((path) =>
+        existsSync(join(SRC, path))
+      )
+    ).toEqual([]);
   });
 });
