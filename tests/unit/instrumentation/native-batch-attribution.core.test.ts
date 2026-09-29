@@ -372,7 +372,9 @@ describe("native batch logical attribution", () => {
     ]);
     expect(clientA.events[0]?.sql).toBeUndefined();
 
-    // A settled batch's query log is attributed to the batch's own context.
+    // A settled batch pins no member: its query log is the batch context's.
+    // (Which payload a mixed-client batch presents there is a documented
+    // limit, not a guarantee, so it is not asserted.)
     await runBatch(contextA, undefined);
     expect(clientB.events).toEqual([]);
     expect(clientA.events).toEqual([
@@ -381,11 +383,7 @@ describe("native batch logical attribution", () => {
     await runBatch(contextB, undefined);
     expect(clientA.events).toEqual([]);
     expect(clientB.events).toEqual([
-      expect.objectContaining({
-        level: "query",
-        correlationId: "outer",
-        sql: "SELECT member_a; SELECT member_b",
-      }),
+      expect.objectContaining({ level: "query", correlationId: "outer" }),
     ]);
   });
 

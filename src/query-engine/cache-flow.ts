@@ -234,7 +234,7 @@ export function validateCacheableOperation(operation: string): void {
 export function createCacheExecutionOptions(
   config: WithCacheOptions | undefined,
   waitUntil: WaitUntilFn | undefined,
-  driverIdentity: DriverIdentity
+  driverIdentity: DriverIdentity | undefined
 ): CacheExecutionOptions {
   const parsed = parse(withCacheSchema, config);
   if (parsed.issues) {

@@ -53,10 +53,10 @@ Versioning.
     active span, and status is set only where the span supports `setStatus`.
     Without `tracer`, the API is auto-detected as before.
   - Fixed: a custom adapter whose `namespace` getter throws no longer loses an
-    operation's error log (its operation span is presented without `db.*`
-    attributes), and a native-batch member's statement log reaches the client
-    that member belongs to, with that client's disclosure, not the client
-    whose chain observes the batch.
+    operation's error log or fails `$withCache` (its spans are presented
+    without `db.*` attributes), and a native-batch member's failure is logged
+    to the client that member belongs to, with that client's disclosure, not
+    to the client whose chain observes the batch.
 
 ## 1.0.0-rc.3 — Release candidate (not yet published)
 

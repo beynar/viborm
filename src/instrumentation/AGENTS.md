@@ -116,6 +116,11 @@ completion exposes only a sanitized summary and optional certainty. A
 statement log is emitted by the chain its completion facts attribute it to
 (`capability`), never by the chain observing the statement: a native-batch
 member's failure reaches that member's client, with that client's disclosure.
+Known driver-level limits (the public API refuses a batch that mixes clients):
+a settled batch, or a failure no member can be pinned to, is presented only to
+the batch's own context, under its disclosure, with the batch-wide SQL and
+parameters its caller composed; and a member's failure under a batch context
+whose chain carries no official instrumentation is not observed at all.
 
 Observer, logger, console, OTel import/provider/span, and cache-presentation
 failures are contained. They cannot replace the child value/error, prevent an
@@ -145,10 +150,10 @@ unhandled rejection.
   observer is reached; an operation never hands the extension its driver.
   Neither snapshot can go stale, because the property it read cannot be
   reassigned — which is also why no reader may take its namespace from
-  anywhere else. Core's facts reader contains that read: when a custom
-  adapter's `namespace` getter throws, the operation facts carry no
-  `identity`, the operation span is presented without `db.*` attributes, and
-  the error log is emitted as usual.
+  anywhere else. `readDriverIdentity` contains its own read: when a custom
+  adapter's `namespace` getter throws it returns `undefined`, and the
+  operation, execute, lifecycle and cache revalidation spans are presented
+  without `db.*` attributes while the operation's facts and error log survive.
 - The unobserved native-batch phase must keep calling `readDriverIdentity` zero
   times; it is pinned (`native-batch-attribution.core`, a `vi.mock` spy on
   `@drivers/driver-identity`), and any new identity fact has to preserve that.
@@ -191,10 +196,9 @@ through `safely`: its throw is consumed, and a thenable it returns is handed a
 no-op rejection handler through its own `then`, never awaited; a non-thenable
 result allocates nothing. A promise with a replaced `then` or a throwing
 `constructor` is out of reach of any handler and is documented as such. Execute
-and lifecycle span options read the driver's own metadata, so
-`presentDispatch` builds them where a throw is contained: a throwing
-custom-adapter getter runs the dispatch unspanned, its completion (and query
-log) still observed, instead of leaving the gated child pending.
+and lifecycle span options read the driver's own metadata only through
+`readDriverIdentity`, which cannot throw, so building them cannot leave the
+gated child pending.
 
 ## Validation
 

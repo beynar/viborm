@@ -196,10 +196,9 @@ function observeOfficialInstrumentation(
         : presentDispatch(
             context,
             dispatch.start,
-            () =>
-              wants(context, "statement")
-                ? createStatementSpanOptions(context.config.tracing, dispatch)
-                : undefined,
+            wants(context, "statement")
+              ? createStatementSpanOptions(context.config.tracing, dispatch)
+              : undefined,
             () =>
               observeStatementCompletion(unit, completion, dispatch.startedAt)
           )
@@ -213,7 +212,7 @@ function observeOfficialInstrumentation(
         : presentDispatch(
             context,
             dispatch.start,
-            () => createLifecycleSpanOptions(dispatch),
+            createLifecycleSpanOptions(dispatch),
             () => observeLifecycleCompletion(completion)
           )
     );
@@ -310,22 +309,15 @@ function observeCacheInstrumentation(
 
 /**
  * Start the gated provider call exactly once, inside the span when one is
- * presented. The span options read the driver's own metadata (a custom
- * adapter's `namespace` getter), so they are built here, where a throw
- * presents no span instead of leaving the child gated.
+ * presented. The span options cannot throw: the one read of the driver's own
+ * metadata, `readDriverIdentity`, contains a throwing custom-adapter getter.
  */
 async function presentDispatch(
   context: InstrumentationContext,
   start: () => void,
-  createSpanOptions: () => VibORMSpanOptions | undefined,
+  spanOptions: VibORMSpanOptions | undefined,
   observeCompletion: () => Promise<void>
 ): Promise<void> {
-  let spanOptions: VibORMSpanOptions | undefined;
-  try {
-    spanOptions = createSpanOptions();
-  } catch {
-    // The dispatch runs, and its completion is observed, unspanned.
-  }
   if (spanOptions === undefined) {
     start();
     return observeCompletion();
@@ -344,7 +336,8 @@ async function presentDispatch(
 /**
  * The statement log is emitted by the chain its facts attribute it to: a
  * native-batch member's failure reaches that member's client, with its
- * disclosure, even when another client's chain observes the batch.
+ * disclosure, even when another client's chain observes the batch. A settled
+ * batch pins no member and is the batch context's own.
  */
 async function observeStatementCompletion(
   unit: LifecycleUnit,
@@ -354,7 +347,8 @@ async function observeStatementCompletion(
   const outcome = await completion;
   const completionFacts = readProtectedLifecycleCompletionFacts(unit);
   if (completionFacts?.kind === "statement") {
-    // Every official capability is registered here as it is created.
+    // instrumentation() registers every capability it creates; one registered
+    // any other way (a test-only observer) presents no statement log.
     const attributed = instrumentationContexts.get(completionFacts.capability);
     const event = createStatementLogEvent(
       completionFacts,

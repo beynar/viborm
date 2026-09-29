@@ -3150,21 +3150,25 @@ anyway. It is kept, not dropped, and it is now pinned.
 |---|---|---|---|---|
 | `src/query-engine/execution-context.ts` `createOperationInstrumentationFacts` · `complete()` · `official.wants("error-log") &&` | A settled operation publishes a failure to the extension only when that chain presents an error log; otherwise its completion is `undefined` (no cache outcomes either). | The operation's `complete()`, called synchronously as the child settles: the want is read at the instant the failure is selected, like the statement gate's `wants("query-log" \| "error-log")`. | Without it every failed operation on a logging-only chain whose error level is off would publish its failure. The extension would then sanitize the failure and build a log event that the logger discards. No later owner prevents that work: the logger's level check runs after the event is built. This is an allocation guard with a named cost, not a second copy of the level check. | `tests/contracts/public-client/official-instrumentation-extension.core.test.ts` "core publishes the operation failure with its settle instant only when an error log is wanted ('query' logging)" (red when the want is deleted; measured). |
 
-## Addendum — the operation facts' contained identity read (instrumentation encapsulation, 2026-09-29)
+## Addendum — the contained driver identity read (instrumentation encapsulation, 2026-09-29)
 
 Review (Devin) found that the operation facts reader read the driver's
 identity eagerly, so a custom adapter whose `namespace` getter throws made the
 reader throw; the protected observer runner then dropped the whole facts
-record, and an operation failing before any statement lost its error log. The
-read is contained at its owner, core's facts reader: `identity` is optional in
-the neutral `OperationFacts` and absent when the read throws. The statement and
-lifecycle dispatch records carry the driver, not an identity; the extension
-reads it inside `presentDispatch`, whose existing catch already contains it.
-The cache revalidation identity is a snapshot taken at `$withCache`, which is
-reachable only after `bindOfficialCacheChain` read the same getter at
-`$extends`; a deterministically throwing getter never reaches it, so it gets
-no second guard.
+record, and an operation failing before any statement lost its error log. A
+first fix contained the read in core's facts reader; the re-review found the
+same read uncontained at `$withCache` (a getter that succeeds when
+`$extends(cache(...))` binds and throws later made `$withCache` throw) and a
+second catch, in the extension's `presentDispatch`, whose only unique coverage
+was the same throw. The three are one invariant with one owner: the read is
+contained in `readDriverIdentity`, the one reader of `adapter.namespace` for
+presentation, which returns `undefined` when it throws. The facts reader's
+catch and `presentDispatch`'s catch are deleted; an execute or lifecycle span
+of such a driver is now presented without `db.*` attributes instead of
+omitted. `bindOfficialCacheChain` reads the namespace for the cache scope,
+not for presentation, and still throws at `$extends`: the cache cannot
+partition without it.
 
 | Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
 |---|---|---|---|---|
-| `src/query-engine/execution-context.ts` `createOperationInstrumentationFacts` · the facts reader's `try { identity = readDriverIdentity(driver); } catch {}` | The operation facts record survives a driver that cannot name itself: its span is presented without `db.*` attributes and its error log is emitted. | Core's facts reader, the one place that reads the identity for an operation; the runner's own catch (`runProtectedObservers`) is later and discards the whole record. | A custom adapter whose `namespace` getter throws on a logging-only chain, with a failure before any statement (a request transform, validation, or query interceptor): no other owner emits that operation's error log. | `tests/unit/instrumentation/tracer-platform.core.test.ts` "logs a pre-statement failure once when the adapter namespace throws" and "presents the operation span without driver attributes when the adapter namespace throws" (both red when the read is uncontained; measured). |
+| `src/drivers/driver-identity.ts` `readDriverIdentity` · `try { … } catch { return undefined; }` | A driver that cannot name itself is presented without `db.*` attributes; nothing that reads its identity fails or is dropped because of it. | The one presentation reader of the driver's configuration; every caller (core's operation facts reader, the extension's execute/lifecycle span options, the `$withCache` snapshot) reads through it. | A custom adapter whose `namespace` getter throws: (1) on a logging-only chain, a failure before any statement (request transform, validation, query interceptor) — the runner's own catch discards the whole facts record, and no other owner emits that operation's error log; (2) with tracing, an execute or lifecycle dispatch — building its span options would throw before `start()`, leaving the gated provider call pending; (3) a getter that throws only after the cache bound — `$withCache` would throw synchronously. | `tests/unit/instrumentation/tracer-platform.core.test.ts` "logs a pre-statement failure once when the adapter namespace throws", "presents the operation span without driver attributes when the adapter namespace throws", "presents the statement and the transaction without driver attributes when the adapter namespace throws" (hangs to its 30 s timeout) and "keeps $withCache when the adapter namespace throws after the cache bound" (all four red when the catch is removed; measured). |

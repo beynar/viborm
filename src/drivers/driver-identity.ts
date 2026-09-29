@@ -22,14 +22,24 @@ export interface DriverIdentitySource {
   readonly adapter: { readonly namespace?: string };
 }
 
-/** Read one driver's identity from its public readonly configuration. */
+/**
+ * Read one driver's identity from its public readonly configuration, or
+ * `undefined` when that read throws (a custom adapter's `namespace` getter):
+ * every presenter then omits the driver attributes and presents the rest.
+ */
 export function readDriverIdentity(
   driver: DriverIdentitySource
-): DriverIdentity {
-  const namespace = driver.adapter.namespace;
-  return Object.freeze({
-    dialect: driver.dialect,
-    driverName: driver.driverName,
-    ...(namespace === undefined ? {} : { namespace }),
-  });
+): DriverIdentity | undefined {
+  try {
+    const namespace = driver.adapter.namespace;
+    return Object.freeze({
+      dialect: driver.dialect,
+      driverName: driver.driverName,
+      ...(namespace === undefined ? {} : { namespace }),
+    });
+  } catch {
+    // The operation's facts, its spans and a cached read's revalidation
+    // identity survive a driver that cannot name itself.
+    return undefined;
+  }
 }

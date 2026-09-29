@@ -29,6 +29,8 @@ vi.mock("@opentelemetry/api", () => {
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { isVibORMError } from "@errors";
 import { createClient, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
@@ -490,6 +492,15 @@ class ThrowingNamespaceDriver extends StatementDriver {
   );
 }
 
+/** Whether a recorded span call sets one of the driver's `db.*` attributes. */
+function isDriverAttributeCall(call: string): boolean {
+  return (
+    call.startsWith(`attr:${ATTR_DB_SYSTEM}=`) ||
+    call.startsWith(`attr:${ATTR_DB_DRIVER}=`) ||
+    call.startsWith(`attr:${ATTR_DB_NAMESPACE}=`)
+  );
+}
+
 /** Collect the unhandled rejections raised while `body` and a macrotask run. */
 async function collectUnhandledRejections(
   body: () => Promise<void>
@@ -566,7 +577,7 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
     expect(unhandled).toEqual([]);
   });
 
-  it("runs the statement and the transaction a throwing adapter namespace cannot present", async () => {
+  it("presents the statement and the transaction without driver attributes when the adapter namespace throws", async () => {
     const { spans, tracer } = fakeTracer();
     const record = s.model({ id: s.string().id(), name: s.string() });
     const driver = new ThrowingNamespaceDriver();
@@ -590,10 +601,53 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
     ).resolves.toEqual([{ id: "record-1", name: "Ada" }]);
 
     expect(driver.providerCalls).toBe(2);
-    // Each statement is still observed unspanned: its query log is presented.
     expect(logged).toEqual(["$queryRaw", "$queryRaw"]);
-    expect(spans.map(({ name }) => name)).not.toContain(SPAN_EXECUTE);
-    expect(spans.map(({ name }) => name)).not.toContain(SPAN_TRANSACTION);
+    const dispatched = spans.filter(
+      ({ name }) => name === SPAN_EXECUTE || name === SPAN_TRANSACTION
+    );
+    expect(dispatched.map(({ name }) => name).sort()).toEqual([
+      SPAN_EXECUTE,
+      SPAN_EXECUTE,
+      SPAN_TRANSACTION,
+    ]);
+    for (const span of dispatched) {
+      expect(
+        span.calls.some((call) =>
+          call.startsWith(`attr:${ATTR_DB_OPERATION_NAME}=`)
+        )
+      ).toBe(true);
+      expect(span.calls).toContain("end");
+      expect(span.calls.filter(isDriverAttributeCall)).toEqual([]);
+    }
+  });
+
+  it("keeps $withCache when the adapter namespace throws after the cache bound", async () => {
+    let namespaceThrows = false;
+    const { spans, tracer } = fakeTracer();
+    const record = s.model({ id: s.string().id(), name: s.string() });
+    const driver = new StatementDriver();
+    Object.defineProperty(driver, "adapter", {
+      value: Object.create(new SQLiteAdapter(), {
+        namespace: {
+          get: () => {
+            if (namespaceThrows) throw new Error("namespace getter failed");
+            return undefined;
+          },
+        },
+      }),
+    });
+    const client = createClient({ schema: { record }, driver })
+      .$extends(cache({ driver: new MemoryCache() }))
+      .$extends(instrumentation({ tracing: { tracer } }));
+    namespaceThrows = true;
+
+    await expect(
+      client.$withCache({ ttl: 60_000 }).record.findMany({})
+    ).resolves.toEqual([{ id: "record-1", name: "Ada" }]);
+
+    const operation = spans.filter(({ name }) => name === SPAN_OPERATION);
+    expect(operation).toHaveLength(1);
+    expect(operation[0]?.calls.filter(isDriverAttributeCall)).toEqual([]);
   });
 
   it("presents the operation span without driver attributes when the adapter namespace throws", async () => {
@@ -614,14 +668,7 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
       `attr:${ATTR_DB_OPERATION_NAME}=findMany`
     );
     expect(operation[0]?.calls).toContain("end");
-    expect(
-      operation[0]?.calls.filter(
-        (call) =>
-          call.startsWith(`attr:${ATTR_DB_SYSTEM}=`) ||
-          call.startsWith(`attr:${ATTR_DB_DRIVER}=`) ||
-          call.startsWith(`attr:${ATTR_DB_NAMESPACE}=`)
-      )
-    ).toEqual([]);
+    expect(operation[0]?.calls.filter(isDriverAttributeCall)).toEqual([]);
   });
 
   it("logs a pre-statement failure once when the adapter namespace throws", async () => {

@@ -61,8 +61,11 @@ export interface CacheExecutionOptions {
   bypass: boolean;
   key?: string;
   waitUntil?: WaitUntilFn;
-  /** The database driver's identity, read once at `$withCache`. */
-  driverIdentity?: DriverIdentity;
+  /**
+   * The database driver's identity, read once at `$withCache`; absent when
+   * that read throws, and the revalidation root is presented without it.
+   */
+  driverIdentity?: DriverIdentity | undefined;
   executionContext?: QueryExecutionContext;
 }
 
