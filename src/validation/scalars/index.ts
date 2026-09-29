@@ -11,6 +11,7 @@ import {
   type TemporalKind,
 } from "@schema/scalars/datetime/current";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { inferred } from "@validation/inferred";
 import type { EnumValues } from "@validation/primitives/enum";
 import { createSchema, validateSchema } from "@validation/primitives/helpers";
 import type { IdDomain } from "@validation/primitives/id-codec";
@@ -222,10 +223,9 @@ const insertOnly = <T extends object>(schemas: T): T =>
     enumerable: true,
   });
 
-type DefaultedUpdate<S extends VibSchema> = VibSchema<
-  StandardSchemaV1.InferInput<S> | undefined,
-  StandardSchemaV1.InferOutput<S>
-> & { readonly acceptsUndefined: true };
+type DefaultedUpdate<Input, Output> = VibSchema<Input | undefined, Output> & {
+  readonly acceptsUndefined: true;
+};
 
 /**
  * Give one field's update schema its `.updatedAt()` omission default without
@@ -240,7 +240,10 @@ type DefaultedUpdate<S extends VibSchema> = VibSchema<
 const updatedAtUpdate = <S extends VibSchema>(
   update: S,
   kind: TemporalKind
-): DefaultedUpdate<S> => {
+): DefaultedUpdate<
+  StandardSchemaV1.InferInput<S>,
+  StandardSchemaV1.InferOutput<S>
+> => {
   const metadata = {
     acceptsUndefined: true,
     wrapped: update,
@@ -262,22 +265,30 @@ const updatedAtUpdate = <S extends VibSchema>(
   );
 };
 
-type UpdatedAtSchemas<
-  T extends ScalarVariantSchemas & { readonly update: VibSchema },
-> = {
-  readonly base: T["base"];
-  readonly create: T["create"];
-  readonly update: DefaultedUpdate<T["update"]>;
-  readonly filter: T["filter"];
+type UpdatedAtSchemas<Base, Create, Input, Output, Filter> = {
+  readonly base: Base;
+  readonly create: Create;
+  readonly update: DefaultedUpdate<Input, Output>;
+  readonly filter: Filter;
 };
+
+type UpdatedAtSchemasOf<
+  T extends ScalarVariantSchemas & { readonly update: VibSchema },
+> = UpdatedAtSchemas<
+  T["base"],
+  T["create"],
+  StandardSchemaV1.InferInput<T["update"]>,
+  StandardSchemaV1.InferOutput<T["update"]>,
+  T["filter"]
+>;
 
 const updatesAt = <
   T extends ScalarVariantSchemas & { readonly update: VibSchema },
 >(
   schemas: T,
   kind: TemporalKind
-): UpdatedAtSchemas<T> =>
-  lazyScalarSchemas<UpdatedAtSchemas<T>>({
+): UpdatedAtSchemasOf<T> =>
+  lazyScalarSchemas<UpdatedAtSchemasOf<T>>({
     base: schemas.base,
     create: () => schemas.create,
     update: () => updatedAtUpdate(schemas.update, kind),
@@ -289,6 +300,17 @@ const updatesAt = <
  * `V.FromObject` turns into a `never` entry: the update input still NAMES the
  * key, as `?: never`, so a payload held in a variable is refused too — a key
  * that is merely absent refuses only a fresh literal.
+ *
+ * It is also the type half of {@link updatesAt}. That arm destructures the
+ * record by `infer` and reads the update schema's input and output from its
+ * `[inferred]` brand, the channel `InferInput`/`InferOutput` already read.
+ * Asking instead whether the record `extends ScalarVariantSchemas & { update:
+ * VibSchema }` relates every field's update schema to `VibSchema`
+ * structurally, once per field per model and again inside every generic body
+ * that reaches this alias: it raised the instrumentation layer's type program
+ * from 0.91M to 1.38M types (4.9M to 7.6M instantiations) and out of its
+ * 1280 MB shard heap. The record this arm yields is pinned in
+ * `tests/types/operation-schemas/updated-at.core.types.ts`.
  */
 type UpdateAdmission<Schemas, State> = State extends {
   readonly autoGenerate: { readonly kind: "now" };
@@ -299,8 +321,13 @@ type UpdateAdmission<Schemas, State> = State extends {
     : State extends {
           readonly autoGenerate: { readonly kind: "updatedAt" };
         }
-      ? Schemas extends ScalarVariantSchemas & { readonly update: VibSchema }
-        ? UpdatedAtSchemas<Schemas>
+      ? Schemas extends {
+          readonly base: infer Base;
+          readonly create: infer Create;
+          readonly update: { readonly [inferred]: [infer Input, infer Output] };
+          readonly filter: infer Filter;
+        }
+        ? UpdatedAtSchemas<Base, Create, Input, Output, Filter>
         : Schemas
       : Schemas;
 
