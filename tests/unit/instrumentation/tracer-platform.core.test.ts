@@ -526,6 +526,37 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
     );
   });
 
+  it("consumes the rejection of a function-shaped thenable a span method returns", async () => {
+    // A function carrying its own `then` is a thenable too; neither its
+    // `then` nor the promise behind it is hostile.
+    const functionThenable = () => {
+      const rejection = Promise.reject(new Error("telemetry failure"));
+      return Object.assign(() => undefined, {
+        then: rejection.then.bind(rejection),
+      });
+    };
+    const span: TracingSpan = {
+      setAttribute: functionThenable,
+      end: functionThenable,
+    };
+    const tracer: SpanTracer = {
+      startActiveSpan: (_name, fn) => fn(span),
+    };
+    const record = s.model({ id: s.string().id(), name: s.string() });
+    const client = createClient({
+      schema: { record },
+      driver: new StatementDriver(),
+    }).$extends(instrumentation({ tracing: { tracer } }));
+
+    const unhandled = await collectUnhandledRejections(async () => {
+      await expect(client.$queryRaw(sql`SELECT ${7}`)).resolves.toEqual([
+        { id: "record-1", name: "Ada" },
+      ]);
+    });
+
+    expect(unhandled).toEqual([]);
+  });
+
   it("runs the statement and the transaction a throwing adapter namespace cannot present", async () => {
     const { spans, tracer } = fakeTracer();
     const record = s.model({ id: s.string().id(), name: s.string() });

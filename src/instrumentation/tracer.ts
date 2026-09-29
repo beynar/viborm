@@ -429,8 +429,10 @@ export function shouldTraceSpan(
 function safely(action: () => unknown): void {
   try {
     const result = action();
+    // A thenable may be a function as well as an object.
     const then: unknown =
-      typeof result === "object" && result !== null
+      (typeof result === "object" && result !== null) ||
+      typeof result === "function"
         ? Reflect.get(result, "then")
         : undefined;
     if (typeof then === "function") {
