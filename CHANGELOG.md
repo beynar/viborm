@@ -5,6 +5,8 @@ Versioning.
 
 ## Unreleased
 
+## 1.0.0-rc.4 — Release candidate (not yet published)
+
 - **Breaking: instrumentation presentation moves into the `instrumentation()`
   extension.** Core no longer builds span names, span attributes, log events
   or per-channel SQL/parameter disclosure, and it has no runtime import of the
@@ -57,8 +59,19 @@ Versioning.
     without `db.*` attributes), and a native-batch member's failure is logged
     to the client that member belongs to, with that client's disclosure, not
     to the client whose chain observes the batch.
+- **Fixed: layer type programs fit their shard heap again.** The `updatedAt`
+  arm of scalar update admission related every field's update schema to
+  `VibSchema` structurally, which raised every type program that includes
+  `src` by about half (0.91M to 1.38M types) and pushed the instrumentation
+  layer's program out of its 1280 MB heap. The arm now reads the schema's
+  input and output from its `[inferred]` brand and yields the same record,
+  pinned by `tests/types/operation-schemas/updated-at.core.types.ts`. No
+  public type changes.
 
-## 1.0.0-rc.3 — Release candidate (not yet published)
+This release candidate targets npm `next`, not `latest`. Publication requires
+the protected workflow in [RELEASING.md](RELEASING.md).
+
+## 1.0.0-rc.3 — 2026-09-29
 
 - Add the type-only `InferDatabase<Schema>` export from `viborm/client`.
   Each model exposes `Row`, `Create`, `Update`, `Where`, and `FindMany`, derived
@@ -70,7 +83,7 @@ Versioning.
 This release candidate targets npm `next`, not `latest`. Publication requires
 the protected workflow in [RELEASING.md](RELEASING.md).
 
-## 1.0.0-rc.2 — Release candidate (not yet published)
+## 1.0.0-rc.2 — 2026-09-28
 
 - Reduce temporary engine allocations by sharing stateless operation methods,
   lowering only the projection columns needed, and removing intermediate
