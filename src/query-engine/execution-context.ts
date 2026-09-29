@@ -1,5 +1,6 @@
 import { readCacheExecutionOutcomes } from "@cache/driver";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import { readDriverIdentity } from "@drivers/driver-identity";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import {
   createExecutionContext,
@@ -104,7 +105,7 @@ function createOperationInstrumentationFacts(
     Object.freeze({
       kind: "operation" as const,
       context,
-      driver,
+      identity: readDriverIdentity(driver),
       model,
       requestedOperation,
       operation,

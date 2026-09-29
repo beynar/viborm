@@ -3133,3 +3133,19 @@ new code: `tests/unit/schema-validation/junction-side-actions.core.test.ts`.
 stated actions (an unstated one is omitted, never `undefined`) and the
 topology copies the side through, so absence has one producer. Variant member
 junctions state no action and so carry none.
+
+---
+
+## Addendum — the operation error-log want (instrumentation encapsulation, 2026-09-29)
+
+The instrumentation encapsulation
+([`instrumentation-encapsulation-plan.md`](./instrumentation-encapsulation-plan.md)
+§3.4) keeps error-log selection in core. The operation's `complete()` publishes
+a failure only when it is unlogged and the chain's capability
+`wants("error-log")`. The final review found that deleting the want kept every
+test green, because the extension's logger drops an event below its level
+anyway. It is kept, not dropped, and it is now pinned.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/query-engine/execution-context.ts` `createOperationInstrumentationFacts` · `complete()` · `official.wants("error-log") &&` | A settled operation publishes a failure to the extension only when that chain presents an error log; otherwise its completion is `undefined` (no cache outcomes either). | The operation's `complete()`, called synchronously as the child settles: the want is read at the instant the failure is selected, like the statement gate's `wants("query-log" \| "error-log")`. | Without it every failed operation on a logging-only chain whose error level is off would publish its failure. The extension would then sanitize the failure and build a log event that the logger discards. No later owner prevents that work: the logger's level check runs after the event is built. This is an allocation guard with a named cost, not a second copy of the level check. | `tests/contracts/public-client/official-instrumentation-extension.core.test.ts` "core publishes the operation failure with its settle instant only when an error log is wanted ('query' logging)" (red when the want is deleted; measured). |

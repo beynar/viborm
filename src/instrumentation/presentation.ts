@@ -147,7 +147,7 @@ export function createOperationSpanOptions(
   return {
     name: SPAN_OPERATION,
     attributes: {
-      ...createDriverAttributes(readDriverIdentity(facts.driver)),
+      ...createDriverAttributes(facts.identity),
       ...(collection === undefined ? {} : { [ATTR_DB_COLLECTION]: collection }),
       [ATTR_DB_OPERATION_NAME]: facts.requestedOperation,
       ...createCorrelationAttributes(facts.context),

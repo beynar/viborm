@@ -7,7 +7,11 @@ import { Driver } from "@drivers";
 import type { CommittedBatchNotification } from "@drivers/types";
 import { ClientInitializationError, isVibORMError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
+import {
+  getOfficialInstrumentationChainCapability,
+  type LifecycleUnit,
+  readProtectedLifecycleFacts,
+} from "@extensions/observation";
 import { ATTR_DB_OPERATION_NAME, SPAN_OPERATION } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { createClient, s, sql } from "@src/index";
@@ -123,6 +127,7 @@ class EmptyReadOperationDriver extends OperationDriver {
 }
 
 const clients: Array<{ $disconnect(): Promise<void> }> = [];
+const SETTLED_AT = Date.UTC(2026, 8, 29, 12, 0, 0);
 
 function baseClient(driver: OperationDriver = new OperationDriver()) {
   const client = createClient({ schema, driver });
@@ -148,6 +153,7 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   for (const client of clients.splice(0)) await client.$disconnect();
 });
@@ -437,6 +443,86 @@ describe("official logical operation presentation", () => {
       operation: "findMany",
     });
     expect(officialLogs.events[0]?.error?.name).toBe("ValidationError");
+  });
+
+  test("presents the operation error log at the instant core settled it, not when the extension continues", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(SETTLED_AT - 5);
+    const logs = captureLogs();
+    const { client: base } = baseClient();
+    const client = base
+      .$extends(instrumentation({ logging: { error: logs.callback } }))
+      .$extends({
+        name: "clock-after-settlement",
+        observe(unit, proceed) {
+          if (unit.kind !== "operation") return;
+          // The rail has read the start instant; the child settles at SETTLED_AT.
+          vi.setSystemTime(SETTLED_AT);
+          // Runs after core's complete() and before the extension continues.
+          return proceed().then(() => vi.setSystemTime(SETTLED_AT + 1000));
+        },
+      });
+
+    await expect(
+      client.record.findMany({ take: "invalid" as never })
+    ).rejects.toMatchObject({ name: "ValidationError" });
+    await waitFor(() => logs.events.length > 0);
+
+    expect(logs.events).toHaveLength(1);
+    expect(logs.events[0]?.timestamp).toEqual(new Date(SETTLED_AT));
+    expect(logs.events[0]?.duration).toBe(5);
+  });
+
+  test.each([
+    { logged: "error", wanted: true },
+    { logged: "query", wanted: false },
+  ] as const)("core publishes the operation failure with its settle instant only when an error log is wanted ($logged logging)", async ({
+    logged,
+    wanted,
+  }) => {
+    const logs = captureLogs();
+    let operationUnit: LifecycleUnit | undefined;
+    const { client: base } = baseClient();
+    const client = base
+      .$extends(
+        logged === "error"
+          ? instrumentation({ logging: { error: logs.callback } })
+          : instrumentation({ logging: { query: logs.callback } })
+      )
+      .$extends({
+        name: "operation-unit-capture",
+        observe(unit) {
+          if (unit.kind === "operation") operationUnit = unit;
+        },
+      });
+    await client.record
+      .findMany({ take: "invalid" as never })
+      .catch(() => undefined);
+
+    const facts =
+      operationUnit === undefined
+        ? undefined
+        : readProtectedLifecycleFacts(operationUnit);
+    // The trusted handler receives configuration facts, never the driver.
+    expect(facts).toMatchObject({
+      kind: "operation",
+      identity: {
+        dialect: "sqlite",
+        driverName: "official-instrumentation-test",
+      },
+    });
+    expect(facts).not.toHaveProperty("driver");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(SETTLED_AT);
+    const failure = new Error("operation completion probe");
+    const completion =
+      facts?.kind === "operation"
+        ? facts.complete({ status: "failure", durationMs: 0, failure })
+        : undefined;
+
+    expect(completion).toEqual(
+      wanted ? { kind: "operation", endedAt: SETTLED_AT, failure } : undefined
+    );
   });
 
   test("keeps OrThrow display spans and base-operation error logs", async () => {

@@ -82,7 +82,10 @@ function operationFacts(
   return Object.freeze({
     kind: "operation",
     context: {},
-    driver: TEST_DRIVER,
+    identity: Object.freeze({
+      dialect: TEST_DRIVER.dialect,
+      driverName: TEST_DRIVER.driverName,
+    }),
     requestedOperation: "findMany",
     operation: "findMany",
     complete: () =>
