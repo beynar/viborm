@@ -80,11 +80,14 @@ private facts.
 
 ## Optional OpenTelemetry dependency
 
-`@opentelemetry/api` is an optional peer dependency and is loaded dynamically.
-If it is absent or setup fails, database work proceeds normally. The official
+`@opentelemetry/api` is an optional peer dependency. When you hand the
+extension a tracer (`tracing: { tracer }`, for example Cloudflare Workers'
+`tracing` from `cloudflare:workers`), VibORM never imports the package and
+tracing is ready at once. Otherwise the package is loaded dynamically; if it is
+absent or setup fails, database work proceeds normally, and the official
 observer prewarms the tracer once so the first operation still enters the
 correct active context; later operations do not pay a permanent readiness
-microtask.
+microtask. See [Tracing](/docs/extensions/instrumentation/tracing).
 
 <CardGroup>
   <Card title="Logging" description="Configure structured logs" href="/docs/extensions/instrumentation/logging" />

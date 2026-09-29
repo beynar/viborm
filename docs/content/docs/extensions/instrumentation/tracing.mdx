@@ -4,8 +4,10 @@ description: OpenTelemetry spans from protected VibORM lifecycle facts
 icon: radar
 ---
 
-Install the optional OpenTelemetry API, configure its SDK, then apply the
-official instrumentation extension:
+Either hand VibORM the tracer your runtime or application already holds (see
+[Bring your own tracer](#bring-your-own-tracer); `@opentelemetry/api` is then
+not needed), or install the optional OpenTelemetry API, configure its SDK,
+and let VibORM find it:
 
 ```bash
 npm install @opentelemetry/api
@@ -30,7 +32,7 @@ const client = createClient({ schema, driver }).$extends(
 | `includeSql` | `boolean` | `false` | Add rendered SQL to execute spans |
 | `includeParams` | `boolean` | `false` | Add one attribute per snapshotted parameter |
 | `ignoreSpanTypes` | `Array<string \| RegExp>` | `[]` | Skip matching exact span names |
-| `tracer` | anything with `startActiveSpan(name, fn)` | auto-detected | Present spans through this tracer instead of importing the API |
+| `tracer` | an object with `startActiveSpan(name, fn)` whose spans have `setAttribute` and `end` | auto-detected | Present spans through this tracer; VibORM then never imports `@opentelemetry/api` |
 
 Ignoring a span does not redirect its late attributes to the active parent.
 Cache hit/miss/TTL facts target only their exact cache span.
