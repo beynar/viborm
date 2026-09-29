@@ -180,14 +180,17 @@ type ClientFactoryGuard<
   : unknown;
 
 /**
- * What every model factory may not return: a core operation, `then`, or a
- * value that is not a function. Stated as a target shape, not a conditional
- * over the factory, so a factory map generic over the client is checked
- * rather than deferred. A method a prior extension put on the model cannot be
- * named here for a client generic over its extension state: the runtime
- * refuses that replacement when the extension is applied.
+ * What every model factory may not return: a core operation or `then`. That
+ * each returned member is a function is the definition's own factory type
+ * (`ModelMethodFactory` returns an `ExtensionMethodRecord`), not this guard;
+ * `object` only keeps the all-optional key list from being a weak type, which
+ * would refuse every return that names none of those keys. Stated as a target
+ * shape, not a conditional over the factory, so a factory map generic over the
+ * client is checked rather than deferred. A method a prior extension put on
+ * the model cannot be named here for a client generic over its extension
+ * state: the runtime refuses that replacement when the extension is applied.
  */
-type ModelFactoryGuard = (...args: never[]) => ExtensionMethodRecord & {
+type ModelFactoryGuard = (...args: never[]) => object & {
   readonly [Name in Operations | "then"]?: never;
 };
 

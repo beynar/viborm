@@ -684,6 +684,14 @@ const _methodShapesAreRefused = () => {
     },
   });
 
+  client.$extends({
+    name: "then-model",
+    model: {
+      // @ts-expect-error - a model method named `then` would make the delegate a thenable
+      post: () => ({ then: () => 1 }),
+    },
+  });
+
   const priorClientMethod = client.$extends({
     name: "prior-client-method",
     client: () => ({ $existing: () => true }),

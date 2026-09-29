@@ -127,6 +127,24 @@ export async function omissionCarries() {
   found?.secret;
 }
 
+// DC22: a definition binds to the client it was built for. Built for `base`
+// and applied to `omitted`, it compiles (model factories are bivariant so
+// §1.1's step B can be generic over the client), and its result type shows
+// `secret`, which the runtime omits. At `30ff17e69` this was refused (TS2345).
+const builtForBase = {
+  name: "built-for-base",
+  model: {
+    post: (delegate: (typeof base)["post"]) => ({
+      firstPost: () => delegate.findFirst({ where: { id: "p1" } }),
+    }),
+  },
+};
+const replayed = omitted.$extends(builtForBase);
+export async function replayCompiles() {
+  const row = await replayed.post.firstPost();
+  row?.secret satisfies string | undefined; // typed from base, not omitted
+}
+
 // The rows order guard: defaultOmit after softDelete is refused.
 export function orderGuard() {
   // @ts-expect-error softDelete adds result-consuming methods: defaultOmit after it is refused
