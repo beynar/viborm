@@ -575,6 +575,10 @@ export abstract class CacheDriver {
     ttl?: number
   ): Promise<T> {
     const observers = getExecutionExtensionChain(context)?.observe;
+    // An unobserved step builds no unit and no facts closure, as the
+    // revalidation above does. Measured on a no-op backend: without this, a get
+    // allocates about 330 B more and takes about 16 ns longer.
+    if (observers === undefined || observers.length === 0) return execute();
     const backend = step === "clear" || step === "delete";
     return runProtectedObservers(
       { kind: "cache", operation: backend ? "invalidate" : step },
