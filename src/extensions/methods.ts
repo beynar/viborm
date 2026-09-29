@@ -1,10 +1,16 @@
 import type { TransactionClient, VibORMConfig } from "@client/client";
 import { RAW_METHOD_NAMES, type RawSurface } from "@client/raw";
-import type { Client, ClientRelationDefaults } from "@client/types";
+import type {
+  Client,
+  ClientRelationDefaults,
+  Operations,
+  Schema,
+} from "@client/types";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type { ResolvedExtensionChain } from "./chain";
+import type { DefinitionControls, NoControls } from "./controls";
 import { extensionCause, extensionError } from "./definition";
 
 type NoMethods = Record<never, never>;
@@ -30,11 +36,14 @@ export interface ClientExtensionState<
   ResultConsumerState extends
     | ExtensionResultConsumerState
     | undefined = undefined,
+  Controls extends object = NoControls,
 > {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
   readonly cache: CacheState;
   readonly resultConsumer: ResultConsumerState;
+  /** The controls the chain declares: each one's values and placement. */
+  readonly controls: Controls;
 }
 
 export type EmptyClientExtensionState = ClientExtensionState;
@@ -44,7 +53,8 @@ export type ExtensionStateConstraint = ClientExtensionState<
   object,
   object,
   ExtensionCacheState | undefined,
-  ExtensionResultConsumerState | undefined
+  ExtensionResultConsumerState | undefined,
+  object
 >;
 
 /** Whether the current type-state includes the official cache capability. */
@@ -60,7 +70,8 @@ export type EnableExtensionCache<X extends ExtensionStateConstraint> =
     X["client"],
     X["models"],
     ExtensionCacheState,
-    X["resultConsumer"]
+    X["resultConsumer"],
+    X["controls"]
   >;
 
 /** Whether an earlier extension was typed against result-bearing delegates. */
@@ -75,18 +86,33 @@ type MethodsForModel<
   ModelName extends PropertyKey,
 > = ModelName extends keyof X["models"] ? X["models"][ModelName] : NoMethods;
 
-/** Model delegates after the methods contributed by the current chain. */
+/** One model's delegate after the chain's methods and controls. */
+export type ExtensionModelDelegate<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  ModelName extends keyof C["schema"],
+> = Client<
+  C,
+  ClientRelationDefaults<C>,
+  HasExtensionCache<X>,
+  X["controls"]
+>[ModelName] &
+  MethodsForModel<X, ModelName>;
+
+/**
+ * Model delegates after the methods contributed by the current chain. The
+ * always-true test is deliberate: for a client generic over its config it
+ * stays deferred, so the model map adds no index signature to that client and
+ * its `$` members stay reachable inside a body generic over `C`.
+ */
 export type ExtensionModelClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-> = {
-  [ModelName in keyof C["schema"]]: Client<
-    C,
-    ClientRelationDefaults<C>,
-    HasExtensionCache<X>
-  >[ModelName] &
-    MethodsForModel<X, ModelName>;
-};
+> = [C["schema"]] extends [Schema]
+  ? {
+      [ModelName in keyof C["schema"]]: ExtensionModelDelegate<C, X, ModelName>;
+    }
+  : unknown;
 
 /** The surface given to one client-method factory. */
 export type ExtensionClientScope<
@@ -153,50 +179,38 @@ type ClientFactoryGuard<
     : { readonly client: never }
   : unknown;
 
-type ModelFactoryGuard<
-  Factory,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-  ModelName extends keyof C["schema"],
-> = Factory extends (...args: never[]) => infer Methods
-  ? Methods extends object
-    ? GuardMethodFactory<
-        Factory,
-        | Extract<
-            keyof Methods,
-            keyof Client<C>[ModelName] | keyof MethodsForModel<X, ModelName>
-          >
-        | Extract<keyof Methods, "then">
-        | NonFunctionKeys<Methods>
-      >
-    : never
-  : never;
+/**
+ * What every model factory may not return: a core operation, `then`, or a
+ * value that is not a function. Stated as a target shape, not a conditional
+ * over the factory, so a factory map generic over the client is checked
+ * rather than deferred. A method a prior extension put on the model cannot be
+ * named here for a client generic over its extension state: the runtime
+ * refuses that replacement when the extension is applied.
+ */
+type ModelFactoryGuard = (...args: never[]) => ExtensionMethodRecord & {
+  readonly [Name in Operations | "then"]?: never;
+};
 
-type ModelFactoriesGuard<
-  Definition,
-  C extends VibORMConfig,
-  X extends ExtensionStateConstraint,
-> = Definition extends { readonly model: infer Factories }
-  ? Factories extends object
-    ? {
-        readonly model: Record<
-          Exclude<keyof Factories, keyof C["schema"]>,
-          never
-        > & {
-          readonly [ModelName in keyof Factories]: ModelName extends keyof C["schema"]
-            ? ModelFactoryGuard<Factories[ModelName], C, X, ModelName>
-            : never;
-        };
-      }
-    : { readonly model: never }
+/**
+ * Model keys outside the schema are refused by the definition's own `model`
+ * type (its per-schema factory table); this guard checks each factory's
+ * methods.
+ */
+type ModelFactoriesGuard<Definition> = Definition extends {
+  readonly model: infer Factories;
+}
+  ? {
+      readonly model: {
+        readonly [ModelName in keyof Factories]: ModelFactoryGuard;
+      };
+    }
   : unknown;
 
 export type ExtensionMethodDefinitionGuard<
   Definition,
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-> = ClientFactoryGuard<Definition, C, X> &
-  ModelFactoriesGuard<Definition, C, X>;
+> = ClientFactoryGuard<Definition, C, X> & ModelFactoriesGuard<Definition>;
 
 type ClientMethodsOf<Definition> = Definition extends {
   readonly client: (...args: never[]) => infer Methods;
@@ -255,7 +269,8 @@ export type MergeExtensionState<
   X["client"] & ClientMethodsOf<Definition>,
   MergeModelMethods<X["models"], ModelMethodsOf<Definition>>,
   X["cache"],
-  ResultConsumerStateOf<X, Definition>
+  ResultConsumerStateOf<X, Definition>,
+  X["controls"] & DefinitionControls<Definition>
 >;
 
 export interface BoundExtensionMethods {

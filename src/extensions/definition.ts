@@ -5,11 +5,16 @@ import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type {
+  ControlsContribution,
+  DeletionContribution,
+  RowsContribution,
+} from "./controls";
+import type {
   EmptyClientExtensionState,
   ExtensionClientScope,
   ExtensionMethodDefinitionGuard,
   ExtensionMethodRecord,
-  ExtensionModelClient,
+  ExtensionModelDelegate,
   ExtensionStateConstraint,
   ResultConsumerContextOf,
   RuntimeClientMethodContribution,
@@ -306,7 +311,62 @@ type ExtensionConfig<S extends Schema> = {
   readonly driver: AnyDriver;
 };
 
+/**
+ * A model factory, declared as a method so a factory typed against the client
+ * it extends (`(delegate: M[K & keyof M]) => …`, generic over that client) is
+ * compared in either direction rather than only contravariantly.
+ */
+type ModelMethodFactory<Delegate> = {
+  factory(delegate: Delegate): ExtensionMethodRecord;
+}["factory"];
+
+/**
+ * One factory per schema model. A definition's model key is looked up here by
+ * index, never by a conditional: a key outside the schema reads `never` (the
+ * factory is refused where it is written), and a key set generic over the
+ * client is substituted rather than deferred, so a plugin generic over `C`
+ * type-checks and meets the schema check when it is applied.
+ */
+type ModelFactoryTable<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+> = {
+  readonly [ModelName in keyof C["schema"]]: ModelMethodFactory<
+    ExtensionModelDelegate<C, X, ModelName>
+  >;
+};
+
+/** The model keys a definition's own `model` map names. */
+type DefinitionModelKeys<Self> = Self extends {
+  readonly model?: infer Factories;
+}
+  ? keyof Factories
+  : never;
+
+/**
+ * `Self` is the definition itself when `$extends` checks it (F-bounded), so
+ * its model keys come from the definition; otherwise every schema model.
+ */
 export type ContextualExtensionDefinition<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  Self = unknown,
+> = ExtensionMembers<C, X> & {
+  readonly model?: unknown extends Self
+    ? {
+        readonly [ModelName in keyof C["schema"]]?: ModelMethodFactory<
+          ExtensionModelDelegate<C, X, ModelName>
+        >;
+      }
+    : {
+        readonly [ModelName in DefinitionModelKeys<Self>]?: ModelFactoryTable<
+          C,
+          X
+        >[ModelName & keyof C["schema"]];
+      };
+};
+
+type ExtensionMembers<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > = {
@@ -315,14 +375,12 @@ export type ContextualExtensionDefinition<
   readonly query?: GenericQueryHandler | QueryHandlerMap<C>;
   readonly statement?: StatementHandler;
   readonly observe?: ObserveHandler;
+  readonly controls?: ControlsContribution;
+  readonly rows?: RowsContribution;
+  readonly deletion?: DeletionContribution;
   readonly client?: (
     scope: ExtensionClientScope<C, X>
   ) => ExtensionMethodRecord;
-  readonly model?: {
-    readonly [ModelName in keyof C["schema"]]?: (
-      delegate: ExtensionModelClient<C, X>[ModelName]
-    ) => ExtensionMethodRecord;
-  };
 };
 
 type SchemaGenericExtensionDefinition = Omit<

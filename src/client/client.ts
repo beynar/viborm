@@ -94,7 +94,14 @@ import {
   type RawOperation,
   type RawSurface,
 } from "./raw";
-import type { CachedClient, Client, Operations, Schema } from "./types";
+import type {
+  CachedClient,
+  Client,
+  ClientOperationResult,
+  ClientRelationDefaults,
+  Operations,
+  Schema,
+} from "./types";
 import { assertNonEmptyUniqueWhere } from "./unique-where-guard";
 
 interface OfficialReadCache {
@@ -193,8 +200,9 @@ type OrdinaryOfficialExtensionGuard<Definition> = Definition extends {
 type OfficialAwareDefinition<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
+  Self = unknown,
 > =
-  | ContextualExtensionDefinition<C, X>
+  | ContextualExtensionDefinition<C, X, Self>
   | OfficialCacheExtension
   | OfficialDefaultOmitExtension;
 
@@ -226,7 +234,7 @@ type ExtensionAdmission<
   ? OfficialCacheAdmission<Definition, X>
   : Definition extends OfficialDefaultOmitExtension
     ? OfficialDefaultOmitAdmission<Definition, C, X>
-    : Definition extends ContextualExtensionDefinition<C, X>
+    : Definition extends ContextualExtensionDefinition<C, X, Definition>
       ? ExactExtensionDefinition<Definition, C, X> &
           OrdinaryOfficialExtensionGuard<Definition> &
           SchemaBoundExtensionAdmission<Definition, C>
@@ -320,76 +328,94 @@ export type VibORMClient<
   // never declared `Symbol.asyncDispose`. The interactive `tx` client is
   // deliberately NOT disposable: `$transaction` owns that driver's lifetime.
   AsyncDisposeMember &
+  VibORMClientMembers<C, X> &
   Omit<
     {
-      /** Access the underlying driver */
-      $driver: AnyDriver;
-      /** Access the schema (models) */
-      $schema: C["schema"];
-      /**
-       * Run operations in a transaction or batch
-       *
-       * @example Dynamic transaction (callback) - operations can depend on each other
-       * ```ts
-       * await client.$transaction(async (tx) => {
-       *   const user = await tx.user.create({ data: { name: "Alice" } });
-       *   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
-       * });
-       * ```
-       *
-       * @example Batch (array) - independent operations, atomic execution
-       * ```ts
-       * const [users, posts] = await client.$transaction([
-       *   client.user.findMany(),
-       *   client.post.findMany(),
-       * ]);
-       * ```
-       *
-       * @example Options - honored or refused, never ignored
-       * ```ts
-       * await client.$transaction(async (tx) => { ... }, {
-       *   isolationLevel: "Serializable",
-       *   timeout: 10_000,
-       *   maxWait: 2000,
-       * });
-       * ```
-       *
-       * Each option is honored where the driver can honor it and rejected with
-       * a typed `UnsupportedOperationError` (V8003) where it cannot — see
-       * [Transactions](/docs/client/transactions) for the per-driver contract.
-       * The array form takes `isolationLevel` only: a preplanned array has no
-       * interactive window for `timeout` or `maxWait` to bound.
-       */
-      $transaction: {
-        // Overload 1: Dynamic transaction (callback)
-        <T>(
-          fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
-          options?: TransactionOptions
-        ): Promise<T>;
-        // Overload 2: Batch of independent operations (Prisma-style)
-        <T extends BatchTransactionOperation<unknown>[]>(
-          operations: [...T],
-          options?: BatchTransactionOptions
-        ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
-      };
-      /** Connect to the database */
-      $connect: () => Promise<void>;
-      /** Disconnect from the database */
-      $disconnect: () => Promise<void>;
       /** Create a client with cache - only read operations available */
-      $withCache: (config?: WithCacheOptions) => CachedClient<C>;
+      $withCache: (
+        config?: WithCacheOptions
+      ) => CachedClient<C, ClientRelationDefaults<C>, X["controls"]>;
       /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
       $invalidate: (...keys: string[]) => Promise<void>;
-      /** Return an immutable client view with one more named extension. */
-      $extends: <const Definition extends OfficialAwareDefinition<C, X>>(
-        extension: Definition & ExtensionAdmission<Definition, C, X>
-      ) => VibORMClient<
-        AppliedClientConfig<C, Definition>,
-        AppliedExtensionState<X, Definition>
-      >;
     },
     HasExtensionCache<X> extends true ? "never" : "$withCache" | "$invalidate"
   >;
+
+/**
+ * The client members no extension state removes. An interface outside the
+ * `Omit` above, so a body generic over the extension state still reaches them.
+ */
+interface VibORMClientMembers<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+> {
+  /** Access the underlying driver */
+  $driver: AnyDriver;
+  /** Access the schema (models) */
+  $schema: C["schema"];
+  /**
+   * Run operations in a transaction or batch
+   *
+   * @example Dynamic transaction (callback) - operations can depend on each other
+   * ```ts
+   * await client.$transaction(async (tx) => {
+   *   const user = await tx.user.create({ data: { name: "Alice" } });
+   *   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+   * });
+   * ```
+   *
+   * @example Batch (array) - independent operations, atomic execution
+   * ```ts
+   * const [users, posts] = await client.$transaction([
+   *   client.user.findMany(),
+   *   client.post.findMany(),
+   * ]);
+   * ```
+   *
+   * @example Options - honored or refused, never ignored
+   * ```ts
+   * await client.$transaction(async (tx) => { ... }, {
+   *   isolationLevel: "Serializable",
+   *   timeout: 10_000,
+   *   maxWait: 2000,
+   * });
+   * ```
+   *
+   * Each option is honored where the driver can honor it and rejected with
+   * a typed `UnsupportedOperationError` (V8003) where it cannot — see
+   * [Transactions](/docs/client/transactions) for the per-driver contract.
+   * The array form takes `isolationLevel` only: a preplanned array has no
+   * interactive window for `timeout` or `maxWait` to bound.
+   */
+  $transaction: {
+    // Overload 1: Dynamic transaction (callback)
+    <T>(
+      fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
+      options?: TransactionOptions
+    ): Promise<T>;
+    // Overload 2: Batch of independent operations (Prisma-style)
+    <T extends BatchTransactionOperation<unknown>[]>(
+      operations: [...T],
+      options?: BatchTransactionOptions
+    ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
+  };
+  /** Connect to the database */
+  $connect: () => Promise<void>;
+  /** Disconnect from the database */
+  $disconnect: () => Promise<void>;
+  /**
+   * Return an immutable client view with one more named extension. The
+   * bound is F-bounded: the definition's own model keys are checked.
+   */
+  $extends: <
+    const Definition extends OfficialAwareDefinition<C, X, Definition>,
+  >(
+    extension: Definition & ExtensionAdmission<Definition, C, X>
+  ) => VibORMClient<
+    AppliedClientConfig<C, Definition>,
+    AppliedExtensionState<X, Definition>
+  >;
+}
 
 type ApplyClientExtensions<
   C extends VibORMConfig,
@@ -431,6 +457,23 @@ export type ExtendedClient<
   : Base extends VibORMClient<infer C, infer X>
     ? ApplyClientExtensions<C, X, Extensions>
     : never;
+
+/** The extension type-state a derived client carries. */
+export type ExtensionState = ExtensionStateConstraint;
+
+/**
+ * One operation's result on a derived client, as that client's own delegate
+ * types it: its `defaultOmit` applied to `Args`. Index the client with
+ * `M[K & keyof M]` in a plugin generic over it.
+ */
+export type ExtendedOperationResult<
+  Client,
+  ModelName,
+  O extends Operations,
+  Args,
+> = Client extends VibORMClient<infer C, infer _X>
+  ? ClientOperationResult<C, ModelName & keyof C["schema"], O, Args>
+  : never;
 
 /**
  * VibORM Client

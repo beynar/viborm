@@ -701,7 +701,9 @@ const _methodShapesAreRefused = () => {
   priorModelMethod.$extends({
     name: "prior-model-collision",
     model: {
-      // @ts-expect-error - later extensions cannot replace a prior method on that model
+      // Compiles: a plugin generic over the extension state cannot prove this
+      // collision, so the refusal is application-time only (DC2), pinned at
+      // runtime by extensions-foundation.core.test.ts "prior-model".
       post: () => ({ existing: () => false }),
     },
   });

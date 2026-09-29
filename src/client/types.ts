@@ -28,6 +28,7 @@ import type {
 } from "@validation/relations/recurrence";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
 import type { CacheInvalidationOptions } from "../cache/schema";
+import type { NoControls, OperationControls } from "../extensions/controls";
 import type { VibORMConfig } from "./client";
 import type {
   AggregateResultType,
@@ -474,6 +475,7 @@ export type Client<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
   ExtensionCache extends boolean = false,
+  Controls extends object = NoControls,
 > = {
   [K in keyof C["schema"]]: {
     [O in Operations]: Operation<
@@ -481,10 +483,25 @@ export type Client<
       C["schema"][K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
-      ExtensionCache
+      ExtensionCache,
+      PlacedOperationControls<Controls, K, O>
     >;
   };
 };
+
+/** The controls one (model, operation) accepts; none without a declaration. */
+type PlacedOperationControls<Controls, ModelName, O> = [
+  keyof Controls,
+] extends [never]
+  ? NoControls
+  : OperationControls<Controls, ModelName, O>;
+
+/** A payload with the operation's placed controls beside its own keys. */
+type WithControls<T, Controls> = [keyof Controls] extends [never]
+  ? T
+  : T extends object
+    ? T & Controls
+    : T;
 
 export type ClientRelationDefaults<C extends VibORMConfig> =
   ClientRelationOmitContext<C>;
@@ -1153,8 +1170,12 @@ type Operation<
   DefaultOmit = undefined,
   ClientDefaults = never,
   ExtensionCache extends boolean = false,
+  Controls = NoControls,
   Payload = OperationPayload<O, M>,
-  ClientPayload = ClientOperationPayload<O, Payload, ExtensionCache>,
+  ClientPayload = WithControls<
+    ClientOperationPayload<O, Payload, ExtensionCache>,
+    Controls
+  >,
 > = undefined extends ClientPayload
   ? <Arg extends ClientPayload>(
       args?: NoExtraOperationKeys<
@@ -1180,7 +1201,8 @@ type CachedOperation<
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
-  Payload = OperationPayload<O, M>,
+  Controls = NoControls,
+  Payload = WithControls<OperationPayload<O, M>, Controls>,
 > = undefined extends Payload
   ? <Arg extends Payload>(
       args?: NoExtraOperationKeys<
@@ -1210,13 +1232,15 @@ type CachedOperation<
 export type CachedClient<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
+  Controls extends object = NoControls,
 > = {
   [K in keyof C["schema"]]: {
     [O in CacheableOperations]: CachedOperation<
       O,
       C["schema"][K],
       ClientDefaultOmit<C, K>,
-      ClientDefaults
+      ClientDefaults,
+      PlacedOperationControls<Controls, K, O>
     >;
   };
 };

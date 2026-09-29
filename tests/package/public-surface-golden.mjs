@@ -70,6 +70,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ClientExtension",
       "DiagnosticDisclosure",
       "ExtendedClient",
+      "ExtendedOperationResult",
+      "ExtensionState",
       "FieldRef",
       "GeoArea",
       "GeoBounds",
