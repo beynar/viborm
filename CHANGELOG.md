@@ -44,6 +44,12 @@ Versioning.
     `ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS`,
     `ATTR_VIBORM_WRITE_COMPLETED_MEMBERS`, `ATTR_VIBORM_WRITE_MEMBER_PATH`,
     `ATTR_VIBORM_WRITE_STATEMENT_COUNT`), which no span carried.
+  - Added: `instrumentation({ tracing: { tracer } })` takes an OpenTelemetry
+    `Tracer` the runtime or application already holds (Cloudflare Workers:
+    `trace.getTracer("app")`). Spans start through its `startActiveSpan` and
+    nest under the caller's active span, and the library never imports
+    `@opentelemetry/api` itself. Without `tracer`, the API is auto-detected as
+    before.
 
 ## 1.0.0-rc.3 — Release candidate (not yet published)
 

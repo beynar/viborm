@@ -41,7 +41,6 @@ import type { TransactionOptionSupport } from "@drivers/shared/transaction-optio
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { CommittedBatchNotification } from "@drivers/types";
 import { QueryError } from "@errors";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace-node";
 import { cache } from "@src/cache/exports";
 import { createClient, defineExtension, s, sql } from "@src/index";
 import {
@@ -51,10 +50,16 @@ import {
 } from "@src/instrumentation/exports";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { captureLogs, withOtelRecorder } from "./_capture";
+import {
+  captureLogs,
+  normalizeCorrelation,
+  normalizeSpans,
+  plain,
+  withOtelRecorder,
+} from "./_capture";
+import { StatementDriver } from "./_fake-driver";
 
 const GOLDEN_NOW = Date.UTC(2026, 8, 28, 12, 0, 0);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const record = s.model({ id: s.string().id(), name: s.string() });
 const batchRow = s.model({
@@ -67,45 +72,6 @@ const schema = { batchRow, record };
 // ---------------------------------------------------------------------------
 // Drivers: the named contracts' fixtures, reduced to what their setups use.
 // ---------------------------------------------------------------------------
-
-/** `official-statement-instrumentation.core` `StatementDriver`. */
-class StatementDriver extends Driver<object, object> {
-  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
-  providerCalls = 0;
-  failAtProviderCall: number | undefined;
-
-  constructor() {
-    super("sqlite", "official-statement-test");
-    this.client = {};
-  }
-
-  protected async initClient(): Promise<object> {
-    return {};
-  }
-
-  protected async closeClient(): Promise<void> {
-    // No provider resource.
-  }
-
-  protected async execute<T>(): Promise<QueryResult<T>> {
-    this.providerCalls += 1;
-    if (this.providerCalls === this.failAtProviderCall) {
-      throw new Error("fallback provider failed");
-    }
-    return { rows: [{ id: "record-1", name: "Ada" }] as T[], rowCount: 1 };
-  }
-
-  protected executeRaw<T>(): Promise<QueryResult<T>> {
-    return this.execute<T>();
-  }
-
-  protected async transaction<T>(
-    client: object,
-    callback: (transaction: object) => Promise<T>
-  ): Promise<T> {
-    return await callback(client);
-  }
-}
 
 /** `official-statement-instrumentation.core` `NativeStatementDriver`. */
 class NativeStatementDriver extends StatementDriver {
@@ -444,29 +410,6 @@ function createBackgroundQueue() {
   };
 }
 
-function plain(value: unknown): unknown {
-  if (value instanceof Date) return value.toISOString();
-  if (value instanceof Error) {
-    const json: unknown = JSON.parse(JSON.stringify(value));
-    return plain({
-      name: value.name,
-      message: value.message,
-      ...(typeof json === "object" && json !== null ? json : {}),
-    });
-  }
-  if (Array.isArray(value)) return value.map(plain);
-  if (typeof value === "bigint") return `${value}n`;
-  if (typeof value === "object" && value !== null) {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort()) {
-      const member: unknown = Reflect.get(value, key);
-      if (member !== undefined) out[key] = plain(member);
-    }
-    return out;
-  }
-  return value;
-}
-
 const JSON_LINE_WIDTH = 80;
 
 /**
@@ -511,55 +454,6 @@ function formatJsonInline(value: unknown): string | undefined {
     return Object.keys(value).length === 0 ? "{}" : undefined;
   }
   return JSON.stringify(value);
-}
-
-function normalizeSpans(spans: readonly ReadableSpan[]) {
-  const spanIds = new Map<string, string>();
-  const traceIds = new Map<string, string>();
-  for (const span of spans) {
-    spanIds.set(span.spanContext().spanId, `span-${spanIds.size + 1}`);
-  }
-  return spans.map((span) => {
-    const traceId = span.spanContext().traceId;
-    if (!traceIds.has(traceId)) {
-      traceIds.set(traceId, `trace-${traceIds.size + 1}`);
-    }
-    const parentId = span.parentSpanContext?.spanId;
-    return {
-      id: spanIds.get(span.spanContext().spanId),
-      trace: traceIds.get(traceId),
-      parent:
-        parentId === undefined ? null : (spanIds.get(parentId) ?? "external"),
-      name: span.name,
-      kind: span.kind,
-      attributes: plain(span.attributes),
-      status: plain(span.status),
-      events: span.events.map((event) => ({
-        name: event.name,
-        attributes: plain(event.attributes ?? {}),
-      })),
-    };
-  });
-}
-
-function normalizeCorrelation(value: unknown, ordinals: Map<string, string>) {
-  if (typeof value === "string" && UUID.test(value)) {
-    if (!ordinals.has(value)) {
-      ordinals.set(value, `correlation-${ordinals.size + 1}`);
-    }
-    return ordinals.get(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map((member) => normalizeCorrelation(member, ordinals));
-  }
-  if (typeof value === "object" && value !== null) {
-    const out: Record<string, unknown> = {};
-    for (const [key, member] of Object.entries(value)) {
-      out[key] = normalizeCorrelation(member, ordinals);
-    }
-    return out;
-  }
-  return value;
 }
 
 async function runScenario(

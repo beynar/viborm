@@ -2,6 +2,7 @@ import {
   createClient as createPGliteClient,
   PGliteDriver,
 } from "@drivers/pglite";
+import type { Tracer } from "@opentelemetry/api";
 import { s } from "@schema";
 import { createClient } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
@@ -55,6 +56,32 @@ const _officialNestedTypo = () =>
   instrumentation({
     // @ts-expect-error - "includeSqll" is not a TracingConfig key
     tracing: { includeSql: true, includeSqll: true },
+  });
+
+declare const platformTracer: Tracer;
+
+const _platformTracer = () =>
+  instrumentation({ tracing: { tracer: platformTracer } });
+
+const _platformTracerBesideOptions = () =>
+  instrumentation({
+    tracing: {
+      tracer: platformTracer,
+      includeSql: true,
+      ignoreSpanTypes: ["viborm.connect"],
+    },
+  });
+
+const _notATracer = () =>
+  instrumentation({
+    // @ts-expect-error - an empty object is not an OpenTelemetry Tracer
+    tracing: { tracer: {} },
+  });
+
+const _typoBesideTracer = () =>
+  instrumentation({
+    // @ts-expect-error - "tracr" is refused beside the real "tracer"
+    tracing: { tracer: platformTracer, tracr: platformTracer },
   });
 
 const heldOfficialTypo = {

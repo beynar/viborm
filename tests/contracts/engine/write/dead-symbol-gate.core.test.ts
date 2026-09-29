@@ -105,7 +105,8 @@ const DELETED_V1_SYMBOLS = [
   "compileCacheResultCodec",
 ] as const;
 
-/** Deleted by the instrumentation encapsulation (D1, D2, D3, U2, U5, U1 repair). */
+/** Deleted by the instrumentation encapsulation (D1, D2, D3, U2, U5, U1 repair,
+ *  platform tracer). */
 const DELETED_INSTRUMENTATION_SYMBOLS = [
   // D2 — the segment rail no producer reached, and the names only it carried.
   "SPAN_RECORD_SERIES_SEGMENT",
@@ -133,6 +134,8 @@ const DELETED_INSTRUMENTATION_SYMBOLS = [
   // U1 repair — the capability type that handed core the extension's context.
   "OfficialInstrumentationCapability",
   "InstrumentationLifecycleFacts",
+  // Platform tracer — the late active-span attribute hook D2 left consumerless.
+  "setActiveSpanAttributes",
 ] as const;
 
 /** Deleted source files of the instrumentation encapsulation, relative to src. */

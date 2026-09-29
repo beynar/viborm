@@ -5,6 +5,7 @@
  */
 
 import type { DiagnosticDisclosure, VibORMError } from "@errors";
+import type { Tracer } from "@opentelemetry/api";
 import type { Operation } from "../query-engine/types";
 
 /**
@@ -70,6 +71,14 @@ export interface TracingConfig extends DiagnosticDisclosure {
    * Similar to Prisma's ignoreSpanTypes
    */
   ignoreSpanTypes?: ReadonlyArray<string | RegExp> | undefined;
+
+  /**
+   * The OpenTelemetry tracer to present spans through, for a runtime that
+   * supplies its own (Cloudflare Workers: `trace.getTracer("app")` from the
+   * application's `@opentelemetry/api`). When given, VibORM never imports
+   * `@opentelemetry/api` itself; when omitted, it auto-detects the api.
+   */
+  tracer?: Tracer | undefined;
 }
 
 /**

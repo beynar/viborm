@@ -34,7 +34,7 @@ logger, disclosure, or correlation.
 | `src/instrumentation/extension.ts` | Fixed-name factory, the one trusted protected-observer handler, and the private capability→context map (core holds only the neutral capability) |
 | `context.ts` | Hostile-safe config snapshot and instrumentation context |
 | `presentation.ts` | Span options, attributes, log events and per-channel disclosure built from core's neutral facts (`src/extensions/official-facts.ts`) |
-| `tracer.ts` | Optional OTel loading, active spans, containment, span mutation |
+| `tracer.ts` | Active spans through a handed platform tracer (`tracing.tracer`, never importing the api) or else the auto-detected optional OTel api; the one exactly-once containment both paths share |
 | `logger.ts` | Level selection, callback containment, pretty presentation, and the log metadata vocabulary (`LOG_META_KEYS`) |
 | `src/drivers/driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
 | `src/extensions/official-facts.ts` | The neutral fact contract, the fact unions core produces, and `OfficialObservationCapability` (types only, never re-exported) |
@@ -152,10 +152,22 @@ unhandled rejection.
 
 ## Optional OTel
 
-`@opentelemetry/api` is dynamically imported. Missing or hostile OTel falls
-back to application execution. Readiness is one-shot: after it settles,
-prewarming returns `undefined` synchronously and does not add a permanent
-microtask to traced operations.
+With `tracing: { tracer }` the wrapper starts spans through that tracer's
+`startActiveSpan` and never imports `@opentelemetry/api`: the package is a
+type-only import there, and `SpanKind`/`SpanStatusCode` are the api's numeric
+contract values declared in `tracer.ts`. It is enabled at once and has no
+readiness to prewarm. The config snapshot keeps the tracer by reference only
+when it has a callable `startActiveSpan`; any other value falls back to
+auto-detection.
+
+Without `tracer`, `@opentelemetry/api` is dynamically imported. Missing or
+hostile OTel falls back to application execution. Readiness is one-shot: after
+it settles, prewarming returns `undefined` synchronously and does not add a
+permanent microtask to traced operations.
+
+Both paths share one containment: the application callback runs exactly once
+whether the tracer or context manager calls back twice, re-entrantly, never,
+or throws, and the span it received is settled inside that run.
 
 ## Validation
 

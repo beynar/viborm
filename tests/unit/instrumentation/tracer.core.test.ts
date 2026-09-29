@@ -86,18 +86,6 @@ describe("createTracerWrapper (OTel present)", () => {
     );
   });
 
-  it("adds late attributes to the active span", async () => {
-    const tracer = createTracerWrapper();
-
-    await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => {
-      tracer.setActiveSpanAttributes?.({ "viborm.write.atomicity": "segment" });
-    });
-
-    expect(findLast(SPAN_OPERATION)?.attributes["viborm.write.atomicity"]).toBe(
-      "segment"
-    );
-  });
-
   it("includeSql defaults false and requires explicit opt-in", async () => {
     const withSql = createTracerWrapper({ includeSql: true });
     const noSql = createTracerWrapper();
@@ -481,14 +469,6 @@ describe("getNoopTracer", () => {
     );
 
     expect(result).toBe("sync-value");
-  });
-
-  it("accepts active-span attributes without a provider", () => {
-    expect(() =>
-      getNoopTracer().setActiveSpanAttributes?.({
-        "viborm.write.atomicity": "operation",
-      })
-    ).not.toThrow();
   });
 
   it("returns the shared singleton instance across calls", () => {

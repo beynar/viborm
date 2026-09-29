@@ -30,9 +30,40 @@ const client = createClient({ schema, driver }).$extends(
 | `includeSql` | `boolean` | `false` | Add rendered SQL to execute spans |
 | `includeParams` | `boolean` | `false` | Add one attribute per snapshotted parameter |
 | `ignoreSpanTypes` | `Array<string \| RegExp>` | `[]` | Skip matching exact span names |
+| `tracer` | `Tracer` from `@opentelemetry/api` | auto-detected | Present spans through this tracer instead of importing the API |
 
 Ignoring a span does not redirect its late attributes to the active parent.
 Cache hit/miss/TTL facts target only their exact cache span.
+
+## Bring your own tracer
+
+By default VibORM imports `@opentelemetry/api` itself, lazily, and asks the
+registered global provider for a tracer. That import is a bet on your bundler
+and runtime. Where the runtime supplies the tracer, hand it over instead. On
+Cloudflare Workers, custom spans come from the tracer your Worker gets from its
+own `@opentelemetry/api`:
+
+```ts
+import { trace } from "@opentelemetry/api";
+import { instrumentation } from "viborm/instrumentation";
+
+const tracer = trace.getTracer("app");
+
+const client = createClient({ schema, driver }).$extends(
+  instrumentation({ tracing: { tracer } })
+);
+```
+
+VibORM then starts every span with `tracer.startActiveSpan`, so its spans nest
+under the span that is active when you call the client. With `tracer` set, the
+library never imports `@opentelemetry/api` itself, and tracing is ready at
+once: there is no first-operation load to wait for. `includeSql`,
+`includeParams`, and `ignoreSpanTypes` apply as they do without it. Only the
+type of `tracer` comes from the API package.
+
+A tracer that throws, never calls back, or calls back twice cannot stop, skip,
+or repeat a database operation: the operation runs exactly once, and runs
+without a span if the tracer never calls back.
 
 ## Span families
 
@@ -87,6 +118,6 @@ or span completion cannot block provider release or alter the application.
 
 ## Graceful degradation
 
-If `@opentelemetry/api` is not installed, tracing becomes a no-op and database
-operations continue. Diagnostics-only and logging-only instrumentation do not
+If `@opentelemetry/api` is not installed and no `tracer` is given, tracing
+becomes a no-op and database operations continue. Diagnostics-only and logging-only instrumentation do not
 allocate execute-span gates. Ignored execute spans do not read parameters.
