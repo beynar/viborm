@@ -1,0 +1,195 @@
+---
+title: Types and JSON Schema
+description: Derive application types, validate operation inputs, and export JSON Schema from your models
+icon: braces
+---
+
+Your model definitions already contain the information needed for application
+types and input validation. You do not need a database connection or a generated
+client to use these helpers.
+
+## A nested DB type
+
+`InferDatabase` maps your schema's model names to commonly used types:
+
+```ts
+import type { InferDatabase } from "viborm/client";
+import type * as schema from "./schema";
+
+export type DB = InferDatabase<typeof schema>;
+
+type Post = DB["post"]["Row"];
+type NewPost = DB["post"]["Create"];
+type PostUpdate = DB["post"]["Update"];
+type PostFilter = DB["post"]["Where"];
+type FindPosts = DB["post"]["FindMany"];
+```
+
+**Package availability:** `InferDatabase` is a new type-only export prepared for
+the next package release; it is not yet in the published npm package. Until that
+release, define the same helper in your application using the existing exports:
+
+```ts
+import type { OperationPayload, OperationResult, Schema } from "viborm/client";
+import type { ModelCoreInput } from "viborm/validation";
+
+export type InferDatabase<S extends Schema> = {
+  [K in keyof S]: {
+    Row: OperationResult<"findMany", S[K], Record<never, never>>[number];
+    Create: ModelCoreInput<S[K], "create">;
+    Update: ModelCoreInput<S[K], "update">;
+    Where: ModelCoreInput<S[K], "where">;
+    FindMany: OperationPayload<"findMany", S[K]>;
+  };
+};
+```
+
+`Row` is the default scalar result, not a row with every relation loaded.
+Schema-level `.omit()` is respected. Client extensions and `defaultOmit()` are
+not part of this schema-only view. `Create` and `Update` describe input data;
+`FindMany` describes the complete operation arguments.
+
+Keep the original inferred schema type. Annotating your schema as the broad
+`Schema` type loses its specific model and field information.
+
+### Dot-style namespaces
+
+`DB["post"]["Create"]` is derived automatically. If you prefer
+`DB.Post.Create`, declare aliases explicitly:
+
+```ts
+type Database = InferDatabase<typeof schema>;
+
+export namespace DB {
+  export namespace Post {
+    export type Row = Database["post"]["Row"];
+    export type Create = Database["post"]["Create"];
+  }
+}
+```
+
+These are TypeScript types, not SQL database namespaces. For PostgreSQL schemas
+or MySQL database qualification, see [Database namespaces](/docs/drivers/namespaces).
+
+## Types for a specific operation
+
+Use `OperationPayload` for arguments and `OperationResult` for a concrete
+projection. A `findMany` result is an array; index it with `[number]` for one row.
+
+```ts
+import type { OperationPayload, OperationResult } from "viborm/client";
+import type * as schema from "./schema";
+
+type FindPosts = OperationPayload<"findMany", typeof schema.post>;
+type PostTitle = OperationResult<
+  "findMany",
+  typeof schema.post,
+  { select: { title: true } }
+>[number];
+// { title: string }
+```
+
+For results affected by a concrete client's extensions or defaults, infer from
+an application query function with `Awaited<ReturnType<typeof loadPosts>>`.
+
+## Validation schemas and their types
+
+`getSchemas` exposes the validation schemas for the complete model graph.
+`core.create` describes create data; `args.create` describes the complete call,
+including its `data` property and projection options.
+
+```ts
+import { getSchemas } from "viborm";
+import type { InferInput, InferOutput } from "viborm/validation";
+import * as schema from "./schema";
+
+const schemas = getSchemas(schema);
+const createPost = schemas.post.core.create;
+
+type CreatePostInput = InferInput<typeof createPost>;
+type ValidatedCreatePost = InferOutput<typeof createPost>;
+
+const validation = createPost["~standard"].validate({
+  title: "Hello",
+});
+// Inspect validation.issues or validation.value; required fields depend on your model.
+```
+
+`InferOutput` means the normalized output of **validation**, not a record read
+from the database. Use `OperationResult` for query results.
+
+To validate a full payload selected by model and operation:
+
+```ts
+import { getOperationPayloadSchema, validateOperationPayload } from "viborm";
+
+const findPostsSchema = getOperationPayloadSchema(schema, "post", "findMany");
+const payload = validateOperationPayload(schema, "post", "findMany", {
+  where: { title: { contains: "Hello" } },
+});
+```
+
+`validateOperationPayload` returns the normalized payload or throws. This checks
+the schema language, not authorization or whether a driver can execute the work.
+
+## Export JSON Schema
+
+Use `toJsonSchema` to describe accepted input:
+
+```ts
+import { toJsonSchema } from "viborm/validation";
+
+const createPostJson = toJsonSchema(createPost, "draft-2020-12");
+```
+
+Supported targets are `draft-07` (the default), `draft-2020-12`, and
+`openapi-3.0`. Recursive schemas use `$ref` references. Conversion can throw for
+an unsupported target or a schema that cannot be represented faithfully.
+
+The Standard JSON Schema interface lets you choose a direction explicitly:
+
+```ts
+const inputJson = createPost["~standard"].jsonSchema.input({
+  target: "draft-2020-12",
+});
+const outputJson = createPost["~standard"].jsonSchema.output({
+  target: "draft-2020-12",
+});
+```
+
+Again, `output` describes validation output, **not database query results**.
+JSON Schema describes data shapes; it does not replace VibORM's runtime
+validation, database constraints, or application authorization.
+
+This is separate from `parseSchema` and `serializeSchema` in
+`viborm/schema/json`, which read and write VibORM model-definition documents.
+
+## Render TypeScript descriptions
+
+For tools that need TypeScript source text rather than compiler-inferred types:
+
+```ts
+import { renderOperationResultType, renderSchemaType } from "viborm";
+
+const modelsText = renderSchemaType(schema);
+const resultText = renderOperationResultType(schema, "post", "findMany", {
+  select: { title: true },
+});
+```
+
+These functions return strings, not live TypeScript types or JSON Schema.
+`renderSchemaType` renders a recursive `VibORMSchema` declaration. Runtime
+rendering cannot recover a custom JSON validator's erased TypeScript generic,
+so that value is rendered as `unknown`. Client extensions and client-level
+defaults are not included.
+
+## Import reference
+
+| Import path | Helpers |
+| --- | --- |
+| `viborm` | `getSchemas`, `getOperationPayloadSchema`, `validateOperationPayload`, `renderSchemaType`, `renderOperationResultType` |
+| `viborm/client` | `InferDatabase` (upcoming), `OperationPayload`, `OperationResult`, `OperationPayloadSchema`, `ValidatedOperationPayload` |
+| `viborm/validation` | `InferInput`, `InferOutput`, `ModelCoreInput`, `ModelOperationInput`, `toJsonSchema`, `createJsonSchemaConverter`, `JsonSchema` |
+
+See [Standard Schema V1](/docs/internals/validation/standard-schema) for the
+validation interface and model-schema reference.

@@ -18,56 +18,16 @@ env:
   NPM_VERSION: "11.15.0"
   PNPM_VERSION: "10.11.0"
 
-# Every timeout-minutes below is derived, and each job says from what. Two kinds
-# of evidence back them, and nothing else does.
-#
-#   Wall time measured on the maintainer's machine, 2026-08-31:
-#     pnpm test:core 41s | pnpm test:package 15s | pnpm test:coverage 329s |
-#     pnpm test:types 1798s | pnpm test:all, the whole credential-free
-#     estate, 30-60 min.
-#
-#   Ceilings the bounded launchers in scripts/ already enforce, which a command
-#   cannot exceed because the launcher kills it first:
-#     scripts/run-vitest-safe.mjs      300000 ms, or --wall-limit-ms when
-#                                      the caller passes one
-#     scripts/run-typecheck-shards.mjs 3600000 ms for the complete sharded run
-#     scripts/run-node-safe.mjs        the caller's number; test:coverage:policy
-#                                      passes 60000 ms three times
-#
-# Where one aggregate ceiling covers a whole command, the job budget is that
-# ceiling plus setup, so the launcher - not GitHub - is what reports an overrun,
-# with its per-stage RSS and teardown lines intact. Where the only ceiling is a
-# sum of dozens of per-stage ones (coverage, test:all), the measured wall is the
-# anchor and is doubled, because a hosted four-vCPU runner is slower than the
-# machine those figures came from. That doubling is an allowance, not a
-# measurement, and it is the only unmeasured factor in this file.
-#
-# "Setup" means checkout, pnpm and Node setup, and pnpm install
-# --frozen-lockfile. It is budgeted at five minutes everywhere.
-#
-# No memory limit is set, raised, or lowered here. Heap and RSS ceilings live in
-# the launchers; every number below is wall clock only.
+# Checkouts retain source, tests, live docs and architecture plans, but not the
+# 3.69 GB historical Raptor receipt archive. No archive is deleted from Git.
+# Required job names and launcher resource ceilings remain unchanged.
 
 jobs:
   quality:
     name: Types, format, and docs
     runs-on: ubuntu-latest
-    # 70 = the 3600000 ms (60 min) aggregate wall bound
-    # scripts/run-typecheck-shards.mjs sets for the complete run, + 5 min setup,
-    # + 5 min so that runner reaches its own bound and reports first instead of
-    # GitHub cancelling the job and truncating the log. The former 15 could not
-    # pass at all: the complete lane measured 1798s, about 30 min, on its own.
-    #
-    # This is shape (i), an honest timeout, rather than shape (ii), a shard
-    # matrix. The shard plan is computed inside run-typecheck-shards.mjs from
-    # file bytes at run time, and any shard that does not fit is halved and
-    # retried, so a list of partitions written here would silently drift out of
-    # sync with the real set. The runner also takes no partition flag: its
-    # argument parser rejects every argument except `--fast`, which selects a
-    # representative lane and is the opposite of what this job is for.
-    # Distributing this lane therefore means changing that launcher, which this
-    # job must not bypass. Once the runner owns a deterministic partition of
-    # its own, a matrix becomes possible here with no other change.
+    # The native whole-program typecheck replaces the old sharded type lane.
+    # Keep the existing job ceiling; optimize work rather than raising limits.
     timeout-minutes: 70
     env:
       QUALITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -75,7 +35,20 @@ jobs:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      # Only the comparison commit is needed, not the repository's history.
+      # Materialize changed evidence too, so sparse checkout cannot hide a lint
+      # failure in files this pull request actually edits.
+      - name: Fetch the quality comparison and changed files
+        run: |
+          git fetch --no-tags --depth=1 --filter=blob:none origin "${QUALITY_BASE_SHA}"
+          git diff --name-only --diff-filter=ACMRT -z "${QUALITY_BASE_SHA}" HEAD |
+            xargs -0 -r git checkout --ignore-skip-worktree-bits HEAD --
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -92,9 +65,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # The three cheap gates run before the type lane so a formatting,
-      # documentation or whitespace failure reports within a few minutes rather
-      # than behind half an hour of typechecking. What they check is unchanged.
+      # Cheap gates first for fast feedback.
       - name: Check changed formatting and lint rules
         run: >-
           pnpm exec biome check --changed --since="${QUALITY_BASE_SHA}"
@@ -123,6 +94,12 @@ jobs:
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -155,6 +132,12 @@ jobs:
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -183,6 +166,9 @@ jobs:
       - name: Run runner and coverage policy gates
         run: pnpm test:coverage:policy
 
+      - name: Check CI stage ownership
+        run: node scripts/run-node-safe.mjs 512 60000 scripts/credential-free-ci.test.mjs
+
       - name: Run coverage gates
         run: pnpm test:coverage
 
@@ -204,6 +190,12 @@ jobs:
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -235,18 +227,18 @@ jobs:
   local-providers:
     name: Local providers
     runs-on: ubuntu-latest
-    # 125 = the 60 min top of the measured 30-60 min range for the whole
-    # credential-free estate, doubled for a hosted runner, + 5 min setup. The
-    # estate is 111 sequential bounded stages rather than one Vitest run: pnpm
-    # test, 81 extended-local shards, one process per PGlite provider file (8),
-    # then SQLite3 (9), LibSQL (9), Bun, D1 and pnpm test:package, each with its
-    # own launcher ceiling. This is scheduling headroom only: no heap, RSS, or
-    # per-stage wall limit changes with it. The former 180 had no measurement
-    # behind it.
+    # Retain the existing aggregate ceiling. Only unique bounded local stages
+    # run here; other required jobs own the five removed duplicate stages.
     timeout-minutes: 125
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -274,11 +266,11 @@ jobs:
       # D1 - every stage launched bounded and required to prove whole-group
       # teardown before the next one starts. Invoke it; never re-expand it into
       # a single multi-project run and never raise a ceiling to fit a stage.
-      # Its first and last stages are `pnpm test` and `pnpm test:package`, which
-      # the quality, core, and package jobs also run on their own for fast
-      # feedback; this job is the single owner of the estate as a whole.
+      # CI's other required jobs own types, core, package, Bun and D1. The
+      # CI-local selection omits exactly those duplicates; default test:all
+      # remains the complete local command.
       - name: Run the credential-free estate as bounded shards
-        run: pnpm test:all
+        run: pnpm test:all --ci-local
 
   docker-providers:
     name: PostgreSQL and MySQL providers
@@ -320,6 +312,12 @@ jobs:
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -370,6 +368,12 @@ jobs:
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10

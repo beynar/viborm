@@ -45,6 +45,18 @@ Versioning.
     `ATTR_VIBORM_WRITE_COMPLETED_MEMBERS`, `ATTR_VIBORM_WRITE_MEMBER_PATH`,
     `ATTR_VIBORM_WRITE_STATEMENT_COUNT`), which no span carried.
 
+## 1.0.0-rc.3 — Release candidate (not yet published)
+
+- Add the type-only `InferDatabase<Schema>` export from `viborm/client`.
+  Each model exposes `Row`, `Create`, `Update`, `Where`, and `FindMany`, derived
+  from the existing public inference types. No query runtime behavior changes.
+- Document application type helpers, operation validation, JSON Schema export,
+  and runtime TypeScript descriptions in the
+  [Types and JSON Schema guide](docs/content/docs/client/types-and-json-schema.mdx).
+
+This release candidate targets npm `next`, not `latest`. Publication requires
+the protected workflow in [RELEASING.md](RELEASING.md).
+
 ## 1.0.0-rc.2 — Release candidate (not yet published)
 
 - Reduce temporary engine allocations by sharing stateless operation methods,

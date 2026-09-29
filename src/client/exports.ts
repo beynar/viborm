@@ -43,6 +43,7 @@ export type {
   CacheableOperations,
   CachedClient,
   Client,
+  InferDatabase,
   MutationOperations,
   OperationPayload,
   OperationPayloadSchema,

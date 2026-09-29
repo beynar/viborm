@@ -4,8 +4,8 @@ Type-safe TypeScript ORM with **zero code generation**. Types are inferred from 
 
 ## V1 release candidate
 
-This source prepares `1.0.0-rc.2`; it does not mean that candidate is published.
-The preceding `1.0.0-rc.1` is published. Install an exact published candidate
+This source prepares `1.0.0-rc.3`; it does not mean that candidate is published.
+The preceding `1.0.0-rc.2` is published. Install an exact published candidate
 for reproducible evaluation; `next` follows the latest published RC.
 V1 includes breaking changes. Read the [upgrade guide](docs/content/docs/getting-started/upgrading-to-v1.mdx)
 and [changelog](CHANGELOG.md) before migrating. Node.js 22 or newer and

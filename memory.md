@@ -1,5 +1,10 @@
 # Albert's procedural memory
 
+- Diagnose CI latency from per-step timestamps before adding retries or time.
+  Measure tracked checkout bytes separately from test execution. Exclude only
+  proven historical archives, keep changed-file lint coverage, and prove that
+  parallel job selections cover the original estate before removing duplicates.
+
 - A successful remote creation response owns the new resource identity. Keep
   that identity for subsequent reads instead of immediately rediscovering it
   through a potentially delayed collection listing. Exercise the real CLI/API
@@ -342,6 +347,10 @@
 - A documented release protection is not an implemented protection until the
   live repository or registry setting is provisioned. Separate code readiness
   from one-time control-plane setup and name both before the first release.
+- Diagnose pipeline latency from step timings, including checkout and setup.
+  Reuse verified exact-commit qualification instead of rerunning it; retain
+  artifact-specific checks. Prove sparse inputs with a fresh checkout and
+  normal dependency installation, not cross-checkout dependency symlinks.
 - When Arnaud says to merge a completed branch, finish the operation by pushing
   the resulting target branch unless he explicitly asks for a local-only merge.
 - Derive lifecycle-order witnesses from the boundary that owns the failure.
@@ -354,3 +363,7 @@
   by the patch. Source-only lint misses those files. After formatting evidence,
   compare parsed values to the original so presentation changes cannot alter
   measurements.
+- When preparing a release version, compare the README and upgrade-guide
+  installation guidance with package metadata. Distinguish the candidate being
+  prepared from the last verified publication; changing package metadata alone
+  does not update those reader-facing instructions.

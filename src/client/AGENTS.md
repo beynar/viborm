@@ -119,6 +119,12 @@ on nested relation nodes and row-returning bulk writes.
 
 ### Schema and operation introspection
 
+`InferDatabase<S>` from `viborm/client` maps each schema key to `Row`, `Create`,
+`Update`, `Where`, and `FindMany`. It composes `OperationResult`,
+`ModelCoreInput`, and `OperationPayload`; it owns no second inference rules.
+`Row` is the default scalar projection, including schema-level omission, not
+a relation-expanded result or a concrete client's extension/default-omit view.
+
 The package root and `viborm/client` expose four schema-bound utilities:
 
 - `getOperationPayloadSchema(schema, model, operation)` returns the canonical

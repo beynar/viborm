@@ -6,6 +6,7 @@ export default defineMeta({
   order: 2,
   pages: [
     "index",
+    "types-and-json-schema",
     "create",
     "read",
     "update",
