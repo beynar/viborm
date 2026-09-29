@@ -5,9 +5,10 @@
  */
 
 import {
+  type DiagnosticDisclosure,
+  sanitizeAllowedRecord,
   sanitizeDiagnosticParameters,
   sanitizeErrorForLogging,
-  sanitizeLogMetadata,
   type VibORMError,
 } from "@errors";
 import { isString } from "@validation/value-guards";
@@ -18,6 +19,19 @@ import type {
   LogLevel,
   LogLevelHandler,
 } from "./types";
+
+// `deprecation` and `notice` carry ORM-authored notice text (constant wording
+// around schema and driver names, never user data or query text), so they are
+// disclosed on the warning channel unconditionally.
+const LOG_META_KEYS = new Set(["deprecation", "event", "notice", "status"]);
+
+/** The log event metadata a logger may present: known keys and values only. */
+export function sanitizeLogMetadata(
+  value: Record<string, unknown>,
+  disclosure?: DiagnosticDisclosure
+): Record<string, unknown> {
+  return sanitizeAllowedRecord(value, LOG_META_KEYS, disclosure, true);
+}
 
 /**
  * Logger interface for internal use

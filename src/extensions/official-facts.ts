@@ -70,6 +70,39 @@ export interface ObservationOutcome {
 }
 
 /**
+ * A logical operation the official extension may present. A raw operation has
+ * no model and no collection. `driver` is read for its identity, never its
+ * state.
+ */
+export interface OperationFacts {
+  readonly kind: "operation";
+  readonly context: QueryExecutionContext;
+  readonly driver: DriverIdentitySource;
+  readonly model?: string | undefined;
+  /** The operation the caller requested; the operation span names it. */
+  readonly requestedOperation: string;
+  /** The operation that resolved; the error log names it. */
+  readonly operation: string;
+  /** The SQL name of the addressed model. */
+  readonly collection?: string | undefined;
+  readonly complete: (
+    outcome: ObservationOutcome
+  ) => OperationCompletionFacts | undefined;
+}
+
+/**
+ * What a settled operation adds: the failure core selected for the error log
+ * (not yet logged, and wanted), and a cache-managed execution's outcome list.
+ */
+export interface OperationCompletionFacts {
+  readonly kind: "operation";
+  readonly endedAt: number;
+  readonly failure?: Error;
+  /** Close and read the cache-managed execution's outcome list. */
+  readonly readCacheOutcomes?: () => readonly CacheOutcome[];
+}
+
+/**
  * One cache decision of a logical execution, recorded when the capability
  * wants cache outcomes. It never carries a cache key or suffix; `at` is the
  * instant core decided it.

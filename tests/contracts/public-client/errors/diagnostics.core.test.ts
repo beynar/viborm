@@ -13,7 +13,6 @@ import {
   sanitizeErrorCause,
   sanitizeErrorForLogging,
   sanitizeErrorMetadata,
-  sanitizeLogMetadata,
   sanitizeRecordSeriesProgress,
   serializeSanitizedError,
   serializeTrustedError,
@@ -50,6 +49,7 @@ import {
   toError,
   UNREADABLE_DIAGNOSTIC_VALUE,
 } from "@src/errors/diagnostic-safety";
+import { sanitizeLogMetadata } from "@src/instrumentation/logger";
 
 describe("diagnostic disclosure contracts", () => {
   it("defaults closed and admits only explicit disclosure flags", () => {

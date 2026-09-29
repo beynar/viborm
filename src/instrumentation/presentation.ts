@@ -18,6 +18,7 @@ import type {
   CacheOutcome,
   CacheUnitFacts,
   LifecycleDispatch,
+  OperationFacts,
   StatementCompletionFacts,
   StatementDispatch,
 } from "@extensions/official-facts";
@@ -137,6 +138,43 @@ export function presentCacheOutcome(
     correlationId: context?.correlationId,
     error: error instanceof Error ? sanitizeErrorForLogging(error) : undefined,
     meta: Object.freeze({ event: outcome.event, status: outcome.status }),
+  });
+}
+
+/** The span of one logical operation, named by the operation the caller requested. */
+export function createOperationSpanOptions(
+  facts: OperationFacts,
+  correlationId: string | undefined
+): VibORMSpanOptions {
+  const { collection } = facts;
+  return {
+    name: SPAN_OPERATION,
+    attributes: {
+      ...createDriverAttributes(readDriverIdentity(facts.driver)),
+      ...(collection === undefined ? {} : { [ATTR_DB_COLLECTION]: collection }),
+      [ATTR_DB_OPERATION_NAME]: facts.requestedOperation,
+      ...(correlationId === undefined
+        ? {}
+        : { [ATTR_VIBORM_CORRELATION_ID]: correlationId }),
+    },
+  };
+}
+
+/** The error log of the operation failure core selected, at the instant it settled. */
+export function createOperationErrorLogEvent(
+  facts: OperationFacts,
+  correlationId: string | undefined,
+  failure: Error,
+  endedAt: number,
+  duration: number
+): PresentedLog {
+  return Object.freeze({
+    timestamp: new Date(endedAt),
+    error: sanitizeErrorForLogging(failure),
+    model: facts.model,
+    operation: facts.operation,
+    correlationId,
+    duration,
   });
 }
 

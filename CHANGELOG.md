@@ -9,9 +9,9 @@ Versioning.
   extension.** When this entry is complete, core no longer builds span names,
   span attributes, log events or per-channel SQL/parameter disclosure; it asks
   the fixed-name extension what it wants and hands it neutral facts, so a
-  client without the extension no longer carries that code. So far the cache
-  and the driver statement and lifecycle boundaries have moved; the operation
-  span and the operation error log are still built in core. Spans, log events
+  client without the extension no longer carries that code. The cache, the
+  driver statement and lifecycle boundaries, and the logical operation (its
+  span and its error log) have moved. Spans, log events
   and thrown-error diagnostics of an installed extension are unchanged. Custom
   driver subclasses see these changes:
   - `Driver.getBaseAttributes()` and `Driver.getContextAttributes()` are

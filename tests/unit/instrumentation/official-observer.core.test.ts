@@ -12,11 +12,12 @@ import type {
   LifecycleFacts,
   ObservationNeed,
   OfficialObservationCapability,
+  OperationCompletionFacts,
+  OperationFacts,
   StatementFacts,
 } from "@extensions/official-facts";
 import type {
   InstrumentationLifecycleFacts,
-  OperationInstrumentationFacts,
   SegmentInstrumentationFacts,
 } from "@instrumentation/lifecycle-facts";
 import {
@@ -79,6 +80,21 @@ function lifecycleDispatch(start: () => void): LifecycleDispatch {
   });
 }
 
+/** A findMany operation's neutral facts completing with `completion`. */
+function operationFacts(
+  completion: Omit<OperationCompletionFacts, "endedAt" | "kind">
+): OperationFacts {
+  return Object.freeze({
+    kind: "operation",
+    context: {},
+    driver: TEST_DRIVER,
+    requestedOperation: "findMany",
+    operation: "findMany",
+    complete: () =>
+      Object.freeze({ kind: "operation", endedAt: 0, ...completion }),
+  });
+}
+
 function cacheOutcome(
   event: CacheOutcome["event"],
   status?: string
@@ -114,15 +130,9 @@ describe("official protected observer", () => {
         },
       },
     });
-    const facts: OperationInstrumentationFacts = Object.freeze({
-      kind: "operation",
-      context: {},
-      complete: () =>
-        Object.freeze({
-          kind: "operation",
-          readCacheOutcomes: () =>
-            Object.freeze([cacheOutcome("hit"), cacheOutcome("hit", "stale")]),
-        }),
+    const facts = operationFacts({
+      readCacheOutcomes: () =>
+        Object.freeze([cacheOutcome("hit"), cacheOutcome("hit", "stale")]),
     });
     const childValue = Object.freeze({ source: "child" });
 
@@ -151,16 +161,10 @@ describe("official protected observer", () => {
       },
     });
     const readerFailure = new Error("hostile late reader");
-    const facts: OperationInstrumentationFacts = Object.freeze({
-      kind: "operation",
-      context: {},
-      complete: () =>
-        Object.freeze({
-          kind: "operation",
-          readCacheOutcomes() {
-            throw readerFailure;
-          },
-        }),
+    const facts = operationFacts({
+      readCacheOutcomes() {
+        throw readerFailure;
+      },
     });
     const childValue = Object.freeze({ source: "authoritative" });
 
@@ -173,14 +177,8 @@ describe("official protected observer", () => {
       )
     ).resolves.toBe(childValue);
 
-    const loggerFacts: OperationInstrumentationFacts = Object.freeze({
-      kind: "operation",
-      context: {},
-      complete: () =>
-        Object.freeze({
-          kind: "operation",
-          readCacheOutcomes: () => Object.freeze([cacheOutcome("hit")]),
-        }),
+    const loggerFacts = operationFacts({
+      readCacheOutcomes: () => Object.freeze([cacheOutcome("hit")]),
     });
     await expect(
       runObserved(

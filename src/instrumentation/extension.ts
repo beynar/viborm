@@ -24,6 +24,8 @@ import type {
 import {
   createCacheSpanOptions,
   createLifecycleSpanOptions,
+  createOperationErrorLogEvent,
+  createOperationSpanOptions,
   createStatementLogEvent,
   createStatementSpanOptions,
   presentCacheOutcome,
@@ -231,34 +233,41 @@ function observeOfficialInstrumentation(
   }
   if (facts?.kind !== "operation") return proceed();
 
+  // The correlation id is created as the operation starts, never later.
+  const correlationId = facts.context.correlationId;
   const observeCompletion = (): Promise<void> => {
     const completion = proceed();
     return completion.then((outcome) => {
       const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-      if (
-        completionFacts?.kind === "operation" &&
-        completionFacts.readCacheOutcomes !== undefined
-      ) {
-        for (const outcome of completionFacts.readCacheOutcomes()) {
-          capability.context.logger?.cache(
-            presentCacheOutcome(facts.context, outcome)
+      if (completionFacts?.kind === "operation") {
+        const { failure, readCacheOutcomes } = completionFacts;
+        if (readCacheOutcomes !== undefined) {
+          for (const cacheOutcome of readCacheOutcomes()) {
+            capability.context.logger?.cache(
+              presentCacheOutcome(facts.context, cacheOutcome)
+            );
+          }
+        }
+        if (failure !== undefined) {
+          capability.context.logger?.error(
+            createOperationErrorLogEvent(
+              facts,
+              correlationId,
+              failure,
+              completionFacts.endedAt,
+              outcome.durationMs
+            )
           );
         }
-      }
-      if (
-        completionFacts?.kind === "operation" &&
-        completionFacts.errorLogEvent !== undefined
-      ) {
-        capability.context.logger?.error(completionFacts.errorLogEvent);
       }
       if (outcome.status === "failure") throw createObservedFailure();
     });
   };
 
-  return facts.spanOptions === undefined
+  return capability.context.config.tracing === undefined
     ? observeCompletion()
     : capability.context.tracer.startActiveSpan(
-        facts.spanOptions,
+        createOperationSpanOptions(facts, correlationId),
         observeCompletion
       );
 }
