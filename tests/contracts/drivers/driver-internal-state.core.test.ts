@@ -18,7 +18,6 @@ import {
   createExecutionContext,
   deriveStatementExecutionContext,
   getExecutionExtensionChain,
-  getExecutionInstrumentation,
   getExecutionTransactionPhases,
   snapshotExecutionContext,
 } from "@drivers/execution-context";
@@ -213,7 +212,6 @@ describe("trusted execution context composition", () => {
     const correlationIdFactory = vi.fn(() => "correlation");
     const context = createExecutionContext(
       { model: "entry", operation: "findMany" },
-      undefined,
       correlationIdFactory
     );
 
@@ -253,8 +251,6 @@ describe("trusted execution context composition", () => {
     });
 
     expect(snapshotExecutionContext(hostile, bound)).toBe(bound);
-    expect(getExecutionInstrumentation(undefined)).toBeUndefined();
-    expect(getExecutionInstrumentation(hostile)).toBeUndefined();
     expect(getExecutionExtensionChain(undefined)).toBeUndefined();
     expect(getExecutionExtensionChain(hostile)).toBeUndefined();
     expect(getExecutionTransactionPhases(undefined)).toBeUndefined();

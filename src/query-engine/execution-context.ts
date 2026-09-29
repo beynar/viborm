@@ -7,9 +7,8 @@ import {
 } from "@drivers/execution-context";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
-import type { InstrumentationContext } from "@instrumentation/context";
 import type { InstrumentationLifecycleFactsReader } from "@instrumentation/lifecycle-facts";
-import { isErrorLogged } from "@instrumentation/logged-errors";
+import { isErrorLogged } from "../errors/logged-errors";
 import type { Operation } from "./types";
 
 /** Immutable ownership and attribution captured when an operation is created. */
@@ -22,12 +21,10 @@ export interface OperationExecutionContext {
 export function createOperationExecutionContext(
   model: string,
   operation: Operation | string,
-  instrumentation?: InstrumentationContext,
   extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
   return createExecutionContext(
     { model, operation },
-    instrumentation,
     createCorrelationId,
     extensionChain
   );
@@ -36,7 +33,6 @@ export function createOperationExecutionContext(
 export function createPendingOperationContext(
   model: string,
   operation: Operation,
-  instrumentation: InstrumentationContext | undefined,
   clientId: symbol,
   scopeId: symbol,
   extensionChain?: ResolvedExtensionChain
@@ -47,7 +43,6 @@ export function createPendingOperationContext(
     attribution: createOperationExecutionContext(
       model,
       operation,
-      instrumentation,
       extensionChain
     ),
   });

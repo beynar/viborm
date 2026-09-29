@@ -39,7 +39,7 @@ import {
   safeArrayLength,
   safeOwnPropertyDescriptor,
 } from "../errors/diagnostic-safety";
-import { transferLoggedErrorEvidence } from "../instrumentation/logged-errors";
+import { transferLoggedErrorEvidence } from "../errors/logged-errors";
 import {
   readSuppressedFailures,
   withSuppressedFailure,

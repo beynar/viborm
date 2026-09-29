@@ -396,7 +396,6 @@ describe("integrated statement transforms", () => {
     const trustedContext = createOperationExecutionContext(
       "$transaction",
       "$transaction(callback)",
-      undefined,
       chain
     );
     expect(Reflect.ownKeys(trustedContext)).toEqual([

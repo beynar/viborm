@@ -7,7 +7,6 @@ import {
   type LifecycleUnit,
   readProtectedLifecycleFacts,
 } from "@extensions/observation";
-import { isErrorLogged } from "@instrumentation/logged-errors";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
@@ -16,6 +15,7 @@ import {
 } from "@instrumentation/spans";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { Sql } from "@sql";
+import { isErrorLogged } from "@src/errors/logged-errors";
 import { createClient, defineExtension, s, sql } from "@src/index";
 import { instrumentation } from "@src/instrumentation/exports";
 import {

@@ -115,11 +115,7 @@ function observedContext(
 ): QueryExecutionContext {
   let chain = appendResolvedExtension(undefined, instrumentation(config), {});
   if (companion) chain = appendResolvedExtension(chain, companion, {});
-  const capability = getOfficialInstrumentationChainCapability(chain);
-  if (capability === undefined) {
-    throw new Error("Official instrumentation capability was not registered");
-  }
-  return createExecutionContext(values, capability.context, undefined, chain);
+  return createExecutionContext(values, undefined, chain);
 }
 
 /** Logging with no enabled level: observed, but nothing to trace or log. */
@@ -369,7 +365,6 @@ describe("observed lifecycle needs", () => {
     );
     const context = createExecutionContext(
       { operation: "$transaction" },
-      official.context,
       undefined,
       chain
     );

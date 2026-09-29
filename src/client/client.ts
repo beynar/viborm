@@ -794,7 +794,6 @@ export class VibORM<C extends VibORMConfig> {
       const baseTransactionContext = createOperationExecutionContext(
         "$transaction",
         Array.isArray(input) ? "$transaction([...])" : "$transaction(callback)",
-        engine.instrumentation,
         engine.extensionChain
       );
       let transactionContext = baseTransactionContext;
@@ -896,7 +895,6 @@ export class VibORM<C extends VibORMConfig> {
                         Array.isArray(nestedInput)
                           ? "$transaction([...])"
                           : "$transaction(callback)",
-                        txEngine.instrumentation,
                         txEngine.extensionChain
                       );
                     if (Array.isArray(nestedInput)) {
@@ -1068,7 +1066,6 @@ export class VibORM<C extends VibORMConfig> {
         createOperationExecutionContext(
           "$connection",
           "$disconnect",
-          engine.instrumentation,
           engine.extensionChain
         )
       );
@@ -1134,7 +1131,6 @@ export class VibORM<C extends VibORMConfig> {
               createOperationExecutionContext(
                 "$connection",
                 "$connect",
-                engine.instrumentation,
                 engine.extensionChain
               )
             );
@@ -1173,7 +1169,6 @@ export class VibORM<C extends VibORMConfig> {
               createOperationExecutionContext(
                 "$cache",
                 "$invalidate",
-                engine.instrumentation,
                 engine.extensionChain
               ),
               officialCache.scope

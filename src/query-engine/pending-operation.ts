@@ -418,7 +418,6 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       createPendingOperationContext(
         this.#modelName,
         this.#operation,
-        engine.instrumentation,
         engine.clientId,
         engine.scopeId,
         engine.extensionChain

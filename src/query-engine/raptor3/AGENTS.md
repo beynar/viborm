@@ -793,8 +793,9 @@ standalone, batch preparation, or a `borrowed-transaction` binding without
 `memberRollback`), the skip is DROPPED, never refused (Arnaud, 2026-09-24,
 "Warn, drop skipDuplicates"). `OperationContext.admitsSuppression` is the one
 rule and the one sentence: it answers whether the member may be skipped and, when
-it may not, warns once per client lineage and model (the client's logger when it
-routes warnings, `console.warn` otherwise) and the member runs as a plain member.
+it may not, warns once per client lineage and model (the official
+instrumentation extension's `warn` when it routes warnings, `console.warn`
+otherwise) and the member runs as a plain member.
 A duplicate then fails with the ordinary `UniqueConstraintError`, and members an
 earlier segment committed stay committed, exactly as for the same `createMany`
 without `skipDuplicates`. The rule is asked where the skip would be spent — at

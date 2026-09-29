@@ -139,7 +139,6 @@ describe("deterministic statement-transform integration", () => {
     const trustedContext = createOperationExecutionContext(
       "$transaction",
       "$transaction(callback)",
-      undefined,
       chain
     );
     expect(Reflect.ownKeys(trustedContext)).toEqual([

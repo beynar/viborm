@@ -1,18 +1,19 @@
 /**
- * Cross-layer record of errors the driver layer has already reported.
+ * Cross-layer record of errors core has already selected for a log.
  *
- * One failure crosses two observers: the driver logs the failing *statement*
- * (`logQuery`) and the query engine logs the failing *operation*. Both would
- * report the same error object, so the driver marks what it has reported and
- * the engine skips anything already marked.
+ * One failure crosses two observers: the driver's statement completion selects
+ * the failing *statement* for the error log and the query engine's operation
+ * completion selects the failing *operation*. Both would report the same error
+ * object, so the statement completion marks what it selected, synchronously,
+ * and the operation completion skips anything already marked. Core selects and
+ * marks; the official instrumentation extension only formats. The record lives
+ * in `src/errors/` so that core has no runtime edge into the extension.
  *
  * ## Why a module-scoped WeakSet, and not the instrumentation context
  *
- * Execution snapshots reference the same `InstrumentationContext` through the
- * weak mapping in `src/drivers/execution-context.ts`. The de-duplication marker
- * still does not belong in that context: it describes one thrown error, not the
- * client-wide observer configuration, and the same context serves concurrent
- * operations.
+ * The de-duplication marker does not belong in the instrumentation context: it
+ * describes one thrown error, not the client-wide observer configuration, and
+ * the same context serves concurrent operations.
  *
  * ## Why not a property on the error
  *
@@ -32,7 +33,7 @@
 
 const loggedErrors = new WeakSet<Error>();
 
-/** Record that this error has been reported to the logger. */
+/** Record that core has selected this error for a log. */
 export function markErrorLogged(error: Error): void {
   loggedErrors.add(error);
 }
@@ -45,7 +46,7 @@ export function transferLoggedErrorEvidence(
   if (loggedErrors.has(source)) loggedErrors.add(successor);
 }
 
-/** Whether this error has already been reported to the logger. */
+/** Whether core has already selected this error for a log. */
 export function isErrorLogged(error: Error): boolean {
   return loggedErrors.has(error);
 }

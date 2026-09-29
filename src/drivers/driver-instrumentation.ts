@@ -23,9 +23,9 @@ import type {
   StatementFacts,
 } from "@extensions/official-facts";
 import { applyStatementTransforms } from "@extensions/statement";
-import { markErrorLogged } from "@instrumentation/logged-errors";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
+import { markErrorLogged } from "../errors/logged-errors";
 import {
   assertStatementBindParameterCapacity,
   normalizedBindParameterLimit,

@@ -28,7 +28,6 @@ import type {
   QueryResult,
 } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_QUERY_TEXT,
@@ -72,11 +71,7 @@ function observedContext(
 ): QueryExecutionContext {
   let chain = appendResolvedExtension(undefined, instrumentation(config), {});
   if (companion) chain = appendResolvedExtension(chain, companion, {});
-  const capability = getOfficialInstrumentationChainCapability(chain);
-  if (capability === undefined) {
-    throw new Error("Official instrumentation capability was not registered");
-  }
-  return createExecutionContext(values, capability.context, undefined, chain);
+  return createExecutionContext(values, undefined, chain);
 }
 
 interface ObservedOptions {

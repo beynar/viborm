@@ -1,12 +1,10 @@
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { InstrumentationContext } from "@instrumentation/context";
 import type { QueryExecutionContext } from "./types";
 
 interface TrustedExecutionContext {
   readonly correlationId?: string;
   readonly correlationIdGetter?: () => string;
   readonly extensionChain?: ResolvedExtensionChain;
-  readonly instrumentation?: InstrumentationContext;
   readonly model?: string;
   readonly operation?: string;
   readonly transactionPhases?: TransactionPhaseNotifications;
@@ -22,7 +20,6 @@ const trustedExecutionContexts = new WeakMap<object, TrustedExecutionContext>();
 
 export function createExecutionContext(
   values: QueryExecutionContext,
-  instrumentation?: InstrumentationContext,
   correlationIdFactory?: () => string,
   extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
@@ -31,7 +28,6 @@ export function createExecutionContext(
       values,
       undefined,
       undefined,
-      instrumentation,
       extensionChain
     );
   }
@@ -44,7 +40,6 @@ export function createExecutionContext(
   return createTrustedExecutionContext({
     correlationIdGetter,
     extensionChain,
-    instrumentation,
     model: readString(values, "model"),
     operation: readString(values, "operation"),
   });
@@ -54,7 +49,6 @@ export function snapshotExecutionContext(
   context: QueryExecutionContext | undefined,
   boundContext?: QueryExecutionContext,
   fallbackOperation?: string,
-  instrumentationOverride?: InstrumentationContext,
   extensionChainOverride?: ResolvedExtensionChain
 ): QueryExecutionContext {
   const trustedContext = context
@@ -80,10 +74,6 @@ export function snapshotExecutionContext(
   const correlationId = correlationIdGetter
     ? undefined
     : (contextValues.correlationId ?? boundValues.correlationId);
-  const instrumentation =
-    contextValues.instrumentation ??
-    boundValues.instrumentation ??
-    instrumentationOverride;
   const extensionChain =
     contextValues.extensionChain ??
     boundValues.extensionChain ??
@@ -100,7 +90,6 @@ export function snapshotExecutionContext(
       operation,
       correlationId,
       correlationIdGetter,
-      instrumentation,
       extensionChain,
       transactionPhases
     )
@@ -116,7 +105,6 @@ export function snapshotExecutionContext(
       operation,
       correlationId,
       correlationIdGetter,
-      instrumentation,
       extensionChain,
       transactionPhases
     )
@@ -128,7 +116,6 @@ export function snapshotExecutionContext(
     correlationId,
     correlationIdGetter,
     extensionChain,
-    instrumentation,
     model,
     operation,
     transactionPhases,
@@ -137,7 +124,7 @@ export function snapshotExecutionContext(
 
 /**
  * Re-attribute a trusted context to the model one statement addresses, keeping
- * the correlation id, instrumentation and extension provenance of the operation
+ * the correlation id and extension provenance of the operation
  * it belongs to. Only the snapshot owner can do this without losing the private
  * values, which is why the query engine asks for it rather than rebuilding one.
  */
@@ -149,13 +136,6 @@ export function deriveStatementExecutionContext(
     trustedExecutionContexts.get(context) ??
     snapshotExternalExecutionContext(context);
   return createTrustedExecutionContext({ ...values, model });
-}
-
-export function getExecutionInstrumentation(
-  context: QueryExecutionContext | undefined
-): InstrumentationContext | undefined {
-  if (!context) return undefined;
-  return trustedExecutionContexts.get(context)?.instrumentation;
 }
 
 /** Read only the chain attached by the trusted context owner. */
@@ -251,7 +231,6 @@ function representsExecutionContext(
   operation: string | undefined,
   correlationId: string | undefined,
   correlationIdGetter: (() => string) | undefined,
-  instrumentation: InstrumentationContext | undefined,
   extensionChain: ResolvedExtensionChain | undefined,
   transactionPhases: TransactionPhaseNotifications | undefined
 ): boolean {
@@ -260,7 +239,6 @@ function representsExecutionContext(
     values.operation === operation &&
     values.correlationId === correlationId &&
     values.correlationIdGetter === correlationIdGetter &&
-    values.instrumentation === instrumentation &&
     values.extensionChain === extensionChain &&
     values.transactionPhases === transactionPhases
   );

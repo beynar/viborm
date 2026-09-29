@@ -125,7 +125,6 @@ function officialInstrumentationContext(options?: {
   const chain = appendResolvedExtension(undefined, extension, {});
   return createExecutionContext(
     { model: "record", operation: "findMany" },
-    undefined,
     options?.correlationId === undefined
       ? undefined
       : () => options.correlationId ?? "",
@@ -271,7 +270,6 @@ describe("public cache-driver storage contract", () => {
     );
     const context = createExecutionContext(
       { model: "record", operation: "findMany" },
-      undefined,
       undefined,
       chain
     );
@@ -755,7 +753,6 @@ describe("background cache failure integrity", () => {
     );
     const context = createExecutionContext(
       { model: "record", operation: "findMany" },
-      undefined,
       undefined,
       chain
     );
