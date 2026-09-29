@@ -152,12 +152,11 @@ function recordCacheOutcome(
  * unit itself.
  */
 function placeCacheSetFailure(
-  context: QueryExecutionContext | undefined,
+  context: QueryExecutionContext,
   failure: unknown
 ): CacheCompletionFacts | undefined {
   const outcome = createCacheOutcome("miss", "cache-set-failed", failure);
-  const list =
-    context === undefined ? undefined : executionOutcomes.get(context);
+  const list = executionOutcomes.get(context);
   if (list !== undefined && !list.completed) {
     list.outcomes.push(outcome);
     return undefined;
@@ -437,7 +436,7 @@ export abstract class CacheDriver {
       },
       options.executionContext,
       namespace,
-      true
+      options.executionContext
     ).catch(() => undefined);
 
     scheduleBackground(cachePromise, options.waitUntil);
@@ -672,7 +671,8 @@ export abstract class CacheDriver {
     options: CacheSetOptions,
     context?: QueryExecutionContext,
     namespace?: string,
-    logSetFailure = false
+    /** The logical execution a background set belongs to, which a failure joins. */
+    backgroundOf?: QueryExecutionContext
   ): Promise<void> {
     const prefixedKey = this.prefixKey(key, namespace);
     const entry: CacheEntry<T> = {
@@ -688,10 +688,12 @@ export abstract class CacheDriver {
       "set",
       context,
       () => this.set(prefixedKey, storageTtl, entry),
-      (outcome) =>
-        logSetFailure && outcome.status === "failure"
-          ? placeCacheSetFailure(context, outcome.failure)
-          : undefined,
+      backgroundOf === undefined
+        ? undefined
+        : (outcome) =>
+            outcome.status === "failure"
+              ? placeCacheSetFailure(backgroundOf, outcome.failure)
+              : undefined,
       options.ttl
     );
   }
