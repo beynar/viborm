@@ -22,11 +22,11 @@ import type {
   SegmentInstrumentationCompletionFacts,
 } from "./lifecycle-facts";
 import {
-  createCacheLogEvent,
   createCacheSpanOptions,
   createLifecycleSpanOptions,
   createStatementLogEvent,
   createStatementSpanOptions,
+  presentCacheOutcome,
 } from "./presentation";
 import {
   ATTR_CACHE_RESULT,
@@ -241,7 +241,7 @@ function observeOfficialInstrumentation(
       ) {
         for (const outcome of completionFacts.readCacheOutcomes()) {
           capability.context.logger?.cache(
-            createCacheLogEvent(facts.context, outcome)
+            presentCacheOutcome(facts.context, outcome)
           );
         }
       }
@@ -279,7 +279,7 @@ function observeCacheInstrumentation(
   const observeCompletion = async (span?: Span): Promise<void> => {
     if (logged && operation === "revalidate") {
       logger?.cache(
-        createCacheLogEvent(context, {
+        presentCacheOutcome(context, {
           event: "revalidate",
           status: "start",
           at: startedAt,
@@ -296,7 +296,7 @@ function observeCacheInstrumentation(
       }
       if (logged && completionFacts.outcomes !== undefined) {
         for (const cacheOutcome of completionFacts.outcomes) {
-          logger?.cache(createCacheLogEvent(context, cacheOutcome));
+          logger?.cache(presentCacheOutcome(context, cacheOutcome));
         }
       }
     }

@@ -476,9 +476,12 @@ export abstract class CacheDriver {
       observers === undefined || observers.length === 0
         ? undefined
         : { failed: false, error: undefined };
-    let terminal: CacheOutcome | undefined;
+    // The observed child stores its terminal outcome before it settles, and the
+    // rail reads completion facts only after that.
+    let completion: CacheCompletionFacts | undefined;
 
-    const doRevalidate = async () => {
+    const doRevalidate = async (): Promise<CacheOutcome> => {
+      let terminal: CacheOutcome;
       try {
         const result = await executor();
         const stored = codec.snapshot(result);
@@ -523,6 +526,7 @@ export abstract class CacheDriver {
           }
         }
       }
+      return terminal;
     };
 
     const revalidationPromise =
@@ -532,7 +536,10 @@ export abstract class CacheDriver {
             { kind: "cache", operation: "revalidate" },
             observers,
             async () => {
-              await doRevalidate();
+              completion = Object.freeze({
+                kind: "cache",
+                outcomes: [await doRevalidate()],
+              });
               if (observedFailure.failed) throw observedFailure.error;
             },
             undefined,
@@ -545,10 +552,7 @@ export abstract class CacheDriver {
                   operation,
                   identity: options.driverIdentity,
                 }),
-                complete: () =>
-                  terminal === undefined
-                    ? undefined
-                    : Object.freeze({ kind: "cache", outcomes: [terminal] }),
+                complete: () => completion,
               })
           );
 

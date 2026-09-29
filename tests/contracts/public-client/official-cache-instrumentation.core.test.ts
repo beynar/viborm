@@ -142,6 +142,28 @@ class ObservableInstrumentationCache extends CacheDriver {
   }
 }
 
+/** A cache whose next data set rejects only once the test releases it. */
+class LateSetFailureCache extends ObservableInstrumentationCache {
+  private readonly gate: { release?: () => void } = {};
+  private readonly heldSet = new Promise<void>((resolve) => {
+    this.gate.release = resolve;
+  });
+
+  releaseSetFailure(): void {
+    this.gate.release?.();
+  }
+
+  protected override async set<T>(
+    key: string,
+    storageTtl: number,
+    entry: CacheEntry<T>
+  ): Promise<void> {
+    if (key.endsWith(":reval")) return super.set(key, storageTtl, entry);
+    await this.heldSet;
+    throw new Error("late cache set refused");
+  }
+}
+
 interface CacheObservation {
   readonly operation: string | undefined;
   readonly completion: Promise<{
@@ -570,6 +592,45 @@ describe("official cache instrumentation", () => {
     } finally {
       await recorder.dispose();
     }
+  });
+
+  test("presents a set failure that settles after its operation through the set unit", async () => {
+    const cacheDriver = new LateSetFailureCache(createTestClock());
+    const logs = captureLogs();
+    const background = createBackgroundQueue();
+    const client = trackClient(
+      createClient({ schema, driver: new CacheInstrumentationDriver() })
+        .$extends(
+          cache({ driver: cacheDriver, waitUntil: background.waitUntil })
+        )
+        .$extends(instrumentation({ logging: { cache: logs.callback } }))
+    );
+
+    await client.$withCache({ key: "late", ttl: 10 }).record.findMany();
+    // The operation completion has read and closed its outcome list.
+    await waitFor(() => logs.events.length === 1);
+    cacheDriver.releaseSetFailure();
+    await background.settle();
+    await waitFor(() => logs.events.length === 2);
+
+    expect(cacheEvents(logs.events)).toEqual([
+      {
+        level: "cache",
+        model: "record",
+        operation: "findMany",
+        event: "miss",
+        status: undefined,
+        error: undefined,
+      },
+      {
+        level: "cache",
+        model: "record",
+        operation: "findMany",
+        event: "miss",
+        status: "cache-set-failed",
+        error: "Error",
+      },
+    ]);
   });
 
   test("does not leak ignored get attributes onto the operation or external parent", async () => {

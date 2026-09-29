@@ -125,7 +125,7 @@ export function createCacheSpanOptions(
 }
 
 /** The cache log event of one outcome core recorded. Keys never appear. */
-export function createCacheLogEvent(
+export function presentCacheOutcome(
   context: QueryExecutionContext | undefined,
   outcome: CacheOutcome
 ): PresentedLog {
