@@ -191,10 +191,12 @@ jobs:
       - artifact
       - node-floor
     runs-on: ubuntu-latest
-    # 10: an artifact download, a re-run of the git-only release contract, one
+    # 20: an artifact download, a re-run of the git-only release contract, one
     # `npm publish`, and two registry verifications whose retry ladder in
-    # scripts/release.mjs sleeps 60s in total across its six attempts.
-    timeout-minutes: 10
+    # scripts/release.mjs waits about eight minutes in total across its
+    # thirteen attempts, because npm serves a freshly published version only
+    # after asynchronous processing that it says may take a few minutes.
+    timeout-minutes: 20
     environment:
       name: npm-production
     permissions:
@@ -307,10 +309,10 @@ jobs:
     name: Verify release before GitHub publication
     needs: publish
     runs-on: ubuntu-latest
-    # 10: artifact and registry reauthentication, whose retry ladder sleeps at
-    # most 60s, then one fresh install of the published version from the
-    # registry with a signature audit, an export probe and a CLI --help.
-    timeout-minutes: 10
+    # 20: artifact and registry reauthentication, whose retry ladder waits at
+    # most about eight minutes, then one fresh install of the published version
+    # from the registry with a signature audit, an export probe and a CLI --help.
+    timeout-minutes: 20
     steps:
       - name: Check out the exact release revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
