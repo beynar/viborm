@@ -451,7 +451,17 @@ function asyncFailingSpan(calls: string[]): TracingSpan {
   };
   return {
     setAttribute: (key) => act(`attr:${key}`),
-    end: () => act("end"),
+    // A foreign thenable over a rejecting promise: its own `then` is the
+    // only way to reach that rejection.
+    end: () => {
+      const rejection = act("end");
+      return {
+        then: (
+          onFulfilled?: (value: unknown) => unknown,
+          onRejected?: (reason: unknown) => unknown
+        ) => rejection.then(onFulfilled, onRejected),
+      };
+    },
     setStatus: () => act("status"),
     recordException: () => act("exception"),
   };
@@ -576,6 +586,25 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
     callback?.(late);
 
     expect(calls).toEqual(["first.end", "late.end"]);
+  });
+
+  it("ends a span a tracer hands to two operations once", async () => {
+    const calls: string[] = [];
+    const shared: TracingSpan = {
+      setAttribute: () => undefined,
+      end: () => calls.push("shared.end"),
+    };
+    const tracer: SpanTracer = { startActiveSpan: (_name, fn) => fn(shared) };
+    const wrapper = createTracerWrapper({ tracer });
+
+    await expect(
+      Promise.all([
+        wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => "first"),
+        wrapper.startActiveSpan({ name: SPAN_OPERATION }, () => "second"),
+      ])
+    ).resolves.toEqual(["first", "second"]);
+
+    expect(calls).toEqual(["shared.end"]);
   });
 });
 

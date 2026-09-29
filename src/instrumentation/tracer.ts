@@ -52,6 +52,12 @@ const TRACER_NAME = "viborm";
 const TRACER_VERSION = VIBORM_VERSION;
 const SHOULD_TRACE_SPAN = Symbol("viborm.shouldTraceSpan");
 const tracerReadiness = new WeakMap<TracerWrapper, Promise<void>>();
+/**
+ * Every span VibORM has settled, whichever operation settled it: a span a
+ * tracer hands to two operations, or to a callback re-entered from another
+ * span's `end()`, is ended once.
+ */
+const settledSpans = new WeakSet<TracingSpan>();
 
 /**
  * Extended span options with VibORM-specific attributes
@@ -316,8 +322,9 @@ export function createTracerWrapper(
  * context manager that calls back twice, re-entrantly, late, or never cannot
  * repeat or skip the operation: a later call returns the one execution, and
  * the caller's own final call starts it (unspanned) when nothing called back.
- * Every span any call brings is settled once with that run's outcome: the
- * run's own span, and a second or late one a hostile tracer hands over.
+ * Every span any call brings is settled with that run's outcome, unless an
+ * earlier settlement already ended it: the run's own span, and a second or
+ * late one a hostile tracer hands over.
  */
 function createExecution<T>(
   fn: (span?: TracingSpan) => T | Promise<T>,
@@ -327,14 +334,12 @@ function createExecution<T>(
   let failed: boolean | undefined;
   const settle = (outcome: boolean): void => {
     failed = outcome;
-    // A span a re-entrant `end()` hands over is settled by that callback; the
-    // snapshot never reaches it a second time.
-    for (const span of [...spans]) endSpan(span, outcome, codes);
+    for (const span of spans) endSpan(span, outcome, codes);
   };
   let execution: Promise<T> | undefined;
   let executing = false;
   return (span?: TracingSpan): Promise<T> => {
-    if (span !== undefined && !spans.has(span)) {
+    if (span !== undefined) {
       spans.add(span);
       if (failed !== undefined) endSpan(span, failed, codes);
     }
@@ -367,11 +372,13 @@ function createExecution<T>(
 }
 
 /**
- * Settle a span the operation ran in; span failures never reach it. Status
- * codes are read from `codes` at settlement, and a span without `setStatus`
- * or `recordException` (the Workers runtime span) is still ended.
+ * Settle a span the operation ran in, once; span failures never reach it.
+ * Status codes are read from `codes` at settlement, and a span without
+ * `setStatus` or `recordException` (the Workers runtime span) is still ended.
  */
 function endSpan(span: TracingSpan, failed: boolean, codes: StatusCodes): void {
+  if (settledSpans.has(span)) return;
+  settledSpans.add(span);
   if (failed) {
     safely(() =>
       span.setStatus?.({
@@ -415,14 +422,27 @@ export function shouldTraceSpan(
 
 /**
  * Run one span call; neither its throw nor a rejection of the thenable it
- * returns reaches the operation, which never waits for it.
+ * returns reaches the operation, which never waits for it. Only a thenable
+ * is handed a rejection handler, through its own `then`: a synchronous span
+ * call allocates nothing.
  */
 function safely(action: () => unknown): void {
   try {
-    Promise.resolve(action()).catch(() => undefined);
+    const result = action();
+    const then: unknown =
+      typeof result === "object" && result !== null
+        ? Reflect.get(result, "then")
+        : undefined;
+    if (typeof then === "function") {
+      Reflect.apply(then, result, [undefined, ignoreRejection]);
+    }
   } catch {
     // Instrumentation must never change the operation outcome.
   }
+}
+
+function ignoreRejection(): void {
+  // A span call's rejection is consumed, never presented.
 }
 
 function createTraceError(): Error {

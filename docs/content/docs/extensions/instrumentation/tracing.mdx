@@ -83,9 +83,12 @@ without it. What changes:
 A tracer that throws, never calls back, calls back late, or calls back twice
 cannot stop, skip, or repeat a database operation: the operation runs exactly
 once, runs without a span if the tracer has not called back by then, and every
-span a callback receives is ended once with the operation's outcome. A span
-method that throws or returns a promise that rejects changes nothing, and
-VibORM never waits for one.
+span a callback receives is ended once with the operation's outcome (a span
+handed to several operations is ended once, by the first to settle). A span
+method that throws, or returns a promise or thenable that rejects through its
+own `then`, changes nothing, and VibORM never waits for one. A promise whose
+`then` is replaced or whose `constructor` throws cannot be handed a rejection
+handler, so its rejection stays unhandled.
 
 ## Span families
 

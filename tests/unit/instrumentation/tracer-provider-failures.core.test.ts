@@ -30,7 +30,9 @@ const provider = vi.hoisted<ProviderState>(() => ({
 }));
 
 vi.mock("@opentelemetry/api", () => {
-  const span = {
+  // A fresh span per startSpan, as an OpenTelemetry SDK hands out: VibORM
+  // ends a span object once, whichever operation settles it first.
+  const createSpan = () => ({
     end() {
       if (provider.mode === "span-methods-throw") throw new Error("end failed");
     },
@@ -45,14 +47,14 @@ vi.mock("@opentelemetry/api", () => {
         throw new Error("setStatus failed");
       }
     },
-  };
+  });
   const tracer = {
     startSpan(_name: string, options: { kind: unknown }) {
       if (provider.mode === "start-span-throws") {
         throw new Error("startSpan failed");
       }
       provider.spanCalls.push(`start:${String(options.kind)}`);
-      return span;
+      return createSpan();
     },
   };
   const context = {

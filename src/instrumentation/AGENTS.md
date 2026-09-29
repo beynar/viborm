@@ -176,10 +176,15 @@ does not add a permanent microtask to traced operations.
 Both paths share one containment (`createExecution`): the application callback
 runs exactly once whether the tracer or context manager calls back twice,
 re-entrantly, late, never, or throws, and every span any callback brings is
-settled (status when available, then `end`) once with that run's outcome,
+settled (status when available, then `end`) with that run's outcome,
 including a second or late span a hostile tracer hands over, even from inside
-another span's `end()`. Every span call runs through `safely`: its throw and
-the rejection of a thenable it returns are consumed, never awaited. Execute
+another span's `end()`. `endSpan` ends each span at most once across every
+execution (the module's `settledSpans`), so a span handed to two operations or
+re-entrantly during settlement is never ended twice. Every span call runs
+through `safely`: its throw is consumed, and a thenable it returns is handed a
+no-op rejection handler through its own `then`, never awaited; a non-thenable
+result allocates nothing. A promise with a replaced `then` or a throwing
+`constructor` is out of reach of any handler and is documented as such. Execute
 and lifecycle span options read the driver's own metadata, so
 `presentDispatch` builds them where a throw is contained: a throwing
 custom-adapter getter runs the dispatch unspanned, its completion (and query
