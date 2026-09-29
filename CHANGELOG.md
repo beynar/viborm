@@ -5,6 +5,59 @@ Versioning.
 
 ## Unreleased
 
+- **Breaking: instrumentation presentation moves into the `instrumentation()`
+  extension.** Core no longer builds span names, span attributes, log events
+  or per-channel SQL/parameter disclosure, and it has no runtime import of the
+  extension: it asks the fixed-name extension what it wants and hands it
+  neutral facts, so a client without the extension no longer carries that
+  code. Spans, log events and thrown-error diagnostics of an installed
+  extension are unchanged. These public members and exports are removed or
+  changed:
+  - `Driver.getBaseAttributes()` and `Driver.getContextAttributes()` are
+    removed. Span attributes, including `db.namespace`, are built by the
+    extension from the driver's `dialect`, `driverName` and
+    `adapter.namespace`.
+  - The protected `Driver` members `getInstrumentation()`,
+    `isTracingEnabled()`, `getLogger()`, `getLoggingDisclosure()` and
+    `getTracingDisclosure()` are removed, so a subclass can no longer steer
+    what a log or span discloses by overriding a hook: the extension reads
+    each channel's disclosure from its own configuration.
+    `canDiscloseParameters()` and `getErrorDisclosure()` remain protected and
+    overridable; their default bodies now read the extension installed on the
+    executing client's chain.
+  - The protected `observeTrustedDriverLifecycle()` takes a lifecycle boundary
+    (`"connect"`, `"disconnect"`, `"transaction"`, `"savepoint"`) in place of a
+    span name, and the statement and lifecycle execution gates hand the
+    extension a dispatch record instead of span options.
+  - The statement gate's `execute()` no longer normalizes a statement failure.
+    Each caller passes an executor that already normalizes, so a subclass
+    that calls `observeTrustedStatement()` and relies on the gate to normalize
+    must wrap its executor in `executeNormalizedStatement()`.
+  - `CacheDriver.getBaseAttributes()` is removed. Cache spans and cache log
+    events are built by the extension; the backend's name still comes from
+    `CacheDriver.driverName`.
+  - The `segment` lifecycle unit is removed from `ObservationUnit`: nothing
+    produced it. `viborm/instrumentation` no
+    longer exports `SPAN_RECORD_SERIES_SEGMENT` or the seven
+    `ATTR_VIBORM_WRITE_*` attribute names (`ATTR_VIBORM_WRITE_ATOMICITY`,
+    `ATTR_VIBORM_WRITE_COMMIT_OUTCOME`, `ATTR_VIBORM_WRITE_COMMITTED_SEGMENTS`,
+    `ATTR_VIBORM_WRITE_COMMITTED_WRITE_MEMBERS`,
+    `ATTR_VIBORM_WRITE_COMPLETED_MEMBERS`, `ATTR_VIBORM_WRITE_MEMBER_PATH`,
+    `ATTR_VIBORM_WRITE_STATEMENT_COUNT`), which no span carried.
+  - Added: `instrumentation({ tracing: { tracer } })` takes the tracer the
+    runtime or application already holds: Cloudflare Workers' `tracing` from
+    `cloudflare:workers`, or any OpenTelemetry `Tracer`. Spans start through
+    its two-argument `startActiveSpan(name, fn)` and nest under the caller's
+    active span, and the library never imports `@opentelemetry/api` itself.
+    With a handed tracer, `root` spans (cache revalidation) nest under the
+    active span, and status is set only where the span supports `setStatus`.
+    Without `tracer`, the API is auto-detected as before.
+  - Fixed: a custom adapter whose `namespace` getter throws no longer loses an
+    operation's error log or fails `$withCache` (its spans are presented
+    without `db.*` attributes), and a native-batch member's failure is logged
+    to the client that member belongs to, with that client's disclosure, not
+    to the client whose chain observes the batch.
+
 ## 1.0.0-rc.3 — Release candidate (not yet published)
 
 - Add the type-only `InferDatabase<Schema>` export from `viborm/client`.

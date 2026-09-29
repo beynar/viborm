@@ -278,7 +278,7 @@ INSTALL — own, non-writable, non-configurable — not a ban on copies: models,
 relations, query scopes, operation programs, result types, journals, cache
 identity, and instrumentation read it or do without it, and the two readers that
 deliberately capture it once — the bound migration driver at bind time, and the
-`dbAttributes` snapshot a cached read takes at `$withCache` — cannot go stale
+`readDriverIdentity` snapshot a cached read takes at `$withCache` — cannot go stale
 because the property they read can never be reassigned.
 
 Every VibORM-generated persistent-object reference goes through
@@ -404,7 +404,7 @@ Client uses types:     orm.user.findMany({ where: { name: ... }})  // Fully type
 | Add relation feature | [schema/relation/](src/schema/relation/AGENTS.md) | + `src/validation/relations/` if query inputs change |
 | Add cache backend | [cache/](src/cache/AGENTS.md) | Export from main index |
 | Add cache invalidation option | [cache/](src/cache/AGENTS.md) | Update `schema.ts` |
-| Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts` |
+| Add tracing span/attribute | [instrumentation/](src/instrumentation/AGENTS.md) | Update `spans.ts`, `presentation.ts`; core only publishes neutral facts |
 | Add logging level | [instrumentation/](src/instrumentation/AGENTS.md) | Update `types.ts`, `logger.ts` |
 
 ---

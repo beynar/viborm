@@ -1,25 +1,31 @@
-import type { CacheLogEvent } from "@cache/cache-instrumentation";
+import { appendResolvedExtension } from "@extensions/chain";
 import {
+  getOfficialInstrumentationChainCapability,
   type LifecycleUnit,
   runProtectedObservers,
+  selectTrustedObservers,
 } from "@extensions/observation";
 import type {
-  CacheInstrumentationFacts,
-  DriverLifecycleInstrumentationFacts,
-  InstrumentationLifecycleFacts,
-  OperationInstrumentationFacts,
-  SegmentInstrumentationFacts,
-  StatementInstrumentationFacts,
-} from "@instrumentation/lifecycle-facts";
+  CacheOutcome,
+  CacheUnitFacts,
+  LifecycleDispatch,
+  LifecycleFacts,
+  ObservationNeed,
+  OfficialLifecycleFacts,
+  OfficialObservationCapability,
+  OperationCompletionFacts,
+  OperationFacts,
+  StatementFacts,
+} from "@extensions/official-facts";
 import {
   ATTR_CACHE_RESULT,
-  ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
   SPAN_CACHE_GET,
+  SPAN_DISCONNECT,
+  SPAN_EXECUTE,
   SPAN_OPERATION,
-  SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
-import type { LogEvent } from "@instrumentation/types";
+import type { InstrumentationConfig } from "@instrumentation/types";
 import {
   instrumentation,
   type OfficialInstrumentationExtension,
@@ -33,7 +39,7 @@ import { describe, expect, it, vi } from "vitest";
 function runObserved<Result>(
   extension: OfficialInstrumentationExtension,
   unit: LifecycleUnit,
-  facts: InstrumentationLifecycleFacts,
+  facts: OfficialLifecycleFacts,
   child: () => Promise<Result>
 ): Promise<Result> {
   return runProtectedObservers(
@@ -53,15 +59,45 @@ async function waitFor(check: () => boolean): Promise<void> {
   throw new Error("Expected official observation work to settle");
 }
 
-function cacheLogEvent(
-  event: CacheLogEvent,
-  status?: string
-): Omit<LogEvent, "level"> {
+const TEST_DRIVER = Object.freeze({
+  adapter: Object.freeze({}),
+  dialect: "sqlite",
+  driverName: "lifecycle-test",
+} as const);
+
+/** A transaction dispatch record whose `start` releases the gated child. */
+function lifecycleDispatch(start: () => void): LifecycleDispatch {
   return Object.freeze({
-    timestamp: new Date(0),
-    operation: "get",
-    meta: Object.freeze({ event, status }),
+    boundary: "transaction",
+    context: Object.freeze({ operation: "$transaction" }),
+    driver: TEST_DRIVER,
+    start,
   });
+}
+
+/** A findMany operation's neutral facts completing with `completion`. */
+function operationFacts(
+  completion: Omit<OperationCompletionFacts, "endedAt" | "kind">
+): OperationFacts {
+  return Object.freeze({
+    kind: "operation",
+    context: {},
+    identity: Object.freeze({
+      dialect: TEST_DRIVER.dialect,
+      driverName: TEST_DRIVER.driverName,
+    }),
+    requestedOperation: "findMany",
+    operation: "findMany",
+    complete: () =>
+      Object.freeze({ kind: "operation", endedAt: 0, ...completion }),
+  });
+}
+
+function cacheOutcome(
+  event: CacheOutcome["event"],
+  status?: string
+): CacheOutcome {
+  return Object.freeze({ event, status, at: 0 });
 }
 
 describe("official protected observer", () => {
@@ -92,17 +128,9 @@ describe("official protected observer", () => {
         },
       },
     });
-    const facts: OperationInstrumentationFacts = Object.freeze({
-      kind: "operation",
-      complete: () =>
-        Object.freeze({
-          kind: "operation",
-          readCacheLogEvents: () =>
-            Object.freeze([
-              cacheLogEvent("hit"),
-              cacheLogEvent("hit", "stale"),
-            ]),
-        }),
+    const facts = operationFacts({
+      readCacheOutcomes: () =>
+        Object.freeze([cacheOutcome("hit"), cacheOutcome("hit", "stale")]),
     });
     const childValue = Object.freeze({ source: "child" });
 
@@ -131,15 +159,10 @@ describe("official protected observer", () => {
       },
     });
     const readerFailure = new Error("hostile late reader");
-    const facts: OperationInstrumentationFacts = Object.freeze({
-      kind: "operation",
-      complete: () =>
-        Object.freeze({
-          kind: "operation",
-          readCacheLogEvents() {
-            throw readerFailure;
-          },
-        }),
+    const facts = operationFacts({
+      readCacheOutcomes() {
+        throw readerFailure;
+      },
     });
     const childValue = Object.freeze({ source: "authoritative" });
 
@@ -152,13 +175,8 @@ describe("official protected observer", () => {
       )
     ).resolves.toBe(childValue);
 
-    const loggerFacts: OperationInstrumentationFacts = Object.freeze({
-      kind: "operation",
-      complete: () =>
-        Object.freeze({
-          kind: "operation",
-          readCacheLogEvents: () => Object.freeze([cacheLogEvent("hit")]),
-        }),
+    const loggerFacts = operationFacts({
+      readCacheOutcomes: () => Object.freeze([cacheOutcome("hit")]),
     });
     await expect(
       runObserved(
@@ -173,9 +191,9 @@ describe("official protected observer", () => {
   it("contains skipped statement and driver-lifecycle completion failures", async () => {
     const extension = instrumentation({ logging: { query: true } });
     const statementFailure = new Error("statement failed before dispatch");
-    const statementFacts: StatementInstrumentationFacts = Object.freeze({
+    const statementFacts: StatementFacts = Object.freeze({
       kind: "statement",
-      presentation: Promise.resolve(undefined),
+      dispatch: Promise.resolve(undefined),
       complete: () => undefined,
     });
 
@@ -188,9 +206,9 @@ describe("official protected observer", () => {
       )
     ).rejects.toBe(statementFailure);
 
-    const lifecycleFacts: DriverLifecycleInstrumentationFacts = Object.freeze({
+    const lifecycleFacts: LifecycleFacts = Object.freeze({
       kind: "driver-lifecycle",
-      presentation: Promise.resolve(undefined),
+      dispatch: Promise.resolve(undefined),
       complete: () => undefined,
     });
     const success = Object.freeze({ phase: "complete" });
@@ -214,92 +232,38 @@ describe("official protected observer", () => {
     ).rejects.toBe(lifecycleFailure);
   });
 
-  it("releases a spanless driver lifecycle presentation exactly once", async () => {
+  it("releases a spanless statement dispatch exactly once", async () => {
     const extension = instrumentation({ logging: { query: true } });
     let releaseChild: ((value: string) => void) | undefined;
     const heldChild = new Promise<string>((resolve) => {
       releaseChild = resolve;
     });
-    const startExecution = vi.fn(() => releaseChild?.("released"));
-    const facts: DriverLifecycleInstrumentationFacts = Object.freeze({
-      kind: "driver-lifecycle",
-      presentation: Promise.resolve(Object.freeze({ startExecution })),
+    const start = vi.fn(() => releaseChild?.("released"));
+    const facts: StatementFacts = Object.freeze({
+      kind: "statement",
+      dispatch: Promise.resolve(
+        Object.freeze({
+          context: Object.freeze({ operation: "$queryRaw" }),
+          driver: TEST_DRIVER,
+          start,
+          forceErrorContext: true,
+          params: [],
+          sql: "SELECT 1",
+          startedAt: 0,
+        })
+      ),
       complete: () => undefined,
     });
 
     await expect(
       runObserved(
         extension,
-        { kind: "transaction", operation: "$transaction" },
+        { kind: "statement", operation: "$queryRaw" },
         facts,
         () => heldChild
       )
     ).resolves.toBe("released");
-    expect(startExecution).toHaveBeenCalledOnce();
-  });
-
-  it("records late segment attributes without changing child authority", async () => {
-    const recorder = withOtelRecorder();
-    try {
-      const extension = instrumentation({ tracing: true });
-      const facts: SegmentInstrumentationFacts = Object.freeze({
-        kind: "segment",
-        spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-        complete: () =>
-          Object.freeze({
-            kind: "segment",
-            spanAttributes: Object.freeze({
-              [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
-            }),
-          }),
-      });
-      const childValue = Object.freeze({ segment: 1 });
-
-      await expect(
-        runObserved(
-          extension,
-          { kind: "segment", operation: "createMany", model: "record" },
-          facts,
-          async () => childValue
-        )
-      ).resolves.toBe(childValue);
-      await waitFor(
-        () => recorder.find(SPAN_RECORD_SERIES_SEGMENT) !== undefined
-      );
-
-      expect(
-        recorder.find(SPAN_RECORD_SERIES_SEGMENT)?.attributes[
-          ATTR_VIBORM_WRITE_COMMIT_OUTCOME
-        ]
-      ).toBe("committed");
-
-      const completionFailure = new Error("late segment facts failed");
-      const failingFacts: SegmentInstrumentationFacts = Object.freeze({
-        kind: "segment",
-        spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-        complete() {
-          throw completionFailure;
-        },
-      });
-      const childFailure = new Error("segment child failed");
-      await expect(
-        runObserved(
-          extension,
-          { kind: "segment", operation: "createMany", model: "record" },
-          failingFacts,
-          () => Promise.reject(childFailure)
-        )
-      ).rejects.toBe(childFailure);
-      await waitFor(
-        () =>
-          recorder
-            .spans()
-            .filter(({ name }) => name === SPAN_RECORD_SERIES_SEGMENT)
-            .length === 2
-      );
-    } finally {
-      await recorder.dispose();
-    }
+    expect(start).toHaveBeenCalledOnce();
   });
 
   it("orders cache logs and records late cache span attributes", async () => {
@@ -318,14 +282,11 @@ describe("official protected observer", () => {
           },
         },
       });
-      const getFacts: CacheInstrumentationFacts = Object.freeze({
+      const getFacts: CacheUnitFacts = Object.freeze({
         kind: "cache",
-        spanOptions: Object.freeze({ name: SPAN_CACHE_GET }),
-        complete: () =>
-          Object.freeze({
-            kind: "cache",
-            spanAttributes: Object.freeze({ [ATTR_CACHE_RESULT]: "miss" }),
-          }),
+        context: undefined,
+        driverName: "memory",
+        complete: () => Object.freeze({ kind: "cache", result: "miss" }),
       });
       const childValue = Object.freeze({ cache: "authoritative" });
 
@@ -338,14 +299,18 @@ describe("official protected observer", () => {
         )
       ).resolves.toBe(childValue);
 
-      const revalidationFacts: CacheInstrumentationFacts = Object.freeze({
+      const revalidationFacts: CacheUnitFacts = Object.freeze({
         kind: "cache",
-        spanOptions: Object.freeze({ name: SPAN_OPERATION, root: true }),
-        startLogEvents: Object.freeze([cacheLogEvent("revalidate", "start")]),
+        context: undefined,
+        read: Object.freeze({
+          model: "record",
+          operation: "findMany",
+          identity: undefined,
+        }),
         complete: () =>
           Object.freeze({
             kind: "cache",
-            logEvents: Object.freeze([cacheLogEvent("revalidate", "success")]),
+            outcomes: Object.freeze([cacheOutcome("revalidate", "success")]),
           }),
       });
       await expect(
@@ -382,8 +347,9 @@ describe("official protected observer", () => {
   it("contains spanless cache failures and completion-fact failures", async () => {
     const extension = instrumentation({ logging: { cache: true } });
     const childFailure = new Error("cache child failed");
-    const facts: CacheInstrumentationFacts = Object.freeze({
+    const facts: CacheUnitFacts = Object.freeze({
       kind: "cache",
+      context: undefined,
       complete: () => undefined,
     });
 
@@ -394,8 +360,9 @@ describe("official protected observer", () => {
     ).rejects.toBe(childFailure);
 
     const completionFailure = new Error("cache completion facts failed");
-    const hostileFacts: CacheInstrumentationFacts = Object.freeze({
+    const hostileFacts: CacheUnitFacts = Object.freeze({
       kind: "cache",
+      context: undefined,
       complete() {
         throw completionFailure;
       },
@@ -427,14 +394,9 @@ describe("official protected observer", () => {
         providerStarts += 1;
         releaseChild?.("committed");
       };
-      const facts: DriverLifecycleInstrumentationFacts = Object.freeze({
+      const facts: LifecycleFacts = Object.freeze({
         kind: "driver-lifecycle",
-        presentation: Promise.resolve(
-          Object.freeze({
-            spanOptions: Object.freeze({ name: SPAN_TRANSACTION }),
-            startExecution,
-          })
-        ),
+        dispatch: Promise.resolve(lifecycleDispatch(startExecution)),
         complete: () => undefined,
       });
 
@@ -453,5 +415,121 @@ describe("official protected observer", () => {
     } finally {
       await recorder.dispose();
     }
+  });
+});
+
+describe("trusted-only dispatch", () => {
+  it("selects the exact chain's trusted observer and nothing else", () => {
+    const official = instrumentation({ tracing: true });
+    const trusted = { extension: official.name, handler: official.observe };
+    const ordinary = { extension: "ordinary", handler: () => undefined };
+
+    expect(selectTrustedObservers([ordinary, trusted, ordinary])).toEqual([
+      trusted,
+    ]);
+    expect(selectTrustedObservers([ordinary])).toBeUndefined();
+    expect(selectTrustedObservers(undefined)).toBeUndefined();
+  });
+});
+
+describe("official observation capability", () => {
+  function capabilityOf(config: InstrumentationConfig) {
+    const chain = appendResolvedExtension(
+      undefined,
+      instrumentation(config),
+      {}
+    );
+    const capability = getOfficialInstrumentationChainCapability(chain);
+    if (capability === undefined) {
+      throw new Error("Official instrumentation capability was not registered");
+    }
+    return capability;
+  }
+
+  const NEEDS: readonly ObservationNeed[] = [
+    "statement",
+    "transaction",
+    "savepoint",
+    "connect",
+    "disconnect",
+    "cache",
+    "cache-outcomes",
+    "parameters",
+    "query-log",
+    "error-log",
+  ];
+
+  function answers(capability: OfficialObservationCapability) {
+    return Object.fromEntries(
+      NEEDS.map((need) => [need, capability.wants(need)])
+    );
+  }
+
+  it("answers every need from the exact chain's configuration", () => {
+    const quiet = capabilityOf({ diagnostics: { includeParams: true } });
+    expect(answers(quiet)).toEqual(
+      Object.fromEntries(NEEDS.map((need) => [need, false]))
+    );
+    expect(quiet.diagnostics).toEqual({
+      includeParams: true,
+      includeSql: false,
+    });
+
+    const logs = captureLogs();
+    const traced = capabilityOf({
+      logging: { cache: logs.callback, query: logs.callback },
+      tracing: { ignoreSpanTypes: [SPAN_DISCONNECT], includeParams: true },
+    });
+    expect(answers(traced)).toEqual({
+      statement: true,
+      transaction: true,
+      savepoint: true,
+      connect: true,
+      disconnect: false,
+      cache: true,
+      "cache-outcomes": true,
+      parameters: true,
+      "query-log": true,
+      "error-log": false,
+    });
+
+    const logged = capabilityOf({
+      logging: { error: logs.callback, includeParams: true },
+    });
+    expect([logged.wants("parameters"), logged.wants("error-log")]).toEqual([
+      true,
+      true,
+    ]);
+    expect(
+      capabilityOf({
+        tracing: { ignoreSpanTypes: [SPAN_EXECUTE], includeParams: true },
+      }).wants("parameters")
+    ).toBe(false);
+  });
+
+  it("presents a warning only through an enabled warning level", () => {
+    const notice = {
+      correlationId: "correlation",
+      message: "skip dropped",
+      model: "record",
+      operation: "createMany",
+    };
+    const logs = captureLogs();
+    expect(
+      capabilityOf({ logging: { query: logs.callback } }).warn(notice)
+    ).toBe(false);
+    expect(
+      capabilityOf({ logging: { warning: logs.callback } }).warn(notice)
+    ).toBe(true);
+    expect(logs.events).toEqual([
+      {
+        correlationId: "correlation",
+        level: "warning",
+        meta: { notice: "skip dropped" },
+        model: "record",
+        operation: "createMany",
+        timestamp: expect.any(Date),
+      },
+    ]);
   });
 });

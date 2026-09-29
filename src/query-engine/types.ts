@@ -93,7 +93,10 @@ export interface PrepareOptions {
   throwIfNotFound?: boolean;
   /** Original operation name for error messages */
   originalOperation?: string;
-  /** Skip SPAN_OPERATION wrapper (when caller provides its own, e.g., cache driver) */
+  /**
+   * The cache driver manages this execution: the operation completion closes
+   * and hands over its cache outcome list.
+   */
   skipSpan?: boolean;
 }
 

@@ -33,7 +33,6 @@ type _unitKindsAreExact = Expect<
     | "batch"
     | "transaction"
     | "savepoint"
-    | "segment"
     | "connection"
     | "cache"
   >

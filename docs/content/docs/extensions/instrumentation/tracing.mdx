@@ -4,8 +4,10 @@ description: OpenTelemetry spans from protected VibORM lifecycle facts
 icon: radar
 ---
 
-Install the optional OpenTelemetry API, configure its SDK, then apply the
-official instrumentation extension:
+Either hand VibORM the tracer your runtime or application already holds (see
+[Bring your own tracer](#bring-your-own-tracer); `@opentelemetry/api` is then
+not needed), or install the optional OpenTelemetry API, configure its SDK,
+and let VibORM find it:
 
 ```bash
 npm install @opentelemetry/api
@@ -30,10 +32,63 @@ const client = createClient({ schema, driver }).$extends(
 | `includeSql` | `boolean` | `false` | Add rendered SQL to execute spans |
 | `includeParams` | `boolean` | `false` | Add one attribute per snapshotted parameter |
 | `ignoreSpanTypes` | `Array<string \| RegExp>` | `[]` | Skip matching exact span names |
+| `tracer` | an object with `startActiveSpan(name, fn)` whose spans have `setAttribute` and `end` | auto-detected | Present spans through this tracer; VibORM then never imports `@opentelemetry/api` |
 
 Ignoring a span does not redirect its late attributes to the active parent.
-Cache hit/miss/TTL facts target only their exact cache span, while progressive
-segment aggregate attributes retain their documented operation-parent behavior.
+Cache hit/miss/TTL facts target only their exact cache span.
+
+## Bring your own tracer
+
+By default VibORM imports `@opentelemetry/api` itself, lazily, and asks the
+registered global provider for a tracer. That import is a bet on your bundler
+and runtime. Where the runtime supplies the tracer, hand it over instead.
+
+On Cloudflare Workers the runtime tracer is `tracing` from `cloudflare:workers`
+(the same object as `ctx.tracing`). Enable traces with
+`observability.traces.enabled` in your Wrangler configuration, then:
+
+```ts
+import { tracing } from "cloudflare:workers";
+import { instrumentation } from "viborm/instrumentation";
+
+const client = createClient({ schema, driver }).$extends(
+  instrumentation({ tracing: { tracer: tracing } })
+);
+```
+
+Without it, a Worker's `@opentelemetry/api` has no registered provider, so
+`trace.getTracer(...)` and VibORM's own auto-detection both yield no-op spans.
+
+Any OpenTelemetry `Tracer` is accepted too, for example
+`trace.getTracer("app")` where your application has registered a provider.
+
+VibORM starts every span with the two-argument `tracer.startActiveSpan(name,
+fn)`, the form both accept, and never imports `@opentelemetry/api` itself when
+`tracer` is set. Tracing is ready at once: there is no first-operation load to
+wait for. `includeSql`, `includeParams`, and `ignoreSpanTypes` apply as they do
+without it. What changes:
+
+- Spans nest under the span that is active when you call the client. The
+  tracer decides the parent, so a cache revalidation span, which auto-detection
+  starts as a new root, nests under the active span instead.
+- Attributes are set on the span with `setAttribute` once it starts, rather
+  than passed to its creation, and every span has the tracer's default kind.
+- Status is set when the span has `setStatus` and failures are recorded when it
+  has `recordException`. The Workers runtime span has no `setStatus` yet, so a
+  failed operation's span there carries only its end (and the recorded
+  exception, on runtimes that provide `recordException`).
+- VibORM ends every span it is handed when the operation settles, as
+  `startActiveSpan` requires on both platforms.
+
+A tracer that throws, never calls back, calls back late, or calls back twice
+cannot stop, skip, or repeat a database operation: the operation runs exactly
+once, runs without a span if the tracer has not called back by then, and every
+span a callback receives is ended once with the operation's outcome (a span
+handed to several operations is ended once, by the first to settle). A span
+method that throws, or returns a promise or thenable that rejects through its
+own `then`, changes nothing, and VibORM never waits for one. A promise whose
+`then` is replaced or whose `constructor` throws cannot be handed a rejection
+handler, so its rejection stays unhandled.
 
 ## Span families
 
@@ -44,7 +99,6 @@ segment aggregate attributes retain their documented operation-parent behavior.
 | `viborm.transaction` | One real outer transaction |
 | `viborm.savepoint` | One real nested savepoint |
 | `viborm.batch` | One public array transaction |
-| `viborm.segment` | One submitted progressive write segment |
 | `viborm.connect` / `viborm.disconnect` | Connection lifecycle |
 | `viborm.cache.*` | Cache get, set, invalidate, and revalidate work |
 
@@ -89,6 +143,6 @@ or span completion cannot block provider release or alter the application.
 
 ## Graceful degradation
 
-If `@opentelemetry/api` is not installed, tracing becomes a no-op and database
-operations continue. Diagnostics-only and logging-only instrumentation do not
-allocate execute-span gates. Ignored execute spans do not read parameters.
+If `@opentelemetry/api` is not installed and no `tracer` is given, tracing
+becomes a no-op and database operations continue. Diagnostics-only and
+logging-only instrumentation do not allocate execute-span gates. Ignored execute spans do not read parameters.

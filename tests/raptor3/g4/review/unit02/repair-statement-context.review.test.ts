@@ -34,7 +34,10 @@ const post = s
     id: s.int().id(),
     title: s.string(),
     authorId: s.int().nullable(),
-    author: s.toOne(() => author).fields("authorId").references("id"),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
   })
   .map("rv2s_posts");
 
@@ -102,7 +105,6 @@ function caller(): QueryExecutionContext {
   } as unknown as ResolvedExtensionChain;
   return createExecutionContext(
     { model: "author", operation: "update", correlationId: "rv2s" },
-    undefined,
     () => "rv2s",
     chain
   );
@@ -167,7 +169,6 @@ describe("G4-02 review (repair) — per-statement model attribution parity", () 
     const divergent: string[] = [];
     for (const [label, operation, args] of shapes) {
       const shippedWorld = await world();
-      // biome-ignore lint/suspicious/noExplicitAny: the verb varies per shape.
       await (shippedWorld.client.author as any)[operation](args);
       const shippedTally = tally(shippedWorld.driver);
 

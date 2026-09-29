@@ -30,10 +30,9 @@ Never restore `cache`, `cacheVersion`, or `waitUntil` to `createClient()`.
 | Owner | Responsibility |
 |---|---|
 | `src/cache/extension.ts` | Hostile-safe config snapshot, fixed-name provenance, the definition/bound capability split, and the one client-bound scope binder |
-| `driver.ts` | Get/set/SWR/invalidation orchestration and the authenticated official scope friend |
+| `driver.ts` | Get/set/SWR/invalidation orchestration, the authenticated official scope friend, and the neutral cache facts (outcome list per execution, set-failure placement) the official instrumentation presents |
 | `key.ts` | Canonical keys, official namespace encoding, legacy key helpers |
 | `schema.ts` | Per-read cache options and mutation invalidation options |
-| `cache-instrumentation.ts` | Cache presentation facts consumed by protected instrumentation |
 | `query-engine/cache-flow.ts` | Official inner-core read attachment and detached snapshot execution, and the `CacheResultCodec` contract it hands the driver; the codec is composed by the Raptor 3 route's `cacheCodec`/`shapeCodec` (`query-engine/raptor3/route/client-route.ts`) from `query-engine/result/cache-value-codecs.ts`, including `recursiveRelationCodec` for a recursive relation slot |
 | `drivers/*` | Backend-only get/set/delete/clear primitives |
 | `client/client.ts` | Authenticated capability lookup and the irreducible client-view/cache trigger points |
@@ -145,8 +144,13 @@ are always borrowed and never claim consumable provider rows.
 
 Cache get, set, invalidate, and actual revalidation work emit protected cache
 lifecycle facts only when observers exist. Marker clear/delete helpers are not
-fictional public cache units. Official instrumentation may present its private
-facts, but ordinary observers see only the frozen public unit and completion.
+fictional public cache units: a backend delete or clear inside an invalidation
+runs through the one runner with only the trusted official observer selected
+(`selectTrustedObservers`), so no ordinary observer sees it. Core records
+neutral facts (the step, the backend name, the get result, cache outcomes) and
+the official extension builds every span and log from them. Official
+instrumentation may present its private facts, but ordinary observers see only
+the frozen public unit and completion.
 Cache keys and suffixes never reach units, spans, logs, errors, or correlation.
 
 ## Backend rules

@@ -11,11 +11,6 @@ import {
   registerOfficialDefaultOmitChain,
 } from "@client/default-omit-extension";
 import type { Schema } from "@client/types";
-import {
-  getOfficialInstrumentationChainCapability,
-  OFFICIAL_INSTRUMENTATION_NAME,
-  registerOfficialInstrumentationChain,
-} from "@instrumentation/extension";
 import { isFunction } from "@validation/value-guards";
 import {
   extensionError,
@@ -26,7 +21,14 @@ import type {
   RuntimeClientMethodContribution,
   RuntimeModelMethodContribution,
 } from "./methods";
-import { getTrustedProtectedObserverCapability } from "./observation";
+import {
+  getOfficialInstrumentationChainCapability,
+  getTrustedProtectedObserverCapability,
+  registerOfficialInstrumentationChain,
+} from "./observation";
+
+/** The fixed name admission reserves for the official instrumentation extension. */
+export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
 
 export interface ResolvedExtensionHandler<
   Handler extends CallableFunction = CallableFunction,

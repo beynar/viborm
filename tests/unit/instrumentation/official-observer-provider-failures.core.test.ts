@@ -1,20 +1,27 @@
 import type { LifecycleUnit } from "@extensions/observation";
 import { runProtectedObservers } from "@extensions/observation";
 import type {
-  CacheInstrumentationFacts,
-  DriverLifecycleInstrumentationFacts,
-  InstrumentationLifecycleFacts,
-  SegmentInstrumentationFacts,
-} from "@instrumentation/lifecycle-facts";
-import {
-  ATTR_CACHE_RESULT,
-  ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
-  SPAN_CACHE_GET,
-  SPAN_RECORD_SERIES_SEGMENT,
-  SPAN_TRANSACTION,
-} from "@instrumentation/spans";
+  CacheUnitFacts,
+  LifecycleDispatch,
+  LifecycleFacts,
+  OfficialLifecycleFacts,
+} from "@extensions/official-facts";
 import type { OfficialInstrumentationExtension } from "@src/instrumentation/extension";
 import { describe, expect, it, vi } from "vitest";
+
+/** A transaction dispatch record whose `start` releases the gated child. */
+function lifecycleDispatch(start: () => void): LifecycleDispatch {
+  return Object.freeze({
+    boundary: "transaction",
+    context: Object.freeze({ operation: "$transaction" }),
+    driver: Object.freeze({
+      adapter: Object.freeze({}),
+      dialect: "sqlite",
+      driverName: "lifecycle-test",
+    }),
+    start,
+  });
+}
 
 type ProviderMode = "normal" | "set-attributes-throws" | "start-span-throws";
 
@@ -81,7 +88,7 @@ import { instrumentation } from "@src/instrumentation/extension";
 function runObserved<Result>(
   extension: OfficialInstrumentationExtension,
   unit: LifecycleUnit,
-  facts: InstrumentationLifecycleFacts,
+  facts: OfficialLifecycleFacts,
   child: () => Promise<Result>
 ): Promise<Result> {
   return runProtectedObservers(
@@ -97,32 +104,11 @@ describe("official observer provider failures", () => {
   it.each([
     {
       facts: Object.freeze({
-        kind: "segment",
-        spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-        complete: () =>
-          Object.freeze({
-            kind: "segment",
-            spanAttributes: Object.freeze({
-              [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
-            }),
-          }),
-      }) satisfies SegmentInstrumentationFacts,
-      unit: Object.freeze({
-        kind: "segment",
-        operation: "createMany",
-        model: "record",
-      }) satisfies LifecycleUnit,
-    },
-    {
-      facts: Object.freeze({
         kind: "cache",
-        spanOptions: Object.freeze({ name: SPAN_CACHE_GET }),
-        complete: () =>
-          Object.freeze({
-            kind: "cache",
-            spanAttributes: Object.freeze({ [ATTR_CACHE_RESULT]: "hit" }),
-          }),
-      }) satisfies CacheInstrumentationFacts,
+        context: undefined,
+        driverName: "memory",
+        complete: () => Object.freeze({ kind: "cache", result: "hit" }),
+      }) satisfies CacheUnitFacts,
       unit: Object.freeze({
         kind: "cache",
         operation: "get",
@@ -143,32 +129,6 @@ describe("official observer provider failures", () => {
     ).resolves.toBe(childValue);
   });
 
-  it("contains span creation failure during late segment presentation", async () => {
-    provider.mode = "start-span-throws";
-    const extension = instrumentation({ tracing: true });
-    const facts: SegmentInstrumentationFacts = Object.freeze({
-      kind: "segment",
-      spanOptions: Object.freeze({ name: SPAN_RECORD_SERIES_SEGMENT }),
-      complete: () =>
-        Object.freeze({
-          kind: "segment",
-          spanAttributes: Object.freeze({
-            [ATTR_VIBORM_WRITE_COMMIT_OUTCOME]: "committed",
-          }),
-        }),
-    });
-    const childValue = Object.freeze({ source: "segment-child" });
-
-    await expect(
-      runObserved(
-        extension,
-        { kind: "segment", operation: "createMany", model: "record" },
-        facts,
-        async () => childValue
-      )
-    ).resolves.toBe(childValue);
-  });
-
   it("releases a traced driver lifecycle when span creation fails", async () => {
     provider.mode = "start-span-throws";
     const extension = instrumentation({ tracing: true });
@@ -184,14 +144,9 @@ describe("official observer provider failures", () => {
       providerStarts += 1;
       releaseChild?.("released");
     };
-    const facts: DriverLifecycleInstrumentationFacts = Object.freeze({
+    const facts: LifecycleFacts = Object.freeze({
       kind: "driver-lifecycle",
-      presentation: Promise.resolve(
-        Object.freeze({
-          spanOptions: Object.freeze({ name: SPAN_TRANSACTION }),
-          startExecution,
-        })
-      ),
+      dispatch: Promise.resolve(lifecycleDispatch(startExecution)),
       complete: () => undefined,
     });
 

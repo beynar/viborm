@@ -49,13 +49,12 @@ Parameters may contain credentials, personal data, or application secrets.
 
 Official instrumentation consumes the same real lifecycle units exposed to
 ordinary observers: logical operation, physical statement, public array batch,
-transaction, savepoint, progressive segment, connection, and cache.
+transaction, savepoint, connection, and cache.
 
 - A native array produces one batch, N logical operations, N physical statement
   units, and one provider execution presentation. It produces no fictional
   transaction.
 - A fallback array uses the real transaction or savepoint lifecycle.
-- A progressive write produces one segment unit per submitted attempt.
 - Cache revalidation contains the nested cache set and marker cleanup while the
   stale application result stays authoritative.
 - Connect and disconnect each produce one connection lifecycle.
@@ -81,11 +80,14 @@ private facts.
 
 ## Optional OpenTelemetry dependency
 
-`@opentelemetry/api` is an optional peer dependency and is loaded dynamically.
-If it is absent or setup fails, database work proceeds normally. The official
+`@opentelemetry/api` is an optional peer dependency. When you hand the
+extension a tracer (`tracing: { tracer }`, for example Cloudflare Workers'
+`tracing` from `cloudflare:workers`), VibORM never imports the package and
+tracing is ready at once. Otherwise the package is loaded dynamically; if it is
+absent or setup fails, database work proceeds normally, and the official
 observer prewarms the tracer once so the first operation still enters the
 correct active context; later operations do not pay a permanent readiness
-microtask.
+microtask. See [Tracing](/docs/extensions/instrumentation/tracing).
 
 <CardGroup>
   <Card title="Logging" description="Configure structured logs" href="/docs/extensions/instrumentation/logging" />

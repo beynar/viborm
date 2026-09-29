@@ -14,12 +14,8 @@
  * indistinguishable from a schema actually spelled that way, and would make a
  * dashboard group unrelated databases together while claiming to know which.
  *
- * The five lifecycle kinds are `operation`, `statement`, `segment`, `cache`,
- * and `driver-lifecycle`. Four of them carry `db.*` and are asserted below;
- * `segment` carries only `viborm.write.*`, and its absence of the attribute is
- * pinned too so a later reader does not mistake it for an omission — over a
- * REAL progressive record series, not over a window that happened to open no
- * segment span.
+ * The lifecycle kinds that carry `db.*` are `operation`, `statement`, `cache`
+ * (the revalidation root) and `driver-lifecycle`, and each is asserted below.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -30,7 +26,11 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
+import { readDriverIdentity } from "@drivers/driver-identity";
+import { getExecutionExtensionChain } from "@drivers/execution-context";
 import type { QueryResult } from "@drivers/types";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
+import { createDriverAttributes } from "@instrumentation/presentation";
 import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_SYSTEM,
@@ -48,6 +48,7 @@ import {
   type OtelRecorder,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
+import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const account = s.model({ id: s.string().id(), label: s.string() });
@@ -294,7 +295,7 @@ describe("the kinds that carry no db.* attributes", () => {
 describe("the attribute is the adapter's value, and nothing else", () => {
   it("never reports a placeholder for an unknown namespace", async () => {
     const driver = new NamespaceDriver("mysql", new MySQLAdapter());
-    const attributes = driver.getBaseAttributes();
+    const attributes = createDriverAttributes(readDriverIdentity(driver));
 
     expect(Object.hasOwn(attributes, ATTR_DB_NAMESPACE)).toBe(false);
     expect(Object.values(attributes)).not.toContain("undefined");
@@ -304,10 +305,37 @@ describe("the attribute is the adapter's value, and nothing else", () => {
 
   it("never carries a host, user, or connection secret", () => {
     const driver = new NamespaceDriver("mysql", new MySQLAdapter("shop"));
-    expect(driver.getBaseAttributes()).toEqual({
+    expect(createDriverAttributes(readDriverIdentity(driver))).toEqual({
       [ATTR_DB_SYSTEM]: "mysql",
       "db.system.driver": "namespace-attribute-mysql",
       [ATTR_DB_NAMESPACE]: "shop",
+    });
+  });
+});
+
+describe("context attribution presents only supplied facts", () => {
+  it("omits an empty caller-supplied model and operation", async () => {
+    // The fallback operation replaces only an ABSENT operation, so a caller
+    // context spelling `operation: ""` reaches presentation. An empty string
+    // names no collection and no operation, and is never presented.
+    const driver = new NamespaceDriver("sqlite", new SQLiteAdapter());
+    const context = createOfficialTestExecutionContext(
+      { tracing: true },
+      { model: "", operation: "" }
+    );
+    const capability = getOfficialInstrumentationChainCapability(
+      getExecutionExtensionChain(context)
+    );
+    if (capability === undefined) throw new Error("no official capability");
+    await capability.prewarm?.();
+    const from = mark();
+    await driver._executeRaw("SELECT 1", [], context);
+    // The observer ends the span after the authoritative result settles.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(since(from, SPAN_EXECUTE)).toEqual({
+      [ATTR_DB_SYSTEM]: "sqlite",
+      "db.system.driver": "namespace-attribute-sqlite",
     });
   });
 });

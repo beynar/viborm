@@ -138,7 +138,7 @@ const audit = defineExtension({
 ```
 
 Units are discriminated as `operation`, `statement`, `batch`, `transaction`,
-`savepoint`, `segment`, `connection`, or `cache`. Public facts are limited to
+`savepoint`, `connection`, or `cache`. Public facts are limited to
 the unit kind, applicable model/operation spelling, duration, success/failure,
 a sanitized error summary, and optional commit certainty. Observers never see
 the application result, rows, SQL, parameters, cache keys, raw provider error,

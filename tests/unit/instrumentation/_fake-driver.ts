@@ -1,4 +1,5 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver } from "@drivers/driver";
 import type { QueryResult } from "@drivers/types";
 
@@ -70,5 +71,47 @@ export class FakeDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
     if (this.failWith) return Promise.reject(this.failWith);
     const rows = [{ id: 1 }] as unknown as T[];
     return Promise.resolve({ rows, rowCount: rows.length });
+  }
+}
+
+/**
+ * `official-statement-instrumentation.core` `StatementDriver`: the golden
+ * transcript's statement fixture, shared with the platform-tracer suites.
+ */
+export class StatementDriver extends Driver<object, object> {
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  providerCalls = 0;
+  failAtProviderCall: number | undefined;
+
+  constructor() {
+    super("sqlite", "official-statement-test");
+    this.client = {};
+  }
+
+  protected async initClient(): Promise<object> {
+    return {};
+  }
+
+  protected async closeClient(): Promise<void> {
+    // No provider resource.
+  }
+
+  protected async execute<T>(): Promise<QueryResult<T>> {
+    this.providerCalls += 1;
+    if (this.providerCalls === this.failAtProviderCall) {
+      throw new Error("fallback provider failed");
+    }
+    return { rows: [{ id: "record-1", name: "Ada" }] as T[], rowCount: 1 };
+  }
+
+  protected executeRaw<T>(): Promise<QueryResult<T>> {
+    return this.execute<T>();
+  }
+
+  protected async transaction<T>(
+    client: object,
+    callback: (transaction: object) => Promise<T>
+  ): Promise<T> {
+    return await callback(client);
   }
 }

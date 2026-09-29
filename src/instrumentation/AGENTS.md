@@ -31,13 +31,22 @@ logger, disclosure, or correlation.
 
 | Owner | Responsibility |
 |---|---|
-| `src/instrumentation/extension.ts` | Fixed-name factory and the one trusted protected-observer handler |
+| `src/instrumentation/extension.ts` | Fixed-name factory, the one trusted protected-observer handler, and the private capability→context map (core holds only the neutral capability) |
 | `context.ts` | Hostile-safe config snapshot and instrumentation context |
-| `lifecycle-facts.ts` | Private facts keyed by core-created frozen lifecycle units |
-| `tracer.ts` | Optional OTel loading, active spans, containment, span mutation |
-| `logger.ts` | Level selection, callback containment, pretty presentation |
-| `driver-instrumentation.ts` | Provider-dispatch facts and instrumentation presentation only; no generic extension runner |
-| `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, and the one contained observer runner |
+| `presentation.ts` | Span options, attributes, log events and per-channel disclosure built from core's neutral facts (`src/extensions/official-facts.ts`) |
+| `tracer.ts` | Active spans through a handed tracer (`tracing.tracer`: OpenTelemetry or Cloudflare Workers `tracing`, never importing the api) or else the auto-detected optional OTel api; the one exactly-once containment and span settlement both paths share |
+| `logger.ts` | Level selection, callback containment, pretty presentation, and the log metadata vocabulary (`LOG_META_KEYS`) |
+| `src/drivers/driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
+| `src/extensions/official-facts.ts` | The neutral fact contract, the fact unions core produces, and `OfficialObservationCapability` (types only, never re-exported) |
+| `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, the chain→capability map, `selectTrustedObservers`, and the one contained observer runner |
+| `src/errors/logged-errors.ts` | The logged-error record: core marks a failure it selected for a log, synchronously, and transfers the mark to package-owned successors |
+
+Core reads only `observesLifecycle`, `prewarm`, `diagnostics`, `wants(need)`
+and `warn(notice)` from the capability, and the type enforces it: core holds
+an `OfficialObservationCapability`, which carries no tracer, logger or
+`InstrumentationContext`, and it imports nothing from this directory, not even
+a type. The extension recovers its own context from its private
+capability→context map. The extension formats; core selects and marks.
 
 Do not add another event registry, presenter, context manager, public token, or
 driver-attached instrumentation state.
@@ -45,7 +54,7 @@ driver-attached instrumentation state.
 ## Lifecycle rail
 
 Public units are discriminated as `operation`, `statement`, `batch`,
-`transaction`, `savepoint`, `segment`, `connection`, or `cache`. Core creates
+`transaction`, `savepoint`, `connection`, or `cache`. Core creates
 and freezes the exact unit. The official handler identity unlocks private facts
 through WeakMaps; a clone, rename, bind, copied context, or ordinary observer
 cannot recover them.
@@ -65,9 +74,16 @@ identity mechanism.
 
 Native arrays emit one batch, N operations, and N statement units but one
 provider execute span/query log. They emit no fictional transaction. Fallback
-arrays use the real transaction or savepoint. Progressive writes emit one
-segment per submitted attempt. Cache revalidation owns its real nested set and
-cleanup facts without exposing marker helpers as public lifecycle units.
+arrays use the real transaction or savepoint. Cache revalidation owns its real
+nested set and cleanup facts without exposing marker helpers as public
+lifecycle units.
+
+A cache backend delete or clear inside an invalidation has no public unit. It
+runs through the same runner with only the chain's trusted observer selected
+(`selectTrustedObservers` in `src/extensions/observation.ts`): the frozen unit
+reuses the public `invalidate` shape so the public union does not grow, and the
+private `cache-backend` facts tell the extension which span to present. No
+ordinary observer receives it, and it stays a child of the invalidate span.
 
 ## Protected observer contract
 
@@ -92,8 +108,19 @@ channel. Cache keys and custom suffixes are never disclosed.
 
 Provider failures are normalized at the driver boundary. Core owns selected
 error logging and exact-error deduplication, including transfer to package-owned
-successor errors that add execution context or commit certainty. Public
-completion exposes only a sanitized summary and optional certainty.
+successor errors that add execution context or commit certainty. The extension
+formats; core selects and marks: the statement completion marks the failure it
+selected synchronously, and the operation completion hands the extension a
+failure only when it is not yet marked. Public
+completion exposes only a sanitized summary and optional certainty. A
+statement log is emitted by the chain its completion facts attribute it to
+(`capability`), never by the chain observing the statement: a native-batch
+member's failure reaches that member's client, with that client's disclosure.
+Known driver-level limits (the public API refuses a batch that mixes clients):
+a settled batch, or a failure no member can be pinned to, is presented only to
+the batch's own context, under its disclosure, with the batch-wide SQL and
+parameters its caller composed; and a member's failure under a batch context
+whose chain carries no official instrumentation is not observed at all.
 
 Observer, logger, console, OTel import/provider/span, and cache-presentation
 failures are contained. They cannot replace the child value/error, prevent an
@@ -105,36 +132,73 @@ unhandled rejection.
 - `viborm.operation` owns the complete logical operation.
 - `viborm.execute` owns one provider statement dispatch, or the one native
   provider batch presentation.
-- `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, `viborm.segment`,
-  connection, and cache spans represent only real lifecycle boundaries.
+- `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, connection, and
+  cache spans represent only real lifecycle boundaries.
 - There are no separate validate/build/parse spans.
 - `db.namespace` reports `adapter.namespace` and is added in exactly one place,
-  `Driver.getBaseAttributes()` in `src/drivers/driver-instrumentation.ts` —
-  outside this layer's 100% coverage glob, and the single choke point every
-  `db.*`-carrying unit already flows through. When the adapter is unqualified the
+  `createDriverAttributes` in `presentation.ts`, from the identity
+  `readDriverIdentity` (`src/drivers/driver-identity.ts`) reads — the one reader
+  of `adapter.namespace` for presentation. When the adapter is unqualified the
   KEY IS ABSENT; never emit `null`, `""`, or the text `undefined`. Do not add the
-  attribute to a unit that carries no other `db.*` (write segments, the cache
-  backend's own get/set spans), and do not invent a lifecycle kind for it — the
-  five kinds are fixed. Immutability rides the non-writable `adapter.namespace`
-  install, NOT a ban on copies: `getBaseAttributes()` returns a fresh literal on
-  every call, and the cache unit's span is deliberately built from a snapshot of
-  one, taken at `$withCache` and carried as `options.dbAttributes`. That
-  snapshot cannot go stale, because the property it read cannot be reassigned —
-  which is also why no reader may take its namespace from anywhere else.
-- The unobserved native-batch phase must keep calling `getBaseAttributes` zero
-  times; it is pinned, and any new base attribute has to preserve that.
+  attribute to a span that carries no other `db.*` (the cache backend's own
+  get/set/delete/clear spans), and do not invent a lifecycle fact kind for it. Immutability rides the non-writable `adapter.namespace`
+  install, NOT a ban on copies: `readDriverIdentity` returns a fresh frozen
+  record on every call, and the cache revalidation span is deliberately built
+  from a snapshot of one, taken at `$withCache` and carried as
+  `options.driverIdentity`. The operation facts carry the same kind of
+  snapshot as `identity`, read by core's facts reader when the trusted
+  observer is reached; an operation never hands the extension its driver.
+  Neither snapshot can go stale, because the property it read cannot be
+  reassigned — which is also why no reader may take its namespace from
+  anywhere else. `readDriverIdentity` contains its own read: when a custom
+  adapter's `namespace` getter throws it returns `undefined`, and the
+  operation, execute, lifecycle and cache revalidation spans are presented
+  without `db.*` attributes while the operation's facts and error log survive.
+- The unobserved native-batch phase must keep calling `readDriverIdentity` zero
+  times; it is pinned (`native-batch-attribution.core`, a `vi.mock` spy on
+  `@drivers/driver-identity`), and any new identity fact has to preserve that.
 - Ignoring a cache span must not write late cache attributes onto its parent.
-- Segment aggregate attributes can update the exact active operation span at
-  the existing final boundary.
 - Verbatim unsafe raw excludes statement transformation, but its physical
   execution remains observed without implicit SQL/parameter disclosure.
 
 ## Optional OTel
 
-`@opentelemetry/api` is dynamically imported. Missing or hostile OTel falls
-back to application execution. Readiness is one-shot: after it settles,
-prewarming returns `undefined` synchronously and does not add a permanent
-microtask to traced operations.
+With `tracing: { tracer }` the wrapper starts spans through that tracer's
+two-argument `startActiveSpan(name, fn)`, the form an OpenTelemetry `Tracer`
+and Cloudflare Workers' `tracing` (from `cloudflare:workers`) both accept; the
+Workers runtime throws a TypeError on a second argument that is not a function.
+It never imports `@opentelemetry/api`: `tracer` is typed by the structural
+`SpanTracer`/`TracingSpan` in `types.ts` (no OTel type reaches the published
+d.ts), and the `SpanStatusCode` OK/ERROR values are the api 1.x contract
+values declared in `tracer.ts`. Attributes are set with `span.setAttribute`
+after the span starts; kind and `root` are not passed (the tracer decides the
+parent). `setStatus` and `recordException` are called only when the span has
+them (the Workers span has neither on workerd 1.20260801.1). It is enabled at
+once and has no readiness to prewarm. The config snapshot keeps the tracer by
+reference only when it has a callable `startActiveSpan`; any other value falls
+back to auto-detection.
+
+Without `tracer`, `@opentelemetry/api` is dynamically imported, and the span
+kind and status codes are read from that api object, as they always were.
+Missing or hostile OTel falls back to application execution. Readiness is
+one-shot: after it settles, prewarming returns `undefined` synchronously and
+does not add a permanent microtask to traced operations.
+
+Both paths share one containment (`createExecution`): the application callback
+runs exactly once whether the tracer or context manager calls back twice,
+re-entrantly, late, never, or throws, and every span any callback brings is
+settled (status when available, then `end`) with that run's outcome,
+including a second or late span a hostile tracer hands over, even from inside
+another span's `end()`. `endSpan` ends each span at most once across every
+execution (the module's `settledSpans`), so a span handed to two operations or
+re-entrantly during settlement is never ended twice. Every span call runs
+through `safely`: its throw is consumed, and a thenable it returns is handed a
+no-op rejection handler through its own `then`, never awaited; a non-thenable
+result allocates nothing. A promise with a replaced `then` or a throwing
+`constructor` is out of reach of any handler and is documented as such. Execute
+and lifecycle span options read the driver's own metadata only through
+`readDriverIdentity`, which cannot throw, so building them cannot leave the
+gated child pending.
 
 ## Validation
 

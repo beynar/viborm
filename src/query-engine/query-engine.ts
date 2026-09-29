@@ -2,8 +2,6 @@ import type { AnyDriver } from "@drivers";
 import { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { TransactionWriteOutcomes } from "@extensions/query";
-import type { InstrumentationContext } from "@instrumentation";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import type { Model } from "@schema/model";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { resolveSchemaOrThrow } from "@schema/validation/validator";
@@ -30,7 +28,6 @@ import {
 export class QueryEngine {
   readonly driver: AnyDriver;
   readonly registry: ModelRegistry;
-  readonly instrumentation: InstrumentationContext | undefined;
   readonly extensionChain: ResolvedExtensionChain | undefined;
   readonly transactionWriteOutcomes: TransactionWriteOutcomes | undefined;
 
@@ -67,8 +64,6 @@ export class QueryEngine {
         "Schema registry is required for query engine"
       );
     }
-    this.instrumentation =
-      getOfficialInstrumentationChainCapability(extensionChain)?.context;
     this.extensionChain = extensionChain;
     this.transactionWriteOutcomes = transactionWriteOutcomes;
     this.clientId = clientId;

@@ -452,7 +452,6 @@ class DeferredRawOperation<T>
     this.#context = createOperationExecutionContext(
       "$raw",
       method,
-      engine.instrumentation,
       engine.extensionChain
     );
     Object.freeze(this);

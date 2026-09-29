@@ -1,7 +1,6 @@
 import { createExecutionContext } from "@drivers/execution-context";
 import type { QueryExecutionContext } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
 import {
   type InstrumentationConfig,
   instrumentation,
@@ -13,9 +12,5 @@ export function createOfficialTestExecutionContext(
   values: QueryExecutionContext
 ): QueryExecutionContext {
   const chain = appendResolvedExtension(undefined, instrumentation(config), {});
-  const capability = getOfficialInstrumentationChainCapability(chain);
-  if (capability === undefined) {
-    throw new Error("Official instrumentation capability was not registered");
-  }
-  return createExecutionContext(values, capability.context, undefined, chain);
+  return createExecutionContext(values, undefined, chain);
 }

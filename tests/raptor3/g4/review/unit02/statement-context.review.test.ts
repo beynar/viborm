@@ -16,8 +16,8 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
-import { SQLite3Driver } from "@drivers/sqlite3";
 import { createExecutionContext } from "@drivers/execution-context";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
@@ -38,7 +38,10 @@ const post = s
     id: s.int().id(),
     title: s.string(),
     authorId: s.int().nullable(),
-    author: s.toOne(() => author).fields("authorId").references("id"),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
   })
   .map("rv2c_posts");
 
@@ -89,9 +92,11 @@ const args = {
   },
 };
 
+const LEADING_VERB = /^\w+/;
+
 function models(driver: Recorder) {
   return driver.statements.map((statement) => ({
-    verb: statement.sql.match(/^\w+/)?.[0],
+    verb: statement.sql.match(LEADING_VERB)?.[0],
     model: statement.context?.model,
     operation: statement.context?.operation,
   }));
@@ -117,7 +122,6 @@ describe("G4-02 review — statement context", () => {
     } as unknown as ResolvedExtensionChain;
     const caller: QueryExecutionContext = createExecutionContext(
       { model: "author", operation: "update", correlationId: "rv2c" },
-      undefined,
       () => "rv2c",
       chain
     );
@@ -134,7 +138,9 @@ describe("G4-02 review — statement context", () => {
     console.log("CTX candidate", JSON.stringify(candidateModels));
 
     const shippedNested = shippedModels.filter((row) => row.model === "post");
-    const candidateNested = candidateModels.filter((row) => row.model === "post");
+    const candidateNested = candidateModels.filter(
+      (row) => row.model === "post"
+    );
     assert.ok(
       shippedNested.length > 0,
       "the shipped engine attributes at least one statement to the nested model"

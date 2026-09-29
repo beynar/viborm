@@ -1,7 +1,9 @@
 /**
  * Tracer Wrapper
  *
- * Wraps OpenTelemetry API with graceful fallback when not available.
+ * Presents spans through a tracer the application hands over (a platform such
+ * as Cloudflare Workers supplies its own), or else through an auto-detected
+ * OpenTelemetry API with graceful fallback when it is not available.
  * Follows Drizzle's pattern: optional dependency, no-op when unavailable.
  *
  * Key design: createTracerWrapper() ALWAYS returns a tracer - either a real
@@ -17,22 +19,45 @@ import {
   ATTR_DB_QUERY_TEXT,
   type VibORMSpanName,
 } from "./spans";
+import type { SpanTracer, TracingSpan } from "./types";
 
 /**
- * OpenTelemetry types (imported dynamically)
+ * OpenTelemetry types (the api itself is imported dynamically, and only when
+ * no tracer is handed over)
  */
 type OTelAPI = typeof import("@opentelemetry/api");
 type Context = import("@opentelemetry/api").Context;
-export type Span = import("@opentelemetry/api").Span;
+type Span = import("@opentelemetry/api").Span;
 type Tracer = import("@opentelemetry/api").Tracer;
 type SpanKind = import("@opentelemetry/api").SpanKind;
-type Attributes = import("@opentelemetry/api").Attributes;
+
+/** Span attributes as VibORM presents them. */
+export type SpanAttributes = Record<string, string | number | boolean>;
+
+/** Where a settled span's status codes are read: the api's own enum. */
+interface StatusCodes {
+  readonly SpanStatusCode: { readonly OK: number; readonly ERROR: number };
+}
+
+/**
+ * The @opentelemetry/api 1.x contract values of `SpanStatusCode.OK` and
+ * `.ERROR`, for spans a handed tracer creates: no api object is loaded there.
+ */
+const API_CONTRACT_CODES: StatusCodes = {
+  SpanStatusCode: { OK: 1, ERROR: 2 },
+};
 
 // Package version for tracer identification
 const TRACER_NAME = "viborm";
 const TRACER_VERSION = VIBORM_VERSION;
 const SHOULD_TRACE_SPAN = Symbol("viborm.shouldTraceSpan");
 const tracerReadiness = new WeakMap<TracerWrapper, Promise<void>>();
+/**
+ * Every span VibORM has settled, whichever operation settled it: a span a
+ * tracer hands to two operations, or to a callback re-entered from another
+ * span's `end()`, is ended once.
+ */
+const settledSpans = new WeakSet<TracingSpan>();
 
 /**
  * Extended span options with VibORM-specific attributes
@@ -40,13 +65,16 @@ const tracerReadiness = new WeakMap<TracerWrapper, Promise<void>>();
 export interface VibORMSpanOptions {
   /** Span name from the predefined constants */
   name: VibORMSpanName;
-  /** Span kind (default: INTERNAL) */
+  /** Span kind (default: INTERNAL; a handed tracer takes no kind) */
   kind?: SpanKind | undefined;
   /** Additional attributes */
-  attributes?: Attributes | undefined;
+  attributes?: SpanAttributes | undefined;
   /** SQL info (only included if tracer config has includeSql enabled) */
   sql?: { query?: string; params?: unknown[] } | undefined;
-  /** Start a new root span (not child of current context) */
+  /**
+   * Start a new root span (not child of current context). A handed tracer
+   * takes no parent: its span nests under the active span.
+   */
   root?: boolean | undefined;
 }
 
@@ -60,6 +88,11 @@ export interface TracerWrapperConfig {
   includeParams?: boolean | undefined;
   /** Span names to ignore */
   ignoreSpanTypes?: ReadonlyArray<string | RegExp> | undefined;
+  /**
+   * A handed tracer. When given, spans start through its two-argument
+   * `startActiveSpan` and `@opentelemetry/api` is never imported.
+   */
+  tracer?: SpanTracer | undefined;
 }
 
 /**
@@ -75,20 +108,8 @@ export interface TracerWrapper {
    */
   startActiveSpan<T>(
     options: VibORMSpanOptions,
-    fn: (span?: Span) => T | Promise<T>
+    fn: (span?: TracingSpan) => T | Promise<T>
   ): Promise<T>;
-
-  /**
-   * Synchronous version for non-async operations.
-   * When OTel unavailable, executes callback directly.
-   */
-  startActiveSpanSync<T>(options: VibORMSpanOptions, fn: (span?: Span) => T): T;
-
-  /**
-   * Add attributes to the active span when the installed tracer can expose it.
-   * Optional so existing custom wrappers remain source-compatible.
-   */
-  setActiveSpanAttributes?: ((attributes: Attributes) => void) | undefined;
 
   /**
    * Check if tracing is enabled (OTel loaded and configured)
@@ -103,20 +124,9 @@ export interface TracerWrapper {
 const noopTracer: TracerWrapper = {
   async startActiveSpan<T>(
     _options: VibORMSpanOptions,
-    fn: (span?: Span) => T | Promise<T>
+    fn: (span?: TracingSpan) => T | Promise<T>
   ): Promise<T> {
     return fn();
-  },
-
-  startActiveSpanSync<T>(
-    _options: VibORMSpanOptions,
-    fn: (span?: Span) => T
-  ): T {
-    return fn();
-  },
-
-  setActiveSpanAttributes(): void {
-    // No active provider span exists.
   },
 
   isEnabled(): boolean {
@@ -133,6 +143,8 @@ Object.freeze(noopTracer);
  *
  * All mutable state is scoped to this instance to support serverless environments.
  * Always returns a valid TracerWrapper - either a real tracer or the no-op tracer.
+ * With `config.tracer` the wrapper presents spans through that tracer and never
+ * imports `@opentelemetry/api`; without it, the api is auto-detected.
  */
 export function createTracerWrapper(
   config?: TracerWrapperConfig
@@ -145,20 +157,6 @@ export function createTracerWrapper(
   const includeSql = config?.includeSql === true;
   const includeParams = config?.includeParams === true;
 
-  // Instance-scoped state (not module-level) for serverless compatibility
-  let otel: OTelAPI | null = null;
-  let tracer: Tracer | null = null;
-  let otelLoaded = false;
-
-  async function tryLoadOtel(): Promise<OTelAPI | null> {
-    try {
-      otel = await import("@opentelemetry/api");
-      return otel;
-    } catch {
-      return null;
-    }
-  }
-
   function shouldIgnoreSpan(name: string): boolean {
     return ignorePatterns.some((pattern) => {
       if (isString(pattern)) return pattern === name;
@@ -166,8 +164,8 @@ export function createTracerWrapper(
     });
   }
 
-  function buildAttributes(options: VibORMSpanOptions): Attributes {
-    const attrs: Attributes = { ...options.attributes };
+  function buildAttributes(options: VibORMSpanOptions): SpanAttributes {
+    const attrs: SpanAttributes = { ...options.attributes };
 
     if (options.sql) {
       if (includeSql && options.sql.query !== undefined) {
@@ -194,186 +192,215 @@ export function createTracerWrapper(
     return attrs;
   }
 
-  function getTracer(api: OTelAPI): Tracer {
-    if (!tracer) {
-      tracer = api.trace.getTracer(TRACER_NAME, TRACER_VERSION);
-    }
-    return tracer;
+  /**
+   * Spans through a tracer the platform or application already holds, by the
+   * two-argument `startActiveSpan(name, fn)` both OpenTelemetry and the
+   * Cloudflare Workers runtime implement. Attributes are set on the span it
+   * hands `fn`; the span nests under the active one (no kind, no root).
+   */
+  function presentThrough(platformTracer: SpanTracer): TracerWrapper {
+    return {
+      async startActiveSpan<T>(
+        options: VibORMSpanOptions,
+        fn: (span?: TracingSpan) => T | Promise<T>
+      ): Promise<T> {
+        if (shouldIgnoreSpan(options.name)) return fn();
+        const executeOnce = createExecution(fn, API_CONTRACT_CODES);
+        try {
+          const attributes = buildAttributes(options);
+          Promise.resolve(
+            platformTracer.startActiveSpan(options.name, (span) => {
+              setSpanAttributes(span, attributes);
+              return executeOnce(span);
+            })
+          ).catch(() => undefined);
+        } catch {
+          // The operation promise below remains authoritative.
+        }
+        // Without a callback from the tracer, the operation runs unspanned.
+        return executeOnce();
+      },
+
+      isEnabled(): boolean {
+        return true;
+      },
+    };
   }
 
-  // Eagerly load OTel on first tracer creation
-  const otelReady = tryLoadOtel().then((api) => {
-    otelLoaded = true;
-    return api;
-  });
+  /** Spans through the global provider of an auto-detected OTel api. */
+  function autoDetect(): TracerWrapper {
+    // Instance-scoped state (not module-level) for serverless compatibility
+    let otel: OTelAPI | null = null;
+    let tracer: Tracer | null = null;
+    let otelLoaded = false;
 
-  const wrapper: TracerWrapper = {
-    async startActiveSpan<T>(
-      options: VibORMSpanOptions,
-      fn: (span?: Span) => T | Promise<T>
-    ): Promise<T> {
-      // Wait for initial load only on first call, then otel is cached
-      if (!otelLoaded) await otelReady;
-      if (!otel || shouldIgnoreSpan(options.name)) {
-        return fn();
-      }
-
-      let span: Span;
-      let contextWithSpan: Context;
+    async function tryLoadOtel(): Promise<OTelAPI | null> {
       try {
-        const attributes = buildAttributes(options);
-        const kind = options.kind ?? otel.SpanKind.INTERNAL;
-        const parentContext = options.root
-          ? otel.ROOT_CONTEXT
-          : otel.context.active();
-        span = getTracer(otel).startSpan(
-          options.name,
-          { kind, attributes },
-          parentContext
-        );
-        contextWithSpan = otel.trace.setSpan(parentContext, span);
+        otel = await import("@opentelemetry/api");
+        return otel;
       } catch {
-        return fn();
+        return null;
       }
+    }
 
-      let execution: Promise<T> | undefined;
-      let executing = false;
-      const executeOnce = (): Promise<T> => {
-        if (execution) return execution;
-        if (executing) return Promise.reject(createTraceError());
-        executing = true;
-        try {
-          execution = new Promise<T>((resolve, reject) => {
-            try {
-              Promise.resolve(fn(span)).then(
-                (result) => {
-                  safely(() =>
-                    span.setStatus({ code: otel!.SpanStatusCode.OK })
-                  );
-                  safely(() => span.end());
-                  resolve(result);
-                },
-                (error) => {
-                  safely(() =>
-                    span.setStatus({
-                      code: otel!.SpanStatusCode.ERROR,
-                      message: "Operation failed",
-                    })
-                  );
-                  safely(() => span.recordException(createTraceError()));
-                  safely(() => span.end());
-                  reject(error);
-                }
-              );
-            } catch (error) {
-              safely(() =>
-                span.setStatus({
-                  code: otel!.SpanStatusCode.ERROR,
-                  message: "Operation failed",
-                })
-              );
-              safely(() => span.recordException(createTraceError()));
-              safely(() => span.end());
-              reject(error);
-            }
-          });
-          return execution;
-        } finally {
-          executing = false;
+    function getTracer(api: OTelAPI): Tracer {
+      if (!tracer) {
+        tracer = api.trace.getTracer(TRACER_NAME, TRACER_VERSION);
+      }
+      return tracer;
+    }
+
+    // Eagerly load OTel on first tracer creation
+    const otelReady = tryLoadOtel().then((api) => {
+      otelLoaded = true;
+      return api;
+    });
+
+    const wrapper: TracerWrapper = {
+      async startActiveSpan<T>(
+        options: VibORMSpanOptions,
+        fn: (span?: TracingSpan) => T | Promise<T>
+      ): Promise<T> {
+        // Wait for initial load only on first call, then otel is cached
+        if (!otelLoaded) await otelReady;
+        if (!otel || shouldIgnoreSpan(options.name)) {
+          return fn();
         }
-      };
 
-      try {
-        Promise.resolve(otel.context.with(contextWithSpan, executeOnce)).catch(
-          () => undefined
-        );
-      } catch {
-        // The operation promise below remains authoritative.
-      }
-      return execution ?? executeOnce();
-    },
-
-    startActiveSpanSync<T>(
-      options: VibORMSpanOptions,
-      fn: (span?: Span) => T
-    ): T {
-      // Sync version requires OTel to be pre-loaded
-      if (!otel || shouldIgnoreSpan(options.name)) {
-        return fn();
-      }
-
-      let span: Span;
-      let contextWithSpan: Context;
-      try {
-        const attributes = buildAttributes(options);
-        const kind = options.kind ?? otel.SpanKind.INTERNAL;
-        const activeContext = otel.context.active();
-        span = getTracer(otel).startSpan(
-          options.name,
-          { kind, attributes },
-          activeContext
-        );
-        contextWithSpan = otel.trace.setSpan(activeContext, span);
-      } catch {
-        return fn();
-      }
-
-      let outcome:
-        | { kind: "pending" }
-        | { kind: "running" }
-        | { kind: "success"; value: T }
-        | { kind: "failure"; error: unknown } = { kind: "pending" };
-      const executeOnce = (): T => {
-        if (outcome.kind === "running") throw createTraceError();
-        if (outcome.kind === "failure") throw outcome.error;
-        if (outcome.kind === "success") return outcome.value;
-        outcome = { kind: "running" };
+        let span: Span;
+        let contextWithSpan: Context;
         try {
-          const value = fn(span);
-          outcome = { kind: "success", value };
-          safely(() => span.setStatus({ code: otel!.SpanStatusCode.OK }));
-          safely(() => span.end());
-          return value;
-        } catch (error) {
-          outcome = { kind: "failure", error };
-          safely(() =>
-            span.setStatus({
-              code: otel!.SpanStatusCode.ERROR,
-              message: "Operation failed",
-            })
+          const attributes = buildAttributes(options);
+          const kind = options.kind ?? otel.SpanKind.INTERNAL;
+          const parentContext = options.root
+            ? otel.ROOT_CONTEXT
+            : otel.context.active();
+          span = getTracer(otel).startSpan(
+            options.name,
+            { kind, attributes },
+            parentContext
           );
-          safely(() => span.recordException(createTraceError()));
-          safely(() => span.end());
-          throw error;
+          contextWithSpan = otel.trace.setSpan(parentContext, span);
+        } catch {
+          return fn();
         }
-      };
 
-      try {
-        otel.context.with(contextWithSpan, executeOnce);
-      } catch {
-        // The operation outcome below remains authoritative.
-      }
-      return executeOnce();
-    },
+        const executeOnce = createExecution(fn, otel);
+        try {
+          Promise.resolve(
+            otel.context.with(contextWithSpan, () => executeOnce(span))
+          ).catch(() => undefined);
+        } catch {
+          // The operation promise below remains authoritative.
+        }
+        return executeOnce(span);
+      },
 
-    setActiveSpanAttributes(attributes: Attributes): void {
-      if (!otel) return;
-      safely(() =>
-        otel?.trace.getSpan(otel.context.active())?.setAttributes(attributes)
-      );
-    },
+      isEnabled(): boolean {
+        return otel !== null;
+      },
+    };
+    const readiness = otelReady.then(() => undefined);
+    tracerReadiness.set(wrapper, readiness);
+    readiness.then(() => tracerReadiness.delete(wrapper));
+    return wrapper;
+  }
 
-    isEnabled(): boolean {
-      return otel !== null;
-    },
-  };
+  const platformTracer = config?.tracer;
+  const wrapper =
+    platformTracer === undefined
+      ? autoDetect()
+      : presentThrough(platformTracer);
   Object.defineProperty(wrapper, SHOULD_TRACE_SPAN, {
     value: (name: VibORMSpanName) => !shouldIgnoreSpan(name),
   });
-  const readiness = otelReady.then(() => undefined);
-  tracerReadiness.set(wrapper, readiness);
-  readiness.then(() => tracerReadiness.delete(wrapper));
   return Object.freeze(wrapper);
+}
+
+/**
+ * The application callback of one span attempt, run exactly once. A tracer or
+ * context manager that calls back twice, re-entrantly, late, or never cannot
+ * repeat or skip the operation: a later call returns the one execution, and
+ * the caller's own final call starts it (unspanned) when nothing called back.
+ * Every span any call brings is settled with that run's outcome, unless an
+ * earlier settlement already ended it: the run's own span, and a second or
+ * late one a hostile tracer hands over.
+ */
+function createExecution<T>(
+  fn: (span?: TracingSpan) => T | Promise<T>,
+  codes: StatusCodes
+): (span?: TracingSpan) => Promise<T> {
+  const spans = new Set<TracingSpan>();
+  let failed: boolean | undefined;
+  const settle = (outcome: boolean): void => {
+    failed = outcome;
+    for (const span of spans) endSpan(span, outcome, codes);
+  };
+  let execution: Promise<T> | undefined;
+  let executing = false;
+  return (span?: TracingSpan): Promise<T> => {
+    if (span !== undefined) {
+      spans.add(span);
+      if (failed !== undefined) endSpan(span, failed, codes);
+    }
+    if (execution) return execution;
+    if (executing) return Promise.reject(createTraceError());
+    executing = true;
+    try {
+      execution = new Promise<T>((resolve, reject) => {
+        try {
+          Promise.resolve(fn(span)).then(
+            (result) => {
+              settle(false);
+              resolve(result);
+            },
+            (error) => {
+              settle(true);
+              reject(error);
+            }
+          );
+        } catch (error) {
+          settle(true);
+          reject(error);
+        }
+      });
+      return execution;
+    } finally {
+      executing = false;
+    }
+  };
+}
+
+/**
+ * Settle a span the operation ran in, once; span failures never reach it.
+ * Status codes are read from `codes` at settlement, and a span without
+ * `setStatus` or `recordException` (the Workers runtime span) is still ended.
+ */
+function endSpan(span: TracingSpan, failed: boolean, codes: StatusCodes): void {
+  if (settledSpans.has(span)) return;
+  settledSpans.add(span);
+  if (failed) {
+    safely(() =>
+      span.setStatus?.({
+        code: codes.SpanStatusCode.ERROR,
+        message: "Operation failed",
+      })
+    );
+    safely(() => span.recordException?.(createTraceError()));
+  } else {
+    safely(() => span.setStatus?.({ code: codes.SpanStatusCode.OK }));
+  }
+  safely(() => span.end());
+}
+
+/** Set VibORM's attributes one key at a time, each contained. */
+export function setSpanAttributes(
+  span: TracingSpan | undefined,
+  attributes: SpanAttributes
+): void {
+  for (const [key, value] of Object.entries(attributes)) {
+    safely(() => span?.setAttribute(key, value));
+  }
 }
 
 /** Return this wrapper's outstanding one-shot OTel readiness, if any. */
@@ -393,12 +420,31 @@ export function shouldTraceSpan(
   }
 }
 
-function safely(action: () => void): void {
+/**
+ * Run one span call; neither its throw nor a rejection of the thenable it
+ * returns reaches the operation, which never waits for it. Only a thenable
+ * is handed a rejection handler, through its own `then`: a synchronous span
+ * call allocates nothing.
+ */
+function safely(action: () => unknown): void {
   try {
-    action();
+    const result = action();
+    // A thenable may be a function as well as an object.
+    const then: unknown =
+      (typeof result === "object" && result !== null) ||
+      typeof result === "function"
+        ? Reflect.get(result, "then")
+        : undefined;
+    if (typeof then === "function") {
+      Reflect.apply(then, result, [undefined, ignoreRejection]);
+    }
   } catch {
     // Instrumentation must never change the operation outcome.
   }
+}
+
+function ignoreRejection(): void {
+  // A span call's rejection is consumed, never presented.
 }
 
 function createTraceError(): Error {

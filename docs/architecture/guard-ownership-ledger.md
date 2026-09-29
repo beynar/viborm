@@ -3133,3 +3133,42 @@ new code: `tests/unit/schema-validation/junction-side-actions.core.test.ts`.
 stated actions (an unstated one is omitted, never `undefined`) and the
 topology copies the side through, so absence has one producer. Variant member
 junctions state no action and so carry none.
+
+---
+
+## Addendum — the operation error-log want (instrumentation encapsulation, 2026-09-29)
+
+The instrumentation encapsulation
+([`instrumentation-encapsulation-plan.md`](./instrumentation-encapsulation-plan.md)
+§3.4) keeps error-log selection in core. The operation's `complete()` publishes
+a failure only when it is unlogged and the chain's capability
+`wants("error-log")`. The final review found that deleting the want kept every
+test green, because the extension's logger drops an event below its level
+anyway. It is kept, not dropped, and it is now pinned.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/query-engine/execution-context.ts` `createOperationInstrumentationFacts` · `complete()` · `official.wants("error-log") &&` | A settled operation publishes a failure to the extension only when that chain presents an error log; otherwise its completion is `undefined` (no cache outcomes either). | The operation's `complete()`, called synchronously as the child settles: the want is read at the instant the failure is selected, like the statement gate's `wants("query-log" \| "error-log")`. | Without it every failed operation on a logging-only chain whose error level is off would publish its failure. The extension would then sanitize the failure and build a log event that the logger discards. No later owner prevents that work: the logger's level check runs after the event is built. This is an allocation guard with a named cost, not a second copy of the level check. | `tests/contracts/public-client/official-instrumentation-extension.core.test.ts` "core publishes the operation failure with its settle instant only when an error log is wanted ('query' logging)" (red when the want is deleted; measured). |
+
+## Addendum — the contained driver identity read (instrumentation encapsulation, 2026-09-29)
+
+Review (Devin) found that the operation facts reader read the driver's
+identity eagerly, so a custom adapter whose `namespace` getter throws made the
+reader throw; the protected observer runner then dropped the whole facts
+record, and an operation failing before any statement lost its error log. A
+first fix contained the read in core's facts reader; the re-review found the
+same read uncontained at `$withCache` (a getter that succeeds when
+`$extends(cache(...))` binds and throws later made `$withCache` throw) and a
+second catch, in the extension's `presentDispatch`, whose only unique coverage
+was the same throw. The three are one invariant with one owner: the read is
+contained in `readDriverIdentity`, the one reader of `adapter.namespace` for
+presentation, which returns `undefined` when it throws. The facts reader's
+catch and `presentDispatch`'s catch are deleted; an execute or lifecycle span
+of such a driver is now presented without `db.*` attributes instead of
+omitted. `bindOfficialCacheChain` reads the namespace for the cache scope,
+not for presentation, and still throws at `$extends`: the cache cannot
+partition without it.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/drivers/driver-identity.ts` `readDriverIdentity` · `try { … } catch { return undefined; }` | A driver that cannot name itself is presented without `db.*` attributes; nothing that reads its identity fails or is dropped because of it. | The one presentation reader of the driver's configuration; every caller (core's operation facts reader, the extension's execute/lifecycle span options, the `$withCache` snapshot) reads through it. | A custom adapter whose `namespace` getter throws: (1) on a logging-only chain, a failure before any statement (request transform, validation, query interceptor) — the runner's own catch discards the whole facts record, and no other owner emits that operation's error log; (2) with tracing, an execute or lifecycle dispatch — building its span options would throw before `start()`, leaving the gated provider call pending; (3) a getter that throws only after the cache bound — `$withCache` would throw synchronously. | `tests/unit/instrumentation/tracer-platform.core.test.ts` "logs a pre-statement failure once when the adapter namespace throws", "presents the operation span without driver attributes when the adapter namespace throws", "presents the statement and the transaction without driver attributes when the adapter namespace throws" (hangs to its 30 s timeout) and "keeps $withCache when the adapter namespace throws after the cache bound" (all four red when the catch is removed; measured). |

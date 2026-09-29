@@ -2,7 +2,12 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver } from "@drivers/driver";
-import type { QueryResult } from "@drivers/types";
+import { readDriverIdentity } from "@drivers/driver-identity";
+import type { QueryExecutionContext, QueryResult } from "@drivers/types";
+import {
+  createDriverAttributes,
+  createLifecycleSpanOptions,
+} from "@instrumentation/presentation";
 import {
   ATTR_DB_COLLECTION,
   ATTR_DB_NAMESPACE,
@@ -49,7 +54,7 @@ describe("driver instrumentation attributes", () => {
   test("publishes the adapter namespace and driver identity", () => {
     const driver = new AttributeDriver(new MySQLAdapter("tenant"), "mysql");
 
-    expect(driver.getBaseAttributes()).toEqual({
+    expect(createDriverAttributes(readDriverIdentity(driver))).toEqual({
       [ATTR_DB_SYSTEM]: "mysql",
       "db.system.driver": "attribute-mysql",
       [ATTR_DB_NAMESPACE]: "tenant",
@@ -59,12 +64,20 @@ describe("driver instrumentation attributes", () => {
   test("omits an absent namespace and appends only supplied context facts", () => {
     const driver = new AttributeDriver(new SQLiteAdapter(), "sqlite");
 
-    expect(driver.getContextAttributes({})).toEqual({
+    const present = (context: QueryExecutionContext) =>
+      createLifecycleSpanOptions({
+        boundary: "connect",
+        context,
+        driver,
+        start: () => undefined,
+      }).attributes;
+
+    expect(present({})).toEqual({
       [ATTR_DB_SYSTEM]: "sqlite",
       "db.system.driver": "attribute-sqlite",
     });
     expect(
-      driver.getContextAttributes({
+      present({
         correlationId: "correlation",
         model: "entry",
         operation: "create",

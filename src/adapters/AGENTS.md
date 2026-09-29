@@ -96,8 +96,8 @@ non-writable, and THAT INSTALL is where its immutability lives — not in a ban 
 copies: models, relations, query scopes, operation programs, result types,
 journals, cache identity, and instrumentation all read it or do without it, and
 the two readers that capture it once — the bound migration driver at bind time
-(`getMigrationDriver`), and the `dbAttributes` snapshot a cached read takes at
-`$withCache` — are safe precisely because the property they read cannot be
+(`getMigrationDriver`), and the `readDriverIdentity` snapshot a cached read
+takes at `$withCache` — are safe precisely because the property they read cannot be
 reassigned under them.
 
 `identifiers.table()` is the one renderer that applies it, and its alias is

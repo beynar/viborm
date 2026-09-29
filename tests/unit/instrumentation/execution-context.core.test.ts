@@ -9,7 +9,6 @@ describe("driver execution-context snapshots", () => {
     let generated = 0;
     const context = createExecutionContext(
       { model: "user", operation: "create" },
-      undefined,
       () => {
         generated += 1;
         return "lazy-correlation";
@@ -31,14 +30,10 @@ describe("driver execution-context snapshots", () => {
 
   it("copies one lazy correlation getter when effective facts change", () => {
     let generated = 0;
-    const context = createExecutionContext(
-      { operation: "create" },
-      undefined,
-      () => {
-        generated += 1;
-        return "shared-correlation";
-      }
-    );
+    const context = createExecutionContext({ operation: "create" }, () => {
+      generated += 1;
+      return "shared-correlation";
+    });
     const snapshot = snapshotExecutionContext({ model: "user" }, context);
 
     // Compare booleans so the assertion renderer cannot inspect the enumerable

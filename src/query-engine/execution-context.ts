@@ -1,25 +1,15 @@
-import { createOfficialCacheExecutionLogReader } from "@cache/cache-instrumentation";
+import { readCacheExecutionOutcomes } from "@cache/driver";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import { readDriverIdentity } from "@drivers/driver-identity";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import {
   createExecutionContext,
   getExecutionExtensionChain,
-  getExecutionInstrumentation,
 } from "@drivers/execution-context";
-import { sanitizeErrorForLogging } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import {
-  ATTR_DB_COLLECTION,
-  ATTR_DB_OPERATION_NAME,
-  ATTR_VIBORM_CORRELATION_ID,
-  createErrorLogEvent,
-  SPAN_OPERATION,
-} from "@instrumentation";
-import type { InstrumentationContext } from "@instrumentation/context";
-import { getOfficialInstrumentationChainCapability } from "@instrumentation/extension";
-import type { InstrumentationLifecycleFactsReader } from "@instrumentation/lifecycle-facts";
-import { isErrorLogged } from "@instrumentation/logged-errors";
-import type { VibORMSpanOptions } from "@instrumentation/tracer";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
+import type { OfficialLifecycleFactsReader } from "@extensions/official-facts";
+import { isErrorLogged } from "../errors/logged-errors";
 import type { Operation } from "./types";
 
 /** Immutable ownership and attribution captured when an operation is created. */
@@ -32,12 +22,10 @@ export interface OperationExecutionContext {
 export function createOperationExecutionContext(
   model: string,
   operation: Operation | string,
-  instrumentation?: InstrumentationContext,
   extensionChain?: ResolvedExtensionChain
 ): QueryExecutionContext {
   return createExecutionContext(
     { model, operation },
-    instrumentation,
     createCorrelationId,
     extensionChain
   );
@@ -46,7 +34,6 @@ export function createOperationExecutionContext(
 export function createPendingOperationContext(
   model: string,
   operation: Operation,
-  instrumentation: InstrumentationContext | undefined,
   clientId: symbol,
   scopeId: symbol,
   extensionChain?: ResolvedExtensionChain
@@ -57,7 +44,6 @@ export function createPendingOperationContext(
     attribution: createOperationExecutionContext(
       model,
       operation,
-      instrumentation,
       extensionChain
     ),
   });
@@ -68,19 +54,19 @@ export function createPendingOperationInstrumentationFacts(
   driver: AnyDriver,
   context: QueryExecutionContext,
   model: string,
-  spanOperation: string,
-  logOperation: string,
+  requestedOperation: string,
+  operation: string,
   collection: string,
-  skipSpan: boolean
-): InstrumentationLifecycleFactsReader | undefined {
+  cacheManaged: boolean
+): OfficialLifecycleFactsReader | undefined {
   return createOperationInstrumentationFacts(
     driver,
     context,
     model,
-    spanOperation,
-    logOperation,
+    requestedOperation,
+    operation,
     collection,
-    skipSpan
+    cacheManaged
   );
 }
 
@@ -89,7 +75,7 @@ export function createRawOperationInstrumentationFacts(
   driver: AnyDriver,
   context: QueryExecutionContext,
   operation: string
-): InstrumentationLifecycleFactsReader | undefined {
+): OfficialLifecycleFactsReader | undefined {
   return createOperationInstrumentationFacts(
     driver,
     context,
@@ -105,64 +91,48 @@ function createOperationInstrumentationFacts(
   driver: AnyDriver,
   context: QueryExecutionContext,
   model: string | undefined,
-  spanOperation: string,
-  logOperation: string,
+  requestedOperation: string,
+  operation: string,
   collection: string | undefined,
-  skipSpan: boolean
-): InstrumentationLifecycleFactsReader | undefined {
+  cacheManaged: boolean
+): OfficialLifecycleFactsReader | undefined {
   const official = getOfficialInstrumentationChainCapability(
     getExecutionExtensionChain(context)
   );
   if (official?.observesLifecycle !== true) return undefined;
 
-  return () => {
-    const correlationId = context.correlationId;
-    const spanOptions: VibORMSpanOptions | undefined =
-      official.context.config.tracing !== undefined
-        ? {
-            name: SPAN_OPERATION,
-            attributes: {
-              ...driver.getBaseAttributes(),
-              ...(collection === undefined
-                ? {}
-                : { [ATTR_DB_COLLECTION]: collection }),
-              [ATTR_DB_OPERATION_NAME]: spanOperation,
-              ...(correlationId === undefined
-                ? {}
-                : { [ATTR_VIBORM_CORRELATION_ID]: correlationId }),
-            },
-          }
-        : undefined;
-    return Object.freeze({
+  return () =>
+    Object.freeze({
       kind: "operation" as const,
-      ...(spanOptions === undefined ? {} : { spanOptions }),
+      context,
+      identity: readDriverIdentity(driver),
+      model,
+      requestedOperation,
+      operation,
+      collection,
       complete(outcome) {
-        const readCacheLogEvents = skipSpan
-          ? createOfficialCacheExecutionLogReader(context)
+        const readCacheOutcomes = cacheManaged
+          ? readCacheExecutionOutcomes(context)
           : undefined;
-        const errorLogEvent =
+        // Core selects the failure: one error, one error log.
+        const { failure } = outcome;
+        const logged =
           outcome.status === "failure" &&
-          official.context.logger !== undefined &&
-          isUnloggedError(outcome.failure)
-            ? createErrorLogEvent({
-                error: sanitizeErrorForLogging(outcome.failure),
-                model,
-                operation: logOperation,
-                correlationId,
-                duration: outcome.durationMs,
-              })
+          official.wants("error-log") &&
+          isUnloggedError(failure)
+            ? failure
             : undefined;
-        if (readCacheLogEvents === undefined && errorLogEvent === undefined) {
+        if (readCacheOutcomes === undefined && logged === undefined) {
           return undefined;
         }
         return Object.freeze({
           kind: "operation" as const,
-          ...(readCacheLogEvents === undefined ? {} : { readCacheLogEvents }),
-          ...(errorLogEvent === undefined ? {} : { errorLogEvent }),
+          endedAt: Date.now(),
+          ...(readCacheOutcomes === undefined ? {} : { readCacheOutcomes }),
+          ...(logged === undefined ? {} : { failure: logged }),
         });
       },
     });
-  };
 }
 
 /** Observe native-batch preparation and parsing as one logical operation. */
@@ -171,34 +141,22 @@ export async function observeTransactionBatchPhase<R>(
   driver: AnyDriver,
   execute: () => R | Promise<R>
 ): Promise<R> {
-  const instrumentation = getExecutionInstrumentation(executionContext);
+  const diagnostics = getOfficialInstrumentationChainCapability(
+    getExecutionExtensionChain(executionContext)
+  )?.diagnostics;
   try {
     return await execute();
   } catch (error) {
-    throw normalizeTransactionBatchPhaseError(
-      error,
-      executionContext,
-      instrumentation,
-      driver
-    );
+    throw normalizeDriverError(error, {
+      driverName: driver.driverName,
+      dialect: driver.dialect,
+      model: executionContext.model,
+      operation: executionContext.operation,
+      correlationId: executionContext.correlationId,
+      diagnostics,
+      forceContext: true,
+    });
   }
-}
-
-function normalizeTransactionBatchPhaseError(
-  error: unknown,
-  executionContext: QueryExecutionContext,
-  instrumentation: InstrumentationContext | undefined,
-  driver: AnyDriver
-) {
-  return normalizeDriverError(error, {
-    driverName: driver.driverName,
-    dialect: driver.dialect,
-    model: executionContext.model,
-    operation: executionContext.operation,
-    correlationId: executionContext.correlationId,
-    diagnostics: instrumentation?.config.diagnostics,
-    forceContext: true,
-  });
 }
 
 export function createCorrelationId(): string {

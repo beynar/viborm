@@ -40,11 +40,6 @@ const client = createClient({
           unit.model;
           return operation;
         }
-        case "segment": {
-          const operation: string | undefined = unit.operation;
-          const model: string | undefined = unit.model;
-          return { model, operation };
-        }
         case "cache": {
           const operation: "get" | "set" | "revalidate" | "invalidate" =
             unit.operation;
@@ -65,7 +60,6 @@ const client = createClient({
       | "batch"
       | "transaction"
       | "savepoint"
-      | "segment"
       | "connection"
       | "cache" = unit.kind;
     const model: string | undefined = "model" in unit ? unit.model : undefined;

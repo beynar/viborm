@@ -86,18 +86,6 @@ describe("createTracerWrapper (OTel present)", () => {
     );
   });
 
-  it("adds late attributes to the active span", async () => {
-    const tracer = createTracerWrapper();
-
-    await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => {
-      tracer.setActiveSpanAttributes?.({ "viborm.write.atomicity": "segment" });
-    });
-
-    expect(findLast(SPAN_OPERATION)?.attributes["viborm.write.atomicity"]).toBe(
-      "segment"
-    );
-  });
-
   it("includeSql defaults false and requires explicit opt-in", async () => {
     const withSql = createTracerWrapper({ includeSql: true });
     const noSql = createTracerWrapper();
@@ -383,66 +371,6 @@ describe("createTracerWrapper (OTel present)", () => {
     expect(countOf(SPAN_CONNECT)).toBe(before);
   });
 
-  it("startActiveSpanSync (OTel loaded) records a span, returns value, sets OK", async () => {
-    const tracer = createTracerWrapper();
-    await primeTracer(tracer);
-
-    const result = tracer.startActiveSpanSync(
-      { name: SPAN_OPERATION },
-      () => "sync"
-    );
-
-    expect(result).toBe("sync");
-    const span = findLast(SPAN_OPERATION);
-    expect(span).toBeDefined();
-    expect(span?.status.code).toBe(SpanStatusCode.OK);
-  });
-
-  it("startActiveSpanSync throwing: ERROR status + recordException + rethrow", async () => {
-    const tracer = createTracerWrapper();
-    await primeTracer(tracer);
-
-    expect(() =>
-      tracer.startActiveSpanSync({ name: SPAN_EXECUTE }, () => {
-        throw new Error("sync-boom");
-      })
-    ).toThrow("sync-boom");
-
-    const span = findLast(SPAN_EXECUTE);
-    expect(span?.status.code).toBe(SpanStatusCode.ERROR);
-    expect(span?.status.message).toBe("Operation failed");
-    expect(span?.events.some((e) => e.name === "exception")).toBe(true);
-    expect(JSON.stringify(span?.events)).not.toContain("sync-boom");
-  });
-
-  it("startActiveSpanSync respects ignoreSpanTypes (skipped name → callback runs, no span)", async () => {
-    const tracer = createTracerWrapper({ ignoreSpanTypes: [SPAN_CONNECT] });
-    await primeTracer(tracer);
-    const before = countOf(SPAN_CONNECT);
-
-    const result = tracer.startActiveSpanSync(
-      { name: SPAN_CONNECT },
-      () => "ran"
-    );
-
-    expect(result).toBe("ran");
-    expect(countOf(SPAN_CONNECT)).toBe(before);
-  });
-
-  it("startActiveSpanSync before any async span primed OTel falls through to plain fn()", () => {
-    const tracer = createTracerWrapper();
-    const before = countOf(SPAN_OPERATION);
-
-    // No prior async span: otel is still null, so sync path just runs fn().
-    const result = tracer.startActiveSpanSync(
-      { name: SPAN_OPERATION },
-      () => "no-otel-yet"
-    );
-
-    expect(result).toBe("no-otel-yet");
-    expect(countOf(SPAN_OPERATION)).toBe(before);
-  });
-
   it("a top-level span with no ambient active span is a root span (no parent)", async () => {
     const tracer = createTracerWrapper();
 
@@ -470,25 +398,6 @@ describe("getNoopTracer", () => {
     expect(result).toBe("value");
     expect(tracer.isEnabled()).toBe(false);
     expect(shouldTraceSpan(tracer, SPAN_OPERATION)).toBe(false);
-  });
-
-  it("startActiveSpanSync runs the callback and returns its value", () => {
-    const tracer = getNoopTracer();
-
-    const result = tracer.startActiveSpanSync(
-      { name: SPAN_OPERATION },
-      () => "sync-value"
-    );
-
-    expect(result).toBe("sync-value");
-  });
-
-  it("accepts active-span attributes without a provider", () => {
-    expect(() =>
-      getNoopTracer().setActiveSpanAttributes?.({
-        "viborm.write.atomicity": "operation",
-      })
-    ).not.toThrow();
   });
 
   it("returns the shared singleton instance across calls", () => {

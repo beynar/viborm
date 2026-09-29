@@ -14,6 +14,7 @@ import {
 import type { AnyDriver } from "@drivers";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
+import { readDriverIdentity } from "@drivers/driver-identity";
 import { bindExecutionTransactionPhases } from "@drivers/execution-context";
 import type {
   BatchTransactionOptions,
@@ -68,8 +69,8 @@ import {
 } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
-import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { isWriteOperation } from "@query-engine/routed-operations";
+import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
@@ -642,7 +643,7 @@ export class VibORM<C extends VibORMConfig> {
     const options = createCacheExecutionOptions(
       config,
       capability.waitUntil,
-      engine.driver.getBaseAttributes()
+      readDriverIdentity(engine.driver)
     );
     const officialReadCache = Object.freeze({ capability, options });
     return this.createCachedProxy(({ modelName, operation, args }) => {
@@ -793,7 +794,6 @@ export class VibORM<C extends VibORMConfig> {
       const baseTransactionContext = createOperationExecutionContext(
         "$transaction",
         Array.isArray(input) ? "$transaction([...])" : "$transaction(callback)",
-        engine.instrumentation,
         engine.extensionChain
       );
       let transactionContext = baseTransactionContext;
@@ -895,7 +895,6 @@ export class VibORM<C extends VibORMConfig> {
                         Array.isArray(nestedInput)
                           ? "$transaction([...])"
                           : "$transaction(callback)",
-                        txEngine.instrumentation,
                         txEngine.extensionChain
                       );
                     if (Array.isArray(nestedInput)) {
@@ -1067,7 +1066,6 @@ export class VibORM<C extends VibORMConfig> {
         createOperationExecutionContext(
           "$connection",
           "$disconnect",
-          engine.instrumentation,
           engine.extensionChain
         )
       );
@@ -1133,7 +1131,6 @@ export class VibORM<C extends VibORMConfig> {
               createOperationExecutionContext(
                 "$connection",
                 "$connect",
-                engine.instrumentation,
                 engine.extensionChain
               )
             );
@@ -1172,7 +1169,6 @@ export class VibORM<C extends VibORMConfig> {
               createOperationExecutionContext(
                 "$cache",
                 "$invalidate",
-                engine.instrumentation,
                 engine.extensionChain
               ),
               officialCache.scope

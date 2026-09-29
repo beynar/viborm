@@ -26,6 +26,7 @@ import type {
   LogCallback,
   LoggingConfig,
   LogLevelHandler,
+  SpanTracer,
   TracingConfig,
 } from "./types";
 
@@ -68,6 +69,7 @@ export function createInstrumentationContext(
       includeSql: tracingConfig.includeSql,
       includeParams: tracingConfig.includeParams,
       ignoreSpanTypes: tracingConfig.ignoreSpanTypes,
+      tracer: tracingConfig.tracer,
     });
   } else {
     tracer = getNoopTracer();
@@ -117,10 +119,21 @@ function snapshotTracingConfig(value: Record<string, unknown>): TracingConfig {
   const ignoreSpanTypes = snapshotIgnorePatterns(
     safeRead(value, "ignoreSpanTypes")
   );
+  const tracer = safeRead(value, "tracer");
   return Object.freeze({
     ...snapshotDisclosure(value),
     ...(ignoreSpanTypes.length > 0 ? { ignoreSpanTypes } : {}),
+    ...(isPlatformTracer(tracer) ? { tracer } : {}),
   });
+}
+
+/**
+ * The caller-owned tracer is kept by reference (its methods are its own). A
+ * value without `startActiveSpan`, the one member spans start through, is not
+ * a tracer: the api is auto-detected instead.
+ */
+function isPlatformTracer(value: unknown): value is SpanTracer {
+  return isRecord(value) && isFunction(safeRead(value, "startActiveSpan"));
 }
 
 function snapshotIgnorePatterns(

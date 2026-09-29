@@ -2,7 +2,7 @@ import {
   isErrorLogged,
   markErrorLogged,
   transferLoggedErrorEvidence,
-} from "@instrumentation/logged-errors";
+} from "@src/errors/logged-errors";
 import { describe, expect, test } from "vitest";
 
 function loggedMarkerSurface(error: Error) {

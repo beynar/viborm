@@ -7,13 +7,12 @@ import {
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
-import { SPAN_CONNECT, SPAN_DISCONNECT } from "@instrumentation/spans";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
-import type {
-  DriverResultParser,
-  NestedTransactionObservation,
-  OfficialDriverLifecycleExecutionGate,
+import {
+  type DriverResultParser,
+  type NestedTransactionObservation,
+  ungatedLifecycleExecution,
 } from "./driver-instrumentation";
 import { DriverTransactionBase } from "./driver-transaction-base";
 import { normalizeDriverConnectionError } from "./error-mapping";
@@ -65,9 +64,8 @@ export abstract class Driver<
       await this.getClient(executionContext);
     };
 
-    const executeConnect = (gate?: OfficialDriverLifecycleExecutionGate) => {
-      return gate === undefined ? doConnect() : gate.execute(doConnect);
-    };
+    const executeConnect = (gate = ungatedLifecycleExecution) =>
+      gate.execute(doConnect);
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
       if (!hasLifecycleObservers) {
@@ -76,7 +74,7 @@ export abstract class Driver<
       return this.observeTrustedDriverLifecycle(
         "connection",
         executionContext,
-        SPAN_CONNECT,
+        "connect",
         (gate) => this.connectionQueue.enqueue(() => executeConnect(gate))
       );
     }
@@ -84,7 +82,7 @@ export abstract class Driver<
       ? this.observeTrustedDriverLifecycle(
           "connection",
           executionContext,
-          SPAN_CONNECT,
+          "connect",
           executeConnect
         )
       : executeConnect();
@@ -99,9 +97,7 @@ export abstract class Driver<
       "disconnect"
     );
     const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
-    const executeDisconnect = async (
-      gate?: OfficialDriverLifecycleExecutionGate
-    ) => {
+    const executeDisconnect = async (gate = ungatedLifecycleExecution) => {
       if (this.isDisconnecting) {
         throw new ConnectionError("Database connection is closing", {
           code: VibORMErrorCode.CONNECTION_CLOSED,
@@ -149,8 +145,7 @@ export abstract class Driver<
         }
       };
 
-      const disconnectPromise =
-        gate === undefined ? doDisconnect() : gate.execute(doDisconnect);
+      const disconnectPromise = gate.execute(doDisconnect);
 
       try {
         await disconnectPromise;
@@ -170,7 +165,7 @@ export abstract class Driver<
       return this.observeTrustedDriverLifecycle(
         "connection",
         executionContext,
-        SPAN_DISCONNECT,
+        "disconnect",
         (gate) => this.connectionQueue.enqueue(() => executeDisconnect(gate))
       );
     }
@@ -178,7 +173,7 @@ export abstract class Driver<
       ? this.observeTrustedDriverLifecycle(
           "connection",
           executionContext,
-          SPAN_DISCONNECT,
+          "disconnect",
           executeDisconnect
         )
       : executeDisconnect();
@@ -766,7 +761,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
       "transaction"
     );
     const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
-    const executeTransaction = (gate?: OfficialDriverLifecycleExecutionGate) =>
+    const executeTransaction = (gate = ungatedLifecycleExecution) =>
       this.scopeQueue.enqueue(async () => {
         this.assertTransactionCommittable();
         this.isSavepointActive = true;

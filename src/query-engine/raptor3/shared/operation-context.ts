@@ -8,7 +8,7 @@ import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   bindExecutionTransactionPhases,
   deriveStatementExecutionContext,
-  getExecutionInstrumentation,
+  getExecutionExtensionChain,
 } from "@drivers/execution-context";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import type {
@@ -29,6 +29,7 @@ import {
   UniqueConstraintError,
   VibORMErrorCode,
 } from "@errors";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
 import {
@@ -228,8 +229,9 @@ const droppedSkipWarnings = new WeakMap<EngineSchema, Set<string>>();
 
 /**
  * Warn ONCE per client lineage and model — not per row, not per call. The
- * client's logger carries it when it routes warnings; otherwise `console.warn`
- * does, so the dropped skip is loud even with logging off.
+ * official instrumentation extension presents it when it routes warnings;
+ * otherwise `console.warn` does, so the dropped skip is loud even with logging
+ * off.
  */
 function warnDroppedSkip(
   schema: EngineSchema,
@@ -242,16 +244,15 @@ function warnDroppedSkip(
   if (!warned) droppedSkipWarnings.set(schema, (warned = new Set()));
   if (warned.has(model)) return;
   warned.add(model);
-  const logger = getExecutionInstrumentation(attribution)?.logger;
-  if (logger?.isLevelEnabled("warning"))
-    logger.warn({
-      timestamp: new Date(),
-      model,
-      operation,
-      correlationId: attribution?.correlationId,
-      meta: { notice: message },
-    });
-  else console.warn(`[viborm] ${message}`);
+  const presented = getOfficialInstrumentationChainCapability(
+    getExecutionExtensionChain(attribution)
+  )?.warn({
+    model,
+    operation,
+    correlationId: attribution?.correlationId,
+    message,
+  });
+  if (presented !== true) console.warn(`[viborm] ${message}`);
 }
 
 export class OperationContext {

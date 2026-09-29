@@ -1,20 +1,11 @@
 import { scheduleBackground } from "@cache/cache-background";
 import {
-  completeOfficialCacheSetFailure,
-  createCacheInstrumentationLogEvent,
-  createCacheLifecycleInstrumentationFacts,
-  createOfficialCacheExecutionLogReader,
-  emitCacheLogEvent,
-  getCacheOperationAttributes,
-  hasOfficialCacheInstrumentation,
-  hasOfficialCacheLogging,
-} from "@cache/cache-instrumentation";
-import {
   CacheDriver,
   type CacheEntry,
   createOfficialCacheScope,
   executeCachedWithResultCodec,
   invalidateOfficialCache,
+  readCacheExecutionOutcomes,
 } from "@cache/driver";
 import { CloudflareKVCache } from "@cache/drivers/cloudflare-kv";
 import { MemoryCache } from "@cache/drivers/memory";
@@ -49,13 +40,7 @@ import {
   appendResolvedExtension,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
-import { createInstrumentationContext } from "@instrumentation/context";
 import { instrumentation } from "@instrumentation/extension";
-import { SPAN_CACHE_GET } from "@instrumentation/spans";
-import type {
-  CacheInstrumentationFacts,
-  InstrumentationLifecycleFactsReader,
-} from "@src/instrumentation/lifecycle-facts";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test, vi } from "vitest";
 
@@ -140,26 +125,11 @@ function officialInstrumentationContext(options?: {
   const chain = appendResolvedExtension(undefined, extension, {});
   return createExecutionContext(
     { model: "record", operation: "findMany" },
-    undefined,
     options?.correlationId === undefined
       ? undefined
       : () => options.correlationId ?? "",
     chain
   );
-}
-
-/**
- * `createCacheLifecycleInstrumentationFacts` is declared as the broad
- * `InstrumentationLifecycleFactsReader`, whose union has four other members
- * without `spanOptions`/`startLogEvents`. Narrow on the `kind` discriminant
- * rather than asserting: this also pins that the cache factory really does
- * produce cache-kind facts.
- */
-function readCacheFacts(
-  reader: InstrumentationLifecycleFactsReader | undefined
-): CacheInstrumentationFacts | undefined {
-  const facts = reader?.();
-  return facts?.kind === "cache" ? facts : undefined;
 }
 
 describe("cache duration and key contracts", () => {
@@ -301,7 +271,6 @@ describe("public cache-driver storage contract", () => {
     const context = createExecutionContext(
       { model: "record", operation: "findMany" },
       undefined,
-      undefined,
       chain
     );
     const driver = new RecordingCache();
@@ -414,12 +383,9 @@ describe("public cache-driver storage contract", () => {
     ).rejects.toThrow(CacheInvalidKeyError);
   });
 
-  test("uses the trusted instrumentation tracer for direct storage work", async () => {
+  test("runs direct storage work through the trusted observer only", async () => {
     const driver = new RecordingCache();
-    const context = createExecutionContext(
-      { model: "record", operation: "findMany" },
-      createInstrumentationContext({ tracing: true })
-    );
+    const context = officialInstrumentationContext({ tracing: true });
 
     await expect(driver._delete("missing", context)).resolves.toBeUndefined();
     expect(driver.deletes).toEqual([
@@ -635,153 +601,57 @@ describe("official cache definition and hostile configuration", () => {
   });
 });
 
-describe("cache lifecycle presentation facts", () => {
-  test("records logical events once and keeps late set failures presentable", () => {
+describe("cache outcome facts", () => {
+  test("records logical outcomes once and keeps late set failures out of a read list", async () => {
+    const driver = new RecordingCache();
+    const scope = createOfficialCacheScope("viborm:cache:outcome-test");
+    const background: Promise<unknown>[] = [];
     const context = officialInstrumentationContext({
       logging: true,
       correlationId: "correlation-1",
     });
-    expect(hasOfficialCacheInstrumentation(context)).toBe(true);
-    expect(hasOfficialCacheLogging(context)).toBe(true);
+    const execute = () =>
+      executeCachedWithResultCodec(
+        driver,
+        "record",
+        "findMany",
+        {},
+        async () => "fresh",
+        {
+          ttlMs: 10,
+          swr: false,
+          bypass: true,
+          executionContext: context,
+          waitUntil: (promise) => background.push(promise),
+        },
+        {
+          snapshot: (value: string) => value,
+          materialize: (value: unknown) => String(value),
+        },
+        scope
+      );
+    const statuses = (
+      outcomes: readonly { event: string; status?: string }[]
+    ) => outcomes.map(({ event, status }) => ({ event, status }));
 
-    emitCacheLogEvent("private-key", "miss", undefined, undefined, context);
-    expect(
-      completeOfficialCacheSetFailure(context, new Error("set refused"))
-    ).toBeUndefined();
-    const read = createOfficialCacheExecutionLogReader(context);
-    expect(read?.().map(({ meta }) => meta)).toEqual([
-      { event: "miss", status: undefined },
+    driver.failDataSet = new Error("set refused");
+    await expect(execute()).resolves.toBe("fresh");
+    await Promise.all(background.splice(0));
+    const read = readCacheExecutionOutcomes(context);
+    expect(statuses(read?.() ?? [])).toEqual([
+      { event: "bypass", status: undefined },
       { event: "miss", status: "cache-set-failed" },
     ]);
-    expect(
-      completeOfficialCacheSetFailure(context, new Error("late refusal"))
-    ).toHaveLength(1);
 
-    expect(createOfficialCacheExecutionLogReader({})).toBeUndefined();
-    expect(
-      completeOfficialCacheSetFailure(undefined, "failure")
-    ).toBeUndefined();
-    expect(hasOfficialCacheInstrumentation({})).toBe(false);
-    expect(hasOfficialCacheLogging({})).toBe(false);
-  });
-
-  test("builds tracing and logging facts without disclosing cache identity", () => {
-    const context = officialInstrumentationContext({
-      logging: true,
-      tracing: true,
-      correlationId: "correlation-2",
-    });
-    const factsReader = createCacheLifecycleInstrumentationFacts({
-      context,
-      driverName: "memory",
-      spanName: SPAN_CACHE_GET,
-      spanAttributes: { custom: "attribute" },
-      rootSpan: true,
-      readStartLogEvents: () => [
-        createCacheInstrumentationLogEvent(context, "revalidate", "start"),
-      ],
-      readSpanAttributes: () => ({ "cache.result": "hit" }),
-      readCompletionLogEvents: () => [
-        createCacheInstrumentationLogEvent(context, "revalidate", "success"),
-      ],
-    });
-    const facts = factsReader?.();
-    expect(facts?.kind).toBe("cache");
-    if (facts?.kind !== "cache") throw new Error("missing cache facts");
-    expect(facts.spanOptions).toMatchObject({
-      name: SPAN_CACHE_GET,
-      root: true,
-      attributes: {
-        "cache.driver": "memory",
-        custom: "attribute",
-        "viborm.correlation.id": "correlation-2",
-      },
-    });
-    expect(facts.startLogEvents).toHaveLength(1);
-    expect(facts.complete({ status: "success", durationMs: 0 })).toMatchObject({
-      kind: "cache",
-      spanAttributes: { "cache.result": "hit" },
-      logEvents: [expect.any(Object)],
-    });
-
-    expect(getCacheOperationAttributes("user", "findMany", undefined)).toEqual({
-      "db.collection.name": "user",
-      "db.operation.name": "findMany",
-    });
-    expect(
-      getCacheOperationAttributes("user", "count", { "db.namespace": "app" })
-    ).toEqual({
-      "db.namespace": "app",
-      "db.collection.name": "user",
-      "db.operation.name": "count",
-    });
-  });
-
-  test("omits unavailable presentation channels and empty completions", () => {
-    const loggingContext = officialInstrumentationContext({ logging: true });
-    const loggingFacts = readCacheFacts(
-      createCacheLifecycleInstrumentationFacts({
-        context: loggingContext,
-        spanName: SPAN_CACHE_GET,
-      })
-    );
-    expect(loggingFacts?.spanOptions).toBeUndefined();
-    expect(loggingFacts?.startLogEvents).toBeUndefined();
-    expect(
-      loggingFacts?.complete({ status: "success", durationMs: 0 })
-    ).toBeUndefined();
-
-    const tracingContext = officialInstrumentationContext({ tracing: true });
-    const tracingFacts = readCacheFacts(
-      createCacheLifecycleInstrumentationFacts({
-        context: tracingContext,
-        spanName: SPAN_CACHE_GET,
-        readSpanAttributes: () => undefined,
-      })
-    );
-    expect(tracingFacts?.spanOptions).toMatchObject({
-      name: SPAN_CACHE_GET,
-      attributes: {},
-    });
-    expect(
-      tracingFacts?.complete({ status: "success", durationMs: 0 })
-    ).toBeUndefined();
-
-    const tracingCompletion = readCacheFacts(
-      createCacheLifecycleInstrumentationFacts({
-        context: tracingContext,
-        spanName: SPAN_CACHE_GET,
-        readSpanAttributes: () => ({ "cache.result": "hit" }),
-      })
-    )?.complete({ status: "success", durationMs: 0 });
-    expect(tracingCompletion).toEqual({
-      kind: "cache",
-      spanAttributes: { "cache.result": "hit" },
-    });
-
-    const unrelatedLoggingContext = officialInstrumentationContext({
-      queryLogging: true,
-    });
-    expect(
-      createCacheLifecycleInstrumentationFacts({
-        context: unrelatedLoggingContext,
-        spanName: SPAN_CACHE_GET,
-      })
-    ).toBeUndefined();
-
-    const inertContext = officialInstrumentationContext();
-    expect(
-      createCacheLifecycleInstrumentationFacts({
-        context: inertContext,
-        spanName: SPAN_CACHE_GET,
-      })
-    ).toBeUndefined();
-    expect(
-      createCacheLifecycleInstrumentationFacts({
-        context: undefined,
-        spanName: SPAN_CACHE_GET,
-      })
-    ).toBeUndefined();
+    driver.failDataSet = new Error("late refusal");
+    await expect(execute()).resolves.toBe("fresh");
+    await Promise.all(background.splice(0));
+    expect(statuses(read?.() ?? [])).toEqual([
+      { event: "bypass", status: undefined },
+      { event: "miss", status: "cache-set-failed" },
+      { event: "bypass", status: undefined },
+    ]);
+    expect(readCacheExecutionOutcomes({})).toBeUndefined();
   });
 });
 
@@ -884,7 +754,6 @@ describe("background cache failure integrity", () => {
     const context = createExecutionContext(
       { model: "record", operation: "findMany" },
       undefined,
-      undefined,
       chain
     );
     let providerValue = "first";
@@ -956,7 +825,10 @@ describe("background cache failure integrity", () => {
       undefined,
     ]);
     expect(
-      createOfficialCacheExecutionLogReader(context)?.().map(({ meta }) => meta)
+      readCacheExecutionOutcomes(context)?.().map(({ event, status }) => ({
+        event,
+        status,
+      }))
     ).toContainEqual({ event: "miss", status: "cache-set-failed" });
   });
 
@@ -995,7 +867,7 @@ describe("background cache failure integrity", () => {
     await expect(execute()).resolves.toBe("first");
     await Promise.all(background.splice(0));
     await expect(execute()).resolves.toBe("second");
-    expect(createOfficialCacheExecutionLogReader(context)).toBeUndefined();
+    expect(readCacheExecutionOutcomes(context)).toBeUndefined();
   });
 
   test("contains ordinary background writes and stale revalidation failures", async () => {

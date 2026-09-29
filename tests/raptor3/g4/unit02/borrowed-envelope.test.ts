@@ -19,7 +19,9 @@ import {
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { afterEach, describe, it } from "vitest";
-import { createWorld, worldSchema, type World } from "./world";
+import { createWorld, type World, worldSchema } from "./world";
+
+const SAVEPOINT = /^SAVEPOINT/i;
 
 let world: World | undefined;
 
@@ -37,7 +39,7 @@ function borrowed(scoped: AnyDriver) {
   return {
     kind: "borrowed-transaction",
     driver: scoped,
-    memberRollback: <T,>(
+    memberRollback: <T>(
       execute: (driver: AnyDriver) => Promise<T>,
       context: QueryExecutionContext
     ) => scoped.withTransaction(execute, undefined, context),
@@ -62,7 +64,7 @@ describe("G4-02 borrowed transaction envelope", () => {
       // the unit, exactly as the shipped `runStatementAtomic` leaves it.
       assert.equal(driver.statements.length, 1);
       assert.deepEqual(
-        driver.control.filter((statement) => /^SAVEPOINT/i.test(statement)),
+        driver.control.filter((statement) => SAVEPOINT.test(statement)),
         []
       );
     });
@@ -81,7 +83,9 @@ describe("G4-02 borrowed transaction envelope", () => {
           where: { id: 1 },
           data: {
             name: "Ada II",
-            posts: { update: { where: { id: 10 }, data: { title: "renamed" } } },
+            posts: {
+              update: { where: { id: 10 }, data: { title: "renamed" } },
+            },
           },
         },
         borrowed(scoped as AnyDriver)
@@ -94,7 +98,7 @@ describe("G4-02 borrowed transaction envelope", () => {
       // multi-statement borrowed write needs a binding grant that does not exist
       // yet (g4/unit02/note.md §8.4).
       const savepoints = driver.control.filter((statement) =>
-        /^SAVEPOINT/i.test(statement)
+        SAVEPOINT.test(statement)
       );
       assert.deepEqual(savepoints, []);
       assert.ok(driver.statements.length > 1);
@@ -190,7 +194,6 @@ describe("G4-02 execution context threading", () => {
     } as unknown as ResolvedExtensionChain;
     const caller: QueryExecutionContext = createExecutionContext(
       { model: "author", operation: "update", correlationId: "g4u2-caller" },
-      undefined,
       () => "g4u2-caller",
       chain
     );
@@ -244,7 +247,8 @@ describe("G4-02 execution context threading", () => {
       });
       const tally = (models: (string | undefined)[]) => {
         const counts: Record<string, number> = {};
-        for (const model of models) counts[model ?? "?"] = (counts[model ?? "?"] ?? 0) + 1;
+        for (const model of models)
+          counts[model ?? "?"] = (counts[model ?? "?"] ?? 0) + 1;
         return counts;
       };
       assert.deepEqual(

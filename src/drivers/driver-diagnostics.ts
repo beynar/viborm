@@ -3,8 +3,8 @@ import {
   sanitizeDiagnosticParameters,
   VibORMError,
 } from "@errors";
+import type { StatementMember } from "@extensions/official-facts";
 import { isRecord } from "@validation/value-guards";
-import type { ErrorLogDetails } from "./driver-instrumentation";
 import { snapshotExecutionContext } from "./execution-context";
 import type { QueryExecutionContext } from "./types";
 
@@ -56,8 +56,8 @@ export function findUniqueExecutionContextIndex(
 
 export function findUniqueErrorLogDetails(
   error: Error,
-  details: readonly ErrorLogDetails[] | undefined
-): ErrorLogDetails | undefined {
+  details: readonly StatementMember[] | undefined
+): StatementMember | undefined {
   if (!details) return undefined;
   const index = findUniqueExecutionContextIndex(error, details);
   return index === undefined ? undefined : details[index];

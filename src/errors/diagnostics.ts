@@ -153,10 +153,6 @@ const ERROR_META_KEYS = new Set([
   "timeout",
   "type",
 ]);
-// `deprecation` and `notice` carry ORM-authored notice text (constant wording
-// around schema and driver names, never user data or query text), so they are
-// disclosed on the warning channel unconditionally.
-const LOG_META_KEYS = new Set(["deprecation", "event", "notice", "status"]);
 const STRING_META_KEYS = new Set([
   "actualChecksum",
   "clientTarget",
@@ -234,13 +230,6 @@ export function sanitizeErrorMetadata(
   disclosure?: DiagnosticDisclosure
 ): Record<string, unknown> {
   return sanitizeAllowedRecord(value, ERROR_META_KEYS, disclosure, false);
-}
-
-export function sanitizeLogMetadata(
-  value: Record<string, unknown>,
-  disclosure?: DiagnosticDisclosure
-): Record<string, unknown> {
-  return sanitizeAllowedRecord(value, LOG_META_KEYS, disclosure, true);
 }
 
 export function sanitizeDiagnosticParameters(
@@ -643,7 +632,11 @@ function sanitizeError(
   return sanitized;
 }
 
-function sanitizeAllowedRecord(
+/**
+ * Keep only the allowed keys of a metadata record, each sanitized. With
+ * `validateLogMetadata`, `event` and `status` must also be known log values.
+ */
+export function sanitizeAllowedRecord(
   value: Record<string, unknown>,
   allowedKeys: ReadonlySet<string>,
   disclosure: DiagnosticDisclosure | undefined,

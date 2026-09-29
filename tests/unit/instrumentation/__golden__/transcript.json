@@ -1,0 +1,4508 @@
+{
+  "statement/single": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-2",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "level": "query",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "duration": 0,
+        "level": "query",
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      }
+    ]
+  },
+  "statement/failure-without-diagnostics": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-1",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      }
+    ]
+  },
+  "statement/failure-with-diagnostics": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-1",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw",
+          "params": ["failing"],
+          "query": "SELECT ?"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      }
+    ]
+  },
+  "statement/native-batch": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction([...])",
+          "db.query.text": "/* 1 */ SELECT ?; /* 2 */ SELECT ?",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "level": "query",
+        "model": "$transaction",
+        "operation": "$transaction([...])",
+        "sql": "/* 1 */ SELECT ?; /* 2 */ SELECT ?",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "batch",
+          "operation": "$transaction([...])"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      }
+    ]
+  },
+  "statement/dedup-fallback": {
+    "spans": [],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-1",
+            "driver": "official-statement-test",
+            "model": "batchRow",
+            "operation": "createMany"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "batchRow",
+        "operation": "createMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "batchRow",
+          "operation": "createMany"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "batchRow",
+          "operation": "createMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "transaction",
+          "operation": "createMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "batchRow",
+          "operation": "createMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "batchRow",
+          "operation": "createMany"
+        }
+      }
+    ]
+  },
+  "statement/dedup-native": {
+    "spans": [],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "error": {
+          "code": "V2001",
+          "message": "native member failed",
+          "meta": {
+            "correlationId": "correlation-1",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw",
+            "statementIndex": 1
+          },
+          "name": "QueryError",
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "sql": "SELECT ?",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "code": "V2001",
+        "message": "native member failed",
+        "meta": {
+          "commitCertainty": "may-have-committed",
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw",
+          "statementIndex": 1
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "commitCertainty": "may-have-committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "batch",
+          "operation": "$transaction([...])"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "may-have-committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "may-have-committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      }
+    ]
+  },
+  "statement/dedup-successor-traced": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction([...])",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-3",
+        "duration": 0,
+        "error": {
+          "code": "V2001",
+          "message": "native member failed",
+          "meta": {
+            "correlationId": "correlation-3",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw",
+            "statementIndex": 1
+          },
+          "name": "QueryError",
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "code": "V2001",
+        "message": "native member failed",
+        "meta": {
+          "commitCertainty": "may-have-committed",
+          "correlationId": "correlation-3",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw",
+          "statementIndex": 1
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "commitCertainty": "may-have-committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "batch",
+          "operation": "$transaction([...])"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "may-have-committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "may-have-committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "native member failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      }
+    ]
+  },
+  "lifecycle/spans-and-parents": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.connect",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$connection",
+          "db.operation.name": "$connect",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-2",
+        "parent": "span-3",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-2",
+        "parent": "span-7",
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": "span-5",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-5",
+        "trace": "trace-2",
+        "parent": "span-6",
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-6",
+        "trace": "trace-2",
+        "parent": "span-7",
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-7",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-5"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-8",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.disconnect",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$connection",
+          "db.operation.name": "$disconnect",
+          "db.system.driver": "official-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-6"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "connection",
+          "operation": "$connect"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "connection",
+          "operation": "$connect"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "savepoint",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "savepoint",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "connection",
+          "operation": "$disconnect"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "connection",
+          "operation": "$disconnect"
+        }
+      }
+    ]
+  },
+  "lifecycle/queued-savepoints": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-3",
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "queued-savepoints",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": "span-3",
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "queued-savepoints",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "queued-savepoints",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "savepoint",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "savepoint",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "savepoint",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "savepoint",
+          "operation": "$transaction(callback)"
+        }
+      }
+    ]
+  },
+  "lifecycle/commit-certainty": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "begin-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "body-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "commit-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-4",
+        "parent": null,
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction(callback)",
+          "db.system.driver": "cleanup-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "begin-failure",
+          "model": "$transaction",
+          "operation": "$transaction(callback)"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "message": "body failed",
+        "name": "Error"
+      },
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "commitCertainty": "may-have-committed",
+          "correlationId": "correlation-3",
+          "driver": "commit-failure",
+          "model": "$transaction",
+          "operation": "$transaction(callback)"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "commitCertainty": "committed",
+          "correlationId": "correlation-4",
+          "driver": "cleanup-failure",
+          "model": "$transaction",
+          "operation": "$transaction(callback)"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "capture-begin-failure",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "message": "Error details redacted",
+            "name": "Error"
+          },
+          "status": "failure"
+        },
+        "observer": "capture-body-failure",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "may-have-committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "capture-commit-failure",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "capture-cleanup-failure",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction(callback)"
+        }
+      }
+    ]
+  },
+  "lifecycle/fallback-and-native": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$executeRawUnsafe",
+          "db.system.driver": "fallback-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": "span-3",
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$executeRawUnsafe",
+          "db.system.driver": "fallback-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.transaction",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction([...])",
+          "db.system.driver": "fallback-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$transaction",
+          "db.operation.name": "$transaction([...])",
+          "db.system.driver": "native-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-5",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$executeRawUnsafe",
+          "db.system.driver": "native-lifecycle",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "fallback",
+        "unit": {
+          "kind": "batch",
+          "operation": "$transaction([...])"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "fallback",
+        "unit": {
+          "kind": "transaction",
+          "operation": "$transaction([...])"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "fallback",
+        "unit": {
+          "kind": "operation",
+          "operation": "$executeRawUnsafe"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "fallback",
+        "unit": {
+          "kind": "statement",
+          "operation": "$executeRawUnsafe"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "native",
+        "unit": {
+          "kind": "batch",
+          "operation": "$transaction([...])"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "native",
+        "unit": {
+          "kind": "operation",
+          "operation": "$executeRawUnsafe"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "native",
+        "unit": {
+          "kind": "statement",
+          "operation": "$executeRawUnsafe"
+        }
+      }
+    ]
+  },
+  "lifecycle/connection-failures": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.connect",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$connection",
+          "db.operation.name": "$connect",
+          "db.system.driver": "connect-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.disconnect",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$connection",
+          "db.operation.name": "$disconnect",
+          "db.system.driver": "disconnect-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.connect",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$connection",
+          "db.operation.name": "$connect",
+          "db.system.driver": "disconnect-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-4",
+        "parent": null,
+        "name": "viborm.disconnect",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$connection",
+          "db.operation.name": "$disconnect",
+          "db.system.driver": "disconnect-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-5",
+        "trace": "trace-5",
+        "parent": null,
+        "name": "viborm.connect",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$connection",
+          "db.operation.name": "$connect",
+          "db.system.driver": "disconnect-failure",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-5"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "code": "ECONNREFUSED",
+          "message": "Underlying error details redacted",
+          "name": "Error",
+          "status": 503
+        },
+        "code": "V1001",
+        "message": "Database connection failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "connect-failure",
+          "model": "$connection",
+          "operation": "$connect",
+          "providerCode": "ECONNREFUSED",
+          "providerStatus": 503
+        },
+        "name": "ConnectionError",
+        "prismaCode": "P1001",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "cause": {
+          "code": "ECONNRESET",
+          "message": "Underlying error details redacted",
+          "name": "Error",
+          "status": 502
+        },
+        "code": "V1001",
+        "message": "Database disconnection failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "disconnect-failure",
+          "model": "$connection",
+          "operation": "$disconnect",
+          "providerCode": "ECONNRESET",
+          "providerStatus": 502
+        },
+        "name": "ConnectionError",
+        "prismaCode": "P1001",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "code": "V1003",
+        "message": "Database connection cleanup is incomplete",
+        "meta": {
+          "correlationId": "correlation-3",
+          "driver": "disconnect-failure",
+          "model": "$connection",
+          "operation": "$connect"
+        },
+        "name": "ConnectionError",
+        "prismaCode": "P1017",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V1001",
+            "message": "Database connection failed",
+            "name": "ConnectionError"
+          },
+          "status": "failure"
+        },
+        "observer": "connect",
+        "unit": {
+          "kind": "connection",
+          "operation": "$connect"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V1001",
+            "message": "Database disconnection failed",
+            "name": "ConnectionError"
+          },
+          "status": "failure"
+        },
+        "observer": "disconnect",
+        "unit": {
+          "kind": "connection",
+          "operation": "$disconnect"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V1003",
+            "message": "Database connection cleanup is incomplete",
+            "name": "ConnectionError"
+          },
+          "status": "failure"
+        },
+        "observer": "disconnect",
+        "unit": {
+          "kind": "connection",
+          "operation": "$connect"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "disconnect",
+        "unit": {
+          "kind": "connection",
+          "operation": "$disconnect"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "disconnect",
+        "unit": {
+          "kind": "connection",
+          "operation": "$connect"
+        }
+      }
+    ]
+  },
+  "operation/span": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-2",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "operation",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "statement",
+          "operation": "$queryRaw"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      }
+    ]
+  },
+  "operation/failed-read": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "official-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-1",
+            "driver": "official-instrumentation-test",
+            "model": "record",
+            "operation": "findMany"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-instrumentation-test",
+          "model": "record",
+          "operation": "findMany"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      }
+    ]
+  },
+  "operation/error-log": {
+    "spans": [],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "error": {
+          "code": "V4001",
+          "message": "Validation failed for findMany: Expected integer",
+          "meta": {
+            "operation": "findMany"
+          },
+          "name": "ValidationError",
+          "prismaCode": "P2009",
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "code": "V4001",
+        "message": "Validation failed for findMany: Expected integer",
+        "meta": {
+          "operation": "findMany"
+        },
+        "name": "ValidationError",
+        "prismaCode": "P2009",
+        "source": {
+          "kind": "operation",
+          "operation": "findMany"
+        },
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V4001",
+            "message": "Validation failed for findMany: Expected integer",
+            "name": "ValidationError"
+          },
+          "status": "failure"
+        },
+        "observer": "before",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V4001",
+            "message": "Validation failed for findMany: Expected integer",
+            "name": "ValidationError"
+          },
+          "status": "failure"
+        },
+        "observer": "after",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      }
+    ]
+  },
+  "cache/cold-fresh-bypass-set-failure": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-4",
+        "name": "viborm.cache.get",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.result": "miss",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-1",
+        "parent": "span-4",
+        "name": "viborm.cache.set",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.ttl": "10",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-5",
+        "trace": "trace-2",
+        "parent": "span-6",
+        "name": "viborm.cache.get",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.result": "hit",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-6",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-7",
+        "trace": "trace-3",
+        "parent": "span-9",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-8",
+        "trace": "trace-3",
+        "parent": "span-9",
+        "name": "viborm.cache.set",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.ttl": "10",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-9",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-10",
+        "trace": "trace-4",
+        "parent": "span-13",
+        "name": "viborm.cache.get",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.result": "miss",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-11",
+        "trace": "trace-4",
+        "parent": "span-13",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-12",
+        "trace": "trace-4",
+        "parent": "span-13",
+        "name": "viborm.cache.set",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.ttl": "10",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-13",
+        "trace": "trace-4",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-4"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "level": "cache",
+        "meta": {
+          "event": "miss"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "level": "cache",
+        "meta": {
+          "event": "hit"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-3",
+        "level": "cache",
+        "meta": {
+          "event": "bypass"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-4",
+        "level": "cache",
+        "meta": {
+          "event": "miss"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-4",
+        "error": {
+          "message": "Error details redacted",
+          "name": "Error"
+        },
+        "level": "cache",
+        "meta": {
+          "event": "miss",
+          "status": "cache-set-failed"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "get"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "set"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "get"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "set"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "get"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "message": "Error details redacted",
+            "name": "Error"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "set"
+        }
+      }
+    ]
+  },
+  "cache/invalidation-children": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-3",
+        "name": "viborm.cache.clear",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": "span-3",
+        "name": "viborm.cache.delete",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.cache.invalidate",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": "span-7",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "create",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-5",
+        "trace": "trace-2",
+        "parent": "span-6",
+        "name": "viborm.cache.delete",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-6",
+        "trace": "trace-2",
+        "parent": "span-7",
+        "name": "viborm.cache.invalidate",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-7",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "create",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      }
+    ],
+    "logs": [],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "cache",
+          "operation": "invalidate"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "cache",
+          "operation": "invalidate"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "create"
+        }
+      },
+      {
+        "completion": {
+          "commitCertainty": "committed",
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "create"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "create"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "create"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-before",
+        "unit": {
+          "kind": "cache",
+          "operation": "invalidate"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "cache-observer-after",
+        "unit": {
+          "kind": "cache",
+          "operation": "invalidate"
+        }
+      }
+    ]
+  },
+  "cache/swr-revalidation": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-4",
+        "name": "viborm.cache.get",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.result": "miss",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-1",
+        "parent": "span-4",
+        "name": "viborm.cache.set",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.ttl": "10",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-5",
+        "trace": "trace-2",
+        "parent": "span-6",
+        "name": "viborm.cache.get",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.result": "stale",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-6",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-7",
+        "trace": "trace-3",
+        "parent": "span-9",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-8",
+        "trace": "trace-3",
+        "parent": "span-9",
+        "name": "viborm.cache.set",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.ttl": "10",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-9",
+        "trace": "trace-3",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-10",
+        "trace": "trace-4",
+        "parent": "span-11",
+        "name": "viborm.cache.get",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache",
+          "cache.result": "stale",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-11",
+        "trace": "trace-4",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-12",
+        "trace": "trace-5",
+        "parent": "span-13",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-13",
+        "trace": "trace-5",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "record",
+          "db.operation.name": "findMany",
+          "db.system.driver": "cache-instrumentation-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-3"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "level": "cache",
+        "meta": {
+          "event": "miss"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "level": "cache",
+        "meta": {
+          "event": "revalidate",
+          "status": "start"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "level": "cache",
+        "meta": {
+          "event": "hit",
+          "status": "stale"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "level": "cache",
+        "meta": {
+          "event": "revalidate",
+          "status": "success"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-3",
+        "level": "cache",
+        "meta": {
+          "event": "revalidate",
+          "status": "start"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-3",
+        "level": "cache",
+        "meta": {
+          "event": "hit",
+          "status": "stale"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-3",
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-3",
+            "driver": "cache-instrumentation-test",
+            "model": "record",
+            "operation": "findMany"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "cache",
+        "meta": {
+          "event": "revalidate",
+          "status": "error"
+        },
+        "model": "record",
+        "operation": "findMany",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [],
+    "observed": [
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "get"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "set"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "get"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "revalidate"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "set"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "operation",
+          "model": "record",
+          "operation": "findMany"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "status": "success"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "get"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "message": "Error details redacted",
+            "name": "Error"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "cache",
+          "operation": "revalidate"
+        }
+      },
+      {
+        "completion": {
+          "durationMs": 0,
+          "error": {
+            "code": "V2001",
+            "message": "Query execution failed",
+            "name": "QueryError"
+          },
+          "status": "failure"
+        },
+        "observer": "ordinary",
+        "unit": {
+          "kind": "statement",
+          "model": "record",
+          "operation": "findMany"
+        }
+      }
+    ]
+  },
+  "disclosure/tracing/no-sql+no-params": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-2",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/tracing/sql+no-params": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.query.text": "SELECT ?",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-2",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.query.text": "SELECT ?",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/tracing/no-sql+params": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.query.parameter.0": "secret-value",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-2",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.query.parameter.0": "secret-value",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/tracing/sql+params": {
+    "spans": [
+      {
+        "id": "span-1",
+        "trace": "trace-1",
+        "parent": "span-2",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.query.parameter.0": "secret-value",
+          "db.query.text": "SELECT ?",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-2",
+        "trace": "trace-1",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-1"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-3",
+        "trace": "trace-2",
+        "parent": "span-4",
+        "name": "viborm.execute",
+        "kind": 0,
+        "attributes": {
+          "db.collection.name": "$raw",
+          "db.operation.name": "$queryRaw",
+          "db.query.parameter.0": "secret-value",
+          "db.query.text": "SELECT ?",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      },
+      {
+        "id": "span-4",
+        "trace": "trace-2",
+        "parent": null,
+        "name": "viborm.operation",
+        "kind": 0,
+        "attributes": {
+          "db.operation.name": "$queryRaw",
+          "db.system.driver": "official-statement-test",
+          "db.system.name": "sqlite",
+          "viborm.correlation.id": "correlation-2"
+        },
+        "status": {
+          "code": 2,
+          "message": "Operation failed"
+        },
+        "events": [
+          {
+            "name": "exception",
+            "attributes": {
+              "exception.message": "Operation failed",
+              "exception.type": "Error"
+            }
+          }
+        ]
+      }
+    ],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/logging/no-sql+no-params": {
+    "spans": [],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "level": "query",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-2",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/logging/sql+no-params": {
+    "spans": [],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "level": "query",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "sql": "SELECT ?",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-2",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "sql": "SELECT ?",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/logging/no-sql+params": {
+    "spans": [],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "level": "query",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "params": ["secret-value"],
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-2",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "params": ["secret-value"],
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/logging/sql+params": {
+    "spans": [],
+    "logs": [
+      {
+        "correlationId": "correlation-1",
+        "duration": 0,
+        "level": "query",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "params": ["secret-value"],
+        "sql": "SELECT ?",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      },
+      {
+        "correlationId": "correlation-2",
+        "duration": 0,
+        "error": {
+          "cause": {
+            "name": "Error"
+          },
+          "code": "V2001",
+          "message": "Query execution failed",
+          "meta": {
+            "correlationId": "correlation-2",
+            "driver": "official-statement-test",
+            "model": "$raw",
+            "operation": "$queryRaw"
+          },
+          "name": "QueryError",
+          "originalCause": {
+            "name": "Error"
+          },
+          "timestamp": "2026-09-28T12:00:00.000Z"
+        },
+        "level": "error",
+        "model": "$raw",
+        "operation": "$queryRaw",
+        "params": ["secret-value"],
+        "sql": "SELECT ?",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-2",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/diagnostics/no-sql+no-params": {
+    "spans": [],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/diagnostics/sql+no-params": {
+    "spans": [],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw",
+          "query": "SELECT ?"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/diagnostics/no-sql+params": {
+    "spans": [],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw",
+          "params": ["secret-value"]
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  },
+  "disclosure/diagnostics/sql+params": {
+    "spans": [],
+    "logs": [],
+    "errors": [
+      {
+        "cause": {
+          "message": "Underlying error details redacted",
+          "name": "Error"
+        },
+        "code": "V2001",
+        "message": "Query execution failed",
+        "meta": {
+          "correlationId": "correlation-1",
+          "driver": "official-statement-test",
+          "model": "$raw",
+          "operation": "$queryRaw",
+          "params": ["secret-value"],
+          "query": "SELECT ?"
+        },
+        "name": "QueryError",
+        "timestamp": "2026-09-28T12:00:00.000Z"
+      }
+    ],
+    "observed": []
+  }
+}
