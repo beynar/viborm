@@ -2592,6 +2592,12 @@ unreachable arm, pinned in both directions. (Unit E review finding 2.)
 
 ### 2026-08-27 — The base attributes are a per-call literal, not a memoized snapshot
 
+> **Superseded (2026-09-29).** The instrumentation encapsulation
+> ([`instrumentation-encapsulation-plan.md`](./instrumentation-encapsulation-plan.md))
+> deleted `getBaseAttributes()`. `db.namespace` is now presented by the
+> `instrumentation()` extension from `readDriverIdentity(driver)`, the one
+> read of `adapter.namespace`; the key-absent rule is unchanged.
+
 §7.2 describes `db.namespace` as joining "the driver's existing immutable base
 attributes". `getBaseAttributes()` allocates a fresh unfrozen object literal on
 every call (`src/drivers/driver-instrumentation.ts:399`), and it always did. The
@@ -2603,6 +2609,11 @@ in a hot path guarded by the native-batch inertness pin
 rides on the non-writable `adapter.namespace`, which nothing copies. (Ruling N19.)
 
 ### 2026-08-27 — The db.namespace carriers are the four units that already carry db.*
+
+> **Superseded (2026-09-29).** The `segment` kind and `lifecycle-facts.ts` are
+> deleted (instrumentation encapsulation, D2), and so is the
+> `getBaseAttributes()` choke point. The same four kinds carry `db.*` and
+> `db.namespace`, built by the extension from core's neutral facts.
 
 §7.2/§10 list "connection, operation, statement, transaction, batch, and cache
 lifecycle units". There is no batch span: `ATTR_DB_BATCH_SIZE` is declared and
@@ -2665,6 +2676,10 @@ Runtime ORM SQL is untouched: the adapter still quotes the immutable
 configured namespace. (Unit F fix round, review finding P1-2.)
 
 ### 2026-08-27 — Correction to the N19 note's final clause
+
+> **Superseded (2026-09-29).** The cached-read `dbAttributes` snapshot is now
+> a `readDriverIdentity` snapshot taken at the same `$withCache()` instant
+> (instrumentation encapsulation). The durable rule below is unchanged.
 
 The instrumentation note above ends "…the non-writable `adapter.namespace`,
 which nothing copies." Two ratified captures exist and are documented: the

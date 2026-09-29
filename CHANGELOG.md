@@ -19,10 +19,12 @@ Versioning.
     `adapter.namespace`.
   - The protected `Driver` members `getInstrumentation()`,
     `isTracingEnabled()`, `getLogger()`, `getLoggingDisclosure()` and
-    `getTracingDisclosure()` are removed. `canDiscloseParameters()` and
-    `getErrorDisclosure()` remain and read the extension installed on the
-    executing client's chain, so a subclass cannot steer disclosure by
-    overriding a hook.
+    `getTracingDisclosure()` are removed, so a subclass can no longer steer
+    what a log or span discloses by overriding a hook: the extension reads
+    each channel's disclosure from its own configuration.
+    `canDiscloseParameters()` and `getErrorDisclosure()` remain protected and
+    overridable; their default bodies now read the extension installed on the
+    executing client's chain.
   - The protected `observeTrustedDriverLifecycle()` takes a lifecycle boundary
     (`"connect"`, `"disconnect"`, `"transaction"`, `"savepoint"`) in place of a
     span name, and the statement and lifecycle execution gates hand the
