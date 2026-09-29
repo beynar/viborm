@@ -143,8 +143,7 @@ export function presentCacheOutcome(
 
 /** The span of one logical operation, named by the operation the caller requested. */
 export function createOperationSpanOptions(
-  facts: OperationFacts,
-  correlationId: string | undefined
+  facts: OperationFacts
 ): VibORMSpanOptions {
   const { collection } = facts;
   return {
@@ -153,9 +152,7 @@ export function createOperationSpanOptions(
       ...createDriverAttributes(readDriverIdentity(facts.driver)),
       ...(collection === undefined ? {} : { [ATTR_DB_COLLECTION]: collection }),
       [ATTR_DB_OPERATION_NAME]: facts.requestedOperation,
-      ...(correlationId === undefined
-        ? {}
-        : { [ATTR_VIBORM_CORRELATION_ID]: correlationId }),
+      ...createCorrelationAttributes(facts.context),
     },
   };
 }

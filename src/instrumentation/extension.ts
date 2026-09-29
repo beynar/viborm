@@ -247,7 +247,7 @@ function observeOfficialInstrumentation(
   return capability.context.config.tracing === undefined
     ? observeCompletion()
     : capability.context.tracer.startActiveSpan(
-        createOperationSpanOptions(facts, correlationId),
+        createOperationSpanOptions(facts),
         observeCompletion
       );
 }
