@@ -206,7 +206,13 @@ once `proceed()` starts. Statement transforms run once at the common typed
 `Sql` boundary after statement observation and before rendering; verbatim unsafe
 raw excludes transforms. Protected observers receive public completion facts
 only, while official instrumentation reads private facts keyed by the exact
-core-created lifecycle unit.
+core-created lifecycle unit. Those facts are neutral records
+(`src/extensions/official-facts.ts`): the operation's requested and resolved
+operation, collection, driver and context, and at completion the failure core
+selected (never one `isErrorLogged` already marks) and the cache-managed
+execution's outcome reader. The extension builds the operation span and the
+error log; the query engine names no span, attribute or log event and imports
+nothing from `src/instrumentation/` at runtime.
 
 The capability protocols and their single runners live in
 `src/extensions/request.ts`, `query.ts`, `statement.ts`, and `observation.ts`.

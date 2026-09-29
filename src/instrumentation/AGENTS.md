@@ -33,12 +33,19 @@ logger, disclosure, or correlation.
 |---|---|
 | `src/instrumentation/extension.ts` | Fixed-name factory and the one trusted protected-observer handler |
 | `context.ts` | Hostile-safe config snapshot and instrumentation context |
-| `lifecycle-facts.ts` | Private facts keyed by core-created frozen lifecycle units |
-| `presentation.ts` | Span options, attributes, and log events built from core's neutral facts (`src/extensions/official-facts.ts`) |
+| `lifecycle-facts.ts` | The registered capability type and the union of core's neutral facts (types only) |
+| `presentation.ts` | Span options, attributes, log events and per-channel disclosure built from core's neutral facts (`src/extensions/official-facts.ts`) |
 | `tracer.ts` | Optional OTel loading, active spans, containment, span mutation |
-| `logger.ts` | Level selection, callback containment, pretty presentation |
-| `driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
-| `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, and the one contained observer runner |
+| `logger.ts` | Level selection, callback containment, pretty presentation, and the log metadata vocabulary (`LOG_META_KEYS`) |
+| `src/drivers/driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
+| `src/extensions/official-facts.ts` | The neutral fact contract and `OfficialObservationCapability` (types only, never re-exported) |
+| `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, the chain→capability map, `selectTrustedObservers`, and the one contained observer runner |
+| `src/errors/logged-errors.ts` | The logged-error record: core marks a failure it selected for a log, synchronously, and transfers the mark to package-owned successors |
+
+Core reads only `observesLifecycle`, `prewarm`, `diagnostics`, `wants(need)`
+and `warn(notice)` from the capability, and it imports nothing from this
+directory at runtime (only `import type`). The extension formats; core
+selects and marks.
 
 Do not add another event registry, presenter, context manager, public token, or
 driver-attached instrumentation state.
@@ -46,7 +53,7 @@ driver-attached instrumentation state.
 ## Lifecycle rail
 
 Public units are discriminated as `operation`, `statement`, `batch`,
-`transaction`, `savepoint`, `segment`, `connection`, or `cache`. Core creates
+`transaction`, `savepoint`, `connection`, or `cache`. Core creates
 and freezes the exact unit. The official handler identity unlocks private facts
 through WeakMaps; a clone, rename, bind, copied context, or ordinary observer
 cannot recover them.
@@ -66,9 +73,16 @@ identity mechanism.
 
 Native arrays emit one batch, N operations, and N statement units but one
 provider execute span/query log. They emit no fictional transaction. Fallback
-arrays use the real transaction or savepoint. Progressive writes emit one
-segment per submitted attempt. Cache revalidation owns its real nested set and
-cleanup facts without exposing marker helpers as public lifecycle units.
+arrays use the real transaction or savepoint. Cache revalidation owns its real
+nested set and cleanup facts without exposing marker helpers as public
+lifecycle units.
+
+A cache backend delete or clear inside an invalidation has no public unit. It
+runs through the same runner with only the chain's trusted observer selected
+(`selectTrustedObservers` in `src/extensions/observation.ts`): the frozen unit
+reuses the public `invalidate` shape so the public union does not grow, and the
+private `cache-backend` facts tell the extension which span to present. No
+ordinary observer receives it, and it stays a child of the invalidate span.
 
 ## Protected observer contract
 
@@ -93,7 +107,10 @@ channel. Cache keys and custom suffixes are never disclosed.
 
 Provider failures are normalized at the driver boundary. Core owns selected
 error logging and exact-error deduplication, including transfer to package-owned
-successor errors that add execution context or commit certainty. Public
+successor errors that add execution context or commit certainty. The extension
+formats; core selects and marks: the statement completion marks the failure it
+selected synchronously, and the operation completion hands the extension a
+failure only when it is not yet marked. Public
 completion exposes only a sanitized summary and optional certainty.
 
 Observer, logger, console, OTel import/provider/span, and cache-presentation
@@ -106,17 +123,16 @@ unhandled rejection.
 - `viborm.operation` owns the complete logical operation.
 - `viborm.execute` owns one provider statement dispatch, or the one native
   provider batch presentation.
-- `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, `viborm.segment`,
-  connection, and cache spans represent only real lifecycle boundaries.
+- `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, connection, and
+  cache spans represent only real lifecycle boundaries.
 - There are no separate validate/build/parse spans.
 - `db.namespace` reports `adapter.namespace` and is added in exactly one place,
   `createDriverAttributes` in `presentation.ts`, from the identity
   `readDriverIdentity` (`src/drivers/driver-identity.ts`) reads — the one reader
   of `adapter.namespace` for presentation. When the adapter is unqualified the
   KEY IS ABSENT; never emit `null`, `""`, or the text `undefined`. Do not add the
-  attribute to a unit that carries no other `db.*` (write segments, the cache
-  backend's own get/set spans), and do not invent a lifecycle kind for it — the
-  five kinds are fixed. Immutability rides the non-writable `adapter.namespace`
+  attribute to a span that carries no other `db.*` (the cache backend's own
+  get/set/delete/clear spans), and do not invent a lifecycle fact kind for it. Immutability rides the non-writable `adapter.namespace`
   install, NOT a ban on copies: `readDriverIdentity` returns a fresh frozen
   record on every call, and the cache revalidation span is deliberately built
   from a snapshot of one, taken at `$withCache` and carried as
@@ -127,8 +143,6 @@ unhandled rejection.
   times; it is pinned (`native-batch-attribution.core`, a `vi.mock` spy on
   `@drivers/driver-identity`), and any new identity fact has to preserve that.
 - Ignoring a cache span must not write late cache attributes onto its parent.
-- Segment aggregate attributes can update the exact active operation span at
-  the existing final boundary.
 - Verbatim unsafe raw excludes statement transformation, but its physical
   execution remains observed without implicit SQL/parameter disclosure.
 

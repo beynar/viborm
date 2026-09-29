@@ -209,7 +209,7 @@ Controlled dependency stubs establish ceilings, not promises:
 | remove all of CUID2 | 24,941 B | 11,042 B | same static import |
 | remove current `src/cache` runtime | 11,663 B | 4,009 B | client/cache flow and official capability |
 | detach shape-compiled cache result machinery | about 11,700 B | about 3,800 B | [`cache-result-codec.ts`](../../src/query-engine/result/cache-result-codec.ts) and its value codecs |
-| remove all currently reachable cache-named runtime modules | about 19,400 B | about 7,000 B | complete capability inversion across client, query engine, codecs, and instrumentation |
+| remove all currently reachable cache-named runtime modules | about 19,400 B | about 7,000 B | complete capability inversion across client, query engine, codecs, and instrumentation (the cache instrumentation part, about 1.9 KB raw, left core with the instrumentation encapsulation, 2026-09-29) |
 
 The accepted CUID work deliberately keeps SHA3 and CUID2 semantics, so the 8.6 KB
 `bignumber.js` ceiling is the relevant target. Cache measurements overlap; they must
@@ -609,6 +609,11 @@ Move these responsibilities under `src/cache/`:
   `cache-value-codecs.ts`, and `cache-json-codec.ts`;
 - cache-specific protected instrumentation currently imported by
   [`query-engine/execution-context.ts`](../../src/query-engine/execution-context.ts).
+  (Done differently by the instrumentation encapsulation, 2026-09-29:
+  `cache-instrumentation.ts` is deleted, `cache/driver.ts` records neutral cache
+  outcome facts, and the official `instrumentation()` extension presents them in
+  `src/instrumentation/presentation.ts`; see
+  [`instrumentation-encapsulation-plan.md`](instrumentation-encapsulation-plan.md).)
 
 These moves follow the ownership already stated in
 [`src/cache/AGENTS.md`](../../src/cache/AGENTS.md). They do not create a generic
@@ -641,6 +646,8 @@ codec.
    `options?.skipSpan === true` predicate.
 3. Let protected instrumentation obtain cache completion presentation through the
    bound capability. Ordinary instrumentation must not import cache instrumentation.
+   (Superseded 2026-09-29: core no longer carries cache presentation at all; the
+   `instrumentation()` extension formats core's neutral cache facts.)
 4. Keep the cache-managed borrowed-result executor rule. Renaming or relocating that
    small core execution fact is allowed only if it deletes cache implementation
    knowledge; do not add a second executor protocol.

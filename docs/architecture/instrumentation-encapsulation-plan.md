@@ -1,6 +1,7 @@
 # Instrumentation encapsulation plan
 
-Status: plan, not started. Measured at `cf4ba97a6` (origin/main, 2026-09-28); this document changes no production
+Status: implemented on branch `instrumentation-plan` (U0–U7, 2026-09-29); the
+figures below are the plan-time measurements. Measured at `cf4ba97a6` (origin/main, 2026-09-28); this document changes no production
 source. Every number is labelled **measured** (a build or count at `cf4ba97a6` or on a scratch tree derived from it),
 **estimate** (derived from measurements, method stated) or **judgement** (a reading of the code). Revised after
 review: the seam was re-costed, the headline fell from −7.5 KB to −4.7 KB, and the unit order changed (§2, §4).
