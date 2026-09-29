@@ -210,6 +210,8 @@ export interface LifecycleDispatch extends ProviderDispatch {
 export interface StatementCompletionFacts {
   readonly kind: "statement";
   readonly endedAt: number;
+  /** The attributed context's capability, which wanted this log; its channel discloses it. */
+  readonly capability: OfficialObservationCapability;
   readonly context: QueryExecutionContext;
   readonly sql: string;
   readonly params: unknown[];

@@ -1,8 +1,5 @@
-import type { QueryExecutionContext } from "@drivers";
-import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { OFFICIAL_INSTRUMENTATION_NAME } from "@extensions/chain";
 import {
-  getOfficialInstrumentationChainCapability,
   type LifecycleUnit,
   type ObservationCompletion,
   type ObserveHandler,
@@ -60,18 +57,6 @@ const instrumentationContexts = new WeakMap<
   OfficialObservationCapability,
   InstrumentationContext
 >();
-
-/** The logging channel of the exact chain an execution context carries. */
-function readLoggingChannel(
-  context: QueryExecutionContext
-): InstrumentationContext["config"]["logging"] {
-  const capability = getOfficialInstrumentationChainCapability(
-    getExecutionExtensionChain(context)
-  );
-  return capability === undefined
-    ? undefined
-    : instrumentationContexts.get(capability)?.config.logging;
-}
 
 /** Create VibORM's fixed-name instrumentation extension. */
 export function instrumentation<const Config>(
@@ -356,7 +341,7 @@ async function observeStatementCompletion(
     const event = createStatementLogEvent(
       completionFacts,
       startedAt,
-      readLoggingChannel(completionFacts.context)
+      instrumentationContexts.get(completionFacts.capability)?.config.logging
     );
     if (completionFacts.failure === undefined) {
       context.logger?.query(event);

@@ -580,8 +580,9 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
           (failure === undefined || published.forceErrorContext
             ? published.context
             : getErrorExecutionContext(failure, published.context));
+        const capability = readOfficialCapability(logContext);
         if (
-          readOfficialCapability(logContext)?.wants(
+          capability?.wants(
             failure === undefined ? "query-log" : "error-log"
           ) !== true
         ) {
@@ -591,6 +592,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         return Object.freeze({
           kind: "statement",
           endedAt: Date.now(),
+          capability,
           context: logContext,
           sql: member?.sql ?? published.sql,
           params: member?.params ?? published.params,

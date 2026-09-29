@@ -137,9 +137,12 @@ unhandled rejection.
   install, NOT a ban on copies: `readDriverIdentity` returns a fresh frozen
   record on every call, and the cache revalidation span is deliberately built
   from a snapshot of one, taken at `$withCache` and carried as
-  `options.driverIdentity`. That snapshot cannot go stale, because the property
-  it read cannot be reassigned — which is also why no reader may take its
-  namespace from anywhere else.
+  `options.driverIdentity`. The operation facts carry the same kind of
+  snapshot as `identity`, read by core's facts reader when the trusted
+  observer is reached; an operation never hands the extension its driver.
+  Neither snapshot can go stale, because the property it read cannot be
+  reassigned — which is also why no reader may take its namespace from
+  anywhere else.
 - The unobserved native-batch phase must keep calling `readDriverIdentity` zero
   times; it is pinned (`native-batch-attribution.core`, a `vi.mock` spy on
   `@drivers/driver-identity`), and any new identity fact has to preserve that.
