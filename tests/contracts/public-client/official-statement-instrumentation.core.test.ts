@@ -22,7 +22,7 @@ import {
   captureLogs,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 const record = s.model({ id: s.string().id(), name: s.string() });
 const batchRow = s.model({
@@ -164,6 +164,7 @@ class ThrowingRenderSql extends Sql {
 }
 
 const clients: Array<{ $disconnect(): Promise<void> }> = [];
+const SETTLED_AT = Date.UTC(2026, 8, 29, 12, 0, 0);
 
 function activeSpanName(): unknown {
   const span = trace.getActiveSpan();
@@ -234,6 +235,7 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   for (const client of clients.splice(0)) await client.$disconnect();
 });
 
@@ -944,6 +946,8 @@ describe("official statement instrumentation", () => {
         ? undefined
         : readProtectedLifecycleFacts(statementUnit);
     expect(facts?.kind).toBe("statement");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(SETTLED_AT);
     const failure = new QueryError("statement completion probe");
     const completion =
       facts?.kind === "statement"
@@ -951,7 +955,39 @@ describe("official statement instrumentation", () => {
         : undefined;
     expect(isErrorLogged(failure)).toBe(true);
     expect(completion?.failure).toBe(failure);
+    // The settle instant is read here, in core, not by the extension later.
+    expect(completion?.endedAt).toBe(SETTLED_AT);
     expect(logs.events).toHaveLength(1);
+  });
+
+  test("presents a statement log at the instant core settled it, not when the extension continues", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(SETTLED_AT - 5);
+    const logs = captureLogs();
+    const driver = new StatementDriver();
+    // The dispatch read its start instant; the provider settles at SETTLED_AT.
+    driver.beforeProviderResult = () => {
+      vi.setSystemTime(SETTLED_AT);
+    };
+    const client = trackedClient(driver)
+      .$extends(instrumentation({ logging: { query: logs.callback } }))
+      .$extends(
+        defineExtension<typeof schema>()({
+          name: "clock-after-settlement",
+          observe(unit, proceed) {
+            if (unit.kind !== "statement") return;
+            // Runs after core's complete() and before the extension continues.
+            return proceed().then(() => vi.setSystemTime(SETTLED_AT + 1000));
+          },
+        })
+      );
+
+    await client.$queryRaw(sql`SELECT ${1}`);
+    await waitFor(() => logs.events.length > 0);
+
+    expect(logs.events).toHaveLength(1);
+    expect(logs.events[0]?.timestamp).toEqual(new Date(SETTLED_AT));
+    expect(logs.events[0]?.duration).toBe(5);
   });
 
   test("skips execute presentation when transform, render, or acquisition fails", async () => {
