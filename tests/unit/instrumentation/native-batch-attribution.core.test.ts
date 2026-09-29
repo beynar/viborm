@@ -3,7 +3,11 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
 import { readDriverIdentity } from "@drivers/driver-identity";
-import type { BatchQuery, QueryResult } from "@drivers/types";
+import type {
+  BatchQuery,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers/types";
 import { isVibORMError, QueryError } from "@errors";
 import {
   ATTR_DB_COLLECTION,
@@ -289,6 +293,100 @@ describe("native batch logical attribution", () => {
     });
     expect(JSON.stringify(logs.events)).not.toContain("statement-a-secret");
     expect(JSON.stringify(logs.events)).not.toContain("SELECT statement_a");
+  });
+
+  it("delivers a member's statement log to its own client, with its disclosure", async () => {
+    const clientA = captureLogs();
+    const clientB = captureLogs();
+    // Two official clients sharing one driver: A discloses no SQL, B does.
+    const contextA = (values: QueryExecutionContext) =>
+      createOfficialTestExecutionContext(
+        { logging: { query: clientA.callback, error: clientA.callback } },
+        values
+      );
+    const contextB = (values: QueryExecutionContext) =>
+      createOfficialTestExecutionContext(
+        {
+          logging: {
+            query: clientB.callback,
+            error: clientB.callback,
+            includeSql: true,
+          },
+        },
+        values
+      );
+    const runBatch = async (
+      outer: typeof contextA,
+      failSql: string | undefined
+    ) => {
+      clientA.events.length = 0;
+      clientB.events.length = 0;
+      const driver = new NativeAttributionDriver();
+      driver.failSql = failSql;
+      await driver
+        ._executeBatch(
+          [
+            {
+              sql: "SELECT member_a",
+              context: contextA({
+                model: "user",
+                operation: "findMany",
+                correlationId: "member-a",
+              }),
+            },
+            {
+              sql: "SELECT member_b",
+              context: contextB({
+                model: "post",
+                operation: "findMany",
+                correlationId: "member-b",
+              }),
+            },
+          ],
+          undefined,
+          outer({
+            model: "$transaction",
+            operation: "$transaction([...])",
+            correlationId: "outer",
+          })
+        )
+        .catch(() => undefined);
+    };
+
+    // A's chain observes the batch; B's member fails.
+    await runBatch(contextA, "SELECT member_b");
+    expect(clientA.events).toEqual([]);
+    expect(clientB.events).toEqual([
+      expect.objectContaining({
+        level: "error",
+        correlationId: "member-b",
+        sql: "SELECT member_b",
+      }),
+    ]);
+
+    // B's chain observes the batch; A's member fails.
+    await runBatch(contextB, "SELECT member_a");
+    expect(clientB.events).toEqual([]);
+    expect(clientA.events).toEqual([
+      expect.objectContaining({ level: "error", correlationId: "member-a" }),
+    ]);
+    expect(clientA.events[0]?.sql).toBeUndefined();
+
+    // A settled batch's query log is attributed to the batch's own context.
+    await runBatch(contextA, undefined);
+    expect(clientB.events).toEqual([]);
+    expect(clientA.events).toEqual([
+      expect.objectContaining({ level: "query", correlationId: "outer" }),
+    ]);
+    await runBatch(contextB, undefined);
+    expect(clientA.events).toEqual([]);
+    expect(clientB.events).toEqual([
+      expect.objectContaining({
+        level: "query",
+        correlationId: "outer",
+        sql: "SELECT member_a; SELECT member_b",
+      }),
+    ]);
   });
 
   it("sanitizes disclosed batch parameters once and skips undisclosed values", async () => {

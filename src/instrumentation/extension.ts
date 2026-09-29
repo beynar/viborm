@@ -201,12 +201,7 @@ function observeOfficialInstrumentation(
                 ? createStatementSpanOptions(context.config.tracing, dispatch)
                 : undefined,
             () =>
-              observeStatementCompletion(
-                context,
-                unit,
-                completion,
-                dispatch.startedAt
-              )
+              observeStatementCompletion(unit, completion, dispatch.startedAt)
           )
     );
   }
@@ -346,8 +341,12 @@ async function presentDispatch(
   }
 }
 
+/**
+ * The statement log is emitted by the chain its facts attribute it to: a
+ * native-batch member's failure reaches that member's client, with its
+ * disclosure, even when another client's chain observes the batch.
+ */
 async function observeStatementCompletion(
-  context: InstrumentationContext,
   unit: LifecycleUnit,
   completion: Promise<ObservationCompletion>,
   startedAt: number
@@ -355,15 +354,17 @@ async function observeStatementCompletion(
   const outcome = await completion;
   const completionFacts = readProtectedLifecycleCompletionFacts(unit);
   if (completionFacts?.kind === "statement") {
+    // Every official capability is registered here as it is created.
+    const attributed = instrumentationContexts.get(completionFacts.capability);
     const event = createStatementLogEvent(
       completionFacts,
       startedAt,
-      instrumentationContexts.get(completionFacts.capability)?.config.logging
+      attributed?.config.logging
     );
     if (completionFacts.failure === undefined) {
-      context.logger?.query(event);
+      attributed?.logger?.query(event);
     } else {
-      context.logger?.error(event);
+      attributed?.logger?.error(event);
     }
   }
   if (outcome.status === "failure") throw createObservedFailure();

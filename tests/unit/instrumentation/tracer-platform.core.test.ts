@@ -29,10 +29,15 @@ vi.mock("@opentelemetry/api", () => {
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { isVibORMError } from "@errors";
 import { createClient, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
 import { instrumentation } from "@src/instrumentation/exports";
 import {
+  ATTR_DB_DRIVER,
+  ATTR_DB_NAMESPACE,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_DB_SYSTEM,
   SPAN_CONNECT,
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
@@ -44,7 +49,11 @@ import {
   prewarmTracer,
   shouldTraceSpan,
 } from "@src/instrumentation/tracer";
-import type { SpanTracer, TracingSpan } from "@src/instrumentation/types";
+import type {
+  LogEvent,
+  SpanTracer,
+  TracingSpan,
+} from "@src/instrumentation/types";
 import { StatementDriver } from "./_fake-driver";
 
 type Mode =
@@ -585,6 +594,68 @@ describe("tracing.tracer: span and driver failures stay outside the operation", 
     expect(logged).toEqual(["$queryRaw", "$queryRaw"]);
     expect(spans.map(({ name }) => name)).not.toContain(SPAN_EXECUTE);
     expect(spans.map(({ name }) => name)).not.toContain(SPAN_TRANSACTION);
+  });
+
+  it("presents the operation span without driver attributes when the adapter namespace throws", async () => {
+    const { spans, tracer } = fakeTracer();
+    const record = s.model({ id: s.string().id(), name: s.string() });
+    const client = createClient({
+      schema: { record },
+      driver: new ThrowingNamespaceDriver(),
+    }).$extends(instrumentation({ tracing: { tracer } }));
+
+    await expect(client.record.findMany()).resolves.toEqual([
+      { id: "record-1", name: "Ada" },
+    ]);
+
+    const operation = spans.filter(({ name }) => name === SPAN_OPERATION);
+    expect(operation).toHaveLength(1);
+    expect(operation[0]?.calls).toContain(
+      `attr:${ATTR_DB_OPERATION_NAME}=findMany`
+    );
+    expect(operation[0]?.calls).toContain("end");
+    expect(
+      operation[0]?.calls.filter(
+        (call) =>
+          call.startsWith(`attr:${ATTR_DB_SYSTEM}=`) ||
+          call.startsWith(`attr:${ATTR_DB_DRIVER}=`) ||
+          call.startsWith(`attr:${ATTR_DB_NAMESPACE}=`)
+      )
+    ).toEqual([]);
+  });
+
+  it("logs a pre-statement failure once when the adapter namespace throws", async () => {
+    const record = s.model({ id: s.string().id(), name: s.string() });
+    const logged: LogEvent[] = [];
+    const driver = new ThrowingNamespaceDriver();
+    const client = createClient({ schema: { record }, driver })
+      .$extends(
+        instrumentation({
+          logging: {
+            error: (event) => {
+              logged.push(event);
+            },
+          },
+        })
+      )
+      .$extends({
+        name: "failing-request",
+        request() {
+          throw new Error("request transform failed");
+        },
+      });
+
+    const failure = await client.record.findMany().catch((error) => error);
+
+    if (!isVibORMError(failure)) throw new Error("expected a VibORMError");
+    expect(driver.providerCalls).toBe(0);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({
+      level: "error",
+      model: "record",
+      operation: "findMany",
+      error: { name: failure.name, code: failure.code },
+    });
   });
 
   it("ends a span a re-entrant end() hands over exactly once", async () => {

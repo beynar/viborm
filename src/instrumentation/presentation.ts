@@ -139,7 +139,11 @@ export function presentCacheOutcome(
   });
 }
 
-/** The span of one logical operation, named by the operation the caller requested. */
+/**
+ * The span of one logical operation, named by the operation the caller
+ * requested; without `db.*` driver attributes when core could not read the
+ * driver's identity.
+ */
 export function createOperationSpanOptions(
   facts: OperationFacts
 ): VibORMSpanOptions {

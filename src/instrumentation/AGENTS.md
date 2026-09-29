@@ -112,7 +112,10 @@ successor errors that add execution context or commit certainty. The extension
 formats; core selects and marks: the statement completion marks the failure it
 selected synchronously, and the operation completion hands the extension a
 failure only when it is not yet marked. Public
-completion exposes only a sanitized summary and optional certainty.
+completion exposes only a sanitized summary and optional certainty. A
+statement log is emitted by the chain its completion facts attribute it to
+(`capability`), never by the chain observing the statement: a native-batch
+member's failure reaches that member's client, with that client's disclosure.
 
 Observer, logger, console, OTel import/provider/span, and cache-presentation
 failures are contained. They cannot replace the child value/error, prevent an
@@ -142,7 +145,10 @@ unhandled rejection.
   observer is reached; an operation never hands the extension its driver.
   Neither snapshot can go stale, because the property it read cannot be
   reassigned — which is also why no reader may take its namespace from
-  anywhere else.
+  anywhere else. Core's facts reader contains that read: when a custom
+  adapter's `namespace` getter throws, the operation facts carry no
+  `identity`, the operation span is presented without `db.*` attributes, and
+  the error log is emitted as usual.
 - The unobserved native-batch phase must keep calling `readDriverIdentity` zero
   times; it is pinned (`native-batch-attribution.core`, a `vi.mock` spy on
   `@drivers/driver-identity`), and any new identity fact has to preserve that.

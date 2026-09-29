@@ -72,14 +72,15 @@ export interface ObservationOutcome {
 /**
  * A logical operation the official extension may present. A raw operation has
  * no model and no collection. `identity` is the executing driver's
- * configuration, read when the facts are read; the driver itself is not
+ * configuration, read when the facts are read, and absent when that read
+ * throws (a custom adapter's `namespace` getter); the driver itself is not
  * published. Whether the operation is cache-managed is not a fact of its own:
  * only a cache-managed completion carries `readCacheOutcomes`.
  */
 export interface OperationFacts {
   readonly kind: "operation";
   readonly context: QueryExecutionContext;
-  readonly identity: DriverIdentity;
+  readonly identity?: DriverIdentity | undefined;
   readonly model?: string | undefined;
   /** The operation the caller requested; the operation span names it. */
   readonly requestedOperation: string;

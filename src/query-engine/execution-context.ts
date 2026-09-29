@@ -1,6 +1,9 @@
 import { readCacheExecutionOutcomes } from "@cache/driver";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { readDriverIdentity } from "@drivers/driver-identity";
+import {
+  type DriverIdentity,
+  readDriverIdentity,
+} from "@drivers/driver-identity";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import {
   createExecutionContext,
@@ -101,11 +104,18 @@ function createOperationInstrumentationFacts(
   );
   if (official?.observesLifecycle !== true) return undefined;
 
-  return () =>
-    Object.freeze({
+  return () => {
+    let identity: DriverIdentity | undefined;
+    try {
+      identity = readDriverIdentity(driver);
+    } catch {
+      // A custom adapter's `namespace` getter threw: the record survives
+      // without an identity, so the operation's span and error log do too.
+    }
+    return Object.freeze({
       kind: "operation" as const,
       context,
-      identity: readDriverIdentity(driver),
+      identity,
       model,
       requestedOperation,
       operation,
@@ -133,6 +143,7 @@ function createOperationInstrumentationFacts(
         });
       },
     });
+  };
 }
 
 /** Observe native-batch preparation and parsing as one logical operation. */
