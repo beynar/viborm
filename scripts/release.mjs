@@ -1175,7 +1175,14 @@ async function queryRegistryStateWithRetry(
     return registry;
   }
 
-  const retryDelays = [1000, 2000, 4000, 8000, 15_000, 30_000];
+  // npm answers a publish with "being processed and may take a few minutes
+  // to become available": rc.4 (run 36570949458) was accepted and provenance
+  // was signed, then a 60-second ladder gave up before the registry served
+  // the version. Wait about eight minutes in total before calling it absent.
+  const retryDelays = [
+    1000, 2000, 4000, 8000, 15_000, 30_000, 60_000, 60_000, 60_000, 60_000,
+    60_000, 60_000, 60_000,
+  ];
   for (const delay of retryDelays) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, delay));
     registry = queryRegistryState(packageName, version, channel);
