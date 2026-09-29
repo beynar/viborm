@@ -7,7 +7,7 @@ import {
 } from "@drivers/execution-context";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
-import type { InstrumentationLifecycleFactsReader } from "@instrumentation/lifecycle-facts";
+import type { OfficialLifecycleFactsReader } from "@extensions/official-facts";
 import { isErrorLogged } from "../errors/logged-errors";
 import type { Operation } from "./types";
 
@@ -57,7 +57,7 @@ export function createPendingOperationInstrumentationFacts(
   operation: string,
   collection: string,
   cacheManaged: boolean
-): InstrumentationLifecycleFactsReader | undefined {
+): OfficialLifecycleFactsReader | undefined {
   return createOperationInstrumentationFacts(
     driver,
     context,
@@ -74,7 +74,7 @@ export function createRawOperationInstrumentationFacts(
   driver: AnyDriver,
   context: QueryExecutionContext,
   operation: string
-): InstrumentationLifecycleFactsReader | undefined {
+): OfficialLifecycleFactsReader | undefined {
   return createOperationInstrumentationFacts(
     driver,
     context,
@@ -94,7 +94,7 @@ function createOperationInstrumentationFacts(
   operation: string,
   collection: string | undefined,
   cacheManaged: boolean
-): InstrumentationLifecycleFactsReader | undefined {
+): OfficialLifecycleFactsReader | undefined {
   const official = getOfficialInstrumentationChainCapability(
     getExecutionExtensionChain(context)
   );

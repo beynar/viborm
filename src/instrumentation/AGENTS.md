@@ -31,21 +31,22 @@ logger, disclosure, or correlation.
 
 | Owner | Responsibility |
 |---|---|
-| `src/instrumentation/extension.ts` | Fixed-name factory and the one trusted protected-observer handler |
+| `src/instrumentation/extension.ts` | Fixed-name factory, the one trusted protected-observer handler, and the private capability→context map (core holds only the neutral capability) |
 | `context.ts` | Hostile-safe config snapshot and instrumentation context |
-| `lifecycle-facts.ts` | The registered capability type and the union of core's neutral facts (types only) |
 | `presentation.ts` | Span options, attributes, log events and per-channel disclosure built from core's neutral facts (`src/extensions/official-facts.ts`) |
 | `tracer.ts` | Optional OTel loading, active spans, containment, span mutation |
 | `logger.ts` | Level selection, callback containment, pretty presentation, and the log metadata vocabulary (`LOG_META_KEYS`) |
 | `src/drivers/driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
-| `src/extensions/official-facts.ts` | The neutral fact contract and `OfficialObservationCapability` (types only, never re-exported) |
+| `src/extensions/official-facts.ts` | The neutral fact contract, the fact unions core produces, and `OfficialObservationCapability` (types only, never re-exported) |
 | `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, the chain→capability map, `selectTrustedObservers`, and the one contained observer runner |
 | `src/errors/logged-errors.ts` | The logged-error record: core marks a failure it selected for a log, synchronously, and transfers the mark to package-owned successors |
 
 Core reads only `observesLifecycle`, `prewarm`, `diagnostics`, `wants(need)`
-and `warn(notice)` from the capability, and it imports nothing from this
-directory at runtime (only `import type`). The extension formats; core
-selects and marks.
+and `warn(notice)` from the capability, and the type enforces it: core holds
+an `OfficialObservationCapability`, which carries no tracer, logger or
+`InstrumentationContext`, and it imports nothing from this directory, not even
+a type. The extension recovers its own context from its private
+capability→context map. The extension formats; core selects and marks.
 
 Do not add another event registry, presenter, context manager, public token, or
 driver-attached instrumentation state.

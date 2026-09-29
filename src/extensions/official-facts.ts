@@ -228,3 +228,22 @@ export interface LifecycleFacts {
   readonly dispatch: Promise<LifecycleDispatch | undefined>;
   readonly complete: () => undefined;
 }
+
+/** The start facts of one protected unit, discriminated by `kind`. */
+export type OfficialLifecycleFacts =
+  | CacheBackendFacts
+  | CacheUnitFacts
+  | LifecycleFacts
+  | OperationFacts
+  | StatementFacts;
+
+/** Read once, when the trusted observer is reached; `undefined` publishes nothing. */
+export type OfficialLifecycleFactsReader = () =>
+  | OfficialLifecycleFacts
+  | undefined;
+
+/** What a settled unit's `complete()` produced, with the start facts' `kind`. */
+export type OfficialLifecycleCompletionFacts =
+  | CacheCompletionFacts
+  | OperationCompletionFacts
+  | StatementCompletionFacts;

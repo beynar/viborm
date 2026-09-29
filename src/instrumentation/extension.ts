@@ -1,5 +1,8 @@
+import type { QueryExecutionContext } from "@drivers";
+import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { OFFICIAL_INSTRUMENTATION_NAME } from "@extensions/chain";
 import {
+  getOfficialInstrumentationChainCapability,
   type LifecycleUnit,
   type ObservationCompletion,
   type ObserveHandler,
@@ -11,13 +14,13 @@ import type {
   CacheBackendFacts,
   CacheUnitFacts,
   ObservationNeed,
+  OfficialObservationCapability,
   WarningNotice,
 } from "@extensions/official-facts";
 import {
   createInstrumentationContext,
   type InstrumentationContext,
 } from "./context";
-import type { OfficialInstrumentationCapability } from "./lifecycle-facts";
 import {
   createCacheSpanOptions,
   createLifecycleSpanOptions,
@@ -49,13 +52,33 @@ export type OfficialInstrumentationExtension = {
   readonly observe: ObserveHandler;
 };
 
+/**
+ * Each registered capability's context. Core holds only the neutral
+ * capability; the extension recovers its own context here, never through it.
+ */
+const instrumentationContexts = new WeakMap<
+  OfficialObservationCapability,
+  InstrumentationContext
+>();
+
+/** The logging channel of the exact chain an execution context carries. */
+function readLoggingChannel(
+  context: QueryExecutionContext
+): InstrumentationContext["config"]["logging"] {
+  const capability = getOfficialInstrumentationChainCapability(
+    getExecutionExtensionChain(context)
+  );
+  return capability === undefined
+    ? undefined
+    : instrumentationContexts.get(capability)?.config.logging;
+}
+
 /** Create VibORM's fixed-name instrumentation extension. */
 export function instrumentation<const Config>(
   config: Config & InstrumentationConfig & ExactInstrumentationConfig<Config>
 ): OfficialInstrumentationExtension {
   const context = createInstrumentationContext(config);
-  const capability: OfficialInstrumentationCapability = Object.freeze({
-    context,
+  const capability: OfficialObservationCapability = Object.freeze({
     observesLifecycle:
       context.config.tracing !== undefined ||
       context.config.logging !== undefined,
@@ -70,8 +93,9 @@ export function instrumentation<const Config>(
     function officialInstrumentationObserver(): undefined {
       return undefined;
     };
+  instrumentationContexts.set(capability, context);
   registerTrustedProtectedObserver(handler, capability, (unit, proceed) =>
-    observeOfficialInstrumentation(capability, unit, proceed)
+    observeOfficialInstrumentation(context, unit, proceed)
   );
   return Object.freeze({
     name: OFFICIAL_INSTRUMENTATION_NAME,
@@ -157,7 +181,7 @@ function warn(context: InstrumentationContext, notice: WarningNotice): boolean {
 }
 
 function observeOfficialInstrumentation(
-  capability: OfficialInstrumentationCapability,
+  context: InstrumentationContext,
   unit: LifecycleUnit,
   proceed: () => Promise<ObservationCompletion>
 ): unknown {
@@ -167,7 +191,7 @@ function observeOfficialInstrumentation(
     (facts?.kind === "cache" || facts?.kind === "cache-backend")
   ) {
     return observeCacheInstrumentation(
-      capability,
+      context,
       unit.operation,
       unit,
       facts,
@@ -180,17 +204,14 @@ function observeOfficialInstrumentation(
       dispatch === undefined
         ? observeLifecycleCompletion(completion)
         : presentDispatch(
-            capability,
+            context,
             dispatch.start,
-            capability.wants("statement")
-              ? createStatementSpanOptions(
-                  capability.context.config.tracing,
-                  dispatch
-                )
+            wants(context, "statement")
+              ? createStatementSpanOptions(context.config.tracing, dispatch)
               : undefined,
             () =>
               observeStatementCompletion(
-                capability,
+                context,
                 unit,
                 completion,
                 dispatch.startedAt
@@ -204,7 +225,7 @@ function observeOfficialInstrumentation(
       dispatch === undefined
         ? observeLifecycleCompletion(completion)
         : presentDispatch(
-            capability,
+            context,
             dispatch.start,
             createLifecycleSpanOptions(dispatch),
             () => observeLifecycleCompletion(completion)
@@ -223,13 +244,13 @@ function observeOfficialInstrumentation(
         const { failure, readCacheOutcomes } = completionFacts;
         if (readCacheOutcomes !== undefined) {
           for (const cacheOutcome of readCacheOutcomes()) {
-            capability.context.logger?.cache(
+            context.logger?.cache(
               presentCacheOutcome(facts.context, cacheOutcome)
             );
           }
         }
         if (failure !== undefined) {
-          capability.context.logger?.error(
+          context.logger?.error(
             createOperationErrorLogEvent(
               facts,
               correlationId,
@@ -244,25 +265,26 @@ function observeOfficialInstrumentation(
     });
   };
 
-  return capability.context.config.tracing === undefined
+  return context.config.tracing === undefined
     ? observeCompletion()
-    : capability.context.tracer.startActiveSpan(
+    : context.tracer.startActiveSpan(
         createOperationSpanOptions(facts),
         observeCompletion
       );
 }
 
 function observeCacheInstrumentation(
-  capability: OfficialInstrumentationCapability,
+  instrumentationContext: InstrumentationContext,
   operation: Extract<LifecycleUnit, { kind: "cache" }>["operation"],
   unit: LifecycleUnit,
   facts: CacheBackendFacts | CacheUnitFacts,
   proceed: () => Promise<ObservationCompletion>
 ): Promise<void> {
-  const { logger, tracer } = capability.context;
-  const traced = capability.wants("cache");
+  const { logger, tracer } = instrumentationContext;
+  const traced = wants(instrumentationContext, "cache");
   const context = facts.kind === "cache" ? facts.context : undefined;
-  const logged = facts.kind === "cache" && capability.wants("cache-outcomes");
+  const logged =
+    facts.kind === "cache" && wants(instrumentationContext, "cache-outcomes");
   // A revalidation presents its start at the instant it is observed.
   const startedAt = Date.now();
   const observeCompletion = async (span?: Span): Promise<void> => {
@@ -302,7 +324,7 @@ function observeCacheInstrumentation(
 
 /** Start the gated provider call exactly once, inside the span when one is presented. */
 async function presentDispatch(
-  capability: OfficialInstrumentationCapability,
+  context: InstrumentationContext,
   start: () => void,
   spanOptions: VibORMSpanOptions | undefined,
   observeCompletion: () => Promise<void>
@@ -312,7 +334,7 @@ async function presentDispatch(
     return observeCompletion();
   }
   try {
-    return await capability.context.tracer.startActiveSpan(spanOptions, () => {
+    return await context.tracer.startActiveSpan(spanOptions, () => {
       start();
       return observeCompletion();
     });
@@ -323,7 +345,7 @@ async function presentDispatch(
 }
 
 async function observeStatementCompletion(
-  capability: OfficialInstrumentationCapability,
+  context: InstrumentationContext,
   unit: LifecycleUnit,
   completion: Promise<ObservationCompletion>,
   startedAt: number
@@ -331,11 +353,15 @@ async function observeStatementCompletion(
   const outcome = await completion;
   const completionFacts = readProtectedLifecycleCompletionFacts(unit);
   if (completionFacts?.kind === "statement") {
-    const event = createStatementLogEvent(completionFacts, startedAt);
+    const event = createStatementLogEvent(
+      completionFacts,
+      startedAt,
+      readLoggingChannel(completionFacts.context)
+    );
     if (completionFacts.failure === undefined) {
-      capability.context.logger?.query(event);
+      context.logger?.query(event);
     } else {
-      capability.context.logger?.error(event);
+      context.logger?.error(event);
     }
   }
   if (outcome.status === "failure") throw createObservedFailure();

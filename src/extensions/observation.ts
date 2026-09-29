@@ -1,13 +1,13 @@
 import { sanitizeErrorForLogging } from "@errors";
-import type {
-  InstrumentationLifecycleCompletionFacts,
-  InstrumentationLifecycleFacts,
-  InstrumentationLifecycleFactsReader,
-  OfficialInstrumentationCapability,
-} from "@instrumentation/lifecycle-facts";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import type { ResolvedExtensionChain, ResolvedExtensionHandler } from "./chain";
+import type {
+  OfficialLifecycleCompletionFacts,
+  OfficialLifecycleFacts,
+  OfficialLifecycleFactsReader,
+  OfficialObservationCapability,
+} from "./official-facts";
 
 /** The exact public facts carried by each protected lifecycle boundary. */
 export type LifecycleUnit =
@@ -80,13 +80,13 @@ type TrustedProtectedObserver = (
 ) => unknown;
 
 interface TrustedProtectedObserverRegistration {
-  readonly capability: OfficialInstrumentationCapability;
+  readonly capability: OfficialObservationCapability;
   readonly observer: TrustedProtectedObserver;
 }
 
 interface ProtectedLifecycleFactsState {
-  readonly facts: InstrumentationLifecycleFacts;
-  completion?: InstrumentationLifecycleCompletionFacts;
+  readonly facts: OfficialLifecycleFacts;
+  completion?: OfficialLifecycleCompletionFacts;
 }
 
 const trustedObservers = new WeakMap<
@@ -99,14 +99,14 @@ const lifecycleFacts = new WeakMap<
 >();
 const officialCapabilitiesByChain = new WeakMap<
   ResolvedExtensionChain,
-  OfficialInstrumentationCapability
+  OfficialObservationCapability
 >();
 const settleObserverReturn = (): undefined => undefined;
 
 /** The one official capability registered for this exact chain, if any. */
 export function getOfficialInstrumentationChainCapability(
   chain: ResolvedExtensionChain | undefined
-): OfficialInstrumentationCapability | undefined {
+): OfficialObservationCapability | undefined {
   return chain === undefined
     ? undefined
     : officialCapabilitiesByChain.get(chain);
@@ -115,7 +115,7 @@ export function getOfficialInstrumentationChainCapability(
 /** Bind the admitted official capability to one exact resolved chain. */
 export function registerOfficialInstrumentationChain(
   chain: ResolvedExtensionChain,
-  capability: OfficialInstrumentationCapability
+  capability: OfficialObservationCapability
 ): void {
   officialCapabilitiesByChain.set(chain, capability);
 }
@@ -123,7 +123,7 @@ export function registerOfficialInstrumentationChain(
 /** Register one package-owned observer identity without publishing a marker. */
 export function registerTrustedProtectedObserver(
   handler: CallableFunction,
-  capability: OfficialInstrumentationCapability,
+  capability: OfficialObservationCapability,
   observer: TrustedProtectedObserver
 ): void {
   trustedObservers.set(handler, { capability, observer });
@@ -132,7 +132,7 @@ export function registerTrustedProtectedObserver(
 /** Recognize the exact package-owned handler identity and nothing else. */
 export function getTrustedProtectedObserverCapability(
   handler: unknown
-): OfficialInstrumentationCapability | undefined {
+): OfficialObservationCapability | undefined {
   return isFunction(handler)
     ? trustedObservers.get(handler)?.capability
     : undefined;
@@ -168,14 +168,14 @@ export function prewarmProtectedObservers(
 /** Read facts only for the exact frozen unit created by this runner. */
 export function readProtectedLifecycleFacts(
   unit: LifecycleUnit
-): InstrumentationLifecycleFacts | undefined {
+): OfficialLifecycleFacts | undefined {
   return lifecycleFacts.get(unit)?.facts;
 }
 
 /** Read completion facts projected by core after the child settled. */
 export function readProtectedLifecycleCompletionFacts(
   unit: LifecycleUnit
-): InstrumentationLifecycleCompletionFacts | undefined {
+): OfficialLifecycleCompletionFacts | undefined {
   return lifecycleFacts.get(unit)?.completion;
 }
 
@@ -188,7 +188,7 @@ export function runProtectedObservers<Result>(
   observers: readonly ResolvedExtensionHandler[] | undefined,
   child: () => Promise<Result>,
   readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: InstrumentationLifecycleFactsReader
+  readInstrumentationFacts?: OfficialLifecycleFactsReader
 ): Promise<Result> {
   if (observers === undefined || observers.length === 0) return child();
 
@@ -413,7 +413,7 @@ export function observeOperation<Result>(
   model: string | undefined,
   child: () => Promise<Result>,
   readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: InstrumentationLifecycleFactsReader
+  readInstrumentationFacts?: OfficialLifecycleFactsReader
 ): Promise<Result> {
   return runProtectedObservers(
     {
@@ -435,7 +435,7 @@ export function observeStatement<Result>(
   model: string | undefined,
   child: () => Promise<Result>,
   readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: InstrumentationLifecycleFactsReader
+  readInstrumentationFacts?: OfficialLifecycleFactsReader
 ): Promise<Result> {
   return runProtectedObservers(
     {
@@ -457,7 +457,7 @@ export function observeDriverLifecycle<Result>(
   operation: string | undefined,
   child: () => Promise<Result>,
   readCompletionFacts?: ObservationCompletionFactsReader,
-  readInstrumentationFacts?: InstrumentationLifecycleFactsReader
+  readInstrumentationFacts?: OfficialLifecycleFactsReader
 ): Promise<Result> {
   return runProtectedObservers(
     {
@@ -472,7 +472,7 @@ export function observeDriverLifecycle<Result>(
 }
 
 function prewarmTrustedObserver(
-  capability: OfficialInstrumentationCapability
+  capability: OfficialObservationCapability
 ): void | Promise<void> {
   const prewarm = capability.prewarm;
   if (prewarm === undefined) return;

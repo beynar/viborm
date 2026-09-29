@@ -10,9 +10,7 @@ import {
   type DriverIdentitySource,
   readDriverIdentity,
 } from "@drivers/driver-identity";
-import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { type DiagnosticDisclosure, sanitizeErrorForLogging } from "@errors";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import type {
   CacheBackendFacts,
   CacheOutcome,
@@ -232,18 +230,15 @@ export function createLifecycleSpanOptions(
 
 /**
  * The query or error log of one statement core decided to log, disclosed per
- * the logging channel of the context the log is attributed to.
+ * `logging`: the channel of the chain the log is attributed to.
  */
 export function createStatementLogEvent(
   completion: StatementCompletionFacts,
-  startedAt: number
+  startedAt: number,
+  logging: true | Readonly<DiagnosticDisclosure> | undefined
 ): PresentedLog {
   const { context, endedAt, failure } = completion;
-  const disclosure = readChannelDisclosure(
-    getOfficialInstrumentationChainCapability(
-      getExecutionExtensionChain(context)
-    )?.context.config.logging
-  );
+  const disclosure = readChannelDisclosure(logging);
   return Object.freeze({
     timestamp: new Date(endedAt),
     duration: endedAt - startedAt,

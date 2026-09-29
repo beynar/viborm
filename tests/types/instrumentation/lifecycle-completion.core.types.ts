@@ -1,10 +1,10 @@
 import type {
   CacheCompletionFacts,
   CacheUnitFacts,
+  OfficialLifecycleCompletionFacts,
   OperationFacts,
   StatementFacts,
 } from "@extensions/official-facts";
-import type { InstrumentationLifecycleCompletionFacts } from "@instrumentation/lifecycle-facts";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -14,7 +14,7 @@ type Equal<Left, Right> =
     : false;
 type Expect<Value extends true> = Value;
 
-type CompletionKind = InstrumentationLifecycleCompletionFacts["kind"];
+type CompletionKind = OfficialLifecycleCompletionFacts["kind"];
 type _completionKindsStayCorrelated = Expect<
   Equal<CompletionKind, "operation" | "statement" | "cache">
 >;
@@ -48,7 +48,7 @@ const _statementRejectsCacheCompletion: StatementFacts = {
   complete: () => cacheCompletion,
 };
 
-declare const completion: InstrumentationLifecycleCompletionFacts;
+declare const completion: OfficialLifecycleCompletionFacts;
 
 if (completion.kind === "operation") {
   completion.failure;

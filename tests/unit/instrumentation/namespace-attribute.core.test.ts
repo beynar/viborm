@@ -46,7 +46,6 @@ import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import {
   type OtelRecorder,
-  primeTracer,
   withOtelRecorder,
 } from "@tests/unit/instrumentation/_capture";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
@@ -328,7 +327,7 @@ describe("context attribution presents only supplied facts", () => {
       getExecutionExtensionChain(context)
     );
     if (capability === undefined) throw new Error("no official capability");
-    await primeTracer(capability.context.tracer);
+    await capability.prewarm?.();
     const from = mark();
     await driver._executeRaw("SELECT 1", [], context);
     // The observer ends the span after the authoritative result settles.

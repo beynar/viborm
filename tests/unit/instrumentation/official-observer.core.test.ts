@@ -11,12 +11,12 @@ import type {
   LifecycleDispatch,
   LifecycleFacts,
   ObservationNeed,
+  OfficialLifecycleFacts,
   OfficialObservationCapability,
   OperationCompletionFacts,
   OperationFacts,
   StatementFacts,
 } from "@extensions/official-facts";
-import type { InstrumentationLifecycleFacts } from "@instrumentation/lifecycle-facts";
 import {
   ATTR_CACHE_RESULT,
   SPAN_CACHE_GET,
@@ -39,7 +39,7 @@ import { describe, expect, it, vi } from "vitest";
 function runObserved<Result>(
   extension: OfficialInstrumentationExtension,
   unit: LifecycleUnit,
-  facts: InstrumentationLifecycleFacts,
+  facts: OfficialLifecycleFacts,
   child: () => Promise<Result>
 ): Promise<Result> {
   return runProtectedObservers(

@@ -4,8 +4,8 @@ import type {
   CacheUnitFacts,
   LifecycleDispatch,
   LifecycleFacts,
+  OfficialLifecycleFacts,
 } from "@extensions/official-facts";
-import type { InstrumentationLifecycleFacts } from "@instrumentation/lifecycle-facts";
 import type { OfficialInstrumentationExtension } from "@src/instrumentation/extension";
 import { describe, expect, it, vi } from "vitest";
 
@@ -88,7 +88,7 @@ import { instrumentation } from "@src/instrumentation/extension";
 function runObserved<Result>(
   extension: OfficialInstrumentationExtension,
   unit: LifecycleUnit,
-  facts: InstrumentationLifecycleFacts,
+  facts: OfficialLifecycleFacts,
   child: () => Promise<Result>
 ): Promise<Result> {
   return runProtectedObservers(

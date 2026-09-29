@@ -12,20 +12,17 @@ import {
   registerTrustedProtectedObserver,
   runProtectedObservers,
 } from "@extensions/observation";
-import { createInstrumentationContext } from "@instrumentation/context";
-import type { OfficialInstrumentationCapability } from "@instrumentation/lifecycle-facts";
+import type { OfficialObservationCapability } from "@extensions/official-facts";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 type ObserverEntry = ResolvedExtensionHandler<ObserveHandler>;
 
 /** An observing official capability that wants nothing presented. */
 function trustedTestCapability(
-  readiness: Pick<OfficialInstrumentationCapability, "prewarm"> = {}
-): OfficialInstrumentationCapability {
-  const context = createInstrumentationContext({});
+  readiness: Pick<OfficialObservationCapability, "prewarm"> = {}
+): OfficialObservationCapability {
   return Object.freeze({
-    context,
-    diagnostics: context.config.diagnostics,
+    diagnostics: {},
     observesLifecycle: true,
     wants: () => false,
     warn: () => false,
