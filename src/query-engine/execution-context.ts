@@ -1,5 +1,6 @@
 import { readCacheExecutionOutcomes } from "@cache/driver";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import { readDriverIdentity } from "@drivers/driver-identity";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import {
   createExecutionContext,
@@ -19,6 +20,7 @@ import {
 import type { InstrumentationContext } from "@instrumentation/context";
 import type { InstrumentationLifecycleFactsReader } from "@instrumentation/lifecycle-facts";
 import { isErrorLogged } from "@instrumentation/logged-errors";
+import { createDriverAttributes } from "@instrumentation/presentation";
 import type { VibORMSpanOptions } from "@instrumentation/tracer";
 import type { Operation } from "./types";
 
@@ -122,7 +124,7 @@ function createOperationInstrumentationFacts(
         ? {
             name: SPAN_OPERATION,
             attributes: {
-              ...driver.getBaseAttributes(),
+              ...createDriverAttributes(readDriverIdentity(driver)),
               ...(collection === undefined
                 ? {}
                 : { [ATTR_DB_COLLECTION]: collection }),

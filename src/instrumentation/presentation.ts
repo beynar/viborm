@@ -5,12 +5,21 @@
  */
 
 import type { QueryExecutionContext } from "@drivers";
-import type { DriverIdentity } from "@drivers/driver-identity";
-import { sanitizeErrorForLogging } from "@errors";
+import {
+  type DriverIdentity,
+  type DriverIdentitySource,
+  readDriverIdentity,
+} from "@drivers/driver-identity";
+import { getExecutionExtensionChain } from "@drivers/execution-context";
+import { type DiagnosticDisclosure, sanitizeErrorForLogging } from "@errors";
+import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import type {
   CacheBackendFacts,
   CacheOutcome,
   CacheUnitFacts,
+  LifecycleDispatch,
+  StatementCompletionFacts,
+  StatementDispatch,
 } from "@extensions/official-facts";
 import {
   ATTR_CACHE_DRIVER,
@@ -26,12 +35,29 @@ import {
   SPAN_CACHE_GET,
   SPAN_CACHE_INVALIDATE,
   SPAN_CACHE_SET,
+  SPAN_CONNECT,
+  SPAN_DISCONNECT,
+  SPAN_EXECUTE,
   SPAN_OPERATION,
+  SPAN_TRANSACTION,
 } from "./spans";
 import type { VibORMSpanOptions } from "./tracer";
-import type { LogEvent } from "./types";
+import type { LogEvent, TracingConfig } from "./types";
 
 type PresentedLog = Omit<LogEvent, "level">;
+
+const EMPTY_DISCLOSURE: DiagnosticDisclosure = Object.freeze({
+  includeParams: false,
+  includeSql: false,
+});
+
+// Savepoints present under the transaction span name; there is no other.
+const LIFECYCLE_SPAN_NAMES = {
+  connect: SPAN_CONNECT,
+  disconnect: SPAN_DISCONNECT,
+  savepoint: SPAN_TRANSACTION,
+  transaction: SPAN_TRANSACTION,
+} as const;
 
 const CACHE_SPAN_NAMES = {
   clear: SPAN_CACHE_CLEAR,
@@ -111,5 +137,85 @@ export function createCacheLogEvent(
     correlationId: context?.correlationId,
     error: error instanceof Error ? sanitizeErrorForLogging(error) : undefined,
     meta: Object.freeze({ event: outcome.event, status: outcome.status }),
+  });
+}
+
+/** One channel's SQL/parameter disclosure; `true` and absence disclose nothing. */
+function readChannelDisclosure(
+  channel: true | Readonly<DiagnosticDisclosure> | undefined
+): DiagnosticDisclosure {
+  return channel && channel !== true ? channel : EMPTY_DISCLOSURE;
+}
+
+/** The driver identity plus the context's model, operation and correlation. */
+export function createContextAttributes(
+  driver: DriverIdentitySource,
+  context: QueryExecutionContext
+): Record<string, string> {
+  const { model, operation, correlationId } = context;
+  return {
+    ...createDriverAttributes(readDriverIdentity(driver)),
+    ...(model ? { [ATTR_DB_COLLECTION]: model } : {}),
+    ...(operation ? { [ATTR_DB_OPERATION_NAME]: operation } : {}),
+    ...(correlationId ? { [ATTR_VIBORM_CORRELATION_ID]: correlationId } : {}),
+  };
+}
+
+/** The execute span of one provider dispatch, disclosed per the tracing channel. */
+export function createStatementSpanOptions(
+  tracing: true | Readonly<TracingConfig> | undefined,
+  dispatch: StatementDispatch
+): VibORMSpanOptions {
+  const { includeParams, includeSql } = readChannelDisclosure(tracing);
+  return {
+    name: SPAN_EXECUTE,
+    attributes: createContextAttributes(dispatch.driver, dispatch.context),
+    ...(includeSql || includeParams
+      ? {
+          sql: {
+            ...(includeSql ? { query: dispatch.sql } : {}),
+            ...(includeParams ? { params: dispatch.params } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/** The late span of one connection, transaction, or savepoint dispatch. */
+export function createLifecycleSpanOptions(
+  dispatch: LifecycleDispatch
+): VibORMSpanOptions {
+  return {
+    name: LIFECYCLE_SPAN_NAMES[dispatch.boundary],
+    attributes: createContextAttributes(dispatch.driver, dispatch.context),
+  };
+}
+
+/**
+ * The query or error log of one statement core decided to log, disclosed per
+ * the logging channel of the context the log is attributed to.
+ */
+export function createStatementLogEvent(
+  completion: StatementCompletionFacts,
+  startedAt: number
+): PresentedLog {
+  const { context, endedAt, failure } = completion;
+  const disclosure = readChannelDisclosure(
+    getOfficialInstrumentationChainCapability(
+      getExecutionExtensionChain(context)
+    )?.context.config.logging
+  );
+  return Object.freeze({
+    timestamp: new Date(endedAt),
+    duration: endedAt - startedAt,
+    model: context.model,
+    operation: context.operation,
+    correlationId: context.correlationId,
+    sql: disclosure.includeSql ? completion.sql : undefined,
+    params: disclosure.includeParams ? completion.params : undefined,
+    error:
+      failure === undefined
+        ? undefined
+        : sanitizeErrorForLogging(failure, disclosure),
   });
 }

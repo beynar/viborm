@@ -21,7 +21,13 @@ import type {
   OfficialInstrumentationCapability,
   SegmentInstrumentationCompletionFacts,
 } from "./lifecycle-facts";
-import { createCacheLogEvent, createCacheSpanOptions } from "./presentation";
+import {
+  createCacheLogEvent,
+  createCacheSpanOptions,
+  createLifecycleSpanOptions,
+  createStatementLogEvent,
+  createStatementSpanOptions,
+} from "./presentation";
 import {
   ATTR_CACHE_RESULT,
   SPAN_CONNECT,
@@ -30,7 +36,7 @@ import {
   SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";
-import type { Span } from "./tracer";
+import type { Span, VibORMSpanOptions } from "./tracer";
 import { prewarmTracer, shouldTraceSpan } from "./tracer";
 import type {
   ExactInstrumentationConfig,
@@ -186,35 +192,42 @@ function observeOfficialInstrumentation(
       proceed
     );
   }
-  if (facts?.kind === "statement" || facts?.kind === "driver-lifecycle") {
+  if (facts?.kind === "statement") {
     const completion = proceed();
-    return facts.presentation.then(async (presentation) => {
-      if (presentation === undefined) {
-        return facts.kind === "statement"
-          ? observeStatementCompletion(capability, unit, completion)
-          : observeLifecycleCompletion(completion);
-      }
-      const observeCompletion = () =>
-        facts.kind === "statement"
-          ? observeStatementCompletion(capability, unit, completion)
-          : observeLifecycleCompletion(completion);
-      if (presentation.spanOptions === undefined) {
-        presentation.startExecution();
-        return observeCompletion();
-      }
-      try {
-        return await capability.context.tracer.startActiveSpan(
-          presentation.spanOptions,
-          () => {
-            presentation.startExecution();
-            return observeCompletion();
-          }
-        );
-      } finally {
-        // A hostile OTel provider cannot leave the authoritative child gated.
-        presentation.startExecution();
-      }
-    });
+    return facts.dispatch.then((dispatch) =>
+      dispatch === undefined
+        ? observeLifecycleCompletion(completion)
+        : presentDispatch(
+            capability,
+            dispatch.start,
+            capability.wants("statement")
+              ? createStatementSpanOptions(
+                  capability.context.config.tracing,
+                  dispatch
+                )
+              : undefined,
+            () =>
+              observeStatementCompletion(
+                capability,
+                unit,
+                completion,
+                dispatch.startedAt
+              )
+          )
+    );
+  }
+  if (facts?.kind === "driver-lifecycle") {
+    const completion = proceed();
+    return facts.dispatch.then((dispatch) =>
+      dispatch === undefined
+        ? observeLifecycleCompletion(completion)
+        : presentDispatch(
+            capability,
+            dispatch.start,
+            createLifecycleSpanOptions(dispatch),
+            () => observeLifecycleCompletion(completion)
+          )
+    );
   }
   if (facts?.kind !== "operation") return proceed();
 
@@ -298,17 +311,42 @@ function observeCacheInstrumentation(
     : observeCompletion();
 }
 
+/** Start the gated provider call exactly once, inside the span when one is presented. */
+async function presentDispatch(
+  capability: OfficialInstrumentationCapability,
+  start: () => void,
+  spanOptions: VibORMSpanOptions | undefined,
+  observeCompletion: () => Promise<void>
+): Promise<void> {
+  if (spanOptions === undefined) {
+    start();
+    return observeCompletion();
+  }
+  try {
+    return await capability.context.tracer.startActiveSpan(spanOptions, () => {
+      start();
+      return observeCompletion();
+    });
+  } finally {
+    // A hostile OTel provider cannot leave the authoritative child gated.
+    start();
+  }
+}
+
 async function observeStatementCompletion(
   capability: OfficialInstrumentationCapability,
   unit: LifecycleUnit,
-  completion: Promise<ObservationCompletion>
+  completion: Promise<ObservationCompletion>,
+  startedAt: number
 ): Promise<void> {
   const outcome = await completion;
   const completionFacts = readProtectedLifecycleCompletionFacts(unit);
   if (completionFacts?.kind === "statement") {
-    const logEvent = completionFacts.logEvent;
-    if (logEvent !== undefined) {
-      capability.context.logger?.[logEvent.level](logEvent.event);
+    const event = createStatementLogEvent(completionFacts, startedAt);
+    if (completionFacts.failure === undefined) {
+      capability.context.logger?.query(event);
+    } else {
+      capability.context.logger?.error(event);
     }
   }
   if (outcome.status === "failure") throw createObservedFailure();

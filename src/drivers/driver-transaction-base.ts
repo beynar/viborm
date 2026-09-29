@@ -1,7 +1,6 @@
 /** Transaction and atomic batch orchestration shared by all drivers. */
 
 import { TransactionError } from "@errors";
-import { SPAN_TRANSACTION } from "@instrumentation/spans";
 import { Sql } from "@sql";
 import type { Driver } from "./driver";
 import { prepareAtomicBatch } from "./driver-batch-preparation";
@@ -10,7 +9,8 @@ import { findUniqueExecutionContextIndex } from "./driver-diagnostics";
 import {
   DriverInstrumentationBase,
   type OfficialDriverLifecycleExecutionGate,
-  type OfficialStatementExecutionGate,
+  ungatedLifecycleExecution,
+  ungatedStatementExecution,
 } from "./driver-instrumentation";
 import { normalizeDriverError } from "./error-mapping";
 import { appendExecutionTransactionPhases } from "./execution-context";
@@ -174,7 +174,7 @@ export abstract class DriverTransactionBase<
           "execute"
         );
     const executeQuery = async (
-      gate?: OfficialStatementExecutionGate
+      gate = ungatedStatementExecution
     ): Promise<QueryResult<T>> => {
       transformedQuery ??= this.applyTrustedStatementTransforms(
         query,
@@ -205,23 +205,22 @@ export abstract class DriverTransactionBase<
         assertNormalizedQueryResult(providerResult, resultContext);
         return providerResult;
       };
-      return gate === undefined
-        ? this.executeNormalizedStatement(
+      return gate.execute(
+        {
+          context: executionContext,
+          forceErrorContext: true,
+          params: diagnosticParams,
+          sql,
+        },
+        () =>
+          this.executeNormalizedStatement(
             sql,
             diagnosticParams,
             executionContext,
             executeProvider,
             true
           )
-        : gate.execute(
-            {
-              context: executionContext,
-              diagnosticParams,
-              forceErrorContext: true,
-              sql,
-            },
-            executeProvider
-          );
+      );
     };
     if (!hasStatementObservers) {
       if (this.serializeTransactions && !this.inTransaction) {
@@ -277,7 +276,7 @@ export abstract class DriverTransactionBase<
       "executeRaw"
     );
     const executeQuery = async (
-      gate?: OfficialStatementExecutionGate
+      gate = ungatedStatementExecution
     ): Promise<QueryResult<T>> => {
       const executionParams = snapshotProviderParameters(
         params ?? [],
@@ -302,23 +301,22 @@ export abstract class DriverTransactionBase<
         assertNormalizedQueryResult(providerResult, resultContext);
         return providerResult;
       };
-      return gate === undefined
-        ? this.executeNormalizedStatement(
+      return gate.execute(
+        {
+          context: executionContext,
+          forceErrorContext: true,
+          params: diagnosticParams,
+          sql,
+        },
+        () =>
+          this.executeNormalizedStatement(
             sql,
             diagnosticParams,
             executionContext,
             executeProvider,
             true
           )
-        : gate.execute(
-            {
-              context: executionContext,
-              diagnosticParams,
-              forceErrorContext: true,
-              sql,
-            },
-            executeProvider
-          );
+      );
     };
     if (!this.hasTrustedObservers(executionContext)) {
       if (this.serializeTransactions && !this.inTransaction) {
@@ -344,7 +342,7 @@ export abstract class DriverTransactionBase<
     fn: (tx: TTransaction) => Promise<T>,
     plan: TransactionPlan | undefined,
     executionContext: QueryExecutionContext,
-    lifecycleGate?: OfficialDriverLifecycleExecutionGate
+    lifecycleGate = ungatedLifecycleExecution
   ): Promise<T> {
     const noCallbackFailure = Symbol("noCallbackFailure");
     let callbackFailure: unknown = noCallbackFailure;
@@ -420,9 +418,7 @@ export abstract class DriverTransactionBase<
       }
     };
 
-    return lifecycleGate === undefined
-      ? runTransaction()
-      : lifecycleGate.execute(runTransaction);
+    return lifecycleGate.execute(runTransaction);
   }
 
   /** Form one transaction/savepoint lifecycle outside its owning queue. */
@@ -450,7 +446,7 @@ export abstract class DriverTransactionBase<
     return this.observeTrustedDriverLifecycle(
       kind,
       executionContext,
-      SPAN_TRANSACTION,
+      kind,
       async (gate) => {
         const result = await child(transactionExecutionContext, gate);
         if (observationState) observationState.phase = "committed";
@@ -708,46 +704,48 @@ export abstract class DriverTransactionBase<
           continue;
         }
         results.push(
-          await this.observeTrustedStatement(statementContext, (gate) => {
-            executionQuery = this.materializeTrustedBatchQuery(
-              query,
-              statementContext
-            );
-            diagnosticParams =
-              this.getBatchDiagnosticParameters(executionQuery);
-            const executeStatement = isVerbatimBatchQuery(executionQuery)
-              ? () =>
-                  this.executeRaw<T>(
-                    client,
+          await this.observeTrustedStatement(
+            statementContext,
+            (gate = ungatedStatementExecution) => {
+              executionQuery = this.materializeTrustedBatchQuery(
+                query,
+                statementContext
+              );
+              diagnosticParams =
+                this.getBatchDiagnosticParameters(executionQuery);
+              const executeStatement = isVerbatimBatchQuery(executionQuery)
+                ? () =>
+                    this.executeRaw<T>(
+                      client,
+                      executionQuery.sql,
+                      executionQuery.params,
+                      statementContext
+                    )
+                : () =>
+                    this.execute<T>(
+                      client,
+                      executionQuery.sql,
+                      executionQuery.params ?? [],
+                      statementContext
+                    );
+              return gate.execute(
+                {
+                  context: statementContext,
+                  forceErrorContext: true,
+                  params: diagnosticParams,
+                  sql: executionQuery.sql,
+                },
+                () =>
+                  this.executeNormalizedStatement(
                     executionQuery.sql,
-                    executionQuery.params,
-                    statementContext
-                  )
-              : () =>
-                  this.execute<T>(
-                    client,
-                    executionQuery.sql,
-                    executionQuery.params ?? [],
-                    statementContext
-                  );
-            return gate === undefined
-              ? this.executeNormalizedStatement(
-                  executionQuery.sql,
-                  diagnosticParams,
-                  statementContext,
-                  executeStatement,
-                  true
-                )
-              : gate.execute(
-                  {
-                    context: statementContext,
                     diagnosticParams,
-                    forceErrorContext: true,
-                    sql: executionQuery.sql,
-                  },
-                  executeStatement
-                );
-          })
+                    statementContext,
+                    executeStatement,
+                    true
+                  )
+              );
+            }
+          )
         );
       } catch (error) {
         throw normalizeDriverError(error, {
@@ -817,12 +815,12 @@ export abstract class DriverTransactionBase<
       const hasStatementObservers = this.hasTrustedObservers(executionContext);
       const executeNativeBatch = async (
         sourceQueries: readonly BatchQuery[] = queries,
-        gate?: OfficialStatementExecutionGate
+        gate = ungatedStatementExecution
       ) => {
         const {
           queries: batchQueries,
           diagnosticParams,
-          errorLogDetails,
+          members,
         } = prepareAtomicBatch(
           sourceQueries,
           executionContext,
@@ -886,24 +884,23 @@ export abstract class DriverTransactionBase<
             });
           }
         };
-        return gate === undefined
-          ? this.executeNormalizedStatement(
+        return gate.execute(
+          {
+            context: executionContext,
+            forceErrorContext: false,
+            members,
+            params: diagnosticParams,
+            sql,
+          },
+          () =>
+            this.executeNormalizedStatement(
               sql,
               diagnosticParams,
               executionContext,
               executeProvider,
               false
             )
-          : gate.execute(
-              {
-                context: executionContext,
-                diagnosticParams,
-                errorLogDetails,
-                forceErrorContext: false,
-                sql,
-              },
-              executeProvider
-            );
+        );
       };
       if (!hasStatementObservers) {
         if (this.serializeTransactions && !this.inTransaction) {

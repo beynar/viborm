@@ -30,7 +30,9 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
+import { readDriverIdentity } from "@drivers/driver-identity";
 import type { QueryResult } from "@drivers/types";
+import { createDriverAttributes } from "@instrumentation/presentation";
 import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_SYSTEM,
@@ -294,7 +296,7 @@ describe("the kinds that carry no db.* attributes", () => {
 describe("the attribute is the adapter's value, and nothing else", () => {
   it("never reports a placeholder for an unknown namespace", async () => {
     const driver = new NamespaceDriver("mysql", new MySQLAdapter());
-    const attributes = driver.getBaseAttributes();
+    const attributes = createDriverAttributes(readDriverIdentity(driver));
 
     expect(Object.hasOwn(attributes, ATTR_DB_NAMESPACE)).toBe(false);
     expect(Object.values(attributes)).not.toContain("undefined");
@@ -304,7 +306,7 @@ describe("the attribute is the adapter's value, and nothing else", () => {
 
   it("never carries a host, user, or connection secret", () => {
     const driver = new NamespaceDriver("mysql", new MySQLAdapter("shop"));
-    expect(driver.getBaseAttributes()).toEqual({
+    expect(createDriverAttributes(readDriverIdentity(driver))).toEqual({
       [ATTR_DB_SYSTEM]: "mysql",
       "db.system.driver": "namespace-attribute-mysql",
       [ATTR_DB_NAMESPACE]: "shop",

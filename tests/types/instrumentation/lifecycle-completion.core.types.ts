@@ -1,12 +1,12 @@
 import type {
   CacheCompletionFacts,
   CacheUnitFacts,
+  StatementFacts,
 } from "@extensions/official-facts";
 import type {
   InstrumentationLifecycleCompletionFacts,
   OperationInstrumentationFacts,
   SegmentInstrumentationFacts,
-  StatementInstrumentationFacts,
 } from "@instrumentation/lifecycle-facts";
 import { SPAN_RECORD_SERIES_SEGMENT } from "@instrumentation/spans";
 
@@ -30,8 +30,8 @@ type _operationStartAndCompletionKindsMatch = Expect<
 >;
 type _statementStartAndCompletionKindsMatch = Expect<
   Equal<
-    StatementInstrumentationFacts["kind"],
-    NonNullable<ReturnType<StatementInstrumentationFacts["complete"]>>["kind"]
+    StatementFacts["kind"],
+    NonNullable<ReturnType<StatementFacts["complete"]>>["kind"]
   >
 >;
 type _segmentStartAndCompletionKindsMatch = Expect<
@@ -68,7 +68,8 @@ if (completion.kind === "operation") {
 }
 
 if (completion.kind === "statement") {
-  completion.logEvent;
+  completion.endedAt;
+  completion.failure;
   // @ts-expect-error - statement completion cannot be read as cache completion
   completion.outcomes;
 }
@@ -83,5 +84,5 @@ if (completion.kind === "cache") {
   completion.result;
   completion.outcomes;
   // @ts-expect-error - cache completion cannot be read as statement completion
-  completion.logEvent;
+  completion.endedAt;
 }

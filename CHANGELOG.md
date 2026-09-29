@@ -11,11 +11,20 @@ Versioning.
   wants and hands it neutral facts, so a client without the extension no longer
   carries that code. Spans, log events and thrown-error diagnostics of an
   installed extension are unchanged. Custom driver subclasses see these changes:
-  - the protected `getInstrumentation()`, `isTracingEnabled()` and `getLogger()`
-    hooks of `Driver` no longer steer anything: statement and lifecycle gates,
-    log decisions, `canDiscloseParameters()` and `getErrorDisclosure()` read the
-    extension installed on the executing client's chain, so overriding a hook
-    has no effect.
+  - `Driver.getBaseAttributes()` and `Driver.getContextAttributes()` are
+    removed. Span attributes, including `db.namespace`, are built by the
+    extension from the driver's `dialect`, `driverName` and
+    `adapter.namespace`.
+  - The protected `Driver` members `getInstrumentation()`,
+    `isTracingEnabled()`, `getLogger()`, `getLoggingDisclosure()` and
+    `getTracingDisclosure()` are removed. `canDiscloseParameters()` and
+    `getErrorDisclosure()` remain and read the extension installed on the
+    executing client's chain, so a subclass cannot steer disclosure by
+    overriding a hook.
+  - The protected `observeTrustedDriverLifecycle()` takes a lifecycle boundary
+    (`"connect"`, `"disconnect"`, `"transaction"`, `"savepoint"`) in place of a
+    span name, and the statement and lifecycle execution gates hand the
+    extension a dispatch record instead of span options.
   - `CacheDriver.getBaseAttributes()` is removed. Cache spans and cache log
     events are built by the extension; the backend's name still comes from
     `CacheDriver.driverName`.

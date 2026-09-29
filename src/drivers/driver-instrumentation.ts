@@ -4,7 +4,6 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ConnectionError,
   type DiagnosticDisclosure,
-  sanitizeErrorForLogging,
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
@@ -15,30 +14,16 @@ import {
   observeDriverLifecycle,
   observeStatement,
 } from "@extensions/observation";
-import { applyStatementTransforms } from "@extensions/statement";
-import type { InstrumentationContext } from "@instrumentation/context";
 import type {
-  InstrumentationExecutionPresentation,
-  InstrumentationLifecycleFactsReader,
-  InstrumentationLifecycleOutcome,
-  StatementInstrumentationCompletionFacts,
-} from "@instrumentation/lifecycle-facts";
+  LifecycleBoundary,
+  LifecycleDispatch,
+  LifecycleFacts,
+  StatementDispatch,
+  StatementExecution,
+  StatementFacts,
+} from "@extensions/official-facts";
+import { applyStatementTransforms } from "@extensions/statement";
 import { markErrorLogged } from "@instrumentation/logged-errors";
-import {
-  ATTR_DB_COLLECTION,
-  ATTR_DB_DRIVER,
-  ATTR_DB_NAMESPACE,
-  ATTR_DB_OPERATION_NAME,
-  ATTR_DB_SYSTEM,
-  ATTR_VIBORM_CORRELATION_ID,
-  SPAN_DISCONNECT,
-  SPAN_EXECUTE,
-  type VibORMSpanName,
-} from "@instrumentation/spans";
-import {
-  shouldTraceSpan,
-  type VibORMSpanOptions,
-} from "@instrumentation/tracer";
 import type { Operation } from "@query-engine/types";
 import type { Sql } from "@sql";
 import {
@@ -58,7 +43,6 @@ import {
 } from "./error-mapping";
 import {
   getExecutionExtensionChain,
-  getExecutionInstrumentation,
   snapshotExecutionContext,
 } from "./execution-context";
 import { readPreparedStatement } from "./prepared-statement-provenance";
@@ -112,72 +96,69 @@ export interface DriverResultParser {
 
 export type { QueryExecutionContext } from "./types";
 
-export interface ErrorLogDetails {
-  readonly context: QueryExecutionContext;
-  readonly params: unknown[];
-  readonly sql: string;
-}
-
 export interface NestedTransactionObservation {
   failure?: Error;
   isRejectionObserved: boolean;
 }
 
-interface StatementExecutionPresentation {
-  readonly context: QueryExecutionContext;
-  readonly diagnosticParams: unknown[];
-  readonly errorLogDetails?: readonly ErrorLogDetails[];
-  readonly forceErrorContext: boolean;
-  readonly sql: string;
-  readonly startedAt: number;
-}
-
-/** @internal Driver-owned handoff to the trusted official observer only. */
+/**
+ * @internal One provider statement dispatch. Without official observation it
+ * runs the executor in place; the official gate first publishes the dispatch to
+ * the trusted observer and starts the executor inside its span.
+ */
 export interface OfficialStatementExecutionGate {
-  readonly readFacts: InstrumentationLifecycleFactsReader;
   execute<Result>(
-    presentation: Omit<StatementExecutionPresentation, "startedAt">,
+    execution: StatementExecution,
     executor: () => Promise<Result>
   ): Promise<Result>;
 }
 
-/** @internal Driver-owned handoff to the trusted official observer only. */
+/** @internal One driver lifecycle dispatch, gated the same way. */
 export interface OfficialDriverLifecycleExecutionGate {
-  readonly readFacts: InstrumentationLifecycleFactsReader;
   execute<Result>(executor: () => Promise<Result>): Promise<Result>;
 }
 
-interface DeferredInstrumentationExecution {
-  readonly presentation: Promise<
-    InstrumentationExecutionPresentation | undefined
-  >;
+/** Statement dispatch when no official observer wants it. */
+export const ungatedStatementExecution: OfficialStatementExecutionGate =
+  Object.freeze({
+    execute: <Result>(
+      _execution: StatementExecution,
+      executor: () => Promise<Result>
+    ) => executor(),
+  });
+
+/** Lifecycle dispatch when no official observer wants it. */
+export const ungatedLifecycleExecution: OfficialDriverLifecycleExecutionGate =
+  Object.freeze({
+    execute: <Result>(executor: () => Promise<Result>) => executor(),
+  });
+
+/** A gate plus the private facts only the trusted observer reads. */
+type TrustedGate<Gate, Facts> = Gate & { readonly readFacts: () => Facts };
+
+interface DeferredDispatch<Dispatch> {
+  readonly dispatch: Promise<Dispatch | undefined>;
   execute<Result>(
-    spanOptions: VibORMSpanOptions | undefined,
+    publish: (start: () => void) => Dispatch,
     executor: () => Promise<Result>
   ): Promise<Result>;
   settleSkipped(): void;
 }
 
 /** One exact child remains gated until the trusted observer enters its span. */
-function createDeferredInstrumentationExecution(): DeferredInstrumentationExecution {
-  let resolvePresentation:
-    | ((presentation: InstrumentationExecutionPresentation | undefined) => void)
-    | undefined;
-  const presentation = new Promise<
-    InstrumentationExecutionPresentation | undefined
-  >((resolve) => {
-    resolvePresentation = resolve;
+function createDeferredDispatch<Dispatch>(): DeferredDispatch<Dispatch> {
+  let resolveDispatch: ((dispatch: Dispatch | undefined) => void) | undefined;
+  const dispatch = new Promise<Dispatch | undefined>((resolve) => {
+    resolveDispatch = resolve;
   });
-  let presentationSettled = false;
-  const settlePresentation = (
-    value: InstrumentationExecutionPresentation | undefined
-  ): void => {
-    if (presentationSettled) return;
-    presentationSettled = true;
-    resolvePresentation?.(value);
+  let dispatchSettled = false;
+  const settleDispatch = (value: Dispatch | undefined): void => {
+    if (dispatchSettled) return;
+    dispatchSettled = true;
+    resolveDispatch?.(value);
   };
   const execute = <Result>(
-    spanOptions: VibORMSpanOptions | undefined,
+    publish: (start: () => void) => Dispatch,
     executor: () => Promise<Result>
   ): Promise<Result> => {
     let resolveApplication:
@@ -189,7 +170,7 @@ function createDeferredInstrumentationExecution(): DeferredInstrumentationExecut
       rejectApplication = reject;
     });
     let started = false;
-    const startExecution = (): void => {
+    const start = (): void => {
       if (started) return;
       started = true;
       let execution: Promise<Result>;
@@ -201,18 +182,13 @@ function createDeferredInstrumentationExecution(): DeferredInstrumentationExecut
       }
       execution.then(resolveApplication, rejectApplication);
     };
-    settlePresentation(
-      Object.freeze({
-        ...(spanOptions === undefined ? {} : { spanOptions }),
-        startExecution,
-      })
-    );
+    settleDispatch(publish(start));
     return application;
   };
   return Object.freeze({
-    presentation,
+    dispatch,
     execute,
-    settleSkipped: () => settlePresentation(undefined),
+    settleSkipped: () => settleDispatch(undefined),
   });
 }
 
@@ -402,48 +378,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     );
   }
 
-  /**
-   * Get base OTel attributes for this driver.
-   * Can be used by other parts of the code to include standard database attributes.
-   *
-   * `db.namespace` reports the adapter's one normalized SQL qualifier — a
-   * PostgreSQL schema, a MySQL database, a requested Vitess keyspace. VibORM
-   * knows it from configuration, so no provider is asked and no connection
-   * string is parsed to guess one. When the adapter is unqualified (SQLite,
-   * unbound MySQL/PlanetScale) the KEY IS ABSENT rather than carrying `null`,
-   * `""`, or the text `undefined`: OTel lets a reporter give the component it
-   * has and say nothing about the one it does not, and a placeholder value
-   * would be indistinguishable from a namespace actually spelled that way.
-   *
-   * This one addition reaches every unit that carries `db.*`: operation
-   * (`query-engine/execution-context.ts`), statement and driver-lifecycle (via
-   * `getContextAttributes` below), and cache (`client/client.ts` →
-   * `cache-flow.ts`). Segment units carry only `viborm.write.*` and are
-   * unaffected, and the unobserved native-batch phase still calls nothing here.
-   */
-  getBaseAttributes(): Record<string, string> {
-    const namespace = this.adapter.namespace;
-    return {
-      [ATTR_DB_SYSTEM]: this.dialect,
-      [ATTR_DB_DRIVER]: this.driverName,
-      ...(namespace === undefined ? {} : { [ATTR_DB_NAMESPACE]: namespace }),
-    };
-  }
-
-  /**
-   * Get OTel attributes including current context (model, operation).
-   */
-  getContextAttributes(
-    context: QueryExecutionContext = this.boundContext
-  ): Record<string, string | undefined> {
-    const { model, operation, correlationId } = context;
-    const attrs: Record<string, string | undefined> = this.getBaseAttributes();
-    if (model) attrs[ATTR_DB_COLLECTION] = model;
-    if (operation) attrs[ATTR_DB_OPERATION_NAME] = operation;
-    if (correlationId) attrs[ATTR_VIBORM_CORRELATION_ID] = correlationId;
-    return attrs;
-  }
-
   /** Materialize one trusted typed statement and enforce its final bind budget. */
   protected applyTrustedStatementTransforms(
     query: Sql,
@@ -515,7 +449,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       "connection" | "savepoint" | "transaction"
     >,
     context: QueryExecutionContext,
-    spanName: VibORMSpanName,
+    boundary: LifecycleBoundary,
     child: (
       gate: OfficialDriverLifecycleExecutionGate | undefined
     ) => Promise<Result>,
@@ -527,15 +461,8 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     }
     const official = readOfficialCapability(context);
     const gate =
-      official?.observesLifecycle === true &&
-      official.wants(
-        kind === "connection"
-          ? spanName === SPAN_DISCONNECT
-            ? "disconnect"
-            : "connect"
-          : kind
-      )
-        ? this.createOfficialDriverLifecycleExecutionGate(context, spanName)
+      official?.observesLifecycle === true && official.wants(boundary)
+        ? this.createOfficialDriverLifecycleExecutionGate(context, boundary)
         : undefined;
     return observeDriverLifecycle(
       kind,
@@ -612,7 +539,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   /** Build one private provider-dispatch gate for the official statement rail. */
   private createOfficialStatementExecutionGate(
     context: QueryExecutionContext
-  ): OfficialStatementExecutionGate | undefined {
+  ): TrustedGate<OfficialStatementExecutionGate, StatementFacts> | undefined {
     const official = readOfficialCapability(context);
     if (official?.observesLifecycle !== true) return undefined;
     if (
@@ -625,56 +552,79 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       return undefined;
     }
 
-    const deferred = createDeferredInstrumentationExecution();
-    let published: StatementExecutionPresentation | undefined;
-    const facts = Object.freeze({
-      kind: "statement" as const,
-      presentation: deferred.presentation,
-      complete: (
-        outcome: InstrumentationLifecycleOutcome
-      ): StatementInstrumentationCompletionFacts | undefined => {
+    const deferred = createDeferredDispatch<StatementDispatch>();
+    let published: StatementDispatch | undefined;
+    const facts: StatementFacts = Object.freeze({
+      kind: "statement",
+      dispatch: deferred.dispatch,
+      complete: (outcome) => {
         if (published === undefined) {
           deferred.settleSkipped();
           return undefined;
         }
-        const logEvent = this.createStatementLogEvent(published, outcome);
-        return logEvent === undefined
-          ? undefined
-          : Object.freeze({ kind: "statement" as const, logEvent });
+        // Core selects the log and marks its failure in the settling tick;
+        // the extension only formats what this returns.
+        const failure =
+          outcome.status === "failure" && outcome.failure instanceof Error
+            ? outcome.failure
+            : undefined;
+        if (outcome.status === "failure" && failure === undefined) {
+          return undefined;
+        }
+        const member =
+          failure === undefined || published.forceErrorContext
+            ? undefined
+            : findUniqueErrorLogDetails(failure, published.members);
+        const logContext =
+          member?.context ??
+          (failure === undefined || published.forceErrorContext
+            ? published.context
+            : getErrorExecutionContext(failure, published.context));
+        if (
+          readOfficialCapability(logContext)?.wants(
+            failure === undefined ? "query-log" : "error-log"
+          ) !== true
+        ) {
+          return undefined;
+        }
+        if (failure !== undefined) markErrorLogged(failure);
+        return Object.freeze({
+          kind: "statement",
+          endedAt: Date.now(),
+          context: logContext,
+          sql: member?.sql ?? published.sql,
+          params: member?.params ?? published.params,
+          ...(failure === undefined ? {} : { failure }),
+        });
       },
     });
-    const execute = <Result>(
-      values: Omit<StatementExecutionPresentation, "startedAt">,
-      executor: () => Promise<Result>
-    ): Promise<Result> => {
-      published = Object.freeze({ ...values, startedAt: Date.now() });
-      const spanOptions = this.createStatementSpanOptions(
-        values.sql,
-        values.diagnosticParams,
-        values.context
-      );
-      return deferred.execute(spanOptions, () =>
-        this.executeNormalizedStatement(
-          values.sql,
-          values.diagnosticParams,
-          values.context,
-          executor,
-          values.forceErrorContext
-        )
-      );
-    };
-    return Object.freeze({ readFacts: () => facts, execute });
+    return Object.freeze({
+      readFacts: () => facts,
+      execute: <Result>(
+        execution: StatementExecution,
+        executor: () => Promise<Result>
+      ): Promise<Result> =>
+        deferred.execute((start) => {
+          published = Object.freeze({
+            ...execution,
+            driver: this,
+            startedAt: Date.now(),
+            start,
+          });
+          return published;
+        }, executor),
+    });
   }
 
-  /** Build one late span gate without moving the owning lifecycle across its queue. */
+  /** Build one late dispatch gate without moving the lifecycle across its queue. */
   private createOfficialDriverLifecycleExecutionGate(
     context: QueryExecutionContext,
-    spanName: VibORMSpanName
-  ): OfficialDriverLifecycleExecutionGate {
-    const deferred = createDeferredInstrumentationExecution();
-    const facts = Object.freeze({
-      kind: "driver-lifecycle" as const,
-      presentation: deferred.presentation,
+    boundary: LifecycleBoundary
+  ): TrustedGate<OfficialDriverLifecycleExecutionGate, LifecycleFacts> {
+    const deferred = createDeferredDispatch<LifecycleDispatch>();
+    const facts: LifecycleFacts = Object.freeze({
+      kind: "driver-lifecycle",
+      dispatch: deferred.dispatch,
       complete: () => {
         deferred.settleSkipped();
         return undefined;
@@ -684,83 +634,9 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       readFacts: () => facts,
       execute: <Result>(executor: () => Promise<Result>) =>
         deferred.execute(
-          {
-            name: spanName,
-            attributes: this.getContextAttributes(context),
-          },
+          (start) => Object.freeze({ driver: this, context, boundary, start }),
           executor
         ),
-    });
-  }
-
-  private createStatementSpanOptions(
-    sql: string,
-    params: unknown[],
-    context: QueryExecutionContext
-  ): VibORMSpanOptions | undefined {
-    if (readOfficialCapability(context)?.wants("statement") !== true) {
-      return undefined;
-    }
-    const disclosure = this.getTracingDisclosure(context);
-    const spanSql =
-      disclosure.includeSql || disclosure.includeParams
-        ? {
-            ...(disclosure.includeSql ? { query: sql } : {}),
-            ...(disclosure.includeParams ? { params } : {}),
-          }
-        : undefined;
-    return {
-      name: SPAN_EXECUTE,
-      attributes: this.getContextAttributes(context),
-      ...(spanSql === undefined ? {} : { sql: spanSql }),
-    };
-  }
-
-  private createStatementLogEvent(
-    presentation: StatementExecutionPresentation,
-    outcome: InstrumentationLifecycleOutcome
-  ): StatementInstrumentationCompletionFacts["logEvent"] | undefined {
-    const failure =
-      outcome.status === "failure" && outcome.failure instanceof Error
-        ? outcome.failure
-        : undefined;
-    if (outcome.status === "failure" && failure === undefined) return undefined;
-    const statementLogDetails =
-      failure === undefined || presentation.forceErrorContext
-        ? undefined
-        : findUniqueErrorLogDetails(failure, presentation.errorLogDetails);
-    const context =
-      statementLogDetails?.context ??
-      (failure === undefined || presentation.forceErrorContext
-        ? presentation.context
-        : getErrorExecutionContext(failure, presentation.context));
-    const level = failure === undefined ? "query" : "error";
-    if (
-      readOfficialCapability(context)?.wants(
-        failure === undefined ? "query-log" : "error-log"
-      ) !== true
-    ) {
-      return undefined;
-    }
-    if (failure !== undefined) markErrorLogged(failure);
-    const disclosure = this.getLoggingDisclosure(context);
-    const sql = statementLogDetails?.sql ?? presentation.sql;
-    const params = statementLogDetails?.params ?? presentation.diagnosticParams;
-    return Object.freeze({
-      level,
-      event: Object.freeze({
-        timestamp: new Date(),
-        duration: Date.now() - presentation.startedAt,
-        model: context.model,
-        operation: context.operation,
-        correlationId: context.correlationId,
-        sql: disclosure.includeSql ? sql : undefined,
-        params: disclosure.includeParams ? params : undefined,
-        error:
-          failure === undefined
-            ? undefined
-            : sanitizeErrorForLogging(failure, disclosure),
-      }),
     });
   }
 
@@ -951,12 +827,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     );
   }
 
-  protected getInstrumentation(
-    context?: QueryExecutionContext
-  ): InstrumentationContext | undefined {
-    return getExecutionInstrumentation(context);
-  }
-
   protected canDiscloseParameters(context?: QueryExecutionContext): boolean {
     const official = readOfficialCapability(context);
     return (
@@ -966,45 +836,10 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     );
   }
 
-  protected isTracingEnabled(
-    context?: QueryExecutionContext,
-    spanName: VibORMSpanName = SPAN_EXECUTE
-  ): boolean {
-    const instrumentation = this.getInstrumentation(context);
-    const isConfigured =
-      instrumentation?.config.tracing !== undefined ||
-      instrumentation?.tracer.isEnabled() === true;
-    return (
-      isConfigured &&
-      instrumentation !== undefined &&
-      shouldTraceSpan(instrumentation.tracer, spanName)
-    );
-  }
-
   protected getErrorDisclosure(
     context?: QueryExecutionContext
   ): DiagnosticDisclosure {
     return readOfficialCapability(context)?.diagnostics ?? EMPTY_DISCLOSURE;
-  }
-
-  protected getLoggingDisclosure(
-    context?: QueryExecutionContext
-  ): DiagnosticDisclosure {
-    const logging = readOfficialCapability(context)?.context.config.logging;
-    return logging && logging !== true ? logging : EMPTY_DISCLOSURE;
-  }
-
-  protected getTracingDisclosure(
-    context?: QueryExecutionContext
-  ): DiagnosticDisclosure {
-    const tracing = readOfficialCapability(context)?.context.config.tracing;
-    return tracing && tracing !== true ? tracing : EMPTY_DISCLOSURE;
-  }
-
-  protected getLogger(
-    context?: QueryExecutionContext
-  ): InstrumentationContext["logger"] {
-    return this.getInstrumentation(context)?.logger;
   }
 }
 

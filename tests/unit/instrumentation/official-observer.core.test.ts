@@ -8,15 +8,16 @@ import {
 import type {
   CacheOutcome,
   CacheUnitFacts,
+  LifecycleDispatch,
+  LifecycleFacts,
   ObservationNeed,
   OfficialObservationCapability,
+  StatementFacts,
 } from "@extensions/official-facts";
 import type {
-  DriverLifecycleInstrumentationFacts,
   InstrumentationLifecycleFacts,
   OperationInstrumentationFacts,
   SegmentInstrumentationFacts,
-  StatementInstrumentationFacts,
 } from "@instrumentation/lifecycle-facts";
 import {
   ATTR_CACHE_RESULT,
@@ -60,6 +61,22 @@ async function waitFor(check: () => boolean): Promise<void> {
     await Promise.resolve();
   }
   throw new Error("Expected official observation work to settle");
+}
+
+const TEST_DRIVER = Object.freeze({
+  adapter: Object.freeze({}),
+  dialect: "sqlite",
+  driverName: "lifecycle-test",
+} as const);
+
+/** A transaction dispatch record whose `start` releases the gated child. */
+function lifecycleDispatch(start: () => void): LifecycleDispatch {
+  return Object.freeze({
+    boundary: "transaction",
+    context: Object.freeze({ operation: "$transaction" }),
+    driver: TEST_DRIVER,
+    start,
+  });
 }
 
 function cacheOutcome(
@@ -178,9 +195,9 @@ describe("official protected observer", () => {
   it("contains skipped statement and driver-lifecycle completion failures", async () => {
     const extension = instrumentation({ logging: { query: true } });
     const statementFailure = new Error("statement failed before dispatch");
-    const statementFacts: StatementInstrumentationFacts = Object.freeze({
+    const statementFacts: StatementFacts = Object.freeze({
       kind: "statement",
-      presentation: Promise.resolve(undefined),
+      dispatch: Promise.resolve(undefined),
       complete: () => undefined,
     });
 
@@ -193,9 +210,9 @@ describe("official protected observer", () => {
       )
     ).rejects.toBe(statementFailure);
 
-    const lifecycleFacts: DriverLifecycleInstrumentationFacts = Object.freeze({
+    const lifecycleFacts: LifecycleFacts = Object.freeze({
       kind: "driver-lifecycle",
-      presentation: Promise.resolve(undefined),
+      dispatch: Promise.resolve(undefined),
       complete: () => undefined,
     });
     const success = Object.freeze({ phase: "complete" });
@@ -219,28 +236,38 @@ describe("official protected observer", () => {
     ).rejects.toBe(lifecycleFailure);
   });
 
-  it("releases a spanless driver lifecycle presentation exactly once", async () => {
+  it("releases a spanless statement dispatch exactly once", async () => {
     const extension = instrumentation({ logging: { query: true } });
     let releaseChild: ((value: string) => void) | undefined;
     const heldChild = new Promise<string>((resolve) => {
       releaseChild = resolve;
     });
-    const startExecution = vi.fn(() => releaseChild?.("released"));
-    const facts: DriverLifecycleInstrumentationFacts = Object.freeze({
-      kind: "driver-lifecycle",
-      presentation: Promise.resolve(Object.freeze({ startExecution })),
+    const start = vi.fn(() => releaseChild?.("released"));
+    const facts: StatementFacts = Object.freeze({
+      kind: "statement",
+      dispatch: Promise.resolve(
+        Object.freeze({
+          context: Object.freeze({ operation: "$queryRaw" }),
+          driver: TEST_DRIVER,
+          start,
+          forceErrorContext: true,
+          params: [],
+          sql: "SELECT 1",
+          startedAt: 0,
+        })
+      ),
       complete: () => undefined,
     });
 
     await expect(
       runObserved(
         extension,
-        { kind: "transaction", operation: "$transaction" },
+        { kind: "statement", operation: "$queryRaw" },
         facts,
         () => heldChild
       )
     ).resolves.toBe("released");
-    expect(startExecution).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledOnce();
   });
 
   it("records late segment attributes without changing child authority", async () => {
@@ -435,14 +462,9 @@ describe("official protected observer", () => {
         providerStarts += 1;
         releaseChild?.("committed");
       };
-      const facts: DriverLifecycleInstrumentationFacts = Object.freeze({
+      const facts: LifecycleFacts = Object.freeze({
         kind: "driver-lifecycle",
-        presentation: Promise.resolve(
-          Object.freeze({
-            spanOptions: Object.freeze({ name: SPAN_TRANSACTION }),
-            startExecution,
-          })
-        ),
+        dispatch: Promise.resolve(lifecycleDispatch(startExecution)),
         complete: () => undefined,
       });
 

@@ -37,7 +37,7 @@ logger, disclosure, or correlation.
 | `presentation.ts` | Span options, attributes, and log events built from core's neutral facts (`src/extensions/official-facts.ts`) |
 | `tracer.ts` | Optional OTel loading, active spans, containment, span mutation |
 | `logger.ts` | Level selection, callback containment, pretty presentation |
-| `driver-instrumentation.ts` | Provider-dispatch facts and instrumentation presentation only; no generic extension runner |
+| `driver-instrumentation.ts` | Provider-dispatch facts, the statement log decision and de-dup mark, and the deferred handoff (`start()` inside the trusted span); no presentation and no generic extension runner |
 | `src/extensions/observation.ts` | Public unit/completion onion, trusted identity registry, and the one contained observer runner |
 
 Do not add another event registry, presenter, context manager, public token, or
@@ -109,23 +109,23 @@ unhandled rejection.
 - `viborm.transaction`, `viborm.savepoint`, `viborm.batch`, `viborm.segment`,
   connection, and cache spans represent only real lifecycle boundaries.
 - There are no separate validate/build/parse spans.
-- `db.namespace` reports `adapter.namespace`. It is added by
-  `Driver.getBaseAttributes()` in `src/drivers/driver-instrumentation.ts` for
-  the units core still presents, and by `createDriverAttributes` in
-  `presentation.ts` for the cache revalidation, which the extension presents
-  (the driver units move there too, and then that builder is the one place). When the adapter is unqualified the
+- `db.namespace` reports `adapter.namespace` and is added in exactly one place,
+  `createDriverAttributes` in `presentation.ts`, from the identity
+  `readDriverIdentity` (`src/drivers/driver-identity.ts`) reads — the one reader
+  of `adapter.namespace` for presentation. When the adapter is unqualified the
   KEY IS ABSENT; never emit `null`, `""`, or the text `undefined`. Do not add the
   attribute to a unit that carries no other `db.*` (write segments, the cache
   backend's own get/set spans), and do not invent a lifecycle kind for it — the
   five kinds are fixed. Immutability rides the non-writable `adapter.namespace`
-  install, NOT a ban on copies: `getBaseAttributes()` returns a fresh literal on
-  every call, and the cache revalidation span is deliberately built from a
-  `readDriverIdentity` snapshot (`src/drivers/driver-identity.ts`), taken at
-  `$withCache` and carried as `options.driverIdentity`. That snapshot cannot go
-  stale, because the property it read cannot be reassigned —
-  which is also why no reader may take its namespace from anywhere else.
-- The unobserved native-batch phase must keep calling `getBaseAttributes` zero
-  times; it is pinned, and any new base attribute has to preserve that.
+  install, NOT a ban on copies: `readDriverIdentity` returns a fresh frozen
+  record on every call, and the cache revalidation span is deliberately built
+  from a snapshot of one, taken at `$withCache` and carried as
+  `options.driverIdentity`. That snapshot cannot go stale, because the property
+  it read cannot be reassigned — which is also why no reader may take its
+  namespace from anywhere else.
+- The unobserved native-batch phase must keep calling `readDriverIdentity` zero
+  times; it is pinned (`native-batch-attribution.core`, a `vi.mock` spy on
+  `@drivers/driver-identity`), and any new identity fact has to preserve that.
 - Ignoring a cache span must not write late cache attributes onto its parent.
 - Segment aggregate attributes can update the exact active operation span at
   the existing final boundary.

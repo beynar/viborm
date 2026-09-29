@@ -15,12 +15,17 @@ export interface DriverIdentity {
   readonly namespace?: string;
 }
 
-/** Read one driver's identity from its public readonly configuration. */
-export function readDriverIdentity(driver: {
+/** The public readonly driver fields an identity is read from. */
+export interface DriverIdentitySource {
   readonly dialect: Dialect;
   readonly driverName: string;
   readonly adapter: { readonly namespace?: string };
-}): DriverIdentity {
+}
+
+/** Read one driver's identity from its public readonly configuration. */
+export function readDriverIdentity(
+  driver: DriverIdentitySource
+): DriverIdentity {
   const namespace = driver.adapter.namespace;
   return Object.freeze({
     dialect: driver.dialect,

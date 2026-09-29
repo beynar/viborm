@@ -950,7 +950,7 @@ describe("official statement instrumentation", () => {
         ? facts.complete({ status: "failure", durationMs: 0, failure })
         : undefined;
     expect(isErrorLogged(failure)).toBe(true);
-    expect(completion?.logEvent?.level).toBe("error");
+    expect(completion?.failure).toBe(failure);
     expect(logs.events).toHaveLength(1);
   });
 

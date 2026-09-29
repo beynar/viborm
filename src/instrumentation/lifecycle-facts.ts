@@ -4,8 +4,11 @@ import type {
   CacheCompletionFacts,
   CacheOutcome,
   CacheUnitFacts,
+  LifecycleFacts,
   ObservationOutcome,
   OfficialObservationCapability,
+  StatementCompletionFacts,
+  StatementFacts,
 } from "@extensions/official-facts";
 import type { InstrumentationContext } from "./context";
 import type { VibORMSpanOptions } from "./tracer";
@@ -30,40 +33,9 @@ export interface OperationInstrumentationCompletionFacts {
   readonly readCacheOutcomes?: () => readonly CacheOutcome[];
 }
 
-export interface StatementInstrumentationCompletionFacts {
-  readonly kind: "statement";
-  readonly logEvent?: {
-    readonly event: Omit<LogEvent, "level">;
-    readonly level: "error" | "query";
-  };
-}
-
 export interface SegmentInstrumentationCompletionFacts {
   readonly kind: "segment";
   readonly spanAttributes: NonNullable<VibORMSpanOptions["attributes"]>;
-}
-
-export interface InstrumentationExecutionPresentation {
-  readonly spanOptions?: VibORMSpanOptions;
-  readonly startExecution: () => void;
-}
-
-export interface StatementInstrumentationFacts {
-  readonly kind: "statement";
-  readonly presentation: Promise<
-    InstrumentationExecutionPresentation | undefined
-  >;
-  readonly complete: (
-    outcome: InstrumentationLifecycleOutcome
-  ) => StatementInstrumentationCompletionFacts | undefined;
-}
-
-export interface DriverLifecycleInstrumentationFacts {
-  readonly kind: "driver-lifecycle";
-  readonly presentation: Promise<
-    InstrumentationExecutionPresentation | undefined
-  >;
-  readonly complete: (outcome: InstrumentationLifecycleOutcome) => undefined;
 }
 
 export interface OperationInstrumentationFacts {
@@ -86,10 +58,10 @@ export interface SegmentInstrumentationFacts {
 export type InstrumentationLifecycleFacts =
   | CacheBackendFacts
   | CacheUnitFacts
-  | DriverLifecycleInstrumentationFacts
+  | LifecycleFacts
   | OperationInstrumentationFacts
   | SegmentInstrumentationFacts
-  | StatementInstrumentationFacts;
+  | StatementFacts;
 
 export type InstrumentationLifecycleFactsReader = () =>
   | InstrumentationLifecycleFacts
@@ -99,4 +71,4 @@ export type InstrumentationLifecycleCompletionFacts =
   | CacheCompletionFacts
   | OperationInstrumentationCompletionFacts
   | SegmentInstrumentationCompletionFacts
-  | StatementInstrumentationCompletionFacts;
+  | StatementCompletionFacts;

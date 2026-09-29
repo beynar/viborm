@@ -8,7 +8,10 @@
  * for its exact extension chain, at the moment it needs the answer.
  */
 
-import type { DriverIdentity } from "@drivers/driver-identity";
+import type {
+  DriverIdentity,
+  DriverIdentitySource,
+} from "@drivers/driver-identity";
 import type { QueryExecutionContext } from "@drivers/types";
 import type { DiagnosticDisclosure } from "@errors";
 
@@ -115,5 +118,80 @@ export interface CacheBackendFacts {
   readonly kind: "cache-backend";
   readonly boundary: "clear" | "delete";
   readonly driverName: string;
+  readonly complete: () => undefined;
+}
+
+/**
+ * A provider dispatch core has reached, handed to the trusted handler. `start`
+ * begins the provider call exactly once; the handler calls it inside its own
+ * active span, because timestamps cannot reproduce active-context nesting.
+ */
+interface ProviderDispatch {
+  /** The dispatching driver; its identity is read, never its state. */
+  readonly driver: DriverIdentitySource;
+  readonly context: QueryExecutionContext;
+  readonly start: () => void;
+}
+
+/** One native-batch member as the statement log attributes it. */
+export interface StatementMember {
+  readonly context: QueryExecutionContext;
+  readonly params: unknown[];
+  readonly sql: string;
+}
+
+/** What a statement's provider dispatch publishes, after transform and acquisition. */
+export interface StatementExecution {
+  readonly context: QueryExecutionContext;
+  readonly sql: string;
+  /** The one pre-dispatch parameter snapshot, or empty when nothing discloses it. */
+  readonly params: unknown[];
+  readonly forceErrorContext: boolean;
+  /** Native batch: each member's own context, SQL and parameters. */
+  readonly members?: readonly StatementMember[];
+}
+
+export interface StatementDispatch
+  extends ProviderDispatch,
+    StatementExecution {
+  readonly startedAt: number;
+}
+
+export type LifecycleBoundary =
+  | "connect"
+  | "disconnect"
+  | "savepoint"
+  | "transaction";
+
+export interface LifecycleDispatch extends ProviderDispatch {
+  readonly boundary: LifecycleBoundary;
+}
+
+/**
+ * A settled statement core decided to log: the attributed context, SQL and
+ * parameters (a native-batch member's when the failure names one), and the
+ * failure it has already marked logged.
+ */
+export interface StatementCompletionFacts {
+  readonly kind: "statement";
+  readonly endedAt: number;
+  readonly context: QueryExecutionContext;
+  readonly sql: string;
+  readonly params: unknown[];
+  readonly failure?: Error;
+}
+
+export interface StatementFacts {
+  readonly kind: "statement";
+  /** Settles with the dispatch, or `undefined` when the provider was never reached. */
+  readonly dispatch: Promise<StatementDispatch | undefined>;
+  readonly complete: (
+    outcome: ObservationOutcome
+  ) => StatementCompletionFacts | undefined;
+}
+
+export interface LifecycleFacts {
+  readonly kind: "driver-lifecycle";
+  readonly dispatch: Promise<LifecycleDispatch | undefined>;
   readonly complete: () => undefined;
 }

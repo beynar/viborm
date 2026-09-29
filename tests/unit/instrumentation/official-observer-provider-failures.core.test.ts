@@ -1,18 +1,34 @@
 import type { LifecycleUnit } from "@extensions/observation";
 import { runProtectedObservers } from "@extensions/observation";
-import type { CacheUnitFacts } from "@extensions/official-facts";
 import type {
-  DriverLifecycleInstrumentationFacts,
+  CacheUnitFacts,
+  LifecycleDispatch,
+  LifecycleFacts,
+} from "@extensions/official-facts";
+import type {
   InstrumentationLifecycleFacts,
   SegmentInstrumentationFacts,
 } from "@instrumentation/lifecycle-facts";
 import {
   ATTR_VIBORM_WRITE_COMMIT_OUTCOME,
   SPAN_RECORD_SERIES_SEGMENT,
-  SPAN_TRANSACTION,
 } from "@instrumentation/spans";
 import type { OfficialInstrumentationExtension } from "@src/instrumentation/extension";
 import { describe, expect, it, vi } from "vitest";
+
+/** A transaction dispatch record whose `start` releases the gated child. */
+function lifecycleDispatch(start: () => void): LifecycleDispatch {
+  return Object.freeze({
+    boundary: "transaction",
+    context: Object.freeze({ operation: "$transaction" }),
+    driver: Object.freeze({
+      adapter: Object.freeze({}),
+      dialect: "sqlite",
+      driverName: "lifecycle-test",
+    }),
+    start,
+  });
+}
 
 type ProviderMode = "normal" | "set-attributes-throws" | "start-span-throws";
 
@@ -179,14 +195,9 @@ describe("official observer provider failures", () => {
       providerStarts += 1;
       releaseChild?.("released");
     };
-    const facts: DriverLifecycleInstrumentationFacts = Object.freeze({
+    const facts: LifecycleFacts = Object.freeze({
       kind: "driver-lifecycle",
-      presentation: Promise.resolve(
-        Object.freeze({
-          spanOptions: Object.freeze({ name: SPAN_TRANSACTION }),
-          startExecution,
-        })
-      ),
+      dispatch: Promise.resolve(lifecycleDispatch(startExecution)),
       complete: () => undefined,
     });
 

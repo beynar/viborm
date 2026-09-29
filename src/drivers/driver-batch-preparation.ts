@@ -1,3 +1,4 @@
+import type { StatementMember } from "@extensions/official-facts";
 import {
   isVerbatimBatchQuery,
   markVerbatimBatchQuery,
@@ -6,7 +7,6 @@ import {
   BATCH_DIAGNOSTIC_PARAMS,
   EMPTY_DIAGNOSTIC_PARAMS,
 } from "./driver-diagnostics";
-import type { ErrorLogDetails } from "./driver-instrumentation";
 import { snapshotExecutionContext } from "./execution-context";
 import { snapshotPreparedStatement } from "./prepared-statement-provenance";
 import { snapshotProviderParameters } from "./provider-parameter-snapshot";
@@ -15,7 +15,8 @@ import type { BatchQuery, QueryExecutionContext } from "./types";
 export interface PreparedAtomicBatch {
   readonly queries: BatchQuery[];
   readonly diagnosticParams: unknown[];
-  readonly errorLogDetails: ErrorLogDetails[];
+  /** Each member's context, SQL and parameters, for statement log attribution. */
+  readonly members: StatementMember[];
 }
 
 export function prepareAtomicBatch(
@@ -58,7 +59,7 @@ export function prepareAtomicBatch(
     });
     return Object.freeze(snapshot);
   });
-  const errorLogDetails = preparedQueries.map((query, index) => ({
+  const members = preparedQueries.map((query, index) => ({
     context: query.context ?? executionContext,
     params: statementDiagnosticSnapshots[index] ?? EMPTY_DIAGNOSTIC_PARAMS,
     sql: query.sql,
@@ -67,5 +68,5 @@ export function prepareAtomicBatch(
     ? statementDiagnosticSnapshots
     : EMPTY_DIAGNOSTIC_PARAMS;
   if (discloseBatchParameters) Object.freeze(diagnosticParams);
-  return { queries: preparedQueries, diagnosticParams, errorLogDetails };
+  return { queries: preparedQueries, diagnosticParams, members };
 }

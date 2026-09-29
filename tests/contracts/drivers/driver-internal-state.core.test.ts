@@ -94,7 +94,7 @@ describe("prepared driver batch state", () => {
     expect(prepared.queries).toHaveLength(2);
     expect(prepared.queries.every(Object.isFrozen)).toBe(true);
     expect(Object.isFrozen(prepared.queries[0]?.params)).toBe(true);
-    expect(prepared.errorLogDetails).toEqual([
+    expect(prepared.members).toEqual([
       {
         context: prepared.queries[0]?.context,
         params: diagnosticSnapshots[0],
