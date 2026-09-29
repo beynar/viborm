@@ -27,6 +27,8 @@ vi.mock("@opentelemetry/api", () => {
   throw new Error("the library imported @opentelemetry/api");
 });
 
+import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient, s, sql } from "@src/index";
 import { createInstrumentationContext } from "@src/instrumentation/context";
 import { instrumentation } from "@src/instrumentation/exports";
@@ -35,6 +37,7 @@ import {
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
+  SPAN_TRANSACTION,
 } from "@src/instrumentation/spans";
 import {
   createTracerWrapper,
@@ -437,6 +440,142 @@ describe("tracing.tracer: the application callback runs exactly once", () => {
         throw failure;
       })
     ).rejects.toBe(failure);
+  });
+});
+
+/** A span whose every method returns a promise that rejects. */
+function asyncFailingSpan(calls: string[]): TracingSpan {
+  const act = async (entry: string) => {
+    calls.push(entry);
+    throw new Error(`${entry} rejected`);
+  };
+  return {
+    setAttribute: (key) => act(`attr:${key}`),
+    end: () => act("end"),
+    setStatus: () => act("status"),
+    recordException: () => act("exception"),
+  };
+}
+
+/** A custom driver whose adapter's `namespace` getter throws when read. */
+class ThrowingNamespaceDriver extends StatementDriver {
+  override readonly adapter: DatabaseAdapter = Object.create(
+    new SQLiteAdapter(),
+    {
+      namespace: {
+        get: () => {
+          throw new Error("namespace getter failed");
+        },
+      },
+    }
+  );
+}
+
+/** Collect the unhandled rejections raised while `body` and a macrotask run. */
+async function collectUnhandledRejections(
+  body: () => Promise<void>
+): Promise<unknown[]> {
+  const unhandled: unknown[] = [];
+  const onUnhandledRejection = (reason: unknown) => {
+    unhandled.push(reason);
+  };
+  process.on("unhandledRejection", onUnhandledRejection);
+  try {
+    await body();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } finally {
+    process.off("unhandledRejection", onUnhandledRejection);
+  }
+  return unhandled;
+}
+
+describe("tracing.tracer: span and driver failures stay outside the operation", () => {
+  it("consumes the rejections of async span methods on success and failure", async () => {
+    const calls: string[] = [];
+    const tracer: SpanTracer = {
+      startActiveSpan: (_name, fn) => fn(asyncFailingSpan(calls)),
+    };
+    const record = s.model({ id: s.string().id(), name: s.string() });
+    const driver = new StatementDriver();
+    driver.failAtProviderCall = 2;
+    const client = createClient({ schema: { record }, driver }).$extends(
+      instrumentation({ tracing: { tracer } })
+    );
+
+    const unhandled = await collectUnhandledRejections(async () => {
+      await expect(client.$queryRaw(sql`SELECT ${7}`)).resolves.toEqual([
+        { id: "record-1", name: "Ada" },
+      ]);
+      await expect(client.$queryRaw(sql`SELECT ${8}`)).rejects.toThrow();
+    });
+
+    expect(unhandled).toEqual([]);
+    // Every method was called, and every one rejected.
+    expect(new Set(calls.map((call) => call.split(":")[0]))).toEqual(
+      new Set(["attr", "status", "exception", "end"])
+    );
+  });
+
+  it("runs the statement and the transaction a throwing adapter namespace cannot present", async () => {
+    const { spans, tracer } = fakeTracer();
+    const record = s.model({ id: s.string().id(), name: s.string() });
+    const driver = new ThrowingNamespaceDriver();
+    const logged: unknown[] = [];
+    const client = createClient({ schema: { record }, driver }).$extends(
+      instrumentation({
+        tracing: { tracer },
+        logging: {
+          query: (event) => {
+            logged.push(event.operation);
+          },
+        },
+      })
+    );
+
+    await expect(client.$queryRaw(sql`SELECT ${1}`)).resolves.toEqual([
+      { id: "record-1", name: "Ada" },
+    ]);
+    await expect(
+      client.$transaction((tx) => tx.$queryRaw(sql`SELECT ${2}`))
+    ).resolves.toEqual([{ id: "record-1", name: "Ada" }]);
+
+    expect(driver.providerCalls).toBe(2);
+    // Each statement is still observed unspanned: its query log is presented.
+    expect(logged).toEqual(["$queryRaw", "$queryRaw"]);
+    expect(spans.map(({ name }) => name)).not.toContain(SPAN_EXECUTE);
+    expect(spans.map(({ name }) => name)).not.toContain(SPAN_TRANSACTION);
+  });
+
+  it("ends a span a re-entrant end() hands over exactly once", async () => {
+    const calls: string[] = [];
+    let callback: ((span: TracingSpan) => unknown) | undefined;
+    const late: TracingSpan = {
+      setAttribute: () => undefined,
+      end: () => calls.push("late.end"),
+    };
+    const first: TracingSpan = {
+      setAttribute: () => undefined,
+      end: () => {
+        calls.push("first.end");
+        callback?.(late);
+      },
+    };
+    const tracer: SpanTracer = {
+      startActiveSpan(_name, fn) {
+        callback = fn;
+        return fn(first);
+      },
+    };
+
+    await expect(
+      createTracerWrapper({ tracer }).startActiveSpan(
+        { name: SPAN_OPERATION },
+        () => "value"
+      )
+    ).resolves.toBe("value");
+    callback?.(late);
+
+    expect(calls).toEqual(["first.end", "late.end"]);
   });
 });
 

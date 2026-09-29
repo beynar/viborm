@@ -327,7 +327,9 @@ function createExecution<T>(
   let failed: boolean | undefined;
   const settle = (outcome: boolean): void => {
     failed = outcome;
-    for (const span of spans) endSpan(span, outcome, codes);
+    // A span a re-entrant `end()` hands over is settled by that callback; the
+    // snapshot never reaches it a second time.
+    for (const span of [...spans]) endSpan(span, outcome, codes);
   };
   let execution: Promise<T> | undefined;
   let executing = false;
@@ -411,9 +413,13 @@ export function shouldTraceSpan(
   }
 }
 
-function safely(action: () => void): void {
+/**
+ * Run one span call; neither its throw nor a rejection of the thenable it
+ * returns reaches the operation, which never waits for it.
+ */
+function safely(action: () => unknown): void {
   try {
-    action();
+    Promise.resolve(action()).catch(() => undefined);
   } catch {
     // Instrumentation must never change the operation outcome.
   }

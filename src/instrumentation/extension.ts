@@ -196,9 +196,10 @@ function observeOfficialInstrumentation(
         : presentDispatch(
             context,
             dispatch.start,
-            wants(context, "statement")
-              ? createStatementSpanOptions(context.config.tracing, dispatch)
-              : undefined,
+            () =>
+              wants(context, "statement")
+                ? createStatementSpanOptions(context.config.tracing, dispatch)
+                : undefined,
             () =>
               observeStatementCompletion(
                 context,
@@ -217,7 +218,7 @@ function observeOfficialInstrumentation(
         : presentDispatch(
             context,
             dispatch.start,
-            createLifecycleSpanOptions(dispatch),
+            () => createLifecycleSpanOptions(dispatch),
             () => observeLifecycleCompletion(completion)
           )
     );
@@ -312,13 +313,24 @@ function observeCacheInstrumentation(
     : observeCompletion();
 }
 
-/** Start the gated provider call exactly once, inside the span when one is presented. */
+/**
+ * Start the gated provider call exactly once, inside the span when one is
+ * presented. The span options read the driver's own metadata (a custom
+ * adapter's `namespace` getter), so they are built here, where a throw
+ * presents no span instead of leaving the child gated.
+ */
 async function presentDispatch(
   context: InstrumentationContext,
   start: () => void,
-  spanOptions: VibORMSpanOptions | undefined,
+  createSpanOptions: () => VibORMSpanOptions | undefined,
   observeCompletion: () => Promise<void>
 ): Promise<void> {
+  let spanOptions: VibORMSpanOptions | undefined;
+  try {
+    spanOptions = createSpanOptions();
+  } catch {
+    // The dispatch runs, and its completion is observed, unspanned.
+  }
   if (spanOptions === undefined) {
     start();
     return observeCompletion();

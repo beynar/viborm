@@ -177,7 +177,13 @@ Both paths share one containment (`createExecution`): the application callback
 runs exactly once whether the tracer or context manager calls back twice,
 re-entrantly, late, never, or throws, and every span any callback brings is
 settled (status when available, then `end`) once with that run's outcome,
-including a second or late span a hostile tracer hands over.
+including a second or late span a hostile tracer hands over, even from inside
+another span's `end()`. Every span call runs through `safely`: its throw and
+the rejection of a thenable it returns are consumed, never awaited. Execute
+and lifecycle span options read the driver's own metadata, so
+`presentDispatch` builds them where a throw is contained: a throwing
+custom-adapter getter runs the dispatch unspanned, its completion (and query
+log) still observed, instead of leaving the gated child pending.
 
 ## Validation
 
