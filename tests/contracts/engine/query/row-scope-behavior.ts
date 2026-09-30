@@ -654,6 +654,37 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
       ]);
     });
 
+    test("a nested delete of a model with rows and no deletion entry takes the related domain: a hidden target is not found and stays", async () => {
+      const { base, narrow } = context;
+      // Under `narrow`, `comment` declares rows but no deletion entry: its
+      // deletes are physical, and a nested one looks its target up in the
+      // call's related domain, as every nested write lookup does.
+      expect(
+        await failure(
+          narrow.post.update({
+            where: { id: 10 },
+            data: { comments: { delete: [{ id: 101 }] } },
+          })
+        )
+      ).toBeInstanceOf(NestedWriteError);
+      expect(
+        await base.comment.findUnique({ where: { id: 101 } })
+      ).not.toBeNull();
+      // A visible target is deleted physically; the base client, reading no
+      // domain, deletes the hidden one.
+      await narrow.post.update({
+        where: { id: 10 },
+        data: { comments: { delete: [{ id: 100 }] } },
+      });
+      await base.post.update({
+        where: { id: 10 },
+        data: { comments: { delete: [{ id: 101 }] } },
+      });
+      expect(await base.comment.findMany({ where: { postId: 10 } })).toEqual(
+        []
+      );
+    });
+
     test("root and nested bulk writes take their domain's rows", async () => {
       const { base, db } = context;
       expect(

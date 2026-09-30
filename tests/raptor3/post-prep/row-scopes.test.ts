@@ -18,6 +18,7 @@ import { PreparedDomain, Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import {
   failure,
+  ids,
   openRowScopeFixture,
   type RowScopeFixture,
   rowScopeSchema,
@@ -26,7 +27,7 @@ import {
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { createBatchOnlySQLite3Driver } from "@tests/providers/local/sqlite3-fixtures";
 import type Database from "better-sqlite3";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 describe("the rows capability's set scopes", () => {
   runRowScopeBehavior({
@@ -215,5 +216,59 @@ describe("the key-preserving conjunction", () => {
       domain.selector(schema.post, "root")
     );
     expect(domain.selector(schema.post, "related")).toBeUndefined();
+  });
+});
+
+describe("one engine view", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("prepares each row domain a call selects once, and reads it through one scoped Queries", async () => {
+    const { base, db } = await openRowScopeFixture(
+      createInMemorySQLite3Driver()
+    );
+    try {
+      const prepare = vi.spyOn(Queries.prototype, "prepareSelector");
+      const read = vi.spyOn(Queries.prototype, "read");
+      const preparedIn = async (call: () => PromiseLike<unknown>) => {
+        prepare.mockClear();
+        await call();
+        return new Set(prepare.mock.calls.map(([, where]) => where));
+      };
+      const readers = async (call: () => PromiseLike<unknown>) => {
+        read.mockClear();
+        await call();
+        return read.mock.contexts;
+      };
+      // Each call hands the engine fresh arguments: a `where` prepared by
+      // both calls is one the engine view holds, the domain's predicate.
+      const first = await preparedIn(async () =>
+        expect(ids(await db.post.findMany({ where: { authorId: 1 } }))).toEqual(
+          [10, 14]
+        )
+      );
+      expect([...first]).toContainEqual({ deletedAt: { equals: null } });
+      const second = await preparedIn(async () =>
+        expect(await db.post.count({ where: { authorId: 2 } })).toBe(1)
+      );
+      expect([...second].filter((where) => first.has(where))).toEqual([]);
+
+      const [plain] = await readers(() => base.post.findMany({}));
+      const [scoped] = await readers(() => db.post.findMany({}));
+      const [again] = await readers(() =>
+        db.post.findMany({ where: { title: "a" } })
+      );
+      const [only] = await readers(() => db.post.findMany({ deleted: "only" }));
+      // Compared by identity alone: a `Queries` holds the client's schema,
+      // which no assertion should print.
+      expect({
+        reused: scoped === again,
+        plain: scoped === plain,
+        perMode: only === scoped,
+      }).toEqual({ reused: true, plain: false, perMode: false });
+    } finally {
+      await base.$disconnect();
+    }
   });
 });

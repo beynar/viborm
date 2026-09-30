@@ -70,7 +70,11 @@ the `SelectionSource.purpose` of root and nested write lookups). A lookup that
 names none is a premise or physical: identity re-reads, `capture()`,
 `locateSuppressed`, `disconnect`, `set` cleanup and the integrity probes take
 exactly the selector they are handed, and a relation predicate marked
-`unscoped` (the referential requirement) states its own visibility.
+`unscoped` (the referential requirement) states its own visibility. Nested
+write lookups take the related purpose on every edge, to-one included, while
+milestone 1 keeps every to-one READ scope physical: an `include` can show a
+to-one target that a nested `connect` or `update` through the same relation
+refuses as not found. That asymmetry is deliberate until milestone 2.
 `Queries.candidates` is the one conjunction: it keeps the unique key, so race
 convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —
