@@ -275,7 +275,7 @@ describe("one engine view", () => {
           [10, 14]
         )
       );
-      expect([...first]).toContainEqual({ deletedAt: { equals: null } });
+      expect([...first]).toContainEqual({ deletedAt: null });
       const second = await preparedIn(async () =>
         expect(await db.post.count({ where: { authorId: 2 } })).toBe(1)
       );
