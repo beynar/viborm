@@ -2,20 +2,21 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers";
 import { QueryEngineError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
-import { getModelKeyCatalog, type AnyModel } from "@schema/model";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import {
-  clearableMembership,
   type ClearableMembership,
+  clearableMembership,
 } from "@schema/relation/clearability";
-import type { ResolvedSlot } from "@schema/validation/relation-resolution";
-import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { validateClientSchemaOrThrow } from "@schema/validation";
-import { createResolvedSchemaRegistry } from "@validation/builder";
-import { isRecord } from "@validation/value-guards";
 import {
-  parseValidated,
-  upsertEnvelopeSchema,
-} from "./parse-boundary";
+  foreignKeyOnDelete,
+  junctionOnDelete,
+  type ResolvedSlot,
+} from "@schema/validation/relation-resolution";
+import { createResolvedSchemaRegistry } from "@validation/builder";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence";
+import { isRecord } from "@validation/value-guards";
+import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
   buildMembershipView,
@@ -182,7 +183,13 @@ export class EngineSchema {
     ResolvedSlot,
     ClearableMembership
   >();
-  constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+  private readonly restrictingSlotViews = new WeakMap<
+    AnyModel,
+    readonly string[]
+  >();
+  readonly schema: Schema;
+  constructor(schema: Schema, resolved?: ResolvedSchemaViews) {
+    this.schema = schema;
     if (resolved) {
       this.index = resolved.index;
       this.registry = resolved.registry;
@@ -522,6 +529,33 @@ export class EngineSchema {
       slotViews.set(variant, view);
     }
     return view;
+  }
+  /**
+   * The slots through which the database refuses a hard delete of a `model` row
+   * while a member exists: an incoming foreign key, or the junction key on this
+   * model's side, whose ON DELETE is `restrict` or `noAction`. The actions are
+   * the schema's own answer (`foreignKeyOnDelete`, `junctionOnDelete`), the one
+   * the migration spells. A polymorphic carrier stores no constraint.
+   */
+  restrictingSlots(model: AnyModel): readonly string[] {
+    let slots = this.restrictingSlotViews.get(model);
+    if (slots) return slots;
+    const found: string[] = [];
+    for (const [name, resolved] of this.index.get(model) ?? []) {
+      const edge = resolved.edge;
+      if (edge.kind !== "foreignKey" && edge.kind !== "junction") continue;
+      const view = this.membership(model, name);
+      const action =
+        view.kind === "junction"
+          ? junctionOnDelete(view.sourceSide)
+          : edge.kind === "foreignKey" && view.owner === "target"
+            ? foreignKeyOnDelete(edge)
+            : undefined;
+      if (action === "restrict" || action === "noAction") found.push(name);
+    }
+    slots = Object.freeze(found);
+    this.restrictingSlotViews.set(model, slots);
+    return slots;
   }
   clearability(resolved: ResolvedSlot): ClearableMembership {
     let view = this.clearabilityViews.get(resolved);

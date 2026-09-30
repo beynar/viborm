@@ -83,6 +83,7 @@ import {
   EngineInvariantError,
   unreachable,
 } from "./invariant";
+import type { ModelDomain } from "./row-scope";
 import {
   type Arguments,
   type EngineSchema,
@@ -1506,6 +1507,45 @@ export class Queries {
       model,
       facts,
       predicate: this.capturedSet(model, identities, facts),
+    });
+  }
+  /**
+   * The rows of `model` that a visible member still references through one of
+   * `slots` — the rows a hard delete meets the database's restrict on. A
+   * member is visible when it satisfies its model's inputs in `visible`; one
+   * member may be excepted by identity: the parent a nested delete keeps its
+   * link to, whose own membership a hard delete removes first.
+   */
+  referenced(
+    model: AnyModel,
+    slots: readonly string[],
+    visible: ModelDomain | undefined,
+    except?: { readonly slot: string; readonly identity: Input }
+  ): PreparedSelector {
+    const predicates = slots.map((slot): PreparedPredicate => {
+      const edge = bindMembership(this.schema, model, slot);
+      // The members' own facts: a premise states them, nothing plans on them.
+      const members = newSelectorFacts(false);
+      const arms = (visible?.get(edge.target["~"].names.ts!) ?? []).map(
+        (where) => this.prepareWhere(edge.target, where, members, [edge])
+      );
+      if (except?.slot === slot)
+        arms.push(
+          this.combine("NOT", [
+            this.identityPredicate(edge.target, except.identity, members),
+          ])
+        );
+      return Object.freeze({
+        kind: "relation",
+        edge,
+        quantifier: "some",
+        predicate: arms.length === 0 ? undefined : this.combine("AND", arms),
+      });
+    });
+    return Object.freeze({
+      model,
+      facts: newSelectorFacts(false),
+      predicate: this.combine("OR", predicates),
     });
   }
   /** One captured set's rows, as the disjunction of their own identities. */

@@ -1,4 +1,5 @@
 import {
+  ForeignKeyError,
   NestedWriteError,
   NotFoundError,
   TransactionError,
@@ -103,6 +104,15 @@ export interface AbsenceRequirement {
   readonly membership: BoundMembership;
   readonly excluding: Assignments[];
   readonly failure: DeferredFailure;
+  /**
+   * A tombstoning delete's referential requirement: only its candidates count,
+   * and only while a visible member still references one. `except` names the
+   * slot through which the parent keeps its own link, which does not block.
+   */
+  readonly restrict?: {
+    readonly candidates: PreparedSelector;
+    readonly except?: string;
+  };
 }
 export interface Condition {
   readonly lookup: Selection;
@@ -155,6 +165,16 @@ export interface Deletion {
   kind: "delete";
   located: Selection;
   origin: Origin;
+  /**
+   * The admitted tombstone of a managed model: the row is updated by its
+   * identity with these values instead of removed, and keeps every link.
+   */
+  values?: Input;
+}
+/** One occurrence's tombstone data: as generated, and as update admission made it. */
+export interface TombstoneData {
+  readonly raw: Input;
+  readonly admitted: Input;
 }
 /**
  * The one sentence for a membership the plan observed and a race changed
@@ -209,7 +229,12 @@ export interface SelectedSeries {
    */
   readonly mutation:
     | { readonly kind: "update"; readonly raw: Input }
-    | { readonly kind: "delete"; readonly origin: Origin };
+    | {
+        readonly kind: "delete";
+        readonly origin: Origin;
+        /** A managed target's generated data, re-admitted for every captured member. */
+        readonly raw?: Input;
+      };
 }
 export type SelectedSeriesMember = RecordCommand | Deletion;
 export interface SeriesOccurrence {
@@ -376,6 +401,83 @@ export class Commands {
         record(raw[name])
       ).expand();
     }
+  }
+  /**
+   * What THIS occurrence of a delete of `model` writes instead of removing the
+   * row: the declared constant data and the call's one instant, admitted once
+   * through the model's update-data schema, which adds `updatedAt` and the set
+   * envelopes. `undefined` where the delete is physical: the model has no
+   * declaration, or the call's controls chose to delete physically.
+   */
+  tombstone(model: AnyModel): TombstoneData | undefined {
+    const scope = this.context.scope;
+    const tombstone = scope?.rows.tombstones?.get(model["~"].names.ts!);
+    if (!(scope && tombstone)) return undefined;
+    const raw =
+      tombstone.at === undefined
+        ? tombstone.assign
+        : { ...tombstone.assign, [tombstone.at]: scope.instant() };
+    return { raw, admitted: this.context.schema.update(model, raw, true) };
+  }
+  /**
+   * A delete's candidates: the caller's selector AND the call's domain for
+   * `purpose`, AND, for a tombstone, the model's default domain — once when the
+   * call's controls select the default.
+   */
+  deleteCandidates(
+    selector: PreparedSelector,
+    purpose: "root" | "related",
+    tombstone: boolean
+  ): PreparedSelector {
+    const rows = this.context.scope?.rows;
+    const model = selector.model;
+    const name = model["~"].names.ts!;
+    const inputs = [
+      ...(rows?.domain[purpose].get(name) ?? []),
+      ...((tombstone && rows?.defaults !== rows?.domain
+        ? rows?.defaults[purpose].get(name)
+        : undefined) ?? []),
+    ];
+    if (inputs.length === 0) return selector;
+    const queries = this.context.queries;
+    return queries.andSelectors(model, [
+      selector,
+      ...inputs.map((where) => queries.prepareSelector(model, where)),
+    ]);
+  }
+  /**
+   * The candidates a tombstoning delete may not take: those a member in its
+   * model's default domain still references through a slot whose foreign key
+   * restricts deletes, as the database refuses a hard delete of them.
+   * `undefined` when no slot restricts.
+   */
+  blocked(
+    candidates: PreparedSelector,
+    except?: { readonly slot: string; readonly identity: Input }
+  ): PreparedSelector | undefined {
+    const model = candidates.model;
+    const slots = this.context.schema.restrictingSlots(model);
+    if (slots.length === 0) return undefined;
+    const queries = this.context.queries;
+    return queries.andSelectors(model, [
+      candidates,
+      queries.referenced(
+        model,
+        slots,
+        this.context.scope?.rows.defaults.related,
+        except
+      ),
+    ]);
+  }
+  /** The refusal a restricting foreign key gives a hard delete, stated by core. */
+  restrictFailure(model: AnyModel): DeferredFailure {
+    const name = model["~"].names.ts!;
+    const slots = this.context.schema.restrictingSlots(model);
+    return () =>
+      new ForeignKeyError(
+        `Cannot delete '${name}' record: related records still reference it through ${slots.map((slot) => `'${slot}'`).join(", ")}, whose foreign key restricts deletes.`,
+        { meta: { model: name, operation: "delete" } }
+      );
   }
   createOrigin(relation: string, operation: string, slot = relation): Origin {
     return { relation, operation, slot, order: this.nextMutation++ };
@@ -1540,7 +1642,8 @@ export class Commands {
    */
   private rootUpdate(
     model: AnyModel,
-    args: Arguments
+    args: Arguments,
+    selector?: PreparedSelector
   ): (() => Promise<unknown>) | undefined {
     const ctx = this.context;
     if (ctx.schema.namesRelation(model, args.data)) return undefined;
@@ -1548,15 +1651,45 @@ export class Commands {
     const projection = ctx.queries.prepareProjection(model, args);
     if (!returningSafeProjection(projection)) return undefined;
     const values = ctx.schema.scalars(model, args.data);
-    const selector = ctx.queries.prepareSelector(model, args.where, true);
+    const candidates =
+      selector ?? ctx.queries.prepareSelector(model, args.where, true);
     return () =>
       ctx.updateMany(
         model,
-        selector,
+        candidates,
         values,
         undefined,
         projection,
-        () => new NotFoundError(model["~"].names.ts!, "update")
+        () => new NotFoundError(model["~"].names.ts!, ctx.operation)
+      );
+  }
+  /**
+   * A tombstoning root delete's referential premise, stated before its effect:
+   * no candidate is still referenced through a restricting slot. `undefined`
+   * when the model has no such slot.
+   */
+  private restrictPremise(
+    candidates: PreparedSelector
+  ): (() => Promise<void>) | undefined {
+    const blocked = this.blocked(candidates);
+    if (!blocked) return undefined;
+    const ctx = this.context;
+    const model = candidates.model;
+    const failure = this.restrictFailure(model);
+    return () =>
+      ctx.requireAbsent(
+        ctx.queries.select(
+          model,
+          {
+            take: 1,
+            select: Object.fromEntries(
+              ctx.schema.keys(model).map((field) => [field, true])
+            ),
+          },
+          undefined,
+          { selector: blocked, forUpdate: !ctx.usesBatch }
+        ),
+        failure()
       );
   }
   /**
@@ -1755,7 +1888,31 @@ export class Commands {
           single: true,
           run: async () => ctx.emptyBulkResult(projection),
         };
-      const selector = ctx.queries.prepareSelector(model, args.where);
+      const tombstone = this.tombstone(model);
+      const selector = this.deleteCandidates(
+        ctx.queries.prepareSelector(model, args.where),
+        "root",
+        tombstone !== undefined
+      );
+      // A managed model's rows are tombstoned: the bulk UPDATE owner writes
+      // them, behind the referential premise.
+      if (tombstone) {
+        const values = ctx.schema.scalars(model, tombstone.admitted);
+        const premise = this.restrictPremise(selector);
+        return {
+          single: !premise && (!projection || returning),
+          run: async () => {
+            await premise?.();
+            return ctx.updateMany(
+              model,
+              selector,
+              values,
+              args.limit,
+              projection
+            );
+          },
+        };
+      }
       return {
         single:
           !projection || (returning && returningSafeProjection(projection)),
@@ -1768,7 +1925,50 @@ export class Commands {
     // where it does not), and own the missing-row identity.
     if (ctx.operation === "delete") {
       const projection = ctx.queries.prepareProjection(model, args);
-      const selector = ctx.queries.prepareSelector(model, args.where, true);
+      const tombstone = this.tombstone(model);
+      const selector = this.deleteCandidates(
+        ctx.queries.prepareSelector(model, args.where, true),
+        "root",
+        tombstone !== undefined
+      );
+      // A managed model's row is tombstoned: the root update's own fold where
+      // RETURNING carries the projection, else the record route, whose terminal
+      // read publishes the post-image by identity.
+      if (tombstone) {
+        const premise = this.restrictPremise(selector);
+        const folded = this.rootUpdate(
+          model,
+          { ...args, data: tombstone.admitted },
+          selector
+        );
+        if (folded)
+          return {
+            single: !premise,
+            run: async () => {
+              await premise?.();
+              return folded();
+            },
+          };
+        const root = this.update(
+          this.lookup(
+            model,
+            { kind: "query", selector },
+            () => new NotFoundError(model["~"].names.ts!, ctx.operation)
+          ),
+          tombstone.admitted,
+          tombstone.raw
+        );
+        root.operation = ctx.operation;
+        for (const field of ctx.schema.keys(model)) root.fields.field(field);
+        const occurrence = this.analyze(root);
+        return {
+          single: false,
+          run: async () => {
+            await premise?.();
+            return this.execution.complete(occurrence, args);
+          },
+        };
+      }
       return {
         single: returning && returningSafeProjection(projection),
         run: () =>

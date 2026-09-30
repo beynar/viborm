@@ -5,6 +5,8 @@ import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { parse } from "@validation";
 import {
   isDate,
   isFunction,
@@ -587,7 +589,8 @@ function snapshotRowModes(
   value: unknown,
   model: AnyModel | undefined,
   modelName: string,
-  extension: string
+  extension: string,
+  registry: ExtensionSchemaRegistry | undefined
 ): RuntimeRowModes {
   const entry = requireRecord(value, `rows.models.${modelName}`, extension);
   const modes: Record<string, RuntimeRowModes[string]> = Object.create(null);
@@ -623,17 +626,47 @@ function snapshotRowModes(
           extension
         );
       }
-      scoped[purpose === "root" ? "root" : "related"] = where;
+      scoped[purpose === "root" ? "root" : "related"] = admitWhere(
+        where,
+        model,
+        registry,
+        `${label}.${purpose}`,
+        extension
+      );
     }
     modes[mode] = Object.freeze(scoped);
   }
   return Object.freeze(modes);
 }
 
+/**
+ * A row predicate as the model's own `where` admits it, once, when the
+ * extension is applied: the engine prepares the admitted form and never
+ * validates it again.
+ */
+function admitWhere(
+  where: ConstantFields,
+  model: AnyModel | undefined,
+  registry: ExtensionSchemaRegistry | undefined,
+  label: string,
+  extension: string
+): ConstantFields {
+  if (model === undefined || registry === undefined) return where;
+  const result = parse(registry.getModelSchemas(model).core.where, where);
+  if (result.issues) {
+    refuse(
+      extension,
+      `${label} is not a valid where: ${result.issues.map((issue) => issue.message).join("; ")}.`
+    );
+  }
+  return Object.freeze(requireRecord(result.value, label, extension));
+}
+
 function snapshotRows(
   value: unknown,
   extension: string,
-  schema: Schema | undefined
+  schema: Schema | undefined,
+  registry: ExtensionSchemaRegistry | undefined
 ): RuntimeRowsDeclaration {
   const rows = requireRecord(value, "rows", extension);
   readMemberKeys(rows, ["control", "default", "models"], "rows", extension);
@@ -659,7 +692,8 @@ function snapshotRows(
       readOwn(models, modelName, extension),
       readSchemaModel(schema, modelName, "rows.models", extension),
       modelName,
-      extension
+      extension,
+      registry
     );
     const entryModes = Object.keys(entry);
     if (modes === undefined) {
@@ -833,10 +867,10 @@ function snapshotDeletion(
 function refuseCoreArgumentNames(
   extension: string,
   names: readonly string[],
-  coreArguments: CoreArgumentNames | undefined
+  registry: ExtensionSchemaRegistry | undefined
 ): void {
-  if (coreArguments === undefined || names.length === 0) return;
-  const argumentNames = coreArguments();
+  if (registry === undefined || names.length === 0) return;
+  const argumentNames = registry.argumentNames();
   for (const name of names) {
     if (argumentNames.has(name)) {
       refuse(
@@ -847,8 +881,14 @@ function refuseCoreArgumentNames(
   }
 }
 
-/** The top-level argument names the receiving client's operation schemas own. */
-export type CoreArgumentNames = () => ReadonlySet<string>;
+/** What the receiving client's schema registry answers when an extension is applied. */
+export interface ExtensionSchemaRegistry {
+  /** The top-level argument names its operation schemas own. */
+  argumentNames(): ReadonlySet<string>;
+  getModelSchemas(model: AnyModel): {
+    readonly core: { readonly where: StandardSchemaV1 };
+  };
+}
 
 /**
  * Read a caller-owned definition once, validate it, and freeze only host-owned
@@ -857,7 +897,7 @@ export type CoreArgumentNames = () => ReadonlySet<string>;
 export function normalizeExtensionDefinition(
   value: unknown,
   schema?: Schema,
-  coreArguments?: CoreArgumentNames
+  registry?: ExtensionSchemaRegistry
 ): RuntimeExtensionDefinition {
   if (!isRecord(value)) {
     extensionError("Client extension must be an object.");
@@ -919,7 +959,9 @@ export function normalizeExtensionDefinition(
     rawControls === undefined ? undefined : snapshotControls(rawControls, name);
   const rawRows = member("rows");
   const rows =
-    rawRows === undefined ? undefined : snapshotRows(rawRows, name, schema);
+    rawRows === undefined
+      ? undefined
+      : snapshotRows(rawRows, name, schema, registry);
   const rawDeletion = member("deletion");
   const deletion =
     rawDeletion === undefined
@@ -928,7 +970,7 @@ export function normalizeExtensionDefinition(
   refuseCoreArgumentNames(
     name,
     [...Object.keys(controls ?? NO_CONTROLS), ...(rows ? [rows.control] : [])],
-    coreArguments
+    registry
   );
 
   return Object.freeze({

@@ -867,6 +867,7 @@ export class CommandExecution {
         const exclude = command.excluding.map((fields) =>
           ctx.queries.lowerIdentity(command.model, this.identity(fields))
         );
+        const restrict = command.restrict;
         await ctx.requireAbsent(
           ctx.queries.select(
             command.model,
@@ -893,6 +894,18 @@ export class CommandExecution {
                     ctx.driver.adapter.operators.or(...exclude)
                   )
                 : undefined,
+              // The parent's identity is known here, where the requirement runs.
+              selector:
+                restrict &&
+                this.commands.blocked(
+                  restrict.candidates,
+                  restrict.except === undefined
+                    ? undefined
+                    : {
+                        slot: restrict.except,
+                        identity: this.identity(command.membership.parent),
+                      }
+                ),
             }
           ),
           command.failure()
@@ -1075,7 +1088,17 @@ export class CommandExecution {
         // required selection threw in `runSelection` before reaching here.
         const row = attempt.rows.get(command.located);
         if (!row) return;
-        await ctx.delete(command.located.model, row, member);
+        const model = command.located.model;
+        // A tombstone updates the row it located, by identity, and keeps it.
+        if (command.values)
+          await ctx.update(
+            model,
+            row,
+            ctx.schema.scalars(model, command.values),
+            member,
+            "delete"
+          );
+        else await ctx.delete(model, row, member);
         return;
       }
       case "set": {
@@ -1449,23 +1472,21 @@ export class CommandExecution {
               );
               attempt.retained.add(located);
             }
+            // A tombstone is admitted again for every captured member, from
+            // the same generated data and so the same instant.
+            const raw = series.mutation.raw;
             return {
               kind: "delete",
               located,
               origin: series.mutation.origin,
+              ...(raw && {
+                values: this.memberData(selection, membership, raw),
+              }),
             };
           }
           const child = this.commands.update(
             located,
-            membership &&
-              membership.edge.scope.edge.kind !== "variantRowCarrier" &&
-              membership.edge.scope.edge.kind !== "variantJunctionCarrier"
-              ? ctx.schema.member(
-                  membership.edge.source,
-                  membership.edge.name,
-                  series.mutation.raw
-                )
-              : ctx.schema.update(selection.model, series.mutation.raw, true),
+            this.memberData(selection, membership, series.mutation.raw),
             series.mutation.raw
           );
           if (membership)
@@ -1486,6 +1507,19 @@ export class CommandExecution {
     };
     attempt.series.set(occurrence, prepared);
     return prepared;
+  }
+  /** One captured member's update data, admitted from the series' raw data. */
+  private memberData(
+    selection: Selection,
+    membership: BoundMembership | undefined,
+    raw: Input
+  ): Input {
+    const schema = this.context.schema;
+    return membership &&
+      membership.edge.scope.edge.kind !== "variantRowCarrier" &&
+      membership.edge.scope.edge.kind !== "variantJunctionCarrier"
+      ? schema.member(membership.edge.source, membership.edge.name, raw)
+      : schema.update(selection.model, raw, true);
   }
   /**
    * One named EXCLUSIVE target membership, applied to many captured rows.

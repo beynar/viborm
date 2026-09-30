@@ -48,6 +48,7 @@ import {
   returningSafeProjection,
   wholeValue,
 } from "./query";
+import type { CallScope } from "./row-scope";
 import {
   type EngineSchema,
   type Input,
@@ -424,6 +425,8 @@ export class OperationContext {
     ));
   }
   readonly schema: EngineSchema;
+  /** The call's row facts and instant; absent on a client without them. */
+  readonly scope: CallScope | undefined;
   readonly modelName: string;
   readonly operation: Operation;
   /**
@@ -441,8 +444,10 @@ export class OperationContext {
     operation: Operation,
     binding?: ExecutionBinding,
     prepareBatch = false,
-    callerAttribution?: QueryExecutionContext
+    callerAttribution?: QueryExecutionContext,
+    scope?: CallScope
   ) {
+    this.scope = scope;
     this.schema = schema;
     this.modelName = modelName;
     this.operation = operation;
@@ -1996,12 +2001,15 @@ export class OperationContext {
     if (this.usesBatch && !lone) {
       const windowMember: Member = {};
       this.setWindow = windowMember;
+      // A premise queued ahead rides the same batch and answers first: the
+      // window is these statements' own positions.
+      const first = this.queued.length;
       for (const statement of statements)
         this.queue(statement.sql, statement.context, windowMember);
       const results = await this.submit(true, windowMember);
       return this.settleSubmitted(() => {
         try {
-          return parse(results);
+          return parse(results.slice(first, first + statements.length));
         } catch (error) {
           throw this.failure(error, "result", windowMember);
         }
@@ -2412,7 +2420,10 @@ export class OperationContext {
             sql.join(assignments, ", "),
             target
           ),
-        "updateMany"
+        // A delete that writes a tombstone still answers as a delete.
+        this.operation === "delete" || this.operation === "deleteMany"
+          ? "deleteMany"
+          : "updateMany"
       );
       return this.finishTerminals(
         this.seriesQueries(

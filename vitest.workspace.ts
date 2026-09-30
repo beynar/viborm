@@ -151,6 +151,7 @@ export default defineWorkspace([
         "tests/contracts/architecture/extension-system-census.core.test.ts",
         "tests/contracts/public-client/default-omit-extension.core.test.ts",
         "tests/contracts/public-client/extension-controls.core.test.ts",
+        "tests/contracts/public-client/extension-deletion.core.test.ts",
         "tests/contracts/public-client/extensions-foundation.core.test.ts",
         "tests/contracts/public-client/official-cache-extension.core.test.ts",
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",

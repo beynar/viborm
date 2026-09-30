@@ -21,6 +21,7 @@ import {
   type QueryInterceptionMode,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
+import { callRows } from "@extensions/rows";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import { type CacheResultCodec, isCacheManagedExecution } from "./cache-flow";
@@ -509,10 +510,14 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         `Unknown operation '${this.#operation}' on model '${this.#modelName}'. Known operations: ${[...ROUTED_OPERATIONS].sort().join(", ")}.`
       );
     }
+    const args = this.#resolveArgs();
+    const binding = this.#engine.extensionChain?.callRows;
     const routed = this.#route.operation(
       this.#model,
       String(this.#options.originalOperation),
-      this.#resolveArgs()
+      args,
+      binding &&
+        callRows(binding, this.#modelName, this.#inputPreparation?.controls)
     );
     this.#routedInstance = routed;
     if (this.#operationResolution) {

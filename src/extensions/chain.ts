@@ -16,7 +16,7 @@ import { isFunction } from "@validation/value-guards";
 import { type PlacedControlDeclaration, placeControls } from "./controls";
 import {
   type ControlLiteral,
-  type CoreArgumentNames,
+  type ExtensionSchemaRegistry,
   extensionError,
   normalizeExtensionDefinition,
   type RuntimeControlDeclaration,
@@ -33,6 +33,7 @@ import {
   getTrustedProtectedObserverCapability,
   registerOfficialInstrumentationChain,
 } from "./observation";
+import { bindRows, type RowsBinding } from "./rows";
 
 /** The fixed name admission reserves for the official instrumentation extension. */
 export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
@@ -116,6 +117,8 @@ export interface ResolvedExtensionChain {
   readonly controls?: ResolvedControls;
   readonly rows?: readonly ResolvedRows[];
   readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
+  /** Derived from `rows` and `deletion`: what each call's controls resolve to. */
+  readonly callRows?: RowsBinding;
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
@@ -466,9 +469,9 @@ export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
   value: unknown,
   schema: Schema,
-  coreArguments?: CoreArgumentNames
+  registry?: ExtensionSchemaRegistry
 ): ResolvedExtensionChain {
-  const definition = normalizeExtensionDefinition(value, schema, coreArguments);
+  const definition = normalizeExtensionDefinition(value, schema, registry);
   const incomingCache = getOfficialCacheQueryCapability(definition.query);
   const existingOfficialCache = getOfficialCacheChainDefinition(chain);
   const incomingDefaultOmit = getOfficialDefaultOmitRequestCapability(
@@ -591,10 +594,15 @@ export function appendResolvedExtension(
           definition.name,
           effectiveDefinition.deletion
         );
+  const callRows =
+    rows === chain?.rows && deletion === chain?.deletion
+      ? chain?.callRows
+      : bindRows(rows, deletion);
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
     ...(deletion === undefined ? {} : { deletion }),
+    ...(callRows === undefined ? {} : { callRows }),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),

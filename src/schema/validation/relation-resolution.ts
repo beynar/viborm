@@ -204,6 +204,33 @@ export type RelationResolution =
     };
 
 /**
+ * The ON DELETE action a stored reference's constraint carries: the declared
+ * one, else Prisma's default — SET NULL when every local member is nullable,
+ * RESTRICT otherwise. TOTAL nullability, not the nullable subset the write side
+ * clears: one referential action governs the whole constraint. The migration
+ * serializer spells the constraint from this answer and the engine reads it to
+ * know which deletes the database refuses, so the two cannot disagree.
+ */
+export function foreignKeyOnDelete(
+  edge: Extract<ResolvedRelationEdge, { readonly kind: "foreignKey" }>
+): ReferentialAction {
+  if (edge.reference.onDelete !== undefined) return edge.reference.onDelete;
+  const scalars = edge.owner.source["~"].state.scalars;
+  return edge.reference.members.every(
+    (member) => scalars[member.foreignField]?.["~"].state.nullable === true
+  )
+    ? "setNull"
+    : "restrict";
+}
+
+/** A junction side's ON DELETE action: the declared one, else CASCADE (Prisma parity). */
+export function junctionOnDelete(
+  side: Pick<ResolvedJunctionTopology["source"], "onDelete">
+): ReferentialAction {
+  return side.onDelete ?? "cascade";
+}
+
+/**
  * Stable unique edge enumeration, derived from the index rather than stored
  * beside it. Walk named schema/model/field order and yield an edge only at its
  * canonical anchor — a foreign key at its owner, a junction at `endpoints[0]`,
