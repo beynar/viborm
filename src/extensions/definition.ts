@@ -4,6 +4,7 @@ import type { AnyDriver } from "@drivers";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import type { AnyModel } from "@schema/model";
+import { isPlainRecord } from "@schema/relation/terminal";
 import {
   isDate,
   isFunction,
@@ -297,6 +298,14 @@ function readGuarded<T>(read: () => T, label: string, extension: string): T {
   }
 }
 
+/** An empty array or record to copy plain data into; none for an instance. */
+function emptyCopyOf(
+  value: object
+): Record<string, unknown> | unknown[] | undefined {
+  if (Array.isArray(value)) return [];
+  return isPlainRecord(value) ? {} : undefined;
+}
+
 /**
  * Copy caller data once: every getter runs once, a `Date` or `Uint8Array` is
  * copied, and nothing the caller keeps can change what core holds. Anything
@@ -317,17 +326,11 @@ function copyData(
   if (seen.has(value)) {
     refuse(extension, `${label} must not contain itself.`);
   }
-  const prototype = readGuarded(
-    () => Object.getPrototypeOf(value),
-    label,
-    extension
-  );
-  const isArray = Array.isArray(value);
-  if (!isArray && prototype !== Object.prototype && prototype !== null) {
+  const copy = readGuarded(() => emptyCopyOf(value), label, extension);
+  if (copy === undefined) {
     refuse(extension, `${label} must be plain data.`);
   }
   seen.add(value);
-  const copy: Record<string, unknown> | unknown[] = isArray ? [] : {};
   for (const key of readStringKeys(value, label, extension)) {
     const descriptor = readGuarded(
       () => Object.getOwnPropertyDescriptor(value, key),
@@ -352,13 +355,22 @@ function copyData(
   return Object.freeze(copy);
 }
 
+/** Whether caller data is a record; a revoked proxy is a refusal, not a raw error. */
+function isGuardedRecord(
+  value: unknown,
+  label: string,
+  extension: string
+): value is Record<string, unknown> {
+  return readGuarded(() => isRecord(value), label, extension);
+}
+
 /** A member of caller data that must be an object. */
 function requireRecord(
   value: unknown,
   label: string,
   extension: string
 ): Record<string, unknown> {
-  if (!isRecord(value)) {
+  if (!isGuardedRecord(value, label, extension)) {
     refuse(extension, `${label} must be an object.`);
   }
   return value;
@@ -519,10 +531,10 @@ function snapshotControl(
     return Object.freeze(on === undefined ? { oneOf } : { oneOf, on });
   }
   const schema = readOwn(control, "schema", extension);
-  const standard = isRecord(schema)
+  const standard = isGuardedRecord(schema, `${label}.schema`, extension)
     ? readOwn(schema, "~standard", extension)
     : undefined;
-  const validate = isRecord(standard)
+  const validate = isGuardedRecord(standard, `${label}.schema`, extension)
     ? readOwn(standard, "validate", extension)
     : undefined;
   if (!isFunction(validate)) {
@@ -700,12 +712,13 @@ function snapshotRemoveWhen(
   declared: RuntimeControlsContribution
 ): Readonly<Record<string, ControlLiteral>> {
   const removeWhen = requireRecord(value, "deletion.removeWhen", extension);
+  const names = readStringKeys(removeWhen, "deletion.removeWhen", extension);
+  // An empty match would hold for every call and make every delete physical.
+  if (names.length === 0) {
+    refuse(extension, "deletion.removeWhen must name a control.");
+  }
   const matched: Record<string, ControlLiteral> = Object.create(null);
-  for (const name of readStringKeys(
-    removeWhen,
-    "deletion.removeWhen",
-    extension
-  )) {
+  for (const name of names) {
     const control = Object.hasOwn(declared, name) ? declared[name] : undefined;
     if (control === undefined) {
       refuse(
@@ -867,62 +880,47 @@ export function normalizeExtensionDefinition(
     }
   }
 
-  const rawRequest = ownKeys.includes("request")
-    ? readOwn(value, "request", name)
-    : undefined;
+  // Each member is read once, and only when the definition has it.
+  const member = (key: string): unknown =>
+    ownKeys.includes(key) ? readOwn(value, key, name) : undefined;
+  const rawRequest = member("request");
   const request =
     rawRequest === undefined
       ? undefined
       : snapshotOperationMap(rawRequest, "request", name, schema);
-  const rawQuery = ownKeys.includes("query")
-    ? readOwn(value, "query", name)
-    : undefined;
+  const rawQuery = member("query");
   const query =
     rawQuery === undefined
       ? undefined
       : snapshotOperationMap(rawQuery, "query", name, schema);
-  const rawStatement = ownKeys.includes("statement")
-    ? readOwn(value, "statement", name)
-    : undefined;
+  const rawStatement = member("statement");
   const statement =
     rawStatement === undefined
       ? undefined
       : requireFunction(rawStatement, "statement", name);
-  const rawObserve = ownKeys.includes("observe")
-    ? readOwn(value, "observe", name)
-    : undefined;
+  const rawObserve = member("observe");
   const observe =
     rawObserve === undefined
       ? undefined
       : requireFunction(rawObserve, "observe", name);
-  const rawClient = ownKeys.includes("client")
-    ? readOwn(value, "client", name)
-    : undefined;
+  const rawClient = member("client");
   const client =
     rawClient === undefined
       ? undefined
       : requireFunction(rawClient, "client", name);
-  const rawModel = ownKeys.includes("model")
-    ? readOwn(value, "model", name)
-    : undefined;
+  const rawModel = member("model");
   const model =
     rawModel === undefined
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
 
-  const rawControls = ownKeys.includes("controls")
-    ? readOwn(value, "controls", name)
-    : undefined;
+  const rawControls = member("controls");
   const controls =
     rawControls === undefined ? undefined : snapshotControls(rawControls, name);
-  const rawRows = ownKeys.includes("rows")
-    ? readOwn(value, "rows", name)
-    : undefined;
+  const rawRows = member("rows");
   const rows =
     rawRows === undefined ? undefined : snapshotRows(rawRows, name, schema);
-  const rawDeletion = ownKeys.includes("deletion")
-    ? readOwn(value, "deletion", name)
-    : undefined;
+  const rawDeletion = member("deletion");
   const deletion =
     rawDeletion === undefined
       ? undefined

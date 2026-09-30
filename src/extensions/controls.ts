@@ -311,6 +311,11 @@ export function admitControls(
   input: Record<string, unknown>,
   placed: readonly ResolvedControl[]
 ): ControlAdmission {
+  // Arguments that are not an object hold no control: core validation refuses
+  // them as it does on a client without controls.
+  if (typeof input !== "object" || input === null) {
+    return { args: input, controls: undefined };
+  }
   let keys: PropertyKey[];
   try {
     keys = Reflect.ownKeys(input);

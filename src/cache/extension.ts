@@ -80,7 +80,12 @@ function admitMutationCacheOptions(cache: unknown): CacheInvalidationOptions {
   return options;
 }
 
-const officialCacheControls: OfficialCacheControls = Object.freeze({
+/**
+ * The cache's one declaration. The chain places it for any definition carrying
+ * the cache's query, whatever `controls` that definition spells: the query is
+ * the cache's identity, so its control cannot be forged or left out.
+ */
+export const officialCacheControls: OfficialCacheControls = Object.freeze({
   cache: Object.freeze({
     schema: Object.freeze({
       "~standard": Object.freeze({

@@ -2,6 +2,7 @@ import {
   getOfficialCacheChainDefinition,
   getOfficialCacheQueryCapability,
   OFFICIAL_CACHE_NAME,
+  officialCacheControls,
   registerOfficialCacheChain,
 } from "@cache/extension";
 import {
@@ -407,11 +408,15 @@ function appendDeletion(
   return Object.freeze(entries);
 }
 
-function stripOfficialCacheQuery(
+/** The cache's query leaves the chain's handlers; its control is its own. */
+function asOfficialCacheDefinition(
   definition: RuntimeExtensionDefinition
 ): RuntimeExtensionDefinition {
   const { query: _officialCacheQuery, ...ordinaryDefinition } = definition;
-  return Object.freeze(ordinaryDefinition);
+  return Object.freeze({
+    ...ordinaryDefinition,
+    controls: officialCacheControls,
+  });
 }
 
 function stripOfficialDefaultOmitRequest(
@@ -527,7 +532,7 @@ export function appendResolvedExtension(
       ? incomingDefaultOmit === undefined
         ? definition
         : stripOfficialDefaultOmitRequest(definition)
-      : stripOfficialCacheQuery(definition);
+      : asOfficialCacheDefinition(definition);
   const declaredControls =
     effectiveDefinition.controls === undefined &&
     effectiveDefinition.rows === undefined

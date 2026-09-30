@@ -132,6 +132,13 @@ function refusal(action: () => unknown): ClientInitializationError {
   throw new Error("expected the definition to be refused");
 }
 
+/** A proxy whose every inspection throws, even `Array.isArray`. */
+function revokedProxy(): object {
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+  return proxy;
+}
+
 /** A Standard Schema whose validator the test controls. */
 function standard<Value>(
   validate: (value: unknown) => unknown
@@ -562,6 +569,34 @@ describe("controls: admission and ownership", () => {
     }
   });
 
+  test("arguments that are not an object stay core's ValidationError, as on a client without controls", async () => {
+    const base = await seededBase();
+    const rows = applyUnchecked(base, softRows);
+    const plain = applyUnchecked(base, {
+      name: "plain",
+      controls: { flag: { oneOf: ["a", "b"] } },
+    });
+    const cached = base.$extends(cache({ driver: new MemoryCache() }));
+    const calls: ReadonlyArray<readonly [object, string, string, unknown]> = [
+      [rows, "post", "findMany", "str"],
+      [rows, "user", "count", 5],
+      [plain, "post", "findMany", 5],
+      [cached, "user", "create", "str"],
+    ];
+    for (const [client, model, operation, args] of calls) {
+      const label = `${model}.${operation}(${String(args)})`;
+      const expected = await failure(
+        callUnchecked(base, model, operation, args)
+      );
+      const error = await failure(
+        callUnchecked(client, model, operation, args)
+      );
+      expect(error, label).toBeInstanceOf(ValidationError);
+      expect(String(error), label).toBe(String(expected));
+      expect(String(error), label).toContain("Expected object");
+    }
+  });
+
   test("a control is admitted once, before request handlers, and memoized across lifecycle entry points", async () => {
     const timeline: string[] = [];
     const db = (await seededBase()).$extends({
@@ -988,6 +1023,33 @@ describe("controls: definitions refused when applied", () => {
       "must hold distinct strings, finite numbers or booleans",
     ],
     [
+      "a controls member that is a revoked proxy",
+      { name: "x", controls: revokedProxy() },
+      "controls could not be read",
+    ],
+    [
+      "rows.models that is a revoked proxy",
+      {
+        name: "x",
+        rows: { control: "deleted", default: "a", models: revokedProxy() },
+      },
+      "rows.models could not be read",
+    ],
+    [
+      "a control schema that is a revoked proxy",
+      { name: "x", controls: { a: { schema: revokedProxy() } } },
+      "controls.a.schema could not be read",
+    ],
+    [
+      "an empty removeWhen",
+      {
+        name: "x",
+        controls: { mode: { oneOf: ["hard"] } },
+        deletion: { removeWhen: {}, models: { audited: { assign: {} } } },
+      },
+      "deletion.removeWhen must name a control",
+    ],
+    [
       "an assigned function",
       {
         name: "x",
@@ -1152,6 +1214,65 @@ describe("controls: definitions refused when applied", () => {
     expect(
       refusal(() => applyUnchecked(definitionClient(), trapped)).message
     ).toContain('member "controls" could not be read');
+  });
+});
+
+describe("controls: the official cache", () => {
+  test("its control comes from the cache, whatever controls a definition carrying its query spells", async () => {
+    const official = cache({ driver: new MemoryCache() });
+    const placedOn = (definition: unknown) =>
+      appendResolvedExtension(undefined, definition, schema).controls
+        ?.operations.create;
+    const forgedCalls: unknown[] = [];
+    const forged = {
+      name: official.name,
+      query: official.query,
+      controls: {
+        cache: {
+          schema: standard((value) => {
+            forgedCalls.push(value);
+            return { value };
+          }),
+          on: "writes",
+        },
+        extra: { oneOf: ["x"] },
+      },
+    };
+    for (const definition of [
+      official,
+      { name: official.name, query: official.query },
+      forged,
+    ]) {
+      const placed = placedOn(definition);
+      expect(placed?.map((control) => control.name)).toEqual(["cache"]);
+      expect(placed?.[0]?.declaration).toBe(official.controls.cache);
+    }
+
+    const base = await seededBase();
+    for (const definition of [
+      {
+        name: official.name,
+        query: cache({ driver: new MemoryCache() }).query,
+      },
+      { ...forged, query: cache({ driver: new MemoryCache() }).query },
+    ]) {
+      const db = applyUnchecked(base, definition);
+      const id = `u-${String(forgedCalls.length)}-${String(Math.random())}`;
+      await expect(
+        callUnchecked(db, "user", "create", {
+          data: { id, name: "Cached" },
+          cache: { autoInvalidate: true },
+        })
+      ).resolves.toMatchObject({ id });
+      const refused = await failure(
+        callUnchecked(db, "user", "create", {
+          data: { id: `${id}-bad`, name: "Bad" },
+          cache: { autoInvalidate: "yes" },
+        })
+      );
+      expect(String(refused)).toContain("Invalid mutation cache options");
+    }
+    expect(forgedCalls).toEqual([]);
   });
 });
 

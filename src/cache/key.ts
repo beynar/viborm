@@ -7,6 +7,7 @@
 import { CacheInvalidKeyError } from "@errors";
 import { fieldRefPayload, isFieldRef } from "@schema/field-ref";
 import { isJsonNullSentinel } from "@schema/json-null";
+import { isPlainRecord } from "@schema/relation/terminal";
 import { isSql } from "@sql";
 
 /**
@@ -370,14 +371,7 @@ function hasCanonicalForm(value: unknown, seen: Set<object>): boolean {
   if (value instanceof Date) return !Number.isNaN(value.getTime());
   if (value instanceof Uint8Array) return true;
   if (seen.has(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  if (
-    !Array.isArray(value) &&
-    prototype !== Object.prototype &&
-    prototype !== null
-  ) {
-    return false;
-  }
+  if (!(Array.isArray(value) || isPlainRecord(value))) return false;
   seen.add(value);
   const canonical = Object.values(value).every((entry) =>
     hasCanonicalForm(entry, seen)
