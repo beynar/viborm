@@ -1,11 +1,12 @@
 import {
-  ForeignKeyError,
   NestedWriteError,
   NotFoundError,
   TransactionError,
   UnsupportedOperationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
+import { createFailureError } from "../../batch-error-attribution";
+import type { PreparedGuardFailure } from "../../types";
 import { assertInvariant } from "../shared/invariant";
 import type { OperationContext } from "../shared/operation-context";
 import {
@@ -469,15 +470,25 @@ export class Commands {
       ),
     ]);
   }
-  /** The refusal a restricting foreign key gives a hard delete, stated by core. */
+  /**
+   * The refusal a restricting foreign key gives a hard delete, stated by core
+   * under the context's attribution, as the database's own error carries it:
+   * declared for a packaged premise, and built by the same construction.
+   */
+  restriction(model: AnyModel): PreparedGuardFailure {
+    return {
+      kind: "foreignKey",
+      message: `Cannot delete '${model["~"].names.ts!}' record: a related record still references it through one of its relations whose foreign key restricts deletes: ${this.context.schema
+        .restrictingSlots(model)
+        .map((slot) => `'${slot}'`)
+        .join(", ")}.`,
+      raceable: false,
+    };
+  }
   restrictFailure(model: AnyModel): DeferredFailure {
-    const name = model["~"].names.ts!;
-    const slots = this.context.schema.restrictingSlots(model);
+    const failure = this.restriction(model);
     return () =>
-      new ForeignKeyError(
-        `Cannot delete '${name}' record: related records still reference it through ${slots.map((slot) => `'${slot}'`).join(", ")}, whose foreign key restricts deletes.`,
-        { meta: { model: name, operation: "delete" } }
-      );
+      createFailureError(failure, model["~"].names.ts!, this.context.operation);
   }
   createOrigin(relation: string, operation: string, slot = relation): Origin {
     return { relation, operation, slot, order: this.nextMutation++ };
@@ -1664,21 +1675,24 @@ export class Commands {
       );
   }
   /**
-   * A tombstoning root delete's referential premise, stated before its effect:
-   * no candidate is still referenced through a restricting slot. `undefined`
-   * when the model has no such slot.
+   * A tombstoning root delete's plan: `effect` behind its referential premise,
+   * stated first — no candidate is still referenced through a restricting
+   * slot. A model without such a slot runs `effect` alone.
    */
-  private restrictPremise(
-    candidates: PreparedSelector
-  ): (() => Promise<void>) | undefined {
+  private unreferenced(
+    candidates: PreparedSelector,
+    single: boolean,
+    effect: () => Promise<unknown>
+  ): PhysicalPlan {
     const blocked = this.blocked(candidates);
-    if (!blocked) return undefined;
+    if (!blocked) return { single, run: effect };
     const ctx = this.context;
     const model = candidates.model;
-    const failure = this.restrictFailure(model);
-    return () =>
-      ctx.requireAbsent(
-        ctx.queries.select(
+    const failure = this.restriction(model);
+    return {
+      single: false,
+      run: async () => {
+        const query = ctx.queries.select(
           model,
           {
             take: 1,
@@ -1688,9 +1702,18 @@ export class Commands {
           },
           undefined,
           { selector: blocked, forUpdate: !ctx.usesBatch }
-        ),
-        failure()
-      );
+        );
+        // A packaged array member states it inside the array's atomic unit.
+        if (ctx.preparesBatch)
+          ctx.packageGuard(model, query.sql, "notExists", failure);
+        else
+          await ctx.requireAbsent(
+            query,
+            createFailureError(failure, model["~"].names.ts!, ctx.operation)
+          );
+        return effect();
+      },
+    };
   }
   /**
    * A root `create` that writes no relation and publishes no relation is the
@@ -1898,20 +1921,9 @@ export class Commands {
       // them, behind the referential premise.
       if (tombstone) {
         const values = ctx.schema.scalars(model, tombstone.admitted);
-        const premise = this.restrictPremise(selector);
-        return {
-          single: !premise && (!projection || returning),
-          run: async () => {
-            await premise?.();
-            return ctx.updateMany(
-              model,
-              selector,
-              values,
-              args.limit,
-              projection
-            );
-          },
-        };
+        return this.unreferenced(selector, !projection || returning, () =>
+          ctx.updateMany(model, selector, values, args.limit, projection)
+        );
       }
       return {
         single:
@@ -1935,20 +1947,12 @@ export class Commands {
       // RETURNING carries the projection, else the record route, whose terminal
       // read publishes the post-image by identity.
       if (tombstone) {
-        const premise = this.restrictPremise(selector);
         const folded = this.rootUpdate(
           model,
           { ...args, data: tombstone.admitted },
           selector
         );
-        if (folded)
-          return {
-            single: !premise,
-            run: async () => {
-              await premise?.();
-              return folded();
-            },
-          };
+        if (folded) return this.unreferenced(selector, true, folded);
         const root = this.update(
           this.lookup(
             model,
@@ -1961,13 +1965,9 @@ export class Commands {
         root.operation = ctx.operation;
         for (const field of ctx.schema.keys(model)) root.fields.field(field);
         const occurrence = this.analyze(root);
-        return {
-          single: false,
-          run: async () => {
-            await premise?.();
-            return this.execution.complete(occurrence, args);
-          },
-        };
+        return this.unreferenced(selector, false, () =>
+          this.execution.complete(occurrence, args)
+        );
       }
       return {
         single: returning && returningSafeProjection(projection),

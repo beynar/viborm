@@ -36,7 +36,11 @@ import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
 } from "../../bind-budget";
-import type { PreparedBatchGuard, PreparedBatchOperation } from "../../types";
+import type {
+  PreparedBatchGuard,
+  PreparedBatchOperation,
+  PreparedGuardFailure,
+} from "../../types";
 import {
   InvalidScalarResult,
   type PreparedProjection,
@@ -1793,25 +1797,44 @@ export class OperationContext {
       undefined,
       { selector }
     );
+    this.packageGuard(model, probe.sql, "exists", {
+      kind: "notFound",
+      // Never user-facing: `createFailureError` ignores this message for
+      // `kind: "notFound"` and rebuilds the shipped sentence from the guard's
+      // model and verb. It is read only by `sameAttribution`
+      // (`batch-error-attribution.ts`), where being CONSTANT per model and
+      // verb is what makes two guards of the same shape agree.
+      message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+      raceable: false,
+    });
+  }
+  /**
+   * One premise a packaged operation states INSIDE the array's atomic unit:
+   * the assertion is queued ahead of the statements it protects and declared
+   * to the array owner, which aborts the whole batch and rebuilds `failure`
+   * from the guard (`batch-error-attribution.ts`). An asserted premise
+   * ({@link requireAbsent}) cannot ride a package, because only this
+   * operation's own transport reads its answer.
+   */
+  packageGuard(
+    model: AnyModel,
+    probe: Sql,
+    premise: PreparedBatchGuard["premise"],
+    failure: PreparedGuardFailure
+  ): void {
     (this.preparedGuardList ??= []).push({
       queryIndex: this.queued.length,
-      premise: "exists",
-      probe: probe.sql,
-      failure: {
-        kind: "notFound",
-        // Never user-facing: `createFailureError` ignores this message for
-        // `kind: "notFound"` and rebuilds the shipped sentence from the model
-        // and verb below. It is read only by `sameAttribution`
-        // (`batch-error-attribution.ts`), where being CONSTANT per model and
-        // verb is what makes two guards of the same shape agree.
-        message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
-        raceable: false,
-      },
+      premise,
+      probe,
+      failure,
       model: model["~"].names.ts!,
       operation: this.operation,
     });
+    const assertions = this.driver.adapter.assertions;
     this.queue(
-      this.driver.adapter.assertions.exists(probe.sql),
+      premise === "exists"
+        ? assertions.exists(probe)
+        : assertions.notExists(probe),
       this.statementContext(model, this.operation)
     );
   }

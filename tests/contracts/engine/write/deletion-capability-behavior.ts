@@ -2,6 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForeignKeyError, NestedWriteError, NotFoundError } from "@errors";
 import { s } from "@schema";
+import { instrumentation } from "@src/instrumentation/exports";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -35,6 +36,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 const T = new Date("2026-01-01T00:00:00.000Z");
 const DELETE_STATEMENT = /^\s*DELETE\b/i;
 const UPDATE_STATEMENT = /^\s*UPDATE\b/i;
+/** An UPDATE whose SET starts with the marker: a tombstone write. */
+const TOMBSTONE_WRITE = /^\s*UPDATE\s+\S+\s+SET\s+["`]?deletedAt\b/i;
 const ACTOR = "actor-1";
 
 function deletionSchema(ledger: string[]) {
@@ -379,12 +382,22 @@ export function runDeletionCapabilityBehavior(
       const refused = await failure(db.post.delete({ where: { id: 10 } }));
       expect(refused).toBeInstanceOf(ForeignKeyError);
       expect((refused as ForeignKeyError).message).toBe(
-        "Cannot delete 'post' record: related records still reference it through 'comments', 'tags', 'notes', whose foreign key restricts deletes."
+        "Cannot delete 'post' record: a related record still references it through one of its relations whose foreign key restricts deletes: 'comments', 'tags', 'notes'."
       );
+      // The refusal carries the context's attribution, as the database's does.
+      expect((refused as ForeignKeyError).meta).toMatchObject({
+        model: "post",
+        operation: "delete",
+      });
       // One blocked row fails the whole bulk call; nothing is tombstoned.
-      expect(
-        await failure(db.post.deleteMany({ where: { id: { in: [10, 11] } } }))
-      ).toBeInstanceOf(ForeignKeyError);
+      const bulk = await failure(
+        db.post.deleteMany({ where: { id: { in: [10, 11] } } })
+      );
+      expect(bulk).toBeInstanceOf(ForeignKeyError);
+      expect((bulk as ForeignKeyError).meta).toMatchObject({
+        model: "post",
+        operation: "deleteMany",
+      });
       expect(
         (await base.post.findMany({ where: { deletedAt: { not: null } } })).map(
           (row) => row.id
@@ -403,6 +416,21 @@ export function runDeletionCapabilityBehavior(
       expect(
         await db.post.delete({ where: { id: 10 }, select: { id: true } })
       ).toEqual({ id: 10 });
+      expect(physicalDeletes()).toEqual([]);
+    });
+
+    test("the requirement reads the child's default domain whatever the call's `deleted` says", async () => {
+      const { db } = context;
+      // Tombstone the live comment 100; 101 is one already. The call sees
+      // both under `deleted: "with"`; the requirement sees neither.
+      await db.comment.delete({ where: { id: 100 } });
+      expect(
+        await db.post.delete({
+          where: { id: 10 },
+          deleted: "with",
+          select: { id: true, deletedById: true },
+        })
+      ).toEqual({ id: 10, deletedById: ACTOR });
       expect(physicalDeletes()).toEqual([]);
     });
 
@@ -456,15 +484,19 @@ export function runDeletionCapabilityBehavior(
 
     test("a nested delete through a restricting slot is refused, the parent's own link excepted", async () => {
       const { base, db } = context;
-      // Note 4 still references post 16 besides note 2 itself: refused.
-      expect(
-        await failure(
-          db.note.update({
-            where: { id: 2 },
-            data: { post: { delete: true } },
-          })
-        )
-      ).toBeInstanceOf(ForeignKeyError);
+      // Note 4 still references post 16 besides note 2 itself: refused, under
+      // the attribution a physical nested DELETE's refusal carries.
+      const refused = await failure(
+        db.note.update({
+          where: { id: 2 },
+          data: { post: { delete: true } },
+        })
+      );
+      expect(refused).toBeInstanceOf(ForeignKeyError);
+      expect((refused as ForeignKeyError).meta).toMatchObject({
+        model: "post",
+        operation: "update",
+      });
       // Post 10 has the live comment 100.
       expect(
         await failure(
@@ -601,6 +633,38 @@ export function runDeletionCapabilityBehavior(
       expect(ten!.deletedAt!.getTime()).not.toBe(eleven!.deletedAt!.getTime());
     });
 
+    test("an array transaction carries soft deletes atomically; a restricted member rolls every member back", async () => {
+      const { base, db } = context;
+      expect(
+        await db.$transaction([
+          db.post.delete({
+            where: { id: 11 },
+            select: { id: true, deletedById: true },
+          }),
+          db.post.deleteMany({ where: { id: 14 } }),
+          db.comment.delete({ where: { id: 100 }, select: { id: true } }),
+        ])
+      ).toEqual([{ id: 11, deletedById: ACTOR }, { count: 1 }, { id: 100 }]);
+      // Post 10's comments are tombstones now; post 13 is linked to tag 1.
+      const refused = await failure(
+        db.$transaction([
+          db.post.delete({ where: { id: 10 }, select: { id: true } }),
+          db.post.deleteMany({ where: { id: { in: [13] } } }),
+        ])
+      );
+      expect(refused).toBeInstanceOf(ForeignKeyError);
+      expect((refused as ForeignKeyError).meta).toMatchObject({
+        model: "post",
+        operation: "deleteMany",
+      });
+      expect(
+        (await base.post.findMany({ where: { deletedAt: { not: null } } }))
+          .map((row) => row.id)
+          .sort((left, right) => left - right)
+      ).toEqual([11, 12, 14]);
+      expect(physicalDeletes()).toEqual([]);
+    });
+
     test("set over a required foreign key keeps today's refusal, and removes no target row", async () => {
       const { base, db } = context;
       const refused = await failure(
@@ -614,6 +678,107 @@ export function runDeletionCapabilityBehavior(
       expect(
         (await base.post.findMany({ where: { authorId: 2 } })).length
       ).toBe(2);
+    });
+
+    test("observers see a delete: its hook proceeds once, no update hook runs, and each tombstone UPDATE carries the attribution its DELETE would", async () => {
+      const { base } = context;
+      const hooks: string[] = [];
+      const transformed: string[] = [];
+      const logged: string[] = [];
+      const observed = base
+        .$extends({
+          name: "test.tombstoneStatements",
+          statement: ({ statement, model, operation }) => {
+            if (TOMBSTONE_WRITE.test(statement.toStatement("?")))
+              transformed.push(`${model}.${operation}`);
+            return statement;
+          },
+        })
+        .$extends(
+          instrumentation({
+            logging: {
+              query: (event) => {
+                if (TOMBSTONE_WRITE.test(event.sql ?? ""))
+                  logged.push(`${event.model}.${event.operation}`);
+              },
+              includeSql: true,
+            },
+          })
+        )
+        .$extends(softDelete)
+        .$extends({
+          name: "test.hooks",
+          query: {
+            post: {
+              async delete({ input, proceed }) {
+                hooks.push(`post.delete ${JSON.stringify(input)}`);
+                const result = await proceed();
+                const { deletedById } = result as { deletedById: unknown };
+                hooks.push(`post.delete -> ${deletedById}`);
+                return result;
+              },
+              async deleteMany({ proceed }) {
+                hooks.push("post.deleteMany");
+                return proceed();
+              },
+              async update({ proceed }) {
+                hooks.push("post.update");
+                return proceed();
+              },
+              async updateMany({ proceed }) {
+                hooks.push("post.updateMany");
+                return proceed();
+              },
+            },
+            comment: {
+              async delete({ proceed }) {
+                hooks.push("comment.delete");
+                return proceed();
+              },
+              async update({ proceed }) {
+                hooks.push("comment.update");
+                return proceed();
+              },
+            },
+            tag: {
+              async update({ proceed }) {
+                hooks.push("tag.update");
+                return proceed();
+              },
+            },
+          },
+        });
+      await observed.post.delete({ where: { id: 11 } });
+      await observed.post.deleteMany({ where: { id: 14 } });
+      // Nested: the root's hook alone; the UPDATE of the managed target
+      // carries the caller's attribution, as the physical nested DELETE does.
+      await observed.post.update({
+        where: { id: 10 },
+        data: { comments: { delete: { id: 100 } } },
+      });
+      // Captured: post 13's only link is tag 1's own.
+      await observed.tag.update({
+        where: { id: 1 },
+        data: { posts: { deleteMany: {} } },
+      });
+      expect(hooks).toEqual([
+        'post.delete {"where":{"id":11}}',
+        `post.delete -> ${ACTOR}`,
+        "post.deleteMany",
+        "post.update",
+        "tag.update",
+      ]);
+      const attributions = [
+        "post.delete",
+        "post.deleteMany",
+        "comment.update",
+        "post.update",
+      ];
+      expect(transformed).toEqual(attributions);
+      // Instrumentation logs a statement as it runs; a batch-only substrate
+      // runs a whole unit as one batch, logged once under its root.
+      if (base.$driver.supportsTransactions)
+        expect(logged).toEqual(attributions);
     });
   });
 }

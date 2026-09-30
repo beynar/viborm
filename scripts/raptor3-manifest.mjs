@@ -210,7 +210,7 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // referential requirement, one instant per call, and `mode: "hard"`, through
 // the public client on the interactive and the batch-only substrate.
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 20,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 26,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)
