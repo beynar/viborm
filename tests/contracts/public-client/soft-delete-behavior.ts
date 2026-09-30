@@ -497,6 +497,41 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
       });
     });
 
+    test("a to-one relation to a tombstone reads null, upward recursion stops there, and a restore brings it back", async () => {
+      const ancestry = {
+        where: { id: "p5" },
+        select: {
+          id: true,
+          parent: { recurse: { depth: 3 }, select: { id: true } },
+        },
+      } as const;
+      // p5's parent p4 is a tombstone; p4's parent is p1.
+      expect(await db.post.findUnique(ancestry)).toEqual({
+        id: "p5",
+        parent: null,
+      });
+      expect(await base.post.findUnique(ancestry)).toEqual({
+        id: "p5",
+        parent: { id: "p4", parent: { id: "p1", parent: null } },
+      });
+      const reply = await db.post.findUniqueOrThrow({
+        where: { id: "p5" },
+        include: { parent: { select: { id: true } } },
+      });
+      expect(reply.parent).toBeNull();
+      const childrenOfP4 = {
+        where: { parent: { is: { title: "title p4" } } },
+        select: { id: true },
+      } as const;
+      expect(await db.post.findMany(childrenOfP4)).toEqual([]);
+      expect(await base.post.findMany(childrenOfP4)).toEqual([{ id: "p5" }]);
+      await db.post.restore({ where: { id: "p4" } });
+      expect(await db.post.findUnique(ancestry)).toEqual({
+        id: "p5",
+        parent: { id: "p4", parent: { id: "p1", parent: null } },
+      });
+    });
+
     test("the partial-unique recipe: a tombstone frees its slug; restoring into a live duplicate is refused and rolls back", async () => {
       await db.post.delete({ where: { id: "p2" } });
       const again = {

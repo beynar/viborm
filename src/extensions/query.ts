@@ -128,6 +128,12 @@ export type OfficialGenericQueryHandler = GenericQueryHandlerCall & {
   readonly [officialQueryHandlerIdentity]: true;
 };
 
+/**
+ * Per-model query handlers. Their results are typed from the config alone
+ * (`ClientOperationResult`): on a chain whose `rows` can hide a to-one
+ * relation's target, that relation can read `null` in `proceed()`'s result
+ * where the type says it cannot.
+ */
 export type QueryHandlerMap<C extends VibORMConfig> = {
   readonly [ModelName in keyof C["schema"]]?: {
     readonly [OperationName in Operations]?: <

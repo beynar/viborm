@@ -37,6 +37,7 @@ import type { VibORMConfig } from "./client";
 import type {
   AggregateResultType,
   BatchPayload,
+  ClientHiddenContext,
   ClientResultOmitContext,
   ClientResultOmitEntry,
   CountResultType,
@@ -55,6 +56,8 @@ export type Schema = Record<string, Model<any>>;
  * Schema-only application types, keyed by the schema's model names.
  * Row uses the default scalar projection and respects schema-level omission;
  * client extensions and defaultOmit are not part of this schema-only view.
+ * On a client whose extensions declare `rows`, a to-one relation can read
+ * `null` where these types say it cannot: use `ExtendedOperationResult`.
  */
 export type InferDatabase<S extends Schema> = {
   [K in keyof S]: {
@@ -363,6 +366,25 @@ type ClientRelationOmitContext<C extends VibORMConfig> = [
   ? never
   : ClientResultOmitContext<ClientRelationOmitEntries<C>>;
 
+/**
+ * The result context of a client whose chain declares `rows` over `Models`:
+ * its relation omission defaults, and the shallow surfaces of the models a
+ * relation read can find hidden. Without `rows`, exactly the omission context.
+ * The schema's names are filtered BY `Models`, so a definition typed over
+ * every string hides every model rather than none.
+ */
+export type ClientRowsContext<C extends VibORMConfig, Models extends string> =
+  | ClientRelationOmitContext<C>
+  | ([Models] extends [never]
+      ? never
+      : ClientHiddenContext<
+          {
+            [K in Extract<keyof C["schema"], Models>]: ModelResultSurface<
+              C["schema"][K]
+            >;
+          }[Extract<keyof C["schema"], Models>]
+        >);
+
 declare const defaultOperationResultArgs: unique symbol;
 type DefaultOperationResultArgs = typeof defaultOperationResultArgs;
 
@@ -449,7 +471,12 @@ type OperationResultWithClientDefaults<
                     : never
   : never;
 
-/** Public operation result helper for one operation and its declared args. */
+/**
+ * Public operation result helper for one operation and its declared args.
+ * Schema-only: on a client whose extensions declare `rows`, a to-one relation
+ * can read `null` where this type says it cannot. `ExtendedOperationResult`
+ * types a derived client's results.
+ */
 export type OperationResult<
   O extends Operations,
   M extends Model<any>,
@@ -457,18 +484,36 @@ export type OperationResult<
   DefaultOmit = undefined,
 > = OperationResultWithClientDefaults<O, M, Args, DefaultOmit, never>;
 
-/** One concrete client's result, including its top-level and relation defaults. */
+/**
+ * One concrete client's result, including its top-level and relation defaults.
+ * It reads the config alone, never an extension's `rows`.
+ */
 export type ClientOperationResult<
   C extends VibORMConfig,
   ModelName extends keyof C["schema"],
   O extends Operations,
   Args,
+> = ContextualOperationResult<
+  C,
+  ModelName,
+  O,
+  Args,
+  ClientRelationOmitContext<C>
+>;
+
+/** The same, under a result context a derived client computed. */
+export type ContextualOperationResult<
+  C extends VibORMConfig,
+  ModelName extends keyof C["schema"],
+  O extends Operations,
+  Args,
+  ClientDefaults,
 > = OperationResultWithClientDefaults<
   O,
   C["schema"][ModelName],
   Args,
   ClientDefaultOmit<C, ModelName>,
-  ClientRelationOmitContext<C>
+  ClientDefaults
 >;
 
 /**
@@ -519,9 +564,6 @@ type WithControls<T, Controls> = [keyof Controls] extends [never]
   : T extends object
     ? T & Controls
     : T;
-
-export type ClientRelationDefaults<C extends VibORMConfig> =
-  ClientRelationOmitContext<C>;
 
 /**
  * Every key ONE clause accepts, taking the union across a union-typed clause

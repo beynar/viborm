@@ -291,6 +291,17 @@ provider dispatch, parsing, result order, and commit publication.
 | `src/extensions/array-admission.ts` | Extension-only native/fallback admission latch; never core array dispatch |
 | `src/extensions/index.ts` | Intentional public/internal extension exports |
 
+The result context a delegate reads (`ClientDefaults`) has one owner per
+fact: the config's relation omission (`ClientRelationOmitContext`) and, on a
+chain with `rows`, the shallow surfaces of the models those `rows` name
+(`ClientRowsContext`, `types.ts`, from the extension state's `rows` slot,
+filled by `RowsModels` in `controls.ts`). `result-types.ts` alone turns that
+into `| null` on a singular slot whose target a relation read can find hidden
+(`HiddenTargetNull`): the model delegates, `$withCache()`, the transaction
+client and `ExtendedOperationResult` read the same context.
+`OperationResult`, `ClientOperationResult`, `InferDatabase`, query handlers'
+results and `renderOperationResultType` are schema-only and say so.
+
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and
 `src/client/default-omit-extension.ts`; `src/soft-delete/index.ts` is an

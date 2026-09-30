@@ -115,13 +115,43 @@ such a model reads its related posts live, like `without`.
   `where: { deletedAt: { not: null } }` returns `[]`: the live default is added
   to your filter.
 
-### Milestone 1: to-one relations show tombstones
+### To-one relations read `null` for a tombstone
 
-In this release, a to-one relation (a post's `author`, a comment's `post`)
-still shows its target when the target is a tombstone, with its `deletedAt`
-set. A nested `connect` or `update` through that same relation treats the
-tombstone as missing. Check `deletedAt` on to-one results until a later
-release makes hidden to-one targets read as `null`.
+A to-one relation to a configured model (say a `comment` model with a
+required `post`, or a polymorphic `subject` one of whose targets is `post`)
+reads `null` while its target is a tombstone, as if the target were missing,
+and a nested `connect` or `update` through it treats the tombstone as missing
+too. The example's `post.author` is unchanged: `user` is not configured.
+`is`/`isNot` filters and ordering by a to-one field read the same way, and an
+upward recursive read (`parent` with `recurse`) stops at a tombstoned node.
+
+```ts
+const comment = await db.comment.findUniqueOrThrow({
+  where: { id: "c1" },
+  include: { post: true },
+});
+comment.post; // Post | null: null while the post is a tombstone
+```
+
+So on a client with the extension, TypeScript types every to-one relation to
+a configured model as `| null`, even one that is required in the schema and
+even under `deleted: "with"` (the type does not read the call's mode). A
+to-one relation to a model you did not configure keeps its type, unless that
+model has exactly the same field and relation names as a configured one:
+TypeScript compares models by those names and cannot tell the two apart, so
+both read `| null`.
+
+A reference that points at a row that does not exist at all is still an
+error, as it is without the extension: a polymorphic relation whose row is
+gone throws "references a missing record", while one whose row is a
+tombstone reads `null`.
+
+`OperationResult`, `InferDatabase` and `renderOperationResultType` describe
+the schema alone and do not know about the extension: on a soft-delete
+client they type a to-one relation as present where it can read `null`. Use
+`ExtendedOperationResult<typeof db, "comment", "findMany", Args>` for the
+client's own result types. A query handler's `proceed()` result is typed from
+the schema too.
 
 ## Deleting
 

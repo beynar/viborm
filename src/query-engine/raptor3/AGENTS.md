@@ -63,18 +63,25 @@ the domain its controls chose and the default one, each a `PreparedDomain`
 prepared at most once per engine view, model and purpose. A `Queries` is scoped
 to one domain: reads get one per domain (a `WeakMap` in `commands/index.ts`),
 write contexts one per call, sharing the prepared domain. The RELATED domain
-enters only in `correlation()`, outside every quantifier's negation, and in
-milestone 1 only for to-many edges; the ROOT domain enters where a lookup names
+enters only in `correlation()`, outside every quantifier's negation, on every
+edge (milestone 2): to-many and to-one projections, polymorphic arms,
+`is`/`isNot`, relation order terms and recursion; the ROOT domain enters where a lookup names
 its purpose (`read()`, `lowerWhere` for the aggregates, a cursor's anchor, and
 the `SelectionSource.purpose` of root and nested write lookups). A lookup that
 names none is a premise or physical: identity re-reads, `capture()`,
 `locateSuppressed`, `disconnect`, `set` cleanup and the integrity probes take
 exactly the selector they are handed, and a relation predicate marked
 `unscoped` (the referential requirement) states its own visibility. Nested
-write lookups take the related purpose on every edge, to-one included, while
-milestone 1 keeps every to-one READ scope physical: an `include` can show a
-to-one target that a nested `connect` or `update` through the same relation
-refuses as not found. That asymmetry is deliberate until milestone 2.
+write lookups take the related purpose on every edge, to-one included, so a
+read and a write through one relation agree on what is hidden. A hidden
+reference reads as an absent one, and physical integrity stays physical: a
+variant ROW carrier's claimed arm (`parentClaimsArm`) that reads no row asks
+`missingArm` whether the row exists at all, with no domain, only when a
+related domain applies to that arm's target, so a hidden row is an empty slot
+and a missing one keeps the "references a missing record" refusal, and a plain
+client's bytes are unchanged; `duplicateMembershipGuard` and
+`orphanedMemberships` never call `correlation()`. A to-one relation scope
+records the domain's fields among its dependency facts, as a to-many one does.
 `Queries.candidates` is the one conjunction: it keeps the unique key, so race
 convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —

@@ -2331,9 +2331,7 @@ export class Queries {
       : undefined;
     // The related domain's fields are read by this scope too, so a lookup
     // that reads through it depends on a write to them (§2.2).
-    const domain = edge.many
-      ? this.domain?.selector(edge.target, "related")
-      : undefined;
+    const domain = this.domain?.selector(edge.target, "related");
     if (domain)
       for (const field of domain.facts.fields) nestedFacts.fields.add(field);
     facts.reads.push({
@@ -2922,9 +2920,10 @@ export class Queries {
   }
   /**
    * The one join of a relation to its parent, and the one place the related
-   * domain enters a relation: outside any quantifier's negation, so `every`,
-   * `none` and a negated count read "every VISIBLE member". Milestone 1 scopes
-   * to-many edges only; a reference stays physical.
+   * domain enters a relation read: outside any quantifier's negation, so
+   * `every`, `none` and a negated count read "every VISIBLE member", and on
+   * every edge, so a to-one projection, `is`/`isNot`, a to-one order term and
+   * an upward recursion read a hidden target as an absent one.
    */
   correlation(
     edge: Membership,
@@ -2933,10 +2932,9 @@ export class Queries {
     scoped = true
   ): Sql {
     const member = this.membershipWhere(edge, target, parent);
-    const domain =
-      scoped && edge.many
-        ? this.domain?.selector(edge.target, "related")
-        : undefined;
+    const domain = scoped
+      ? this.domain?.selector(edge.target, "related")
+      : undefined;
     if (domain === undefined) return member;
     return this.adapter.operators.and(
       member,
@@ -4278,7 +4276,10 @@ export class Queries {
                     [
                       {
                         when: claim,
-                        then: a.expressions.coalesce(row, a.json.object([])),
+                        then: a.expressions.coalesce(
+                          row,
+                          this.missingArm(arm.edge, alias ?? "")
+                        ),
                       },
                     ],
                     a.literals.null()
@@ -4291,6 +4292,34 @@ export class Queries {
       ]);
     }
     return expression;
+  }
+  /**
+   * What a claimed arm whose row did not come back carries: the empty
+   * document, "the row is gone", which the decoder refuses. Under a related
+   * domain the row may exist and be hidden, which reads as an empty slot, so
+   * the empty document then also needs the row to be physically absent: a
+   * membership test with no domain, evaluated only for a claim that read no
+   * row. Without a domain, the bytes are the ones a plain client emits.
+   */
+  private missingArm(edge: Membership, parentAlias: string): Sql {
+    const a = this.adapter;
+    if (this.domain?.selector(edge.target, "related") === undefined)
+      return a.json.object([]);
+    const target = this.alias();
+    return a.expressions.caseWhen(
+      [
+        {
+          when: a.operators.exists(
+            a.subqueries.existsCheck(
+              this.table(edge.target, target),
+              this.correlation(edge, parentAlias, target, false)
+            )
+          ),
+          then: a.literals.null(),
+        },
+      ],
+      a.json.object([])
+    );
   }
   /**
    * How many of this member's memberships name a row that is gone.
@@ -4469,12 +4498,7 @@ export class Queries {
     const childFields = Object.keys(projection.shape.fields);
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
-    const window = this.page(
-      edge.target,
-      nested,
-      childAlias,
-      edge.many ? "related" : undefined
-    );
+    const window = this.page(edge.target, nested, childAlias, "related");
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
       from: this.table(edge.target, childAlias),

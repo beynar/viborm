@@ -44,6 +44,8 @@ const TOMBSTONE = `UPDATE "post" SET "deletedAt" = '2026-03-03T00:00:00.000Z' WH
 const ON_CONFLICT = /ON CONFLICT/i;
 const POST_UPDATE = /^\s*UPDATE\s+"post"/i;
 const ON_POST = /"post"/;
+const EXISTS = /EXISTS/;
+const EXISTS_GLOBAL = /EXISTS/g;
 
 /**
  * SQLite that records every statement it runs and, once, runs a write of its
@@ -169,6 +171,32 @@ describe("unique keys under a domain (SQLite3)", () => {
     expect(
       (await base.post.findUniqueOrThrow({ where: { id: 14 } })).title
     ).toBe("d");
+  });
+});
+
+describe("a claimed polymorphic arm under a domain (SQLite3)", () => {
+  test("tests its row's physical existence only where a related domain applies: every other statement is the plain client's", async () => {
+    const driver = new InterleavingSQLite3Driver();
+    const { base, db } = await openRowScopeFixture(driver);
+    try {
+      const statementOf = async (call: () => PromiseLike<unknown>) => {
+        driver.statements.length = 0;
+        await call();
+        return driver.statements.join("\n");
+      };
+      const pins = { include: { subject: true } } as const;
+      const plain = await statementOf(() => base.pin.findMany(pins));
+      expect(plain).not.toMatch(EXISTS);
+      // `with` declares no related predicate: no domain, the plain bytes.
+      expect(
+        await statementOf(() => db.pin.findMany({ ...pins, deleted: "with" }))
+      ).toBe(plain);
+      // The default mode hides posts and authors: one test per claimed arm.
+      const scoped = await statementOf(() => db.pin.findMany(pins));
+      expect(scoped.match(EXISTS_GLOBAL)).toHaveLength(2);
+    } finally {
+      await base.$disconnect();
+    }
   });
 });
 

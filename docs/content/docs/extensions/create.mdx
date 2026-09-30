@@ -331,10 +331,19 @@ await db.project.findMany({ archived: "only" }); // archived projects
   model when the extension is applied (a wrong model or field is refused then,
   naming it). TypeScript does not check them in your editor.
 - Core applies them everywhere a query selects rows: root reads and writes,
-  aggregates, cursors, to-many `include`/`select`, `some`/`none`/`every`,
-  relation counts, recursive reads, and the targets of nested writes. In this
-  release, reading a to-one relation still shows a filtered-out target; a
-  nested `connect` or `update` through it treats that target as missing.
+  aggregates, cursors, `include`/`select` of every relation,
+  `some`/`none`/`every` and `is`/`isNot`, relation counts and ordering,
+  recursive reads, and the targets of nested writes. A to-one relation whose
+  target is filtered out reads `null`, so on a client with `rows` TypeScript
+  types a to-one relation to a model with an entry as `| null`, required or
+  not, in every mode. Models are compared by their field and relation names:
+  a model without an entry that has exactly the names of one with an entry
+  reads `| null` too. A reference to a row that does not exist at all is
+  still an error.
+- `OperationResult`, `InferDatabase`, `renderOperationResultType` and query
+  handlers' results describe the schema alone: on a client with `rows` they
+  type a to-one relation as present where it can read `null`.
+  `ExtendedOperationResult` types the client's own results.
 - A client with `rows` keys its cached reads on the declarations, so it never
   shares a cache entry with a client without them.
 - Apply an extension with `rows` before any extension that adds model-mapped
@@ -405,7 +414,8 @@ A plugin generic over the client it receives (a function of
 and indexes the client type with `M[K & keyof M]`. It declares the signatures
 of the methods it returns with `ExtendedOperationResult<Client, Model,
 Operation, Args>`, the result type of one operation on that client with its
-`defaultOmit` applied, and calls the delegate's method through one cast. The
+`defaultOmit` applied and its `rows` read (a to-one relation to a model with
+an entry is `| null`), and calls the delegate's method through one cast. The
 [soft-delete source](https://github.com/beynar/viborm/blob/main/src/soft-delete/index.ts)
 is that pattern in full.
 

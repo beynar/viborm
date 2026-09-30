@@ -2,7 +2,7 @@ import type { TransactionClient, VibORMConfig } from "@client/client";
 import { RAW_METHOD_NAMES, type RawSurface } from "@client/raw";
 import type {
   Client,
-  ClientRelationDefaults,
+  ClientRowsContext,
   Operations,
   Schema,
 } from "@client/types";
@@ -10,7 +10,7 @@ import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type { ResolvedExtensionChain } from "./chain";
-import type { DefinitionControls, NoControls } from "./controls";
+import type { DefinitionControls, NoControls, RowsModels } from "./controls";
 import { extensionCause, extensionError } from "./definition";
 
 type NoMethods = Record<never, never>;
@@ -37,6 +37,7 @@ export interface ClientExtensionState<
     | ExtensionResultConsumerState
     | undefined = undefined,
   Controls extends object = NoControls,
+  RowModels extends string = never,
 > {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
@@ -44,6 +45,8 @@ export interface ClientExtensionState<
   readonly resultConsumer: ResultConsumerState;
   /** The controls the chain declares: each one's values and placement. */
   readonly controls: Controls;
+  /** The models the chain's `rows` can hide from a relation read. */
+  readonly rows: RowModels;
 }
 
 export type EmptyClientExtensionState = ClientExtensionState;
@@ -54,7 +57,8 @@ export type ExtensionStateConstraint = ClientExtensionState<
   object,
   ExtensionCacheState | undefined,
   ExtensionResultConsumerState | undefined,
-  object
+  object,
+  string
 >;
 
 /** Whether the current type-state includes the official cache capability. */
@@ -71,7 +75,8 @@ export type EnableExtensionCache<X extends ExtensionStateConstraint> =
     X["models"],
     ExtensionCacheState,
     X["resultConsumer"],
-    X["controls"]
+    X["controls"],
+    X["rows"]
   >;
 
 /** Whether an earlier extension was typed against result-bearing delegates. */
@@ -93,7 +98,7 @@ export type ExtensionModelDelegate<
   ModelName extends keyof C["schema"],
 > = Client<
   C,
-  ClientRelationDefaults<C>,
+  ClientRowsContext<C, X["rows"]>,
   HasExtensionCache<X>,
   X["controls"]
 >[ModelName] &
@@ -273,7 +278,8 @@ export type MergeExtensionState<
   MergeModelMethods<X["models"], ModelMethodsOf<Definition>>,
   X["cache"],
   ResultConsumerStateOf<X, Definition>,
-  X["controls"] & DefinitionControls<Definition>
+  X["controls"] & DefinitionControls<Definition>,
+  X["rows"] | RowsModels<Definition>
 >;
 
 export interface BoundExtensionMethods {

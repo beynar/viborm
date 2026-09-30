@@ -4,26 +4,32 @@ import {
   ForeignKeyError,
   NestedWriteError,
   NotFoundError,
+  QueryEngineError,
   UniqueConstraintError,
 } from "@errors";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 /**
  * The `rows` capability at every SET scope (extension-capabilities plan v3.1
- * §2.2, Appendix lookup purposes; milestone 1), through public entry points.
+ * §2.2, Appendix lookup purposes; milestone 1) and every REFERENCE scope
+ * (§5.3, milestone 2), through public entry points.
  *
  * A call's own candidates take its ROOT domain: every read verb, the
  * aggregates, a cursor's anchor, and the root lookups of `update`,
- * `updateMany` and `upsert`. Rows reached through a TO-MANY relation take its
+ * `updateMany` and `upsert`. Rows reached through a relation take its
  * RELATED domain, joined where the relation is correlated and outside any
- * quantifier's negation: projections, `some`/`none`/`every`, counts, `_count`
- * order, a nested page, recursion, and the nested lookups of `connect`, `set`,
- * `update`, `upsert`, `updateMany` and `delete`. `disconnect`, identity
- * re-reads and integrity probes stay physical, and in milestone 1 so does
- * every reference (to-one) scope. `base` is the same database without the
- * extension: its answers are the negative control beside each domain answer.
+ * quantifier's negation: to-many projections, `some`/`none`/`every`, counts,
+ * `_count` order, a nested page, recursion, and the nested lookups of
+ * `connect`, `set`, `update`, `upsert`, `updateMany` and `delete`; and, since
+ * milestone 2, to-one projections (ordinary and polymorphic), `is`/`isNot`,
+ * to-one order terms and upward recursion, where a hidden target reads as an
+ * absent one. `disconnect`, identity re-reads and integrity probes stay
+ * physical: a missing row is still corruption, a hidden one is not. `base` is
+ * the same database without the extension: its answers are the negative
+ * control beside each domain answer.
  *
  * Fixture (hand-computed oracles below): authors 1, 2, 4, 5 live, 3 a
  * tombstone. Posts (author, title): 10 (1, a), 13 (2, c), 14 (1, d) live;
@@ -34,6 +40,9 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * tag 1; 2 holds post 11 and tag 1; 3 holds post 10. Pins (unmanaged,
  * polymorphic reference): 1 on post 11, 2 on post 10. Nodes: 1 -> 2 (a
  * tombstone) -> 3, and 1 -> 4. One audit row, on a model no relation reaches.
+ * Albums (managed, a polymorphic collection whose photo arm has a singular
+ * inverse): 1 live holds photo 2; 2 a tombstone holds photo 1. Cover 1
+ * (managed, one to one) holds post 10.
  */
 
 const T = new Date("2026-01-01T00:00:00.000Z");
@@ -59,6 +68,16 @@ export function rowScopeSchema() {
     comments: s.toMany(() => comment),
     tags: s.toMany(() => tag),
     pins: s.toMany(() => pin).name("subject"),
+    cover: s.toOne(() => cover),
+  });
+  const cover = s.model({
+    id: s.int().id(),
+    postId: s.int().unique(),
+    post: s
+      .toOne(() => post)
+      .fields("postId")
+      .references("id"),
+    deletedAt: s.dateTime().nullable(),
   });
   const comment = s.model({
     id: s.int().id(),
@@ -99,7 +118,25 @@ export function rowScopeSchema() {
       .optional(),
   });
   const audit = s.model({ id: s.int().id(), note: s.string() });
-  return { author, post, comment, tag, node, board, pin, audit };
+  const album = s.model({
+    id: s.int().id(),
+    deletedAt: s.dateTime().nullable(),
+    items: s.toMany({ photo: () => photo, tag: () => tag }),
+  });
+  const photo = s.model({ id: s.int().id(), album: s.toOne(() => album) });
+  return {
+    author,
+    post,
+    comment,
+    tag,
+    node,
+    board,
+    pin,
+    audit,
+    album,
+    photo,
+    cover,
+  };
 }
 
 const modes = {
@@ -115,7 +152,14 @@ const softDelete = {
   rows: {
     control: "deleted",
     default: "without",
-    models: { author: modes, post: modes, comment: modes, node: modes },
+    models: {
+      author: modes,
+      post: modes,
+      comment: modes,
+      node: modes,
+      album: modes,
+      cover: modes,
+    },
   },
   deletion: {
     removeWhen: { mode: "hard" },
@@ -233,6 +277,22 @@ export async function openRowScopeFixture(driver: AnyDriver) {
     },
   });
   await base.audit.create({ data: { id: 1, note: "x" } });
+  await base.cover.create({ data: { id: 1, postId: 10 } });
+  await base.photo.create({ data: { id: 1 } });
+  await base.photo.create({ data: { id: 2 } });
+  await base.album.create({
+    data: {
+      id: 1,
+      items: { connect: [{ type: "photo", where: { id: 2 } }] },
+    },
+  });
+  await base.album.create({
+    data: {
+      id: 2,
+      deletedAt: T,
+      items: { connect: [{ type: "photo", where: { id: 1 } }] },
+    },
+  });
   return {
     base,
     db: base.$extends(softDelete),
@@ -252,6 +312,39 @@ export async function failure(pending: PromiseLike<unknown>): Promise<unknown> {
     return error;
   }
   throw new Error("expected the operation to fail");
+}
+
+type RawClient = RowScopeFixture["base"];
+
+/**
+ * Drop a junction's constraints of one kind, raw: SQLite turns its foreign
+ * keys off per connection and cannot drop a table-level UNIQUE (it answers
+ * `false`); PostgreSQL drops them by name. The behaviour runs on no other
+ * dialect yet, so none is spelled here.
+ */
+async function dropConstraints(
+  client: RawClient,
+  name: string,
+  kind: "f" | "u"
+): Promise<boolean> {
+  const dialect = client.$driver.dialect;
+  if (dialect === "sqlite") {
+    if (kind === "u") return false;
+    await client.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
+    return true;
+  }
+  if (dialect !== "postgresql")
+    throw new Error(`no raw constraint helper for ${dialect}`);
+  const ident = client.$driver.adapter.identifiers.escape;
+  const table = client.$driver.adapter.identifiers.table;
+  const named = await client.$queryRaw<{ conname: string }>(
+    sql`SELECT conname FROM pg_constraint WHERE conrelid = ${`"${client.$driver.adapter.namespace ?? "public"}"."${name}"`}::regclass AND contype = ${kind}`
+  );
+  for (const row of named)
+    await client.$executeRaw(
+      sql`ALTER TABLE ${table(name)} DROP CONSTRAINT ${ident(row.conname)}`
+    );
+  return true;
 }
 
 export interface RowScopeProvider {
@@ -552,19 +645,237 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
       });
     });
 
-    test("reference scopes stay physical in milestone 1: a to-one and a polymorphic arm show the tombstone and its marker", async () => {
-      const { db } = context;
-      const comment = await db.comment.findUniqueOrThrow({
+    test("a to-one projection reads a hidden target as null, required or optional, in the modes that hide it", async () => {
+      const { base, db } = context;
+      const select = {
+        orderBy: { id: "asc" },
+        select: { id: true, post: { select: { id: true } } },
+      } as const;
+      const pairs = (
+        rows: readonly { id: number; post: { id: number } | null }[]
+      ) => rows.map((row) => [row.id, row.post?.id ?? null]);
+      // `comment.post` is required: comment 103's post 11 is a tombstone.
+      expect(pairs(await db.comment.findMany(select))).toEqual([
+        [100, 10],
+        [102, 13],
+        [103, null],
+      ]);
+      expect(
+        pairs(await db.comment.findMany({ ...select, deleted: "only" }))
+      ).toEqual([
+        [101, 10],
+        [104, null],
+      ]);
+      expect(
+        pairs(await db.comment.findMany({ ...select, deleted: "with" }))
+      ).toEqual([
+        [100, 10],
+        [101, 10],
+        [102, 13],
+        [103, 11],
+        [104, 11],
+      ]);
+      expect(pairs(await base.comment.findMany(select))).toEqual([
+        [100, 10],
+        [101, 10],
+        [102, 13],
+        [103, 11],
+        [104, 11],
+      ]);
+      // An include reads the same, and a visible target keeps its row.
+      const included = await db.comment.findUniqueOrThrow({
         where: { id: 103 },
         include: { post: true },
       });
-      expect(comment.post).toMatchObject({ id: 11, deletedAt: T });
-      const pin = await db.pin.findUniqueOrThrow({
-        where: { id: 1 },
-        include: { subject: true },
+      expect(included.post).toBeNull();
+      // Photo 1's album (a singular inverse through a junction) is a tombstone.
+      const photos = await db.photo.findMany({
+        orderBy: { id: "asc" },
+        include: { album: { select: { id: true } } },
       });
-      expect(pin.subject?.type).toBe("post");
-      expect(pin.subject?.data).toMatchObject({ id: 11, deletedAt: T });
+      expect(photos.map((row) => [row.id, row.album?.id ?? null])).toEqual([
+        [1, null],
+        [2, 1],
+      ]);
+      const physical = await base.photo.findMany({
+        orderBy: { id: "asc" },
+        include: { album: { select: { id: true } } },
+      });
+      expect(physical.map((row) => [row.id, row.album?.id ?? null])).toEqual([
+        [1, 2],
+        [2, 1],
+      ]);
+    });
+
+    test("is, isNot and a to-one order term read the related domain", async () => {
+      const { base, db } = context;
+      const ordered = { orderBy: { id: "asc" } } as const;
+      const is = { where: { post: { is: { title: "b" } } }, ...ordered };
+      expect(ids(await db.comment.findMany(is))).toEqual([]);
+      expect(
+        ids(await db.comment.findMany({ ...is, deleted: "with" }))
+      ).toEqual([103, 104]);
+      expect(ids(await base.comment.findMany(is))).toEqual([103, 104]);
+      const isNot = { where: { post: { isNot: { title: "b" } } }, ...ordered };
+      expect(ids(await db.comment.findMany(isNot))).toEqual([100, 102, 103]);
+      expect(ids(await base.comment.findMany(isNot))).toEqual([100, 101, 102]);
+      // Titles a (post 10), b (11, hidden), c (13): a hidden target orders as
+      // a null key, which each provider places at one end of the order.
+      expect(
+        ids(
+          await base.comment.findMany({
+            orderBy: [{ post: { title: "asc" } }, { id: "asc" }],
+          })
+        )
+      ).toEqual([100, 101, 103, 104, 102]);
+      const scoped = ids(
+        await db.comment.findMany({
+          orderBy: [{ post: { title: "asc" } }, { id: "asc" }],
+        })
+      );
+      expect(scoped.filter((id) => id !== 103)).toEqual([100, 102]);
+      expect([0, 2]).toContain(scoped.indexOf(103));
+    });
+
+    test("a lookup that reads through a to-one relation depends on the call's earlier write of that target's domain fields", async () => {
+      const { base, db } = context;
+      // The root write hides cover 1; the nested post lookup reads it back
+      // through `cover`, so it runs after that write and finds nothing.
+      const refused = await failure(
+        db.cover.update({
+          where: { id: 1 },
+          data: {
+            deletedAt: T,
+            post: {
+              update: { where: { cover: { is: {} } }, data: { title: "x" } },
+            },
+          },
+        })
+      );
+      expect(refused).toBeInstanceOf(NestedWriteError);
+      expect((refused as NestedWriteError).message).toContain(
+        "target record was not found"
+      );
+      expect(
+        await base.post.findUniqueOrThrow({
+          where: { id: 10 },
+          select: { title: true },
+        })
+      ).toEqual({ title: "a" });
+    });
+
+    test("an upward recursion stops at a hidden node", async () => {
+      const { base, db } = context;
+      const ancestors = {
+        where: { id: 3 },
+        select: {
+          id: true,
+          parent: { recurse: { depth: 3 }, select: { id: true } },
+        },
+      } as const;
+      expect(await db.node.findUnique(ancestors)).toEqual({
+        id: 3,
+        parent: null,
+      });
+      expect(await base.node.findUnique(ancestors)).toEqual({
+        id: 3,
+        parent: { id: 2, parent: { id: 1, parent: null } },
+      });
+      expect(
+        await db.node.findUnique({ ...ancestors, deleted: "with" })
+      ).toEqual({ id: 3, parent: { id: 2, parent: { id: 1, parent: null } } });
+    });
+
+    test("a hidden polymorphic arm stored on the parent row reads null (R1)", async () => {
+      const { base, db } = context;
+      const read = {
+        orderBy: { id: "asc" },
+        include: { subject: true },
+      } as const;
+      const subjects = (
+        rows: readonly {
+          subject: { type: string; data: { id: number } } | null;
+        }[]
+      ) =>
+        rows.map((row) =>
+          row.subject ? `${row.subject.type}:${row.subject.data.id}` : null
+        );
+      // Pin 1 claims post 11, a tombstone: hidden, not missing.
+      expect(subjects(await db.pin.findMany(read))).toEqual([null, "post:10"]);
+      expect(
+        subjects(await db.pin.findMany({ ...read, deleted: "with" }))
+      ).toEqual(["post:11", "post:10"]);
+      expect(subjects(await base.pin.findMany(read))).toEqual([
+        "post:11",
+        "post:10",
+      ]);
+      const selected = await db.pin.findUniqueOrThrow({
+        where: { id: 1 },
+        select: { subject: { post: { select: { title: true } } } },
+      });
+      expect(selected.subject).toBeNull();
+    });
+
+    test("physical integrity stays physical: a missing arm row, an orphan in an excluded arm and a duplicate singular membership still fail", async () => {
+      const { base, db } = context;
+      const client = base;
+      const ident = client.$driver.adapter.identifiers.escape;
+      const table = client.$driver.adapter.identifiers.table;
+      // Pin 2 now claims a post that does not exist: corruption, whatever
+      // the mode, where pin 1's tombstone reads null.
+      await client.$executeRaw(
+        sql`UPDATE ${table("pin")} SET ${ident("subject_id")} = ${999} WHERE ${ident("id")} = ${2}`
+      );
+      const missing =
+        "Polymorphic relation 'subject' references a missing 'post' record.";
+      for (const read of [
+        db.pin.findMany({ include: { subject: true } }),
+        db.pin.findMany({ include: { subject: true }, deleted: "with" }),
+        base.pin.findMany({ include: { subject: true } }),
+      ]) {
+        const refused = await failure(read);
+        expect(refused).toBeInstanceOf(QueryEngineError);
+        expect((refused as Error).message).toBe(missing);
+      }
+      expect(
+        await db.pin.findUniqueOrThrow({
+          where: { id: 1 },
+          include: { subject: true },
+        })
+      ).toEqual({ id: 1, subject: null });
+      // A tag membership of album 1 whose tag is gone fails the read even
+      // when `only` excludes the tag arm; album 2's hidden photo is not one.
+      await dropConstraints(client, "album_items_tag", "f");
+      await client.$executeRaw(
+        sql`INSERT INTO ${table("album_items_tag")} (${ident("albumId")}, ${ident("tagId")}) VALUES (${1}, ${999})`
+      );
+      const orphan = await failure(
+        db.album.findUniqueOrThrow({
+          where: { id: 1 },
+          include: { items: { only: ["photo"] } },
+        })
+      );
+      expect(orphan).toBeInstanceOf(QueryEngineError);
+      expect((orphan as Error).message).toBe(
+        "Polymorphic relation 'items' references a missing 'tag' record."
+      );
+      // Photo 2 in both albums: the singular inverse is malformed although
+      // the second album is hidden and only one row is visible.
+      const second = sql`INSERT INTO ${table("album_items_photo")} (${ident("albumId")}, ${ident("photoId")}) VALUES (${2}, ${2})`;
+      if (!(await dropConstraints(client, "album_items_photo", "u"))) {
+        // SQLite cannot drop the UNIQUE: the database refuses the state.
+        expect(await failure(client.$executeRaw(second))).toBeInstanceOf(Error);
+        return;
+      }
+      await client.$executeRaw(second);
+      expect(
+        await failure(
+          db.photo.findUniqueOrThrow({
+            where: { id: 2 },
+            include: { album: true },
+          })
+        )
+      ).toBeInstanceOf(QueryEngineError);
     });
 
     test("the control on a model no entry governs: a no-op where no relation reaches it, `only` reads related rows as `without`", async () => {

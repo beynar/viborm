@@ -253,7 +253,9 @@ handler lookup, the chain's one control name space and placed controls, one
 is refused); `controls.ts` owns control placement, the call's one admission
 (taken out of the arguments before request transforms, validated once, handed
 only to the declaring extension's handlers) and the control types the model
-delegate reads from the extension state; `rows.ts` binds, once per
+delegate reads from the extension state, beside the models a chain's `rows`
+name, from which `src/client/result-types.ts` types a to-one relation that
+can read hidden as `| null`; `rows.ts` binds, once per
 application, each mode combination's row domains, tombstones and the row
 identity a cached read is keyed on, so a call only looks its facts up;
 `methods.ts` owns client/model factories and collisions; `request.ts`,

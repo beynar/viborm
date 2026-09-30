@@ -21,16 +21,20 @@ Versioning.
   declaring extension's handlers (`context.controls`). `rows` declares constant
   row filters per model, one set per mode, chosen per call by a control;
   core applies them at every place a query selects rows (root reads and
-  writes, aggregates, cursors, to-many relations, quantifiers, counts,
-  recursion, nested write targets). In this release a to-one relation read
-  still shows a filtered-out target. `deletion` turns a delete of the named
+  writes, aggregates, cursors, every relation, quantifiers, counts, ordering,
+  recursion, nested write targets). A to-one relation whose target is
+  filtered out reads `null` and, on a client with `rows`, is typed `| null`
+  when its target model has an entry (or the same field and relation names as
+  one); a reference to a missing row is still an error. `deletion` turns a delete of the named
   models into an update with the call's one time and constant data, refused
   while a visible row still references it through a restricting foreign key,
   unless the call's controls match `removeWhen`. A cached read that receives
   a control is keyed on its value and, on a client with `rows`, on the `rows`
   declarations; a read that receives none keeps today's key.
 - **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
-  `viborm`, for plugins generic over the client they receive. `Client` gains
+  `viborm`, for plugins generic over the client they receive.
+  `ExtendedOperationResult` reads the client's `rows`; `OperationResult`,
+  `InferDatabase` and `renderOperationResultType` stay schema-only. `Client` gains
   an optional fourth type parameter (the chain's controls), and `$withCache()`
   accepts the chain's controls.
 - **Changed (types): extension typing for plugins generic over their client.**

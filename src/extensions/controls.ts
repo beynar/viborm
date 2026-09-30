@@ -180,6 +180,17 @@ type RowsControl<Definition> = Definition extends {
     }
   : NoControls;
 
+/**
+ * The models one definition's `rows` can hide from a relation read: its
+ * entries' keys. A to-one relation that targets one of them reads `null` when
+ * its target is hidden, so the result types widen it (`result-types.ts`).
+ */
+export type RowsModels<Definition> = Definition extends {
+  readonly rows: infer Rows extends RowsContribution;
+}
+  ? Extract<keyof Rows["models"], string>
+  : never;
+
 /** The controls one definition places, keyed by control name. */
 export type DefinitionControls<Definition> = DeclaredControls<Definition> &
   RowsControl<Definition>;

@@ -98,8 +98,8 @@ import {
 import type {
   CachedClient,
   Client,
-  ClientOperationResult,
-  ClientRelationDefaults,
+  ClientRowsContext,
+  ContextualOperationResult,
   Operations,
   Schema,
 } from "./types";
@@ -335,7 +335,7 @@ export type VibORMClient<
       /** Create a client with cache - only read operations available */
       $withCache: (
         config?: WithCacheOptions
-      ) => CachedClient<C, ClientRelationDefaults<C>, X["controls"]>;
+      ) => CachedClient<C, ClientRowsContext<C, X["rows"]>, X["controls"]>;
       /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
       $invalidate: (...keys: string[]) => Promise<void>;
     },
@@ -464,7 +464,8 @@ export type ExtensionState = ExtensionStateConstraint;
 
 /**
  * One operation's result on a derived client, as that client's own delegate
- * types it: its `defaultOmit` applied to `Args`. Index the client with
+ * types it: its `defaultOmit` applied to `Args`, and a to-one relation whose
+ * target the chain's `rows` can hide typed `| null`. Index the client with
  * `M[K & keyof M]` in a plugin generic over it.
  */
 export type ExtendedOperationResult<
@@ -472,8 +473,14 @@ export type ExtendedOperationResult<
   ModelName,
   O extends Operations,
   Args,
-> = Client extends VibORMClient<infer C, infer _X>
-  ? ClientOperationResult<C, ModelName & keyof C["schema"], O, Args>
+> = Client extends VibORMClient<infer C, infer X>
+  ? ContextualOperationResult<
+      C,
+      ModelName & keyof C["schema"],
+      O,
+      Args,
+      ClientRowsContext<C, X["rows"]>
+    >
   : never;
 
 /**
