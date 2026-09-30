@@ -1,4 +1,6 @@
-# Extension capabilities v3.1 and `viborm/soft-delete`: final qualification record (U7, amended by the U7 repair)
+# Extension capabilities v3.1 and `viborm/soft-delete`: final qualification record (U7, amended by the U7 repair and the compression pass)
+
+**Section 00 (the compression pass, qualified on a26cbc8a3) supersedes section 0 and sections 1-12 wherever they differ.**
 
 The qualifier ran on frozen source 572de61f7. Its review found two blockers, two majors and four minors; the U7 repair (commit **654b3df93**, tree e32c2c55a) repaired or re-measured each. **Section 0 below supersedes sections 1-12 wherever they differ**; those sections are kept as the qualification of 572de61f7.
 
@@ -8,6 +10,145 @@ One thing still blocks a clean exit and needs the owner:
 And one qualification gap remains: **MySQL has never executed a witness** (no server; Docker down). PostgreSQL now has: the repair ran the pg-driver lane on a scratch PostgreSQL 18.3 server (§0.2).
 
 Labels: **MEASURED** means run in the qualification or the repair unless another unit is named. **JUDGEMENT** means reasoning, not measurement.
+
+## 00. Compression pass (2026-09-30)
+
+The branch was compressed under ELEGANCE.md after the elegance review of 2c1e896bb (scratchpad `softdelete/elegance/report.md`: verdict, 14 ranked proposals, irreducible list, defects D1–D7), reviewed, repaired, then qualified on frozen source. **This section supersedes §0 and §1–12 wherever they differ.** Those sections stay as the qualification of the pre-pass tree. Labels are as above: **MEASURED** was run by the qualifier on a26cbc8a3 unless a unit is named; **JUDGEMENT** is reasoning.
+
+Still open, as before the pass: **the §5.2 bundle budget is breached** (STOP U3R-1, owner): +6,133 B gzip over main against +5 KB (§00.6). **MySQL has never run a witness** (§00.9).
+
+### 00.1 Identity
+
+| Item | Value |
+| --- | --- |
+| Qualified source (HEAD before this docs commit) | **a26cbc8a3c64d3fcc9abc8dba02a1c71d5f9e3c1**, tree 0d06fec2439f30a8dda4e11bc4f90b1782b92fdf |
+| Base | origin/main = merge-base = 30ff17e69 |
+| Pre-pass tree | 2c1e896bb (the docs commit on top of the U7 repair ec3f4b6ef). The branch was re-committed after §0/§1 were written: §1's hashes (e151a686f … 572de61f7, 654b3df93) name the same units but are not ancestors of HEAD; the pre-pass commits are e151a686f, 2ac4eae84, 51a259d44, d20451b5a, 0167dda59, 6464b1f69, e7d6cf383, 8fe8c4a56, c8204bcb5, 4d3b40f8e, 2f0b76b98, fac2133aa, ec3f4b6ef, 2c1e896bb. |
+| Commits over 30ff17e69 | 21 = 14 pre-pass + 7 of the pass |
+| Diff vs main (commit to commit) | 102 files, +13,195 / −1,073 physical lines; vs 2c1e896bb: 29 files, +721 / −902 |
+| Working tree before this commit | clean; nothing pushed; nothing amended; no history rewritten |
+| Trailers over main | 16 `Claude Fable 5.1`, 5 `Claude Opus 5.5` (MEASURED with `git log --format=%(trailers)`; §0.1's "10 / 3" no longer describes the re-committed branch). In the pass: C1, C2, C5, C6 and the repair carry Opus 5.5 (the harness attribution), C3 and C4 carry Fable 5.1. Normalising needs a squash or reword at PR time (owner). |
+
+The pass's commits:
+
+| Unit | Commit | Review rows | What it is |
+| --- | --- | --- | --- |
+| C1 | 622ffd740 | D1, D3, D4, D5 | witnesses adopted before compressing (tests only) |
+| C2 | 8364330f2 | 1, 10, 11; D1, D2 | each capability declaration read once, checks run on the frozen copy |
+| C3 | a18eaeceb | 3, 4 | one control type carries its placement; the chain's rows declarations are the cache key's row identity |
+| C4 | cb65aa8dc | 5 | the official cache's control goes through the chain's controls slot; `Client` drops its cache-bit parameter |
+| C5 | 12182bd5f | 2, 6, 12 | root delete and deleteMany are one plan; the prepared domain owns its read view |
+| C6 | b60daadfe | 7, 8, 9, 13; D6 | tests keep what each owner decides; one `failure()`; the statement-count pin goes to its race twin |
+| repair | a26cbc8a3 | review of C1–C6 | C2's unnamed message and admission changes restored; the restrict refusal pins every relation it names |
+
+### 00.2 Lines, MEASURED
+
+Scanner: the review's `elegance/synthesis/loc.mjs`, which counts a line only if it holds code outside comments (.ts only), run with `git show <rev>:<file>` at each revision. Production perimeter = the review's `src-perimeter.txt` (34 .ts files: every production file the branch touches). Test perimeter = the review's `test-ts.txt` (32 files) plus the two files the pass touched that it did not list (`tests/fixtures/failure.ts`, new; `tests/providers/local/sqlite3-fixtures.ts`).
+
+| Perimeter | main 30ff17e69 | pre-pass 2c1e896bb | post-pass a26cbc8a3 | Branch growth pre → post |
+| --- | --- | --- | --- | --- |
+| Production (34 files) | 21,528 | 23,882 | **23,649** | +2,354 → **+2,121** (−233, 9.9% of the growth) |
+| of which the 11 src files the pass touched | 11,976 | 13,882 | 13,649 | +1,906 → +1,673 |
+| Tests (34 files) | 2,698 | 8,215 | **8,222** | +5,517 → +5,524 (+7) |
+
+Per unit (production / tests): C1 0 / +143; C2 −147 / 0; C3 −47 / 0; C4 −17 / 0; C5 −45 / 0; C6 0 / −166; repair +23 / +30. Per file (main → pre → post): definition.ts 414 → 1,063 → 940; chain.ts 356 → 575 → 536; controls.ts 0 → 446 → 445; rows.ts 0 → 128 → 121; methods.ts 423 → 422 → 419; client/types.ts 819 → 838 → 824; client/client.ts 1,026 → 1,077 → 1,076; commands.ts 1,649 → 1,813 → 1,770; commands/index.ts 244 → 287 → 272; operation-context.ts 2,426 → 2,453 → 2,459; query.ts 4,619 → 4,780 → 4,787.
+
+Against the review's forecast (−236 production measured on a stacked prototype, −151 tests offset by about +60 witnesses): production lands at −233; the witnesses cost +143, not +60; the repair spent +23 production and +30 test lines to keep refusal bytes identical (§00.3, repair). The C6 commit body's per-row split is wrong; the right split of its −166 is row 7 −128, row 8 −27, row 9 −8, row 13 −3, D6 0 (decision C6-11).
+
+### 00.3 What disappeared, per unit
+
+- **C1** (tests only). Added: two per-model placement tests (D3, extension-controls.core.test.ts, one per application order); two root soft deletes whose projection reads relations (D4, deletion-capability-behavior.ts: to-many include, and a restricted candidate with a projection); `createNonReturningSQLite3Driver` in sqlite3-fixtures.ts and a third consumer call in deletion-sites, row-scopes and soft-delete.core (D5, 56 cells); a callable Standard Schema admitted and run (D1, red until C2). Manifests: deletion-sites 26 → 45, row-scopes 57 → 81.
+- **C2**. Gone: `isGuardedRecord`, `requireRecord`, `copyRecord`, `readStringKeys`, `readMemberKeys`, the seven `Runtime*` declaration types, and the rebuild of each control, removeWhen and deletion entry in `snapshotControl`/`snapshotRemoveWhen`/`snapshotDeletionEntry`. Now: `copyData` copies controls, rows and deletion once, whole; `record` is the one shape check; `readGuarded` the one guarded reader (`readOwn` is its one-line delegate); `assertControl`, `assertRemoveWhen`, `assertDeletionEntry` narrow the copy in place (`asserts value is X`, ELEGANCE §5, each right after the `copyData` that established it); the public `ControlDeclaration` and `*Contribution` types are the runtime types. Row 10 folded (the removeWhen oneOf requirement is the value check; one pin moved). Row 11: `rowsModes` is the one derivation of the rows mode list. Fixed D1 and D2.
+- **C3**. Gone: `PlacedControlDeclaration`, the copy-then-freeze index protocol (`MutableControlLists`, `copyControlLists`, `freezeControlLists`), `RowsBinding.identity` and `ResolvedRows` (with its unread `extension`). Now: `ResolvedControl` (controls.ts) carries its placement; `ResolvedControls.all` is the flat list the per-(model, operation) index is rebuilt from; `cacheKeyOf` reads `engine.extensionChain.rows`. Rows cache key bytes changed (never shipped).
+- **C4**. Gone: `Client`'s `ExtensionCache extends boolean` parameter, `ClientControls`, `OfficialCacheControlState`. Now: `EnableExtensionCache` adds the cache's declaration to `X["controls"]`, the slot every other extension uses. Public type change: `Client`'s third parameter is the controls; `Client<C, D, true>` no longer compiles (CHANGELOG, named by the review, row 5).
+- **C5**. Gone: the second root-delete route (`rootUpdate`'s optional selector, the record route and the `root.operation` override) and the second WeakMap memo (`scopedReads`/`readsOf`). Now: root `delete`/`deleteMany` is the hard delete's plan and a soft delete swaps only the effect (`ctx.updateMany` for `ctx.deleteMany`); `OperationContext.updateMany` re-reads a relation projection by identity, the rule `deleteMany` already had; `PreparedDomain.reads` is the one read view; the interactive requirement builds its error with `restrictFailure(model)()`. Statement order changed on the projected soft delete only (C5-2: 45-cell probe, identical results, errors and row states; packaging, ELEGANCE §7).
+- **C6** (tests only). Gone: five soft-delete-behavior tests owned by row-scope-behavior and deletion-capability-behavior (and the fixture only they used), five branch copies of `failure()` (tests/fixtures/failure.ts owns it), the RETURNING statement-count pin (its DC10 race twin dies under the same mutation; row-scopes 81 → 80), two redundant type directives. D6: the ForeignKeyError text and the nullability pin re-derived from the plan; the admission ledger count 3 re-derived and kept (not a defect).
+- **Repair**. C2 had changed seven refusal messages and refused a Map where 2c1e896bb admitted one, none named by the review. `copyData` now reads positions from one `Shape` table per member (definition.ts:267-277), a misfit is copied as `null` so each position refuses in its own words, and the unknown-member refusal moved into the copy (dropping `record`'s five member lists). Probe of 41 definitions, 2c1e896bb vs repair: 35 byte-identical, the 6 that differ are exactly the review's named changes (D1, three D2 cases, first-fault order, row 10). Four pins added. The restrict refusal now pins the set of relations it names ({comments, notes, tags}, order-free).
+
+### 00.4 Commands, one at a time, MEASURED on a26cbc8a3
+
+- `pnpm exec biome check --max-diagnostics=500` on the 24 code files changed since 2c1e896bb: 0 diagnostics.
+- `node node_modules/typescript-native/bin/tsc --project tsconfig.json --noEmit`: exit 0, 0 errors, 8.1 s.
+- `node scripts/raptor3-refusal-census.mjs --at 30ff17e69`, `--at 2c1e896bb`, `--at HEAD`, and on the working tree: 240 lines each; 203 sites (invariant 25 / 24 sentences; inherited 76 / 76; candidate 44 / 35; rethrow 58); identical to both earlier revisions modulo line numbers, per-file site counts equal. **Delta 0.** 106 lines differ against 2c1e896bb, all line shifts (query.ts 99, operation-context.ts 16, commands.ts 4, commands/index.ts 1, the revision line).
+- Dead-symbol gate (`pnpm exec vitest run --workspace vitest.workspace.ts tests/contracts/engine/write/dead-symbol-gate.core.test.ts`): 3 files, 225/225.
+- Manifests: `node scripts/run-raptor3.mjs post-g3-row-scopes` 80/80 and `post-g3-deletion-sites` 45/45, both "contract gate verified"; `node scripts/run-node-safe.mjs 512 300000 scripts/<t>.test.mjs`: coverage-policy 11/11, credential-free-ci 4/4, raptor3-campaign-receipts 41/41, raptor3-refusal-census 8/8, bounded-process 16/16, test-run-lock 6/6; raptor3-cli 10/10 (900 s wall, 224.6 s).
+- Direct vitest, one layer project at a time: validation 998, scalars 1,159, operation-schemas 1,364, relations 119, schema-validation 470, schema-json 431, query-engine 739, write-engine 82, adapters 190, drivers 988, client **704** (690 pre-pass: C1 +20, C6 −10, repair +4), cache 85, instrumentation 185, migrations 1,899. **446 files, 9,413 passed, 0 failed.**
+- raptor3: 200 files passed, 7 failed; 2,129 passed, 7 failed. The 7 are **exactly the known reds** (cs02-structure-measure; g3 sqlite-campaign, transport-campaign; g4 sqlite-campaign, transport-campaign, write-campaign, write-transport-campaign). raptor3-provider 9 files, 32/32. provider-sqlite3 16 files, 881 passed, 1 skipped. extended-local 171 files passed, 22 skipped; 2,348 passed, 393 skipped.
+- Live PGlite via `node scripts/run-credential-free-tests.mjs --only …`, each alone, teardown verified: pglite-deletion-capability 15/15 (1,798.9 MiB), pglite-row-scopes 24/24 (1,552.1), pglite-soft-delete 12/12 (1,931.1), pglite-captured-bulk 8/8 (1,705.3) and pglite-bulk-writes 148/148 (1,756.3) (both because `updateMany` changed in C5), shared-family shard 4/8 (official-cache-invalidation) 205/205 (1,926.1), shared-family shard 5/8 (official-cache-reads, because the cache key changed in C3) 239/239 (2,095.1), imported-pglite shard 2/2 (official-cache-extension) 163 + 14 skipped (1,724.2). Ceiling 2,560 MiB.
+- PostgreSQL: `docker info` fails, so the pg lane ran on a **scratch Homebrew PostgreSQL 18.3** (initdb with LC_ALL=C and scram password in the qualifier's scratch, 127.0.0.1:55434, no unix socket, database `viborm`, no PostGIS), `PG_TEST_CONNECTION_STRING=postgresql://postgres:password@127.0.0.1:55434/viborm pnpm exec vitest run --workspace vitest.workspace.ts --project provider-pg tests/providers/docker/pg-<f>.test.ts`, one file at a time: deletion-races 5, deletion-capability 15, row-scopes 24, soft-delete 12, captured-set-concurrency 28, nested-write-races 95, batch-reference-reuse 6, junction-side-actions 9: **194/194**. Server stopped and data dir deleted. **MySQL not run**: no Docker and no local `mysqld`.
+- Lock scripts, one at a time, each first run, none rerun (load average 8-11): `pnpm test:types` exit 0, 12 s, 6,141.7 MiB (ceiling 8,192); `pnpm test:core` exit 0, 46 s, 446 files, 9,413/9,413, 1,259.0 MiB (ceiling 1,536); `pnpm test:package` exit 0, 24 s, 13/13 including the packed public-surface golden, "lets a third party build soft delete from public exports alone" and the TS 5.8 consumer floor; `pnpm test:coverage` exit 0, 455 s, every threshold held (below); `pnpm test:layer:client` exit 0, 39 s, 704/704, type chunks 1,452.3 / 1,432.5 / 1,414.8 / 1,400.5 MiB; `pnpm test:layer:query-engine` exit 0, 16 s, 739/739, types 1,374.7 MiB; `pnpm test:layer:instrumentation` exit 0, 12 s, 185/185, types 1,462.7 MiB.
+
+Coverage from `pnpm test:coverage` (statements / branches / functions / lines, floor): public, schema, validation, sql, instrumentation, **extensions (20 files, 443 tests)**, errors, adapters, CLI 100 / 100 / 100 / 100 (100); query-engine core 93.79 / 94.24 / 94.43 / 93.79 (87 / 91 / 90 / 87); drivers 96.04 / 92.69 / 96.06 / 96.04 (96 / 92.5 / 96 / 96); client 96.33 / 94.36 / 96.5 / 96.33 (96 / 94 / 96 / 96); cache 100 (98); migrations 98.68 / 97.3 / 99.89 / 98.68 (98 / 97.3 / 98 / 98).
+
+The source was not changed by the qualification: no gate failed, so there is no "(compression repair)" commit from it.
+
+### 00.5 Types, MEASURED
+
+tsc 5.9.3 `--extendedDiagnostics` under `node --max-old-space-size=1280`, on path-limited archives (src tests tsconfig.json package.json) of the three revisions, 3 rounds with the order rotated each round (main/pre/head, head/main/pre, pre/head/main), 91 runs, every run exit 0 with 0 errors, types and instantiations identical across rounds. `client-N` uses main's chunking (as §0.3, so main is comparable); `gate-client-N` uses each tree's own run-layer-core chunking (1/10/14/5 files). Dense: main runs `dense-before.ts`, pre and head `dense-after.ts` (§4). Logs: scratchpad `compress/qualify/meas/meas.log`, `summary.txt`.
+
+| Program | Types main / pre / post | Post vs main | Post vs pre | Instantiations main / pre / post | Post vs main | Post vs pre | RSS median MiB main / pre / post |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| client-1 | 802,129 / 776,409 / 776,061 | −3.25% | −348 | 3,466,692 / 3,051,226 / 3,048,759 | −12.06% | −2,467 | 1,447.9 / 1,394.1 / 1,425.6 |
+| client-2 | 850,210 / 857,438 / 857,083 | +0.81% | −355 | 3,871,678 / 3,669,676 / 3,664,996 | −5.34% | −4,680 | 1,420.9 / 1,438.7 / 1,425.7 |
+| client-3 | 833,677 / 834,937 / 834,594 | +0.11% | −343 | 3,817,198 / 3,646,906 / 3,643,687 | −4.55% | −3,219 | 1,414.7 / 1,416.5 / 1,411.8 |
+| client-4 | 781,169 / 755,389 / 755,041 | −3.34% | −348 | 3,404,399 / 2,988,790 / 2,986,330 | −12.28% | −2,460 | 1,409.2 / 1,383.3 / 1,419.5 |
+| instrumentation | 922,065 / 751,094 / 750,736 | −18.58% | −358 | 5,064,021 / 3,062,434 / 3,060,221 | −39.57% | −2,213 | 1,468.3 / 1,430.4 / 1,439.2 |
+| schema-only floor | 773,810 / 748,022 / 747,674 | −26,136 | −348 | 3,326,322 / 2,910,659 / 2,908,218 | −12.57% | −2,441 | 1,430.9 / 1,436.6 / 1,439.5 |
+| dense (whole feature) | 795,841 / 772,501 / 772,142 | −2.98% | −359 | 3,495,766 / 3,102,679 / 3,099,953 | −11.32% | −2,726 | 1,441.3 / 1,460.5 / 1,449.7 |
+
+gate-client-1..4 types pre → post: 776,409 → 776,061; 857,438 → 857,083; 830,890 → 830,547; 775,911 → 775,524. Instantiations: 3,051,226 → 3,048,759; 3,669,676 → 3,664,996; 3,624,240 → 3,621,021; 3,162,453 → 3,159,957. One run each: soft-delete-acceptance 758,916 → 758,529 types (3,006,114 → 3,003,532 inst); row-reference-nullability 757,240 → 756,893 (2,977,711 → 2,975,251).
+
+Verdict: every program is **lower than the pre-pass** in types and instantiations (the task's bar), and within §5.2's M1 and M2 columns against main (worst client-2 +0.81% types; every instantiation count lower than main). The pre-pass column reproduces §0.3 exactly. Largest run: **1,506.5 MiB** (client-2, post, round 1, during the first rounds, when the bundle archive builds ran in parallel); its other rounds were 1,389.6 and 1,425.7, and the lock-script run of the same chunk peaked at 1,432.5. Under the plan's 1,536; over O7's paraphrased 1,500 once (JUDGEMENT: contention, not the change; types and instantiations fell).
+
+### 00.6 Bundle, MEASURED
+
+tsdown + `scripts/measure-bundle.mjs` on path-limited archives (src scripts package.json tsconfig.json tsdown.config.ts benchmarks/internal), two builds per revision in this session, raw and gzip identical between the two builds of each revision. Raw / gzip / brotli bytes.
+
+| Fixture | main 30ff17e69 | pre-pass 2c1e896bb | post-pass a26cbc8a3 | post − pre | post − main |
+| --- | --- | --- | --- | --- | --- |
+| **pg-representative** | 543,896 / 160,066 / 135,512 | 565,696 / 166,440 / 141,172 | **564,035 / 166,199 / 141,007** | −1,661 raw / **−241 gzip** | +20,139 raw / **+6,133 gzip** |
+| pg-soft-delete | n/a | 566,592 / 166,801 / 141,452 | 564,931 / 166,528 / 141,149 | −1,661 / −273 | +6,462 gzip over main's pg-representative |
+| soft-delete entry | n/a | 759 / 395 / 349 | 759 / 395 / 349 | 0 | n/a |
+| full | 917,160 / 267,890 / 221,230 | 939,620 / 274,414 / 226,995 | 937,961 / 274,283 / 226,983 | −1,659 / −131 | +6,393 gzip |
+| ids-only | 93,221 / 27,891 | 93,221 / 27,892 | 93,221 / 27,892 | 0 | +1 |
+| decimal-only | 93,072 / 27,867 | 93,072 / 27,868 | 93,072 / 27,868 | 0 | +1 |
+
+The pre-pass pg-representative gzip here is 166,440; §0.5 recorded 166,409 for the same raw bytes (565,696), the ±~100 B gzip variance U7R-9 describes. The deltas above are taken between this session's builds. **§5.2 base entry ≤ +5 KB gzip: still BREACHED**, +6,133 B (1,133 over 5,000; 1,013 over 5,120). The pass removed 241 B gzip of the 6,374 B over main measured in the same session. No ceiling was raised. STOP U3R-1 stays open for the owner.
+
+### 00.7 Runtime gate, MEASURED
+
+The U5 harness (scratchpad `impl/u7/rt/bench/worker.mjs`, unchanged; runner `compress/qualify/rt/run.sh`) on dists built from the 30ff17e69 and a26cbc8a3 archives above: fresh process per sample, in-memory better-sqlite3, 7 rounds, mainA / head / mainB rotated. ns/op medians of 7. Load average 10-12 during the run: the medians are higher than §0.4's and spreads are wide, and the stability rule is what the verdict rests on.
+
+| Workload | Result | Gate |
+| --- | --- | --- |
+| No extension (plain read) | mainA 36,472, mainB 37,042: stability 1.6% (rule ≤ 10%); head 31,743, within main's spread [27,597, 59,926], head/main 0.865 | **PASS** |
+| Controls only | mainA 29,337, mainB 28,904: stability 1.5%; head 28,856 within [27,307, 39,686], 0.984 | **PASS** |
+| Allocation, no extension | main 40,081 B/op, head 40,037, 0 GCs | **PASS** |
+| Allocation, controls-only chain | main 40,091, head 40,049 | recorded |
+
+Recorded (head): rows read 27,831; nested read with rows 113,934 (plain 136,885 / main 137,088); soft delete + restore 68,458 (plain update pair 55,360 / main 64,884); bulk deleteMany + restoreMany 63,949; callback transaction 42,821 (plain 44,298 / main 46,241); array transaction 66,944 (plain 65,490 / main 61,453); rows-read allocation 40,610 B/op.
+
+### 00.8 Defects D1–D7 of the elegance review
+
+| Defect | Status |
+| --- | --- |
+| D1 callable Standard Schema refused while the type accepts it | **Fixed** in C2 (`copyData` keeps a Standard Schema at a leaf as its validator, function or object). Witness extension-controls.core.test.ts ("callable" schema: admitted, validator runs at call time), red on 2c1e896bb by design, green since C2; the review falsified it (dropping the function branch turns it red). CHANGELOG says so. |
+| D2 two rules for which keys count | **Fixed** in C2: enumerable own string keys whose value is not undefined count, for members and data alike; a symbol key is refused. Stated once in `copyData`'s TSDoc; kept by the repair. |
+| D3 no per-model placement witness | **Closed** in C1: two tests, one per application order; the review's placement mutation turns exactly these red (C1, C3, review). |
+| D4 no witness for a root soft delete with a relation-reading projection | **Closed** in C1 (to-many include; restricted candidate with a projection). Since C5 that delete takes `updateMany`'s capture route; removing `updateMany`'s relation-projection clause turns the to-many test red on SQLite3 and batch-only. |
+| D5 no credential-free substrate without RETURNING | **Closed** in C1: `createNonReturningSQLite3Driver`, a third consumer in deletion-sites, row-scopes and soft-delete.core. |
+| D6 expectations read off the implementation | **Closed** in C6 and the repair: the ForeignKeyError is pinned by class, sentence and the set of relations named, not their order; the admission ledger count 3 re-derived from plan §2.3 (per occurrence per attempt, nested deleteMany plus each captured member) and measured equal to main's update series; the row-reference-nullability pin labelled a documented limitation (plan §5.3). |
+| D7 wrong deferral reason in `ExtensionModelClient`'s TSDoc; `Number.isFinite` in cache/key.ts owns no failure | **Open**, not in any unit (minor). src/extensions/methods.ts:108-113 still gives the index-signature reason; src/cache/key.ts:364 still turns NaN/Infinity control values into cache bypasses. |
+
+### 00.9 Gaps
+
+1. **Bundle** STOP U3R-1 (owner): +6,133 B gzip against +5 KB (§00.6).
+2. **MySQL**: nothing has ever run. Since C5 a projected root soft delete on MySQL takes the capture route; its only stand-in is the SQLite3 driver without RETURNING (green). Rerun when a server is up: `MYSQL_TEST_CONNECTION_STRING=mysql://root:password@127.0.0.1:3307/viborm pnpm exec vitest run --workspace vitest.workspace.ts --project provider-mysql2` (mysql2-deletion-capability, -soft-delete, -row-scopes, -deletion-races).
+3. **PostgreSQL** ran on a scratch Homebrew server, eight files (§00.4); the docker container, the postgres.js project and the PostGIS cells did not run.
+4. **Owner questions left by the pass**: whether a Map, Date or class instance where a declaration record stands should keep being read as a record (2c1e896bb's behaviour, restored by the repair; refusing it is a one-line change, R-1); the trailers (§00.1).
+5. **Unpinned edges** after the repair, all multi-fault or hostile-input cases: a getter on an unknown member is read before the unknown-member refusal; a record at a leaf position with a throwing getter reports "could not be read".
+6. **Not done by judgement**: row 13's pausing-driver mixin for the docker race tests (needs Docker and probably casts, C6-8); D7.
+7. The PR description is not updated (no push; publishing is the owner's). The addendum text is in scratchpad `compress/repair/pr-addendum.txt`.
 
 ## 0. U7 repair (2026-09-30)
 

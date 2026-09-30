@@ -17,13 +17,15 @@ Versioning.
 - **Added: three extension capabilities, `controls`, `rows` and `deletion`.**
   An extension now has nine capabilities. `controls` declares call arguments
   (a closed list or a Standard Schema, placed on reads, writes or named
-  operations), checked once before request handlers and visible only to the
-  declaring extension's handlers (`context.controls`). `rows` declares constant
-  row filters per model, one set per mode, chosen per call by a control;
-  core applies them at every place a query selects rows (root reads and
-  writes, aggregates, cursors, every relation, quantifiers, counts, ordering,
-  recursion, nested write targets). A to-one relation whose target is
-  filtered out reads `null` and, on a client with `rows`, is typed `| null`
+  operations; a schema may be an object or a function carrying
+  `~standard`, such as an ArkType type), checked once before request
+  handlers and visible only to the declaring extension's handlers
+  (`context.controls`). `rows` declares constant row filters per model, one
+  set per mode, chosen per call by a control; core applies them at every
+  place a query selects rows (root reads and writes, aggregates, cursors,
+  every relation, quantifiers, counts, ordering, recursion, nested write
+  targets). A to-one relation whose target is filtered out reads `null` and,
+  on a client with `rows`, is typed `| null`
   when its target model has an entry (or the same field and relation names as
   one); a reference to a missing row is still an error. `deletion` turns a delete of the named
   models into an update with the call's one time and constant data, refused
@@ -75,10 +77,9 @@ Versioning.
   - Added: request and query handler contexts of a model operation have an
     optional `controls`: the values of the controls the handler's own
     extension declares, and only those.
-  - Unchanged: the third type parameter of the public `Client` type (it still
-    says whether the official cache is installed), and the message of a
-    `cache` value the cache refuses still reads "Invalid mutation cache
-    options: …".
+  - Unchanged: the message of a `cache` value the cache refuses still reads
+    "Invalid mutation cache options: …". (The third type parameter of the
+    public `Client` type does change: see "Changed (types)" above.)
 
 ## 1.0.0-rc.4 — Release candidate (not yet published)
 
