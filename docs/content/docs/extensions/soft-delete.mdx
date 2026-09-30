@@ -9,7 +9,7 @@ delete stops removing the row: it writes the time (and, optionally, who did
 it) into the row instead. Reads then skip those rows, everywhere a query
 reaches them.
 
-The extension is about 75 lines built only from public extension
+The extension is one file of about 100 lines, built only from public extension
 capabilities (`controls`, `rows` and `deletion`, see
 [Create an extension](/docs/extensions/create#declare-arguments-with-controls)). It
 lives in its own entry point, so an application that does not import it pays

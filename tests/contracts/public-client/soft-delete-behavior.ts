@@ -258,6 +258,74 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
       });
     });
 
+    test("restoreMany restores tombstones only: live rows in its range are neither counted nor written", async () => {
+      // Every u2 post carries an actor, live ones included.
+      await base.post.updateMany({
+        where: { authorId: "u2" },
+        data: { deletedById: "x" },
+      });
+      expect(await db.post.restoreMany({ where: { authorId: "u2" } })).toEqual({
+        count: 2,
+      });
+      expect(await physical("p3")).toEqual({
+        id: "p3",
+        deletedAt: null,
+        deletedById: null,
+      });
+      expect(await physical("p4")).toMatchObject({ deletedById: null });
+      expect(await physical("p5")).toEqual({
+        id: "p5",
+        deletedAt: null,
+        deletedById: "x",
+      });
+      expect(await physical("p6")).toMatchObject({ deletedById: "x" });
+      // A range holding live rows only restores nothing.
+      await base.post.update({
+        where: { id: "p1" },
+        data: { deletedById: "x" },
+      });
+      expect(await db.post.restoreMany({ where: { authorId: "u1" } })).toEqual({
+        count: 0,
+      });
+      expect(await physical("p1")).toMatchObject({ deletedById: "x" });
+    });
+
+    test('related posts read live under `deleted: "only"` and all under `deleted: "with"`', async () => {
+      const shape = {
+        ...byId,
+        select: {
+          id: true,
+          replies: { ...byId, select: { id: true } },
+          author: {
+            select: { id: true, posts: { ...byId, select: { id: true } } },
+          },
+        },
+      } as const;
+      const view = (
+        rows: readonly {
+          readonly id: string;
+          readonly replies: readonly { readonly id: string }[];
+          readonly author: {
+            readonly posts: readonly { readonly id: string }[];
+          };
+        }[]
+      ) => rows.map((row) => [row.id, ids(row.replies), ids(row.author.posts)]);
+      // The bin's posts show their live related rows: p4's live reply p5,
+      // and their authors' live posts, not the tombstones beside them.
+      expect(
+        view(await db.post.findMany({ ...shape, deleted: "only" }))
+      ).toEqual([
+        ["p3", [], ["p5", "p6"]],
+        ["p4", ["p5"], ["p5", "p6"]],
+        ["p7", [], []],
+      ]);
+      // `with` reads every post, related ones included.
+      const all = view(await db.post.findMany({ ...shape, deleted: "with" }));
+      expect(all[0]).toEqual(["p1", ["p2", "p4"], ["p1", "p2"]]);
+      expect(all[2]).toEqual(["p3", [], ["p3", "p4", "p5", "p6"]]);
+      expect(all[6]).toEqual(["p7", [], ["p7"]]);
+    });
+
     test("a nested delete is soft; one call's tombstones share one instant, which restoreMany selects", async () => {
       await db.user.update({
         where: { id: "u1" },

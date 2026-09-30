@@ -14,8 +14,8 @@
  *
  *   A. TYPES — `tsc --strict` over the consumer, against the published
  *              declarations: the definition compiles with its three casts, the
- *              use block type-checks, `restore` narrows to its `select`, and
- *              the three `@ts-expect-error` lines are needed.
+ *              use block type-checks, `restore` narrows exactly to its
+ *              `select`, and the three `@ts-expect-error` lines are needed.
  *   B. RUN   — Node runs the same files (type stripping): reads show live
  *              posts, the recycle bin shows tombstones, delete returns the
  *              post-image with the actor, restore narrows, the purge removes
@@ -141,8 +141,14 @@ assert.equal(deleted.id, "p1");
 assert.equal(deleted.deletedById, "admin-1");
 assert.ok(deleted.deletedAt instanceof Date);
 const restored = await db.post.restore({ where: { id: "p1" }, select: { id: true } });
-const exact: { id: string } = restored;
-assert.deepEqual(exact, { id: "p1" });
+// Exact, not assignable: a full post row would satisfy \`{ id: string }\` too.
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
+    ? true
+    : false;
+const narrowed: Equal<typeof restored, { id: string }> = true;
+assert.ok(narrowed);
+assert.deepEqual(restored, { id: "p1" });
 const purged = await db.post.deleteMany({
   where: { deletedAt: { lt: cutoff } },
   deleted: "only",

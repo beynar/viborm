@@ -12,8 +12,8 @@ Versioning.
   and adds `restore`/`restoreMany`. `deleted: "without" | "with" | "only"`
   chooses the rows of one call; `mode: "hard"` deletes physically (a purge
   also says `deleted: "only"`, see the guide's warning). The extension is
-  about 75 lines built only from the public capabilities below, in its own
-  entry point: the root entry never imports it.
+  one file of about 100 lines, built only from the public capabilities below,
+  in its own entry point: the root entry never imports it.
 - **Added: three extension capabilities, `controls`, `rows` and `deletion`.**
   An extension now has nine capabilities. `controls` declares call arguments
   (a closed list or a Standard Schema, placed on reads, writes or named
