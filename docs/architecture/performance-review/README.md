@@ -18,8 +18,8 @@ VibORM build at about 163 µs. That separate observation is not the before arm
 of the 267 → 194 comparison, nor evidence of another improvement. Different
 run conditions and warmup/sample counts prevent subtracting the two reports.
 
-The [historical raw pairs](historical-first-rows20.json) retain all ten relevant worker
-samples, SQL/result witnesses, runtime and artifact hashes.
+The [historical raw pairs](historical-first-rows20.json.gz) retain all ten relevant worker
+samples, SQL/result witnesses, runtime and artifact hashes (compressed JSON).
 [Artifact identities](historical-final-identity.json) tie those measurements to
 the retained source. Five pairs used 40 disposable warmups and 100 new clients
 per worker; median worker means were 266.699 and 193.955 µs. Median paired
@@ -54,7 +54,21 @@ Schema entry extraction retains eager invalid-path errors and declared-undefined
 entries. Positional transport retains integer fidelity, provider field parsing,
 statement transforms, error normalization, fresh results and keyed fallback.
 
-Final checks and production line counts are recorded below when complete.
+The integrated production diff against main is **+1,118 / −679 lines: +439 net**
+across 20 TypeScript files, including the new internal transport file. Tests,
+benchmark tools and evidence are counted separately. Most growth is explicit
+transport eligibility/fallback and batch-local codec selection. This review
+removed duplicated row-count state, an impossible array-length validation, a
+repeated native-client check and parameter conversion discarded by fallback.
+
+On source commit `f3174cc97`:
+
+- Whole-estate native TypeScript check passed (7.17 s).
+- Core suite: 442 files, 9,303 tests passed.
+- Deterministic engine suite: 197 files, 2,012 tests passed.
+
+Package, disposal and main-versus-PR measurement receipts are added after they
+complete; CI will additionally exercise the full repository gates.
 
 ## Reproduction
 
