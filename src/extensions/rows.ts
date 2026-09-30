@@ -1,8 +1,11 @@
+import { isCanonicalKeyData, stableStringify } from "@cache/key";
 import type {
   CallRows,
   ModelDomain,
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
+import { isPlainRecord } from "@schema/relation/terminal";
 import type { ResolvedDeletion } from "./chain";
 import {
   type AdmittedControls,
@@ -25,7 +28,9 @@ interface BoundRowsMember {
 /**
  * A chain's row facts, resolved once when an extension is applied: one
  * {@link CallRows} per combination of its `rows` members' modes, with and
- * without the tombstones, so a call only looks its facts up.
+ * without the tombstones, so a call only looks its facts up. When a
+ * predicate names a control, a call takes those facts with its values put
+ * in, kept per combination and values.
  */
 export interface RowsBinding {
   readonly members: readonly BoundRowsMember[];
@@ -34,11 +39,124 @@ export interface RowsBinding {
   readonly tombstoning: readonly CallRows[];
   /** Indexed by mode combination: the call deletes physically. */
   readonly physical: readonly CallRows[];
+  /** The controls the predicates name; empty when none does. */
+  readonly references: readonly string[];
+  /** Facts with a call's values put in, by combination and values. */
+  readonly bound: Map<string, CallRows>;
 }
 
 const NO_DELETION: Readonly<Record<string, ResolvedDeletion>> = Object.freeze(
   Object.create(null)
 );
+
+// ponytail: per-value memo, LRU if a tenant count above 256 is measured.
+/** How many bound facts one chain keeps: past it, the oldest goes. */
+const BOUND_LIMIT = 256;
+
+/** A named control the call did not pass. */
+const ABSENT = Symbol("absent");
+
+/** `{ control: "<name>" }` where a predicate takes a value. */
+function referenceOf(value: unknown): string | undefined {
+  if (!isPlainRecord(value)) return undefined;
+  const [key, ...others] = Object.keys(value);
+  return key === "control" &&
+    others.length === 0 &&
+    typeof value.control === "string"
+    ? value.control
+    : undefined;
+}
+
+/** Every control a predicate's values name, at any depth. */
+function collectReferences(value: unknown, names: Set<string>): void {
+  const name = referenceOf(value);
+  if (name !== undefined) names.add(name);
+  else if (Array.isArray(value) || isPlainRecord(value)) {
+    for (const item of Object.values(value)) collectReferences(item, names);
+  }
+}
+
+/** The value with the call's values put in: itself when it names none. */
+function boundValue(
+  value: unknown,
+  controls: AdmittedControls | undefined
+): unknown {
+  const name = referenceOf(value);
+  if (name !== undefined) {
+    const given = controls?.[name];
+    return given === undefined ? ABSENT : given;
+  }
+  if (Array.isArray(value)) {
+    const items = value.map((item) => boundValue(item, controls));
+    if (items.includes(ABSENT)) return ABSENT;
+    return items.every((item, index) => item === value[index]) ? value : items;
+  }
+  return isPlainRecord(value) ? boundWhere(value, controls) : value;
+}
+
+/**
+ * One predicate with the call's values put in, or {@link ABSENT} when it names
+ * a control the call did not pass: then it filters nothing, as a mode without
+ * that predicate would.
+ */
+function boundWhere(
+  where: Input,
+  controls: AdmittedControls | undefined
+): Input | typeof ABSENT {
+  let copy: Input | undefined;
+  for (const [key, item] of Object.entries(where)) {
+    const value = boundValue(item, controls);
+    if (value === ABSENT) return ABSENT;
+    if (value !== item) (copy ??= { ...where })[key] = value;
+  }
+  return copy ?? where;
+}
+
+/** Each model's predicates bound; the same map when none names a control. */
+function boundModels(
+  models: ModelDomain,
+  controls: AdmittedControls | undefined
+): ModelDomain {
+  const bound = new Map<string, readonly Input[]>();
+  let changed = false;
+  for (const [model, list] of models) {
+    const kept: Input[] = [];
+    for (const where of list) {
+      const value = boundWhere(where, controls);
+      changed ||= value !== where;
+      if (value !== ABSENT) kept.push(value);
+    }
+    if (kept.length > 0) bound.set(model, kept);
+  }
+  return changed ? bound : models;
+}
+
+/** A domain bound; the same object when no predicate names a control. */
+function boundDomain(
+  domain: RowDomain,
+  controls: AdmittedControls | undefined
+): RowDomain {
+  const root = boundModels(domain.root, controls);
+  const related = boundModels(domain.related, controls);
+  return root === domain.root && related === domain.related
+    ? domain
+    : Object.freeze({ root, related });
+}
+
+function boundFacts(
+  facts: CallRows,
+  controls: AdmittedControls | undefined
+): CallRows {
+  const domain = boundDomain(facts.domain, controls);
+  return Object.freeze({
+    ...facts,
+    domain,
+    defaults:
+      facts.defaults === facts.domain
+        ? domain
+        : boundDomain(facts.defaults, controls),
+  });
+}
 
 /** One purpose's predicates per model, for one mode of every member. */
 function modelDomain(
@@ -65,7 +183,15 @@ export function bindRows(
 ): RowsBinding {
   const declared = rows ?? [];
   let stride = 1;
+  const references = new Set<string>();
   const members = declared.map((member): BoundRowsMember => {
+    for (const entry of Object.values(member.models)) {
+      for (const predicates of Object.values(entry)) {
+        for (const where of Object.values(predicates)) {
+          collectReferences(Object.values(where), references);
+        }
+      }
+    }
     const modes = rowsModes(member);
     const bound = {
       control: member.control,
@@ -114,6 +240,8 @@ export function bindRows(
         : domains.map((domain) =>
             Object.freeze({ domain, defaults, tombstones })
           ),
+    references: [...references],
+    bound: new Map(),
   });
 }
 
@@ -122,7 +250,8 @@ export function bindRows(
  * controls chose (an absent one reads as its default), and whether it deletes
  * physically — its model's `deletion` entry names a `removeWhen` the call's
  * controls match. That control is placed only on the deletes of the models
- * the entry manages, so no other call can match it.
+ * the entry manages, so no other call can match it. When a predicate names a
+ * control, the call's values are put in.
  */
 export function callRows(
   binding: RowsBinding,
@@ -141,5 +270,25 @@ export function callRows(
     Object.entries(removeWhen).every(
       ([control, value]) => controls?.[control] === value
     );
-  return (physical ? binding.physical : binding.tombstoning)[combination]!;
+  const facts = (physical ? binding.physical : binding.tombstoning)[
+    combination
+  ]!;
+  if (binding.references.length === 0) return facts;
+  const values: Record<string, unknown> = {};
+  for (const name of binding.references) {
+    if (controls?.[name] !== undefined) values[name] = controls[name];
+  }
+  // A value no key spells by its content (a Map keys as `{}`) is bound for
+  // this call alone: it never takes another value's facts.
+  if (!isCanonicalKeyData(values)) return boundFacts(facts, controls);
+  const key = `${physical}${combination}${stableStringify(values)}`;
+  let known = binding.bound.get(key);
+  if (known === undefined) {
+    if (binding.bound.size === BOUND_LIMIT) {
+      binding.bound.delete(binding.bound.keys().next().value!);
+    }
+    known = boundFacts(facts, controls);
+    binding.bound.set(key, known);
+  }
+  return known;
 }

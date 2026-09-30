@@ -191,4 +191,6 @@ helper. `omit` is presentation control, not authorization: query-level and
 client-default omission can be overridden, and even model `.omit()` does not
 replace database authorization. `rows` and the soft-delete extension built on it
 decide which rows are visible, not who may see them: any caller can choose
-another mode, and raw SQL ignores them. Never use them for tenant isolation.
+another mode or pass another value, and raw SQL ignores them. A tenant filter
+keeps a call inside the tenant it names; your server, not the caller, must
+choose that tenant.

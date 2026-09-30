@@ -18,6 +18,11 @@ import { NotFoundError, UniqueConstraintError } from "@errors";
 import { PreparedDomain, Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import {
+  type BoundRowsFixture,
+  openBoundRowsFixture,
+  runBoundRowsBehavior,
+} from "@tests/contracts/engine/query/bound-rows-behavior";
+import {
   ids,
   openRowScopeFixture,
   type RowScopeFixture,
@@ -48,7 +53,23 @@ describe("the rows capability's set scopes", () => {
   });
 });
 
+describe("rows bound to the call", () => {
+  runBoundRowsBehavior({
+    name: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runBoundRowsBehavior({
+    name: "SQLite3 batch-only",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+  runBoundRowsBehavior({
+    name: "SQLite3 without RETURNING",
+    createDriver: createNonReturningSQLite3Driver,
+  });
+});
+
 const TOMBSTONE = `UPDATE "post" SET "deletedAt" = '2026-03-03T00:00:00.000Z' WHERE "id" = ?`;
+const MOVE_TO_GLOBEX = `UPDATE "post" SET "tenantId" = 'globex' WHERE "id" = ?`;
 const ON_CONFLICT = /ON CONFLICT/i;
 const POST_UPDATE = /^\s*UPDATE\s+"post"/i;
 const ON_POST = /"post"/;
@@ -170,6 +191,57 @@ describe("unique keys under a domain (SQLite3)", () => {
     expect(
       (await base.post.findUniqueOrThrow({ where: { id: 14 } })).title
     ).toBe("d");
+  });
+});
+
+describe("unique keys under a bound domain (SQLite3)", () => {
+  let base: BoundRowsFixture["base"] | undefined;
+  afterEach(async () => {
+    await base?.$disconnect();
+    base = undefined;
+  });
+  async function open(batchOnly: boolean) {
+    const driver = batchOnly
+      ? new BatchOnlyInterleavingSQLite3Driver()
+      : new InterleavingSQLite3Driver();
+    const fixture = await openBoundRowsFixture(driver);
+    base = fixture.base;
+    driver.statements.length = 0;
+    return { ...fixture, driver };
+  }
+  const upsert = (id: number, tenant: string) =>
+    ({
+      where: { id },
+      create: { id, tenantId: tenant, title: "new" },
+      update: { title: "upserted" },
+      tenant,
+    }) as const;
+
+  test("a row moved to another tenant after the unlocked probe is not overwritten: the upsert is not found", async () => {
+    const { base, db, driver } = await open(false);
+    driver.before(ON_POST, MOVE_TO_GLOBEX, [1], 1);
+    expect(await failure(db.post.upsert(upsert(1, "acme")))).toBeInstanceOf(
+      NotFoundError
+    );
+    expect(
+      (await base.post.findUniqueOrThrow({ where: { id: 1 } })).title
+    ).toBe("a");
+  });
+
+  test("the targeted ON CONFLICT fold declines under a bound domain: another tenant's key is refused, never folded", async () => {
+    const { base, db, driver } = await open(true);
+    const outcome = await failure(
+      db.$transaction([db.post.upsert(upsert(3, "acme"))])
+    );
+    expect(outcome).toBeInstanceOf(UniqueConstraintError);
+    expect(driver.statements.some((sql) => ON_CONFLICT.test(sql))).toBe(false);
+    expect(
+      (await base.post.findUniqueOrThrow({ where: { id: 3 } })).title
+    ).toBe("c");
+    const [own] = await db.$transaction([
+      db.post.upsert({ ...upsert(1, "acme"), select: { title: true } }),
+    ]);
+    expect(own).toEqual({ title: "upserted" });
   });
 });
 

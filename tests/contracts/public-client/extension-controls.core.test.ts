@@ -25,6 +25,8 @@ import {
 } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { defineExtension } from "@extensions/definition";
+import { bindRows, callRows } from "@extensions/rows";
+import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -807,6 +809,239 @@ describe("controls: placement", () => {
       ).resolves.toEqual({ count: 0 });
     });
   }
+});
+
+describe("controls: required", () => {
+  const REQUIRED = [
+    { path: "tenant", message: 'Control "tenant" is required' },
+  ];
+
+  test("a call that does not pass a required control is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
+    const base = await seededBase();
+    const db = base.$extends({
+      name: "tenant",
+      controls: { tenant: { oneOf: ["acme"], required: true } },
+    });
+    for (const model of ["user", "post"]) {
+      for (const operation of ROUTED_OPERATIONS) {
+        for (const args of [{}, { tenant: undefined }]) {
+          const refused = await failure(
+            callUnchecked(db, model, operation, args)
+          );
+          expect(refused, `${model}.${operation}`).toBeInstanceOf(
+            ValidationError
+          );
+          expect((refused as ValidationError).issues).toEqual(REQUIRED);
+        }
+      }
+    }
+    expect(
+      await failure(
+        callUnchecked(db, "user", "create", {
+          data: { id: "u2", name: "Grace" },
+        })
+      )
+    ).toBeInstanceOf(ValidationError);
+    expect(await base.user.count()).toBe(1);
+    await expect(
+      db.user.create({
+        data: { id: "u2", name: "Grace" },
+        tenant: "acme",
+        select: { id: true },
+      })
+    ).resolves.toEqual({ id: "u2" });
+  });
+
+  test("where a required control is not placed nothing is asked: a writes control on a read, a removeWhen control off its managed deletes, the rows control", async () => {
+    const db = (await seededBase())
+      .$extends({
+        name: "audit",
+        controls: { actor: { oneOf: ["ann"], required: true, on: "writes" } },
+      })
+      .$extends({
+        ...softRows,
+        name: "managed",
+        controls: { mode: { oneOf: ["soft", "hard"], required: true } },
+        deletion: {
+          removeWhen: { mode: "hard" },
+          models: { post: { at: "deletedAt" } },
+        },
+      });
+    await expect(db.post.findMany({ select: { id: true } })).resolves.toEqual([
+      { id: "p1" },
+    ]);
+    expect(
+      await failure(
+        callUnchecked(db, "post", "update", {
+          where: { id: "p1" },
+          data: { title: "x" },
+        })
+      )
+    ).toBeInstanceOf(ValidationError);
+    await expect(
+      db.user.deleteMany({ where: { id: "none" }, actor: "ann" })
+    ).resolves.toEqual({ count: 0 });
+    const unmoded = await failure(
+      callUnchecked(db, "post", "deleteMany", {
+        where: { id: "none" },
+        actor: "ann",
+      })
+    );
+    expect((unmoded as ValidationError).issues).toEqual([
+      { path: "mode", message: 'Control "mode" is required' },
+    ]);
+  });
+});
+
+describe("controls: rows bound to the call", () => {
+  const WRITTEN = new Date("2026-01-01T00:00:00.000Z");
+  const live = { deletedAt: null };
+  const tenantRoot = {
+    AND: [
+      { tenantId: { control: "tenant" } },
+      {
+        OR: [
+          { authorId: { in: [{ control: "author" }, "u0"] } },
+          { NOT: { deletedById: { control: "by" } } },
+        ],
+      },
+    ],
+    title: { in: ["a", "b"] },
+    deletedAt: { lt: WRITTEN },
+  };
+  const tenantRelated = { tenantId: { control: "tenant" } };
+  const tenancy = {
+    control: "scope",
+    default: "tenant",
+    models: {
+      post: {
+        tenant: { root: tenantRoot, related: tenantRelated },
+        all: {},
+      },
+    },
+  } as const;
+  const soft = {
+    control: "deleted",
+    default: "without",
+    models: { post: { without: { root: live }, with: {} } },
+  } as const;
+  const deletion = {
+    post: { extension: "managed", at: "deletedAt", assign: {} },
+  } as const;
+
+  test("a reference at any depth takes the call's value, null included; everything else is kept as written", () => {
+    const binding = bindRows([tenancy, soft], undefined);
+    expect(binding.references).toEqual(["tenant", "author", "by"]);
+    const facts = callRows(binding, "post", {
+      scope: "tenant",
+      deleted: "without",
+      tenant: "acme",
+      author: "u1",
+      by: null,
+    });
+    const [bound, kept] = facts.domain.root.get("post")!;
+    expect(bound).toEqual({
+      AND: [
+        { tenantId: "acme" },
+        {
+          OR: [
+            { authorId: { in: ["u1", "u0"] } },
+            { NOT: { deletedById: null } },
+          ],
+        },
+      ],
+      title: { in: ["a", "b"] },
+      deletedAt: { lt: WRITTEN },
+    });
+    expect(bound!.title).toBe(tenantRoot.title);
+    expect(bound!.deletedAt).toBe(tenantRoot.deletedAt);
+    expect(kept).toBe(live);
+    expect(facts.domain.related.get("post")).toEqual([{ tenantId: "acme" }]);
+    // A combination whose predicates name no control is v3.1's own domain.
+    const all = callRows(binding, "post", { scope: "all", tenant: "acme" });
+    expect(all.domain).toBe(binding.physical[1]!.domain);
+  });
+
+  test("a control the call did not pass drops each predicate that names it: that predicate filters nothing, the others stay", () => {
+    const binding = bindRows([tenancy, soft], undefined);
+    const absent = callRows(binding, "post", { tenant: "acme" });
+    expect(absent.domain.root.get("post")).toEqual([live]);
+    expect(absent.domain.related.get("post")).toEqual([{ tenantId: "acme" }]);
+    const none = callRows(binding, "post", undefined);
+    expect(none.domain.root.get("post")).toEqual([live]);
+    expect(none.domain.related.has("post")).toBe(false);
+  });
+
+  test("the same values give the same facts; the 257th distinct value evicts the oldest", () => {
+    const binding = bindRows([tenancy], undefined);
+    const call = (tenant: string, scope = "tenant") =>
+      callRows(binding, "post", { tenant, scope });
+    const first = call("t0");
+    expect(call("t0")).toBe(first);
+    expect(call("t0").domain).toBe(first.domain);
+    expect(call("t1")).not.toBe(first);
+    expect(call("t0", "all")).not.toBe(first);
+    const kept = [first, binding.bound.get([...binding.bound.keys()][1]!)];
+    for (let index = 2; index < 255; index++) call(`t${index}`);
+    expect(binding.bound.size).toBe(256);
+    expect(call("t0")).toBe(kept[0]);
+    call("t255");
+    expect(binding.bound.size).toBe(256);
+    expect(call("t0")).not.toBe(first);
+    expect(call("t1")).not.toBe(kept[1]);
+  });
+
+  test("a chain whose predicates name no control keeps its precomputed facts: nothing is bound or kept", () => {
+    // A whole filter is never a reference: `control` there is a field.
+    const field = {
+      control: "kind",
+      default: "a",
+      models: { post: { a: { root: { control: "x" } } } },
+    } as const;
+    expect(bindRows([field], undefined).references).toEqual([]);
+    const binding = bindRows([soft], undefined);
+    expect(binding.references).toEqual([]);
+    expect(callRows(binding, "post", { deleted: "with" })).toBe(
+      binding.physical[1]
+    );
+    expect(binding.bound.size).toBe(0);
+  });
+
+  test("a value no key spells by its content is bound for its call alone", () => {
+    const binding = bindRows([tenancy], undefined);
+    const tenant = new Map([["id", "acme"]]);
+    const first = callRows(binding, "post", { tenant });
+    expect(first.domain.related.get("post")).toEqual([{ tenantId: tenant }]);
+    expect(first.domain.related.get("post")![0]!.tenantId).toBe(tenant);
+    expect(callRows(binding, "post", { tenant })).not.toBe(first);
+    expect(binding.bound.size).toBe(0);
+  });
+
+  test("a tombstoning call's default domain takes the same values; a physical one is kept apart", () => {
+    const binding = bindRows([tenancy], deletion);
+    const operator = callRows(binding, "post", {
+      tenant: "acme",
+      scope: "all",
+    });
+    expect(operator.domain.related.has("post")).toBe(false);
+    expect(operator.defaults.related.get("post")).toEqual([
+      { tenantId: "acme" },
+    ]);
+    expect(operator.tombstones).toBe(binding.tombstoning[1]!.tombstones);
+    const own = callRows(binding, "post", { tenant: "acme" });
+    expect(own.defaults).toBe(own.domain);
+    const physical = bindRows([tenancy], {
+      post: { ...deletion.post, removeWhen: { mode: "hard" } },
+    });
+    const removing = callRows(physical, "post", {
+      tenant: "acme",
+      mode: "hard",
+    });
+    expect(removing.tombstones).toBeUndefined();
+    expect(callRows(physical, "post", { tenant: "acme" }).tombstones).toBe(
+      physical.tombstoning[0]!.tombstones
+    );
+  });
 });
 
 describe("controls: the order a chain takes", () => {

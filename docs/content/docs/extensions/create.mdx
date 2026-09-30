@@ -57,7 +57,7 @@ deliberately small so the query protocol is visible.
 | Add client methods | `client` | Factory returning dollar-prefixed functions |
 | Add model methods | `model` | Per-model factory returning functions |
 | Accept a new call argument | `controls` | Declared values, checked once; only your handlers see them |
-| Hide rows from every query | `rows` | Constant filters per model, chosen per call |
+| Hide rows from every query | `rows` | Filters per model, chosen per call, with the call's values |
 | Change what a delete does | `deletion` | An update with fixed data and the call's time |
 
 Do not put every concern into `query`. Each capability exposes only the facts
@@ -283,6 +283,9 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
 - A value outside the declaration is a `ValidationError` at the control's
   path. A `schema` that throws, is asynchronous or cannot be read is a
   `QueryError`; a VibORM error it throws passes through.
+- `required: true` makes the argument mandatory on the operations `on`
+  names: a call that leaves it out is a `ValidationError` at its path, before
+  anything runs. Without `on`, that is every operation of every model.
 - Control names are one list per client, shared with `rows.control`. Do not
   take a name core already uses as an argument (`where`, `data`, `select`, …)
   or one another extension declares.
@@ -291,8 +294,8 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
 
 ## Choose visible rows with `rows`
 
-`rows` declares, per model, constant filters that every query of the client
-applies, and a control that picks one set of filters per call:
+`rows` declares, per model, filters that every query of the client applies,
+and a control that picks one set of filters per call:
 
 ```ts
 const archiving = defineExtension({
@@ -327,8 +330,9 @@ await db.project.findMany({ archived: "only" }); // archived projects
   control is accepted by every operation that selects rows (reads, `count`,
   `aggregate`, `groupBy`, updates, `upsert`, deletes) of every model;
   `create` and `createMany` do not take it.
-- Filters are constant `where` data on scalar fields. TypeScript does not
-  check their field names in your editor.
+- Filters are `where` data on scalar fields: constants, or a value the call
+  passes (below). TypeScript does not check their field names in your
+  editor.
 - Core applies them everywhere a query selects rows: root reads and writes,
   aggregates, cursors, `include`/`select` of every relation,
   `some`/`none`/`every` and `is`/`isNot`, relation counts and ordering,
@@ -351,8 +355,57 @@ await db.project.findMany({ archived: "only" }); // archived projects
   `query` handlers or `client`/`model` methods: after one, the application is
   refused, as `defaultOmit()` is.
 - `rows` decides which rows are visible. It is not authorization: any caller
-  can choose another mode, and raw SQL, `create` and update `data` are not
-  filtered. Never use it for tenant isolation.
+  can choose another mode or pass another value, and raw SQL, `create` and
+  update `data` are not filtered.
+
+### Filter by a value the call passes
+
+A filter can take a control's value instead of a constant: write
+`{ control: "<name>" }` where the value goes. Each call then sees the rows
+that match the value it passed. This is how one client serves every tenant:
+
+```ts
+const perModel = <T>(models: readonly string[], build: () => T) =>
+  Object.fromEntries(models.map((model) => [model, build()]));
+
+export const tenancy = (models: readonly string[]) =>
+  defineExtension({
+    name: "tenancy",
+    controls: { tenant: { schema: v.string(), required: true } },
+    rows: {
+      control: "scope",
+      default: "tenant",
+      models: perModel(models, () => ({
+        tenant: {
+          root: { tenantId: { control: "tenant" } },
+          related: { tenantId: { control: "tenant" } },
+        },
+        all: {}, // an operator's view: every tenant
+      })),
+    },
+  });
+
+const db = client.$extends(tenancy(["post", "comment"]));
+await db.post.findMany({ tenant: "acme" }); // acme's posts, and only acme's comments
+await db.post.findMany({ tenant: "acme", scope: "all" }); // every tenant
+await db.post.findMany(); // ValidationError: control "tenant" is required
+```
+
+- The reference can sit anywhere a filter takes a value, at any depth:
+  `{ tenantId: { in: { control: "tenants" } } }`, or inside `AND`, `OR` and
+  `NOT`. It names a control of the same extension.
+- A call that does not pass the control drops every filter that names it:
+  that filter hides nothing. Mark the control `required` when a missing value
+  must be refused instead, as tenancy does.
+- Each value is prepared once and then reused, for up to 256 distinct values
+  per client; past that, the oldest is prepared again when it comes back.
+- Cached reads are keyed on the value, so two tenants never share an entry.
+- Inside a filter, an object whose only key is `control`, holding a name,
+  reads as a reference. To filter a field that is itself named `control`,
+  write `{ control: { equals: "x" } }`.
+- Pass the tenant from your own server's session, never from the request:
+  the extension keeps a call inside the tenant it names, it does not check
+  that the caller may name it. `create` does not fill `tenantId` for you yet.
 
 ## Change what a delete does with `deletion`
 
@@ -507,7 +560,8 @@ and sibling-client operations.
 - Build a definition from the client it is applied to. Apply `rows` and
   `defaultOmit()` before extensions that add model-mapped query handlers or
   client/model methods.
-- Keep `rows` for visibility, never for authorization or tenant isolation.
+- Keep `rows` for visibility, never for authorization: take a tenant or an
+  owner from your server, not from the caller.
 - Test direct, callback-transaction, and array-transaction execution when the
   extension participates in those modes.
 

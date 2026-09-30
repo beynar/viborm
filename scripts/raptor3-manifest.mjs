@@ -227,8 +227,11 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // required polymorphic row carrier. Compression C1: the shared behaviour (24
 // cells) on a third substrate without RETURNING. Compression C6: the
 // RETURNING statement-count pin goes; its race twin owns the decline.
+// Extension capabilities v4 U1: rows bound to the call, the tenancy recipe's
+// behaviour (7 cells) on the three SQLite substrates, and its two unique-key
+// race witnesses under a bound domain (+23).
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 80,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 103,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)

@@ -29,13 +29,14 @@ export type ControlPlacement =
 /**
  * One argument an extension declares. Its values are a closed list or a
  * Standard Schema; `on` names the operations that accept it (every operation
- * when absent). A value held in a variable keeps its literal type only with
- * `as const`, as a held enum clause does.
+ * when absent). With `required`, a call on one of those operations that does
+ * not pass it is refused. A value held in a variable keeps its literal type
+ * only with `as const`, as a held enum clause does.
  */
 export type ControlDeclaration = (
   | { readonly oneOf: readonly (string | number | boolean)[] }
   | { readonly schema: StandardSchemaV1 }
-) & { readonly on?: ControlPlacement };
+) & { readonly on?: ControlPlacement; readonly required?: boolean };
 
 export type ControlsContribution = {
   readonly [name: string]: ControlDeclaration;
@@ -48,7 +49,9 @@ type ScalarFields = { readonly [field: string]: unknown };
  * Which rows an operation sees. `control` names the call argument that picks
  * a mode; every model entry declares the same mode names, `default` among
  * them. `root` filters the call's own candidates, `related` rows reached
- * through a relation.
+ * through a relation. Where a filter takes a value, `{ control: "<name>" }`
+ * takes the value the call passed for that control; a call that passed none
+ * drops that filter.
  */
 export type RowsContribution = {
   readonly control: string;
@@ -318,7 +321,7 @@ export interface ControlAdmission {
  * Remove every control placed on this operation from its arguments and admit
  * each once, before any request handler runs. A key naming a control placed
  * elsewhere stays in the arguments, where core validation refuses it as an
- * unknown key.
+ * unknown key. A required control the call did not pass is refused here.
  */
 export function admitControls(
   model: string,
@@ -355,6 +358,9 @@ export function admitControls(
         ? control.fallback
         : admitControl(control, raw, model, operation);
     if (value !== undefined) admitted.push([control.name, value]);
+    else if (control.declaration.required === true) {
+      throw invalidControl(control, model, operation, ["is required"]);
+    }
   }
   return {
     args:

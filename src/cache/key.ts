@@ -219,7 +219,9 @@ function brandToken(namespace: string, body: string): string {
  * It is only ever handed a VALIDATED payload (see
  * `PendingOperation.cacheKeyArgs`), so the non-JSON values it can meet are the
  * ones validation deliberately admits: a field reference, an SQL fragment, and
- * a JSON null sentinel.
+ * a JSON null sentinel. Admitted control values reach it only once
+ * {@link isCanonicalKeyData} accepts them: in a read's key, and as the key of
+ * the facts `rows` binds to a call's values (`extensions/rows.ts`).
  *
  * EVERY ONE OF THEM KEYS IN THE RESERVED NAMESPACE, because a user document is
  * allowed to look exactly like any of them. A JSON column takes an arbitrary
@@ -241,7 +243,10 @@ function brandToken(namespace: string, body: string): string {
  * refactor from being wrong again, so the rule here is structural instead:
  * what is not a JSON value does not serialize like one.
  */
-function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
+export function stableStringify(
+  value: unknown,
+  seen = new WeakSet<object>()
+): string {
   if (value === null) return "null";
   if (value === undefined) return "";
 
