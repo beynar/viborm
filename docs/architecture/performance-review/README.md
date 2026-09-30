@@ -67,8 +67,18 @@ On source commit `f3174cc97`:
 - Core suite: 442 files, 9,303 tests passed.
 - Deterministic engine suite: 197 files, 2,012 tests passed.
 
-Package, disposal and main-versus-PR measurement receipts are added after they
-complete; CI will additionally exercise the full repository gates.
+- Package build passed (2.25 s).
+- CI exposed one missing cache-miss witness in the 100% schema gate. The
+  existing cache-identity test now also checks independent uncached derivation
+  and subsequent reuse. The focused schema coverage gate passes at 100% for
+  statements, branches, functions and lines; production code is unchanged.
+
+[Verification receipts](verification.json) bind the logs to the tested source.
+The user stopped further performance work before a new main-versus-PR benchmark,
+new disposal run or local package-consumer test. None is claimed. Remote CI runs
+the broader repository gates. The latest additional-30-µs search adopted no
+additional validated production speedup. See [the handoff](HANDOFF.md) and
+[the complete experiment ledger](EXPERIMENTS.md).
 
 ## Reproduction
 

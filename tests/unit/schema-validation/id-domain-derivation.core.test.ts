@@ -276,6 +276,19 @@ describe("a foreign key inherits its target's domain", () => {
       });
       expect(idDomainsOf(index)).toBe(domains);
       expect(scalarReads).not.toHaveBeenCalled();
+
+      // A separately supplied index has no publication from the topology gate.
+      // It derives once, then owns its answer by that new index identity.
+      const uncached = new Map(index);
+      const derived = idDomainsOf(uncached);
+      expect(derived.get(post)?.get("authorId")).toMatchObject({
+        format: "uuid",
+      });
+      expect(derived).not.toBe(domains);
+      expect(scalarReads).toHaveBeenCalled();
+      scalarReads.mockClear();
+      expect(idDomainsOf(uncached)).toBe(derived);
+      expect(scalarReads).not.toHaveBeenCalled();
     } finally {
       scalarReads.mockRestore();
     }
