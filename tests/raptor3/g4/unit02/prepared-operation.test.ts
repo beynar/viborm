@@ -30,6 +30,47 @@ afterEach(async () => {
 });
 
 describe("G4-02 prepared operation boundary", () => {
+  it("keeps prepared and routed handles bound to their own client", async () => {
+    world = await createWorld();
+    const firstEngine = createCommandEngine({
+      schema: worldSchema,
+      driver: world.driver,
+    });
+    const request = { where: { id: 1 }, select: { name: true } };
+    const firstPrepared = firstEngine.prepare("author", "findUnique", request);
+    const firstPending = world.client.author.findUnique(request);
+    // Prepare before another lineage exists, then execute after it has supplied
+    // the same model identities with a different transport and row value.
+    assert.ok(firstPrepared.read);
+    const other = await createWorld();
+    try {
+      await other.client.author.update({
+        where: { id: 1 },
+        data: { name: "Other client" },
+      });
+      const secondEngine = createCommandEngine({
+        schema: worldSchema,
+        driver: other.driver,
+      });
+      const secondPrepared = secondEngine.prepare(
+        "author",
+        "findUnique",
+        request
+      );
+      assert.deepEqual(await secondPrepared.execute(), {
+        name: "Other client",
+      });
+      assert.deepEqual(await firstPrepared.execute(), { name: "Ada" });
+      assert.deepEqual(await other.client.author.findUnique(request), {
+        name: "Other client",
+      });
+      assert.deepEqual(await firstPending, { name: "Ada" });
+      assert.deepEqual(await firstPrepared.execute(), { name: "Ada" });
+    } finally {
+      await other.close();
+    }
+  });
+
   it("rejects invalid prepared reads asynchronously before dispatch", async () => {
     world = await createWorld();
     const engine = createCommandEngine({

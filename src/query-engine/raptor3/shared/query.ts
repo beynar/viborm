@@ -201,7 +201,9 @@ type Reader = (value: unknown) => unknown;
 type RelationProjectionArguments = Pick<
   Partial<Arguments>,
   "orderBy" | "take" | "skip" | "cursor" | "distinct"
-> & { readonly selector?: PreparedSelector };
+> & {
+  readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
+};
 interface PreparedRelationProjection {
   readonly edge: Membership;
   readonly arguments: RelationProjectionArguments;
@@ -213,7 +215,7 @@ export type PreparedCount = {
   readonly relation: string;
   /** Every membership the slot counts: one edge, or every variant arm. */
   readonly edges: readonly Membership[];
-  readonly selector?: PreparedSelector;
+  readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
   /** A tagged `isNot` counts the arm's members the selector does NOT match. */
   readonly negated?: true;
 };
@@ -1399,12 +1401,33 @@ export class Queries {
    * same `{ id: … }` object is a discriminator under `findUnique` and a filter
    * under `findFirst`, so the fact belongs to the admitted operation and cannot
    * be recovered from the object's shape.
+   * SQL-only consumers omit dependency summaries through `includeFacts`; the
+   * unique constraint comparison remains independent of that collection.
    */
   prepareSelector(
     model: AnyModel,
     where?: Input,
-    unique = false
-  ): PreparedSelector {
+    unique?: boolean
+  ): PreparedSelector;
+  prepareSelector(
+    model: AnyModel,
+    where: Input | undefined,
+    unique: boolean,
+    includeFacts: false
+  ): Pick<PreparedSelector, "model" | "predicate">;
+  prepareSelector(
+    model: AnyModel,
+    where?: Input,
+    unique = false,
+    includeFacts = true
+  ): Pick<PreparedSelector, "model" | "predicate"> {
+    if (!includeFacts)
+      return Object.freeze({
+        model,
+        predicate: where
+          ? this.prepareWhere(model, where, undefined, [], unique)
+          : undefined,
+      });
     const facts = newSelectorFacts();
     const keys = Object.keys(where ?? {});
     const uniqueKey =
@@ -1551,7 +1574,7 @@ export class Queries {
     });
   }
   lowerSelector(
-    selector: PreparedSelector,
+    selector: Pick<PreparedSelector, "model" | "predicate">,
     alias?: string,
     mutationTarget?: string
   ): Sql | undefined {
@@ -1564,7 +1587,10 @@ export class Queries {
     where: Input | undefined,
     alias?: string
   ): Sql | undefined {
-    return this.lowerSelector(this.prepareSelector(model, where), alias);
+    return this.lowerSelector(
+      this.prepareSelector(model, where, false, false),
+      alias
+    );
   }
   /**
    * The value a LOCATED row holds for one field, read where it is SPENT:
@@ -1699,7 +1725,7 @@ export class Queries {
   private prepareWhere(
     model: AnyModel,
     where: Input,
-    facts: SelectorFacts,
+    facts: SelectorFacts | undefined,
     path: readonly Membership[],
     unique = false,
     positive = true
@@ -1709,7 +1735,7 @@ export class Queries {
       predicates: Object.freeze(
         Object.entries(where).map(([field, operand]) => {
           if (this.combinator(model, field)) {
-            if (field !== "AND") facts.exact = false;
+            if (facts && field !== "AND") facts.exact = false;
             return this.combine(
               field,
               entries(operand).map((clause) =>
@@ -1733,7 +1759,12 @@ export class Queries {
               path,
               positive
             );
-          const key = findAddressableKey(model, field);
+          // An ordinary scalar predicate is not a unique discriminator. Only
+          // unique selectors and possible compound names need the key catalog.
+          const key =
+            unique || model["~"].state.scalars[field] === undefined
+              ? findAddressableKey(model, field)
+              : undefined;
           if (key?.name)
             return Object.freeze({
               kind: "and",
@@ -1766,7 +1797,7 @@ export class Queries {
     model: AnyModel,
     field: string,
     value: unknown,
-    facts: SelectorFacts,
+    facts: SelectorFacts | undefined,
     key = false,
     positive = true
   ): PreparedPredicate {
@@ -1775,26 +1806,28 @@ export class Queries {
       field,
       physical: physicalField(this.schema, model, field),
     });
-    facts.fields.add(field);
-    const filter =
-      value !== null &&
-      typeof value === "object" &&
-      !(value instanceof Sql) &&
-      !isFieldRef(value)
-        ? record(value)
-        : undefined;
-    const hasEquality =
-      filter === undefined ||
-      (Object.keys(filter).length === 1 && "equals" in filter);
-    const equality = filter && hasEquality ? filter.equals : value;
-    if (
-      hasEquality &&
-      (equality === null ||
-        (typeof equality !== "object" && !(equality instanceof Sql)))
-    ) {
-      facts.equals.set(field, equality);
-      if (key) facts.keys.set(field, equality);
-    } else facts.exact = false;
+    if (facts) {
+      facts.fields.add(field);
+      const filter =
+        value !== null &&
+        typeof value === "object" &&
+        !(value instanceof Sql) &&
+        !isFieldRef(value)
+          ? record(value)
+          : undefined;
+      const hasEquality =
+        filter === undefined ||
+        (Object.keys(filter).length === 1 && "equals" in filter);
+      const equality = filter && hasEquality ? filter.equals : value;
+      if (
+        hasEquality &&
+        (equality === null ||
+          (typeof equality !== "object" && !(equality instanceof Sql)))
+      ) {
+        facts.equals.set(field, equality);
+        if (key) facts.keys.set(field, equality);
+      } else facts.exact = false;
+    }
     return this.prepareOperations(
       key
         ? Object.freeze({ kind: "column", scalar, key: true })
@@ -2002,7 +2035,7 @@ export class Queries {
     model: AnyModel,
     name: string,
     operand: unknown,
-    facts: SelectorFacts,
+    facts: SelectorFacts | undefined,
     path: readonly Membership[],
     positive = true
   ): PreparedPredicate {
@@ -2135,7 +2168,7 @@ export class Queries {
     edge: Membership,
     quantifier: string,
     value: unknown,
-    facts: SelectorFacts,
+    facts: SelectorFacts | undefined,
     path: readonly Membership[],
     positive = true
   ): PreparedPredicate {
@@ -2166,11 +2199,22 @@ export class Queries {
   private relationScope(
     edge: Membership,
     where: Input | undefined,
-    facts: SelectorFacts,
+    facts: SelectorFacts | undefined,
     path: readonly Membership[],
     inexact: boolean,
     positive = true
   ): PreparedPredicate | undefined {
+    if (!facts)
+      return where
+        ? this.prepareWhere(
+            edge.target,
+            where,
+            undefined,
+            path,
+            false,
+            positive && !inexact
+          )
+        : undefined;
     const scope = [...path, edge];
     const nestedFacts = newSelectorFacts(!inexact);
     const predicate = where
@@ -2281,9 +2325,10 @@ export class Queries {
       !isCompact(id);
     const exact = (expression: Sql) =>
       text ? a.expressions.caseSensitiveText(expression) : expression;
-    const folded = text
-      ? a.expressions.caseSensitiveText(a.expressions.asciiCaseFold(column))
-      : column;
+    const folded =
+      text && insensitive
+        ? a.expressions.caseSensitiveText(a.expressions.asciiCaseFold(column))
+        : column;
     /**
      * An enum compared against ANOTHER COLUMN compares its SPELLING — on BOTH
      * sides, on every dialect. PostgreSQL gives each enum field its own type,
@@ -3067,23 +3112,25 @@ export class Queries {
     cursor: Input | undefined,
     alias: string
   ): OrderTerm[] {
-    // A windowed read is the one read whose null placement must be stated: the
-    // cursor predicate and the emitted order have to name the same total order,
-    // so an unspelled key takes the established default here and nowhere else.
-    const terms = requested.map((term) =>
-      term.nulls === undefined
-        ? Object.freeze({
-            ...term,
-            nulls: term.descending ? ("first" as const) : ("last" as const),
-          })
-        : term
-    );
-    return this.completeOrder(
+    const terms = this.completeOrder(
       model,
-      terms,
+      requested,
       alias,
       cursor ? Object.keys(this.identityEntries(model, cursor)) : []
     );
+    // Fill the owned completed array directly. Nullable keys need an explicit
+    // placement, and cursor comparisons consume the complete term descriptors;
+    // ordinary non-nullable ordering does not use a null placement.
+    for (let index = 0; index < terms.length; index++) {
+      const term = terms[index]!;
+      if (term.nulls === undefined && (term.nullable || cursor !== undefined)) {
+        terms[index] = Object.freeze({
+          ...term,
+          nulls: term.descending ? "first" : "last",
+        });
+      }
+    }
+    return terms;
   }
   /**
    * The caller's terms completed by the model's identity: the ONE complete-key
@@ -3266,7 +3313,7 @@ export class Queries {
       forUpdate?: boolean;
       identity?: Input;
       projection?: PreparedProjection;
-      selector?: PreparedSelector;
+      selector?: Pick<PreparedSelector, "model" | "predicate">;
     } = {}
   ): Query {
     const alias = this.rootAlias();
@@ -3284,27 +3331,42 @@ export class Queries {
       controls.selector ??
       (args.where === undefined
         ? undefined
-        : this.prepareSelector(model, args.where));
+        : this.prepareSelector(model, args.where, false, false));
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection, ", "),
         from: this.table(model, alias),
-        where: this.adapter.operators.and(
-          ...(membership
-            ? [
-                membership.outside
-                  ? this.outsideWhere(membership.edge, membership.parent, alias)
-                  : this.memberWhere(membership.edge, membership.parent, alias),
-              ]
-            : []),
-          ...(filter ? [filter] : []),
-          ...(page.cursor ? [page.cursor] : []),
-          ...(controls.identity
-            ? [this.lowerIdentity(model, controls.identity, alias)]
-            : []),
-          ...(controls.condition ? [controls.condition] : [])
-        ),
+        where:
+          membership ||
+          filter ||
+          page.cursor ||
+          controls.identity ||
+          controls.condition
+            ? this.adapter.operators.and(
+                ...(membership
+                  ? [
+                      membership.outside
+                        ? this.outsideWhere(
+                            membership.edge,
+                            membership.parent,
+                            alias
+                          )
+                        : this.memberWhere(
+                            membership.edge,
+                            membership.parent,
+                            alias
+                          ),
+                    ]
+                  : []),
+                ...(filter ? [filter] : []),
+                ...(page.cursor ? [page.cursor] : []),
+                ...(controls.identity
+                  ? [this.lowerIdentity(model, controls.identity, alias)]
+                  : []),
+                ...(controls.condition ? [controls.condition] : [])
+              )
+            : undefined,
         orderBy: page.orderBy,
         limit: page.limit,
         offset: page.offset,
@@ -3335,7 +3397,7 @@ export class Queries {
           selector:
             args.where === undefined
               ? undefined
-              : this.prepareSelector(model, args.where, true),
+              : this.prepareSelector(model, args.where, true, false),
         });
         return {
           query,
@@ -3879,7 +3941,7 @@ export class Queries {
       edge,
       arguments: Object.freeze({
         selector: nested.where
-          ? this.prepareSelector(edge.target, nested.where)
+          ? this.prepareSelector(edge.target, nested.where, false, false)
           : undefined,
         orderBy: nested.orderBy,
         take: nested.take,
@@ -3916,7 +3978,12 @@ export class Queries {
           Object.freeze({
             relation,
             edges,
-            selector: this.prepareSelector(edges[0]!.target, filter),
+            selector: this.prepareSelector(
+              edges[0]!.target,
+              filter,
+              false,
+              false
+            ),
           })
         );
         continue;
@@ -3940,7 +4007,7 @@ export class Queries {
           selector:
             inner === undefined
               ? undefined
-              : this.prepareSelector(arm.target, record(inner)),
+              : this.prepareSelector(arm.target, record(inner), false, false),
           ...(negated ? { negated: true as const } : {}),
         })
       );
@@ -4205,7 +4272,7 @@ export class Queries {
    */
   private correlatedCount(
     edges: readonly Membership[],
-    selector: PreparedSelector | undefined,
+    selector: Pick<PreparedSelector, "model" | "predicate"> | undefined,
     parentAlias: string,
     negated = false
   ): Sql {
@@ -4764,13 +4831,14 @@ export class Queries {
   }
   decodeProjection(
     shape: ProjectionShape,
-    rows: Input[],
-    internal = false
+    rows: Input[] | unknown[][],
+    internal = false,
+    columns?: readonly string[]
   ): Input[] {
     // An empty batch — a filter that matched nothing — reads nothing, so it
     // compiles nothing.
     if (rows.length === 0) return [];
-    const read = this.compileReader(shape, internal, false);
+    const read = this.compileReader(shape, internal, false, columns);
     return rows.map((row) => record(read(row)));
   }
   private decodeRecursiveCarrier(
@@ -5065,8 +5133,8 @@ export class Queries {
    * leaf's container reader ({@link compileList}), and — for a PHYSICAL
    * scalar slot only — this execution's provider continuation
    * ({@link fieldReader}). The returned reader then does only what depends on
-   * the provider's value, through the one scalar decoder
-   * ({@link decodeScalar}) and the one carrier validator
+   * the provider's value, through the preselected scalar codec
+   * ({@link compileScalar}) and the one carrier validator
    * ({@link decodeRecursiveCarrier}).
    *
    * `carried` is a fact of the PLACEMENT, never of the shape: a to-one
@@ -5082,13 +5150,13 @@ export class Queries {
   private compileReader(
     shape: Shape | Leaf,
     internal: boolean,
-    carried: boolean
+    carried: boolean,
+    columns?: readonly string[]
   ): Reader {
     if (shape.kind === "scalar") {
       const provider = carried ? undefined : this.fieldReader(shape.type);
       const list = shape.list ? this.compileList(shape, internal) : undefined;
-      return (value) =>
-        this.decodeScalar(shape, value, internal, provider, list);
+      return this.compileScalar(shape, internal, provider, list);
     }
     if (shape.kind === "recursive") {
       const readRow = this.compileReader(shape.row, internal, true);
@@ -5186,6 +5254,26 @@ export class Queries {
         carried || nested.kind !== "scalar"
       );
     });
+    if (columns) {
+      // Native aliases locate cells once; a statement transform may reorder
+      // columns. Last occurrence matches the keyed transport's duplicate names.
+      const positions = fields.map((field) => columns.lastIndexOf(field));
+      return (value) => {
+        if (!Array.isArray(value))
+          throw new InvalidScalarResult(
+            "row",
+            "a positional row is not an array"
+          );
+        const document: Input = {};
+        for (let index = 0; index < fields.length; index++) {
+          const position = positions[index]!;
+          document[fields[index]!] = readers[index]!(
+            position < 0 ? undefined : value[position]
+          );
+        }
+        return document;
+      };
+    }
     return (value) => {
       const source = providerDocument(providerJson(value));
       if (source === null) {
@@ -5246,247 +5334,206 @@ export class Queries {
    * a list leaf's compiled container reader, and a list MEMBER's leaf is no
    * list.
    */
-  private decodeScalar(
+  private compileScalar(
     leaf: Leaf,
-    raw: unknown,
     internal: boolean,
     provider?: FieldReader,
     list?: Reader
-  ): unknown {
-    // The SQL NULL and the absent column are facts about the ROW, answered
-    // before any representation rule: a provider that decodes `'null'` into
-    // the JSON null document has produced a VALUE, and asking the null
-    // question after the chain would refuse it on a NOT NULL json column.
-    //
-    // A json DOCUMENT is the one domain whose values include a null, and two
-    // of the three drivers parse the column themselves (`pg` and `mysql2` hand
-    // back the JS null for the stored `null` document; SQLite hands the text
-    // `'null'` and reaches the chain below). The COLUMN's own nullability is
-    // what tells the two apart there, and it is already on the leaf: a NOT NULL
-    // json column cannot hold the SQL NULL, so this null is the document
-    // `JsonNull` wrote. It continues through the same chain as every other json
-    // value, so a declared output schema still sees it.
-    if (raw === null) {
-      if (leaf.nullable) return null;
-      if (!(leaf.type === "json" && leaf.list !== true))
-        throw new InvalidScalarResult(
-          leaf.type,
-          leaf.list ? "a required list is null" : "a required scalar is null"
-        );
-    }
-    if (raw === undefined)
-      throw new InvalidScalarResult(leaf.type, "the value is absent");
-    // A carried value came out of a JSON document the provider already
-    // decoded; asking the transport about it a second time is what turned
-    // `"just a json string"` into a `SyntaxError`.
-    const value = provider === undefined ? raw : provider(raw);
-    if (list) return list(value);
-    // An identifier column hands back its PHYSICAL value — bytes, their hex
-    // transport, a `uuid`'s text, or the stored text — and the codec turns it
-    // into the canonical PUBLIC string, prefix re-applied. A TEXT column's
-    // physical value is the spelling itself, so an INTERNAL read keeps the
-    // bytes the row holds (a captured identity must address its own row) while
-    // a public one canonicalizes — the split the datetime arm below takes.
-    if (leaf.id !== undefined) {
-      const decoded = decodeIdentifier(leaf.id, value);
-      if (decoded === undefined)
-        throw new InvalidScalarResult(
-          leaf.type,
-          "the value is not in this column's declared identifier domain"
-        );
-      return internal && leaf.id.representation === "text" ? value : decoded;
-    }
-    switch (leaf.type) {
-      case "string":
-        if (typeof value === "string") return value;
-        throw new InvalidScalarResult(leaf.type, "the value is not a string");
-      case "boolean":
-        if (typeof value === "boolean") return value;
-        if (value === 0 || value === 0n) return false;
-        if (value === 1 || value === 1n) return true;
-        throw new InvalidScalarResult(
-          leaf.type,
-          "the value is not true, false, zero, or one"
-        );
-      case "int": {
-        const parsed =
-          typeof value === "bigint"
-            ? Number(value)
-            : typeof value === "string" && INTEGER_TEXT.test(value)
-              ? Number(value)
-              : value;
-        if (typeof parsed !== "number")
+  ): Reader {
+    const readValue = list ?? this.compileScalarValue(leaf, internal);
+    const nullable = leaf.nullable;
+    const allowsJsonNull = leaf.type === "json" && leaf.list !== true;
+    return (raw) => {
+      if (raw === null) {
+        if (nullable) return null;
+        if (!allowsJsonNull)
           throw new InvalidScalarResult(
             leaf.type,
-            "the value is not a canonical integer"
+            leaf.list ? "a required list is null" : "a required scalar is null"
           );
-        if (!Number.isSafeInteger(parsed))
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the integer is outside the safe range"
-          );
-        return parsed;
       }
-      case "bigint":
-        if (typeof value === "bigint") return value;
-        if (typeof value === "number" && Number.isSafeInteger(value))
-          return BigInt(value);
-        if (typeof value === "string" && INTEGER_TEXT.test(value))
-          return BigInt(value);
-        throw new InvalidScalarResult(
-          leaf.type,
-          "the value is not a canonical integer"
-        );
-      case "number": {
-        const parsed =
-          typeof value === "string" && value.trim() !== ""
-            ? Number(value)
-            : value;
-        if (typeof parsed !== "number" || !Number.isFinite(parsed))
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the value is not a canonical finite number"
-          );
-        return parsed;
-      }
-      case "decimal": {
-        const decoded = decodeDecimalScalar(
-          value,
-          leaf.decimal!,
-          leaf.widened === true,
-          internal,
-          this.adapter.result
-        );
+      if (raw === undefined)
+        throw new InvalidScalarResult(leaf.type, "the value is absent");
+      return readValue(provider === undefined ? raw : provider(raw));
+    };
+  }
+  /** Bind the declared scalar codec once, preserving its provider-value checks. */
+  private compileScalarValue(leaf: Leaf, internal: boolean): Reader {
+    const identifier = leaf.id;
+    if (identifier !== undefined) {
+      return (value) => {
+        const decoded = decodeIdentifier(identifier, value);
         if (decoded === undefined)
           throw new InvalidScalarResult(
             leaf.type,
-            leaf.widened
-              ? "the sum is not an exact decimal at this column's scale"
-              : "the value is not an exact decimal in this column's declared domain"
+            "the value is not in this column's declared identifier domain"
           );
-        return decoded;
-      }
-      case "datetime": {
-        if (leaf.dateTime !== undefined && leaf.dateTime !== "text") {
-          const decoded = decodePhysicalDateTime(value, leaf.dateTime);
+        return internal && identifier.representation === "text"
+          ? value
+          : decoded;
+      };
+    }
+    switch (leaf.type) {
+      case "string":
+        return decodeString;
+      case "boolean":
+        return decodeBoolean;
+      case "int":
+        return decodeInt;
+      case "bigint":
+        return decodeBigint;
+      case "number":
+        return decodeNumber;
+      case "decimal":
+        return (value) => {
+          const decoded = decodeDecimalScalar(
+            value,
+            leaf.decimal!,
+            leaf.widened === true,
+            internal,
+            this.adapter.result
+          );
           if (decoded === undefined)
             throw new InvalidScalarResult(
               leaf.type,
-              "the value is not this column's declared physical timestamp"
+              leaf.widened
+                ? "the sum is not an exact decimal at this column's scale"
+                : "the value is not an exact decimal in this column's declared domain"
             );
           return decoded;
-        }
-        if (value instanceof Date) {
-          if (isDateTimeInstant(value.getTime()))
-            return new Date(value.getTime());
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the Date is outside the public DateTime domain"
-          );
-        }
-        const parsed =
-          typeof value === "string" ? providerTimestamp(value) : undefined;
-        if (!parsed)
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the value is not a valid provider timestamp in the public DateTime domain"
-          );
-        // A TEXT-stored instant's PHYSICAL value is the spelling itself
-        // (`encodePhysicalDateTime(iso, "text")` is the identity), and this
-        // column admits more than one spelling of one instant, so an INTERNAL
-        // read keeps the bytes the row holds and a public one materializes the
-        // `Date` — the same split the decimal arm above takes through
-        // `decodeDecimalScalar`. That is what makes a captured identity
-        // address its own row: `Queries.scalarValue` binds this string back
-        // unchanged, while a `Date` would be re-spelled by the admission
-        // boundary and match a row only where the payload's spelling was that
-        // one (FC-02B, which repaired N5 §6's residual).
-        return internal ? value : parsed;
-      }
-      case "date": {
-        if (value instanceof Date) {
-          const epoch = value.getTime();
+        };
+      case "datetime":
+        return (value) => {
+          if (leaf.dateTime !== undefined && leaf.dateTime !== "text") {
+            const decoded = decodePhysicalDateTime(value, leaf.dateTime);
+            if (decoded === undefined)
+              throw new InvalidScalarResult(
+                leaf.type,
+                "the value is not this column's declared physical timestamp"
+              );
+            return decoded;
+          }
+          if (value instanceof Date) {
+            if (isDateTimeInstant(value.getTime()))
+              return new Date(value.getTime());
+            throw new InvalidScalarResult(
+              leaf.type,
+              "the Date is outside the public DateTime domain"
+            );
+          }
+          const parsed =
+            typeof value === "string" ? providerTimestamp(value) : undefined;
+          if (!parsed)
+            throw new InvalidScalarResult(
+              leaf.type,
+              "the value is not a valid provider timestamp in the public DateTime domain"
+            );
+          // A TEXT-stored instant's PHYSICAL value is the spelling itself
+          // (`encodePhysicalDateTime(iso, "text")` is the identity), and this
+          // column admits more than one spelling of one instant, so an INTERNAL
+          // read keeps the bytes the row holds and a public one materializes the
+          // `Date` — the same split the decimal arm above takes through
+          // `decodeDecimalScalar`. That is what makes a captured identity
+          // address its own row: `Queries.scalarValue` binds this string back
+          // unchanged, while a `Date` would be re-spelled by the admission
+          // boundary and match a row only where the payload's spelling was that
+          // one (FC-02B, which repaired N5 §6's residual).
+          return internal ? value : parsed;
+        };
+      case "date":
+        return (value) => {
+          if (value instanceof Date) {
+            const epoch = value.getTime();
+            if (
+              isDateTimeInstant(epoch) &&
+              value.getUTCHours() === 0 &&
+              value.getUTCMinutes() === 0 &&
+              value.getUTCSeconds() === 0 &&
+              value.getUTCMilliseconds() === 0
+            )
+              return new Date(epoch);
+            throw new InvalidScalarResult(
+              leaf.type,
+              "the Date is invalid or not UTC midnight"
+            );
+          }
+          const match =
+            typeof value === "string" ? DATE_TEXT.exec(value) : null;
           if (
-            isDateTimeInstant(epoch) &&
-            value.getUTCHours() === 0 &&
-            value.getUTCMinutes() === 0 &&
-            value.getUTCSeconds() === 0 &&
-            value.getUTCMilliseconds() === 0
-          )
-            return new Date(epoch);
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the Date is invalid or not UTC midnight"
-          );
-        }
-        const match = typeof value === "string" ? DATE_TEXT.exec(value) : null;
-        if (
-          !(
-            match &&
-            isGregorianCalendarDate(
-              Number(match[1]),
-              Number(match[2]),
-              Number(match[3])
+            !(
+              match &&
+              isGregorianCalendarDate(
+                Number(match[1]),
+                Number(match[2]),
+                Number(match[3])
+              )
             )
           )
-        )
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the value is not a valid ISO calendar date"
-          );
-        return new Date(`${value as string}T00:00:00.000Z`);
-      }
+            throw new InvalidScalarResult(
+              leaf.type,
+              "the value is not a valid ISO calendar date"
+            );
+          return new Date(`${value as string}T00:00:00.000Z`);
+        };
       case "time":
-        return decodeTime(value);
+        return decodeTime;
       case "enum":
-        if (typeof value === "string" && leaf.enumValues?.has(value) === true)
-          return value;
-        throw new InvalidScalarResult(
-          leaf.type,
-          "the value is not a declared enum member"
-        );
-      case "json": {
-        const document = this.jsonValue(value);
-        return leaf.jsonSchema === undefined
-          ? document
-          : this.jsonValue(this.schemaValue(leaf.jsonSchema, document));
-      }
+        return (value) => {
+          if (typeof value === "string" && leaf.enumValues?.has(value) === true)
+            return value;
+          throw new InvalidScalarResult(
+            leaf.type,
+            "the value is not a declared enum member"
+          );
+        };
+      case "json":
+        return (value) => {
+          const document = this.jsonValue(value);
+          return leaf.jsonSchema === undefined
+            ? document
+            : this.jsonValue(this.schemaValue(leaf.jsonSchema, document));
+        };
       case "blob":
-        return decodeBlob(value);
-      case "vector": {
-        const decoded = providerJson(value);
-        if (
-          !Array.isArray(decoded) ||
-          decoded.some(
-            (member) => typeof member !== "number" || !Number.isFinite(member)
+        return decodeBlob;
+      case "vector":
+        return (value) => {
+          const decoded = providerJson(value);
+          if (
+            !Array.isArray(decoded) ||
+            decoded.some(
+              (member) => typeof member !== "number" || !Number.isFinite(member)
+            )
           )
-        )
-          throw new InvalidScalarResult(
-            leaf.type,
-            "the value is not an array of finite numbers"
-          );
-        if (leaf.dimension !== undefined && decoded.length !== leaf.dimension)
-          throw new InvalidScalarResult(
-            leaf.type,
-            `the value does not have the configured dimension ${leaf.dimension}`
-          );
-        return [...decoded];
-      }
-      case "point": {
-        const decoded = providerJson(value);
-        const point = validateGeoPoint(decoded);
-        if (point.issues)
-          throw new InvalidScalarResult(
-            leaf.type,
-            point.issues[0]?.message ?? "the value is not a canonical GeoPoint"
-          );
-        return point.value;
-      }
+            throw new InvalidScalarResult(
+              leaf.type,
+              "the value is not an array of finite numbers"
+            );
+          if (leaf.dimension !== undefined && decoded.length !== leaf.dimension)
+            throw new InvalidScalarResult(
+              leaf.type,
+              `the value does not have the configured dimension ${leaf.dimension}`
+            );
+          return [...decoded];
+        };
+      case "point":
+        return (value) => {
+          const decoded = providerJson(value);
+          const point = validateGeoPoint(decoded);
+          if (point.issues)
+            throw new InvalidScalarResult(
+              leaf.type,
+              point.issues[0]?.message ??
+                "the value is not a canonical GeoPoint"
+            );
+          return point.value;
+        };
       default:
-        throw new InvalidScalarResult(
-          leaf.type,
-          "the scalar type is unsupported"
-        );
+        return () => {
+          throw new InvalidScalarResult(
+            leaf.type,
+            "the scalar type is unsupported"
+          );
+        };
     }
   }
   /**
@@ -5518,6 +5565,7 @@ export class Queries {
       list: undefined,
       nullable: false,
     });
+    const readMember = this.compileScalar(member, internal);
     return (value) => {
       const items: unknown =
         typeof value !== "string"
@@ -5537,7 +5585,7 @@ export class Queries {
             leaf.type,
             "a list scalar returned a sparse array"
           );
-        return this.decodeScalar(member, item, internal);
+        return readMember(item);
       });
     };
   }
@@ -5694,6 +5742,64 @@ function providerTimestamp(value: string): Date | undefined {
     ? new Date(`${value.replace(" ", "T")}Z`)
     : new Date(value);
   return isDateTimeInstant(parsed.getTime()) ? parsed : undefined;
+}
+
+function decodeString(value: unknown): unknown {
+  if (typeof value === "string") return value;
+  throw new InvalidScalarResult("string", "the value is not a string");
+}
+
+function decodeBoolean(value: unknown): unknown {
+  if (typeof value === "boolean") return value;
+  if (value === 0 || value === 0n) return false;
+  if (value === 1 || value === 1n) return true;
+  throw new InvalidScalarResult(
+    "boolean",
+    "the value is not true, false, zero, or one"
+  );
+}
+
+function decodeInt(value: unknown): unknown {
+  const parsed =
+    typeof value === "bigint"
+      ? Number(value)
+      : typeof value === "string" && INTEGER_TEXT.test(value)
+        ? Number(value)
+        : value;
+  if (typeof parsed !== "number")
+    throw new InvalidScalarResult(
+      "int",
+      "the value is not a canonical integer"
+    );
+  if (!Number.isSafeInteger(parsed))
+    throw new InvalidScalarResult(
+      "int",
+      "the integer is outside the safe range"
+    );
+  return parsed;
+}
+
+function decodeBigint(value: unknown): unknown {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value))
+    return BigInt(value);
+  if (typeof value === "string" && INTEGER_TEXT.test(value))
+    return BigInt(value);
+  throw new InvalidScalarResult(
+    "bigint",
+    "the value is not a canonical integer"
+  );
+}
+
+function decodeNumber(value: unknown): unknown {
+  const parsed =
+    typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  if (typeof parsed !== "number" || !Number.isFinite(parsed))
+    throw new InvalidScalarResult(
+      "number",
+      "the value is not a canonical finite number"
+    );
+  return parsed;
 }
 
 function decodeTime(value: unknown): string {

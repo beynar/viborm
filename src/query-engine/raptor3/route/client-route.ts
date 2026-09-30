@@ -134,15 +134,106 @@ function routeWriteOutcome(
     seam: {
       committedSegment: async () => {
         outcome.published = true;
-        await committedWriteSegment?.();
+        if (committedWriteSegment) await committedWriteSegment();
       },
       mayBeVisible: async () => {
         outcome.published = true;
-        await writeMayBeVisible?.();
+        if (writeMayBeVisible) await writeMayBeVisible();
       },
     },
   };
   return outcome;
+}
+
+class RoutedOperation implements RoutedCandidateOperation {
+  readonly #factoryDriver: AnyDriver;
+  readonly #modelName: string;
+  readonly #requestedOperation: string;
+  readonly #prepared: PreparedOperation;
+  #codec: CacheResultCodec | undefined;
+
+  constructor(
+    factoryDriver: AnyDriver,
+    modelName: string,
+    requestedOperation: string,
+    prepared: PreparedOperation
+  ) {
+    this.#factoryDriver = factoryDriver;
+    this.#modelName = modelName;
+    this.#requestedOperation = requestedOperation;
+    this.#prepared = prepared;
+  }
+
+  get preparedArgs(): Record<string, unknown> {
+    return this.#prepared.args;
+  }
+
+  buildStatement(): Sql | undefined {
+    return this.#prepared.read?.statement;
+  }
+
+  cacheResultCodec(): CacheResultCodec {
+    // KEPT as a capability boundary (N4, plan §4). It alone owns "the
+    // cache layer asked this engine to encode a verb this engine
+    // publishes no prepared read for" — a boundary between two
+    // independently-maintained vocabularies in two layers:
+    // `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`, nine names,
+    // including both `…OrThrow` variants) and the engine's own
+    // `READ_OPERATIONS` (`shared/schema.ts`, seven), reconciled today
+    // only by `admittedOperation`'s `…OrThrow` normalization. No type
+    // ties them and no single upstream owner establishes the fact, so an
+    // assertion here would establish a missing fact rather than state an
+    // established one (ELEGANCE §5). The class stays public
+    // (`UnsupportedOperationError`) because this seam
+    // (`RoutedCandidateOperation`) is consumed outside raptor3.
+    const read = this.#prepared.read;
+    if (!read)
+      throw new UnsupportedOperationError(
+        `The Raptor 3 route cannot encode a cached result for '${this.#requestedOperation}' on model '${this.#modelName}': the verb publishes no prepared read.`,
+        {
+          meta: {
+            model: this.#modelName,
+            operation: this.#requestedOperation,
+          },
+        }
+      );
+    return (this.#codec ??= cacheCodec(read, this.#requestedOperation));
+  }
+
+  prepareSingle(
+    context: QueryExecutionContext
+  ): PreparedBatchOperation<unknown> | undefined {
+    return this.#prepared.prepareSingle(context);
+  }
+
+  prepareBatch(
+    context: QueryExecutionContext
+  ): Promise<PreparedBatchOperation<unknown> | undefined> {
+    return this.#prepared.prepareBatch(context);
+  }
+
+  execute<T>(execution: RoutedOperationExecution): Promise<T> {
+    try {
+      const outcome = execution.isWrite
+        ? routeWriteOutcome(execution)
+        : undefined;
+      if (outcome)
+        return runWriteCandidate<T>(
+          this.#prepared,
+          execution,
+          this.#factoryDriver,
+          outcome
+        );
+      return runCandidate(
+        this.#prepared,
+        execution,
+        this.#factoryDriver,
+        undefined
+      ) as Promise<T>;
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
 }
 
 /**
@@ -165,85 +256,6 @@ export function createCandidateRoute(
     driver: factoryDriver,
     resolved,
   });
-  class RoutedOperation implements RoutedCandidateOperation {
-    readonly #modelName: string;
-    readonly #requestedOperation: string;
-    readonly #prepared: PreparedOperation;
-    #codec: CacheResultCodec | undefined;
-
-    constructor(
-      modelName: string,
-      requestedOperation: string,
-      prepared: PreparedOperation
-    ) {
-      this.#modelName = modelName;
-      this.#requestedOperation = requestedOperation;
-      this.#prepared = prepared;
-    }
-
-    get preparedArgs(): Record<string, unknown> {
-      return this.#prepared.args;
-    }
-
-    buildStatement(): Sql | undefined {
-      return this.#prepared.read?.statement;
-    }
-
-    cacheResultCodec(): CacheResultCodec {
-      // KEPT as a capability boundary (N4, plan §4). It alone owns "the
-      // cache layer asked this engine to encode a verb this engine
-      // publishes no prepared read for" — a boundary between two
-      // independently-maintained vocabularies in two layers:
-      // `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`, nine names,
-      // including both `…OrThrow` variants) and the engine's own
-      // `READ_OPERATIONS` (`shared/schema.ts`, seven), reconciled today
-      // only by `admittedOperation`'s `…OrThrow` normalization. No type
-      // ties them and no single upstream owner establishes the fact, so an
-      // assertion here would establish a missing fact rather than state an
-      // established one (ELEGANCE §5). The class stays public
-      // (`UnsupportedOperationError`) because this seam
-      // (`RoutedCandidateOperation`) is consumed outside raptor3.
-      const read = this.#prepared.read;
-      if (!read)
-        throw new UnsupportedOperationError(
-          `The Raptor 3 route cannot encode a cached result for '${this.#requestedOperation}' on model '${this.#modelName}': the verb publishes no prepared read.`,
-          {
-            meta: {
-              model: this.#modelName,
-              operation: this.#requestedOperation,
-            },
-          }
-        );
-      return (this.#codec ??= cacheCodec(read, this.#requestedOperation));
-    }
-
-    prepareSingle(
-      context: QueryExecutionContext
-    ): PreparedBatchOperation<unknown> | undefined {
-      return this.#prepared.prepareSingle(context);
-    }
-
-    prepareBatch(
-      context: QueryExecutionContext
-    ): Promise<PreparedBatchOperation<unknown> | undefined> {
-      return this.#prepared.prepareBatch(context);
-    }
-
-    execute<T>(execution: RoutedOperationExecution): Promise<T> {
-      try {
-        if (execution.isWrite)
-          return runWriteCandidate<T>(this.#prepared, execution, factoryDriver);
-        return runCandidate(
-          this.#prepared,
-          execution,
-          factoryDriver,
-          undefined
-        ) as Promise<T>;
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    }
-  }
   return {
     operation(
       model: AnyModel,
@@ -256,6 +268,7 @@ export function createCandidateRoute(
       // read stay lazy inside it (LX-01); every consumer below reads the same
       // construction, so nothing is admitted or projected twice.
       return new RoutedOperation(
+        factoryDriver,
         modelName,
         requestedOperation,
         engine.prepare(modelName, operation, args)
@@ -267,21 +280,22 @@ export function createCandidateRoute(
 async function runWriteCandidate<T>(
   prepared: PreparedOperation,
   execution: RoutedOperationExecution,
-  factoryDriver: AnyDriver
+  factoryDriver: AnyDriver,
+  outcome: RouteWriteOutcome
 ): Promise<T> {
-  const outcome = routeWriteOutcome(execution);
   const value = await runCandidate(
     prepared,
     execution,
     factoryDriver,
-    outcome?.seam
+    outcome.seam
   );
   // A transport that never separated commit from success — every direct
   // statement and every borrowed scope — leaves the operation's own success as
   // the only durable fact there is. That is the arm the shipped write-outcome
   // rail keeps for itself, on the same condition (`extensions/query.ts:286-293`,
   // `publishedDirectUnits === 0`).
-  if (!outcome?.published) await execution.committedWriteSegment?.();
+  if (!outcome.published && execution.committedWriteSegment)
+    await execution.committedWriteSegment();
   return value as T;
 }
 

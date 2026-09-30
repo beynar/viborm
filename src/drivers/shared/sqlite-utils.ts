@@ -26,12 +26,14 @@ export function sqliteBinaryToUint8Array(value: SQLiteBinaryValue): Uint8Array {
  * Convert provider-neutral scalar values to SQLite values. Binary values stay
  * in their standard Web API form; each provider owns any narrower conversion.
  */
+export function convertValueForSQLite(value: unknown): unknown {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (value === undefined) return null;
+  return value;
+}
+
 export function convertValuesForSQLite(values: unknown[]): unknown[] {
-  return values.map((v) => {
-    if (typeof v === "boolean") return v ? 1 : 0;
-    if (v === undefined) return null;
-    return v;
-  });
+  return values.map(convertValueForSQLite);
 }
 
 /**

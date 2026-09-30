@@ -8,8 +8,21 @@ import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
+import { sql } from "@sql";
 import Database from "better-sqlite3";
 import { describe, it, vi } from "vitest";
+
+const LEFT_COMPARISON =
+  /"left_source"\."left_value"\s*>\s*"left_source"\."right_value"/;
+const RIGHT_COMPARISON =
+  /"right_source"\."left_value"\s*>\s*"right_source"\."right_value"/;
+const RIGHT_ALIAS = /"right_source"/;
+const LEFT_ALIAS = /"left_source"/;
+const COLUMN_GREATER = /"([^"]+)"\."left_value"\s*>\s*"\1"\."right_value"/;
+const COLUMN_EQUAL = /"([^"]+)"\."left_value"\s*=\s*"\1"\."right_value"/;
+const FOREIGN_COLUMN =
+  /Field reference 'other\.right' cannot be used while filtering 'row': a field reference may only compare columns of the same model\./;
+const STATEMENT_VERB = /^\w+/;
 
 function selectorSchema() {
   const tenant = s
@@ -74,6 +87,93 @@ async function captureFailure(run: () => Promise<unknown>): Promise<unknown> {
 }
 
 describe("post-G3 selector preparation", () => {
+  it("preserves empty-filter semantics and internal selection guards", () => {
+    const schema = selectorSchema();
+    const database = new Database(":memory:");
+    try {
+      database.exec(
+        "CREATE TABLE post_g3_selector_rows (id INTEGER, tenant_id TEXT, left_value INTEGER, right_value INTEGER);" +
+          "INSERT INTO post_g3_selector_rows VALUES (1, 't1', 2, 3), (2, 't1', 4, 5), (3, 't2', 6, 7)"
+      );
+      const queries = new Queries(
+        new EngineSchema(schema),
+        new SQLiteAdapter()
+      );
+      for (const { where, expected } of [
+        { where: undefined, expected: [1, 2, 3] },
+        { where: {}, expected: [1, 2, 3] },
+        { where: { AND: [] }, expected: [1, 2, 3] },
+        { where: { OR: [] }, expected: [] },
+        { where: { NOT: { id: 2 } }, expected: [1, 3] },
+      ]) {
+        const query = queries.select(schema.row, {
+          where,
+          select: { id: true },
+          orderBy: { id: "asc" },
+        });
+        assert.deepEqual(
+          database
+            .prepare(query.sql.toStatement())
+            .pluck()
+            .all(...query.sql.values),
+          expected
+        );
+      }
+      for (const controls of [
+        { identity: { id: 2 } },
+        { condition: sql`id = ${2}` },
+        { identity: { id: 2 }, condition: sql`id <> ${1}` },
+      ]) {
+        const query = queries.select(
+          schema.row,
+          { select: { id: true }, orderBy: { id: "asc" } },
+          undefined,
+          controls
+        );
+        assert.deepEqual(
+          database
+            .prepare(query.sql.toStatement())
+            .pluck()
+            .all(...query.sql.values),
+          [2]
+        );
+      }
+    } finally {
+      database.close();
+    }
+  });
+
+  it("keeps SQL and parameters when reads omit write dependency facts", () => {
+    const schema = selectorSchema();
+    const refs = createModelFieldRefs("row", schema.row);
+    for (const unique of [false, true]) {
+      for (const where of [
+        { id: 1 },
+        { tenant_left: { tenantId: "t1", left: 2 } },
+        {
+          AND: [{ left: { gte: 2 } }, { right: { equals: refs.left } }],
+          OR: [{ tenant: { is: { id: "t1" } } }, { NOT: { left: 3 } }],
+        },
+      ]) {
+        const full = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+        const read = new Queries(new EngineSchema(schema), new SQLiteAdapter());
+        const tracked = full.prepareSelector(schema.row, where, unique);
+        const untracked = read.prepareSelector(
+          schema.row,
+          where,
+          unique,
+          false
+        );
+        assert.equal(Object.hasOwn(untracked, "facts"), false);
+        assert.equal(Object.hasOwn(untracked, "uniqueValues"), false);
+        const before = full.lowerSelector(tracked, "r");
+        const after = read.lowerSelector(untracked, "r");
+        assert.equal(after?.toStatement(), before?.toStatement());
+        assert.deepEqual(after?.values, before?.values);
+      }
+    }
+  });
+
   it("keeps every selector fact scope mutable and isolated", () => {
     const schema = selectorSchema();
     const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
@@ -164,16 +264,10 @@ describe("post-G3 selector preparation", () => {
     assert(right);
     const leftSql = left.toStatement("?");
     const rightSql = right.toStatement("?");
-    assert.match(
-      leftSql,
-      /"left_source"\."left_value"\s*>\s*"left_source"\."right_value"/
-    );
-    assert.match(
-      rightSql,
-      /"right_source"\."left_value"\s*>\s*"right_source"\."right_value"/
-    );
-    assert.doesNotMatch(leftSql, /"right_source"/);
-    assert.doesNotMatch(rightSql, /"left_source"/);
+    assert.match(leftSql, LEFT_COMPARISON);
+    assert.match(rightSql, RIGHT_COMPARISON);
+    assert.doesNotMatch(leftSql, RIGHT_ALIAS);
+    assert.doesNotMatch(rightSql, LEFT_ALIAS);
     assert(column.mock.calls.length > 0);
     assert(conjunction.mock.calls.length > 0);
     assert(comparison.mock.calls.length > 0);
@@ -222,14 +316,8 @@ describe("post-G3 selector preparation", () => {
         [{ id: 2 }]
       );
       assert.equal(driver.statements.length, 2);
-      assert.match(
-        driver.statements[0] ?? "",
-        /"([^"]+)"\."left_value"\s*>\s*"\1"\."right_value"/
-      );
-      assert.match(
-        driver.statements[1] ?? "",
-        /"([^"]+)"\."left_value"\s*=\s*"\1"\."right_value"/
-      );
+      assert.match(driver.statements[0] ?? "", COLUMN_GREATER);
+      assert.match(driver.statements[1] ?? "", COLUMN_EQUAL);
     } finally {
       await driver.disconnect();
       database.close();
@@ -260,10 +348,7 @@ describe("post-G3 selector preparation", () => {
       );
 
       assert(failure instanceof QueryEngineError);
-      assert.match(
-        failure.message,
-        /Field reference 'other\.right' cannot be used while filtering 'row': a field reference may only compare columns of the same model\./
-      );
+      assert.match(failure.message, FOREIGN_COLUMN);
       assert.equal(driver.statements.length, 0);
     } finally {
       await driver.disconnect();
@@ -383,7 +468,9 @@ describe("post-G3 selector preparation", () => {
       // statement over every requirement the operation owns, not one statement
       // per requirement).
       assert.deepEqual(
-        driver.statements.map((statement) => statement.match(/^\w+/)?.[0]),
+        driver.statements.map(
+          (statement) => statement.match(STATEMENT_VERB)?.[0]
+        ),
         ["SELECT", "SELECT", "SELECT", "SELECT", "UPDATE", "SELECT"]
       );
       assert.deepEqual(

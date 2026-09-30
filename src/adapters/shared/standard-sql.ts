@@ -1,4 +1,4 @@
-import { type Sql, sql } from "@sql";
+import { Sql, sql } from "@sql";
 import {
   createQualifiedIdentifierRenderer,
   type IdentifierQuoter,
@@ -264,7 +264,7 @@ export const createIdentifiers = (
     },
 
     aliased: (expression: Sql, alias: string): Sql =>
-      sql`${expression} AS ${sql.raw(quoteIdent(alias))}`,
+      new Sql(["", ` AS ${quoteIdent(alias)}`], [expression]),
   };
 };
 

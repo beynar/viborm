@@ -14,6 +14,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
+import type { Sql } from "@sql";
 import Database from "better-sqlite3";
 import {
   activateConsumableResultProducer,
@@ -27,8 +28,15 @@ import {
   type QueryExecutionContext,
 } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
+import { assertNormalizedQueryResult } from "../normalized-result";
 import {
-  convertValuesForSQLite,
+  assertPositionalRows,
+  borrowPositionalResult,
+  type ProjectionExecutionResult,
+  registerPositionalResultDriver,
+} from "../positional-result";
+import {
+  convertValueForSQLite,
   isSQLiteBinaryValue,
   runTransactionLifecycle,
   sqliteBinaryToUint8Array,
@@ -40,7 +48,8 @@ import type { QueryResult } from "../types";
 type SQLite3Database = Database.Database;
 
 function convertValuesForSQLite3(values: unknown[]): unknown[] {
-  return convertValuesForSQLite(values).map((value) => {
+  return values.map((parameter) => {
+    const value = convertValueForSQLite(parameter);
     if (Buffer.isBuffer(value) || !isSQLiteBinaryValue(value)) {
       return value;
     }
@@ -74,6 +83,17 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private static readonly canonicalExecute = SQLite3Driver.prototype.execute;
   private static readonly canonicalRunStatement =
     SQLite3Driver.prototype.runStatement;
+  private static readonly canonicalTypedStatement =
+    SQLite3Driver.prototype.executeTypedStatement;
+  private static readonly canonicalPositionalExecute =
+    SQLite3Driver.prototype.executePositional;
+  private static readonly canonicalNativePrepare = Database.prototype.prepare;
+  private static readonly canonicalDriverParseField =
+    sqliteResultParser.parseField;
+  private static readonly canonicalDriverParseRelation =
+    sqliteResultParser.parseRelation;
+  private static readonly canonicalDriverParseResult =
+    sqliteResultParser.parseResult;
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
@@ -90,6 +110,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private readonly suppliedClient: SQLite3Database | undefined;
   private readonly canonicalAdapterParseResult =
     this.adapter.result.parseResult;
+  private readonly canonicalAdapter = this.adapter;
+  private readonly canonicalAdapterResult = this.adapter.result;
+  private readonly canonicalAdapterParseField = this.adapter.result.parseField;
+  private readonly canonicalAdapterParseRelation =
+    this.adapter.result.parseRelation;
 
   constructor(options: SQLite3DriverOptions = {}) {
     super("sqlite", "sqlite3");
@@ -105,6 +130,13 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
         SQLite3Driver.canonicalExecuteEntry,
         SQLite3Driver.isConsumableCandidate,
         SQLite3Driver.isConsumableProducer
+      );
+    }
+    if (SQLite3Driver.isPositionalCandidate(this)) {
+      registerPositionalResultDriver(
+        this,
+        (query, context) => this.executePositional(query, context),
+        SQLite3Driver.isPositionalCandidate
       );
     }
   }
@@ -149,7 +181,8 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   protected async execute<T>(
     client: SQLite3Database,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const values = convertValuesForSQLite3(params);
     return this.runStatement<T>(client, sql, values, true);
@@ -164,6 +197,100 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     // Raw results bypass the result parser — keep better-sqlite3's plain
     // numbers instead of surfacing BigInt to raw callers
     return this.runStatement<T>(client, sql, values, false);
+  }
+
+  private async executePositional(
+    query: Sql,
+    context: QueryExecutionContext
+  ): Promise<ProjectionExecutionResult> {
+    let producer: SQLite3Database | undefined;
+    const response = await this.executeTypedStatement(
+      query,
+      context,
+      async (
+        client,
+        statement,
+        params,
+        executionContext
+      ): Promise<ProjectionExecutionResult> => {
+        const resultContext = {
+          provider: this.driverName,
+          operation: executionContext.operation ?? "execute",
+        };
+        // Client initialization and observers can await or run caller work.
+        if (!SQLite3Driver.isPositionalProducer(this, client)) {
+          const result = await this.execute<unknown>(
+            client,
+            statement,
+            params,
+            executionContext
+          );
+          assertNormalizedQueryResult(result, resultContext);
+          return { kind: "borrowed", result };
+        }
+        const values = convertValuesForSQLite3(params);
+        const prepared = client.prepare(statement);
+        if (!prepared.reader) {
+          const result = prepared.run(...values);
+          const borrowed = { rows: [], rowCount: result.changes };
+          assertNormalizedQueryResult(borrowed, resultContext);
+          return { kind: "borrowed", result: borrowed };
+        }
+        prepared.safeIntegers(true);
+        producer = client;
+        const columns = prepared.columns().map((column) => column.name);
+        const rows = prepared.raw().all(...values);
+        assertPositionalRows(rows, columns, resultContext);
+        return { kind: "positional", rows, columns };
+      }
+    );
+    if (
+      response.kind === "positional" &&
+      !(producer && SQLite3Driver.isPositionalProducer(this, producer))
+    ) {
+      return { kind: "borrowed", result: borrowPositionalResult(response) };
+    }
+    return response;
+  }
+
+  private static isPositionalProducer(
+    driver: SQLite3Driver,
+    client: SQLite3Database
+  ): boolean {
+    return (
+      SQLite3Driver.isPositionalCandidate(driver) && driver.client === client
+    );
+  }
+
+  private static isPositionalCandidate(driver: AnyDriver): boolean {
+    if (!(driver instanceof SQLite3Driver)) return false;
+    return (
+      driver.driverOptions.options?.nativeBinding === undefined &&
+      SQLite3Driver.hasCanonicalProducerSurface(driver) &&
+      driver.executeTypedStatement === SQLite3Driver.canonicalTypedStatement &&
+      driver.executePositional === SQLite3Driver.canonicalPositionalExecute &&
+      driver.result.parseField === SQLite3Driver.canonicalDriverParseField &&
+      driver.result.parseRelation ===
+        SQLite3Driver.canonicalDriverParseRelation &&
+      driver.result.parseResult === SQLite3Driver.canonicalDriverParseResult &&
+      driver.adapter === driver.canonicalAdapter &&
+      driver.adapter.result === driver.canonicalAdapterResult &&
+      driver.adapter.result.parseField === driver.canonicalAdapterParseField &&
+      driver.adapter.result.parseRelation ===
+        driver.canonicalAdapterParseRelation &&
+      (driver.client === undefined ||
+        driver.client === null ||
+        SQLite3Driver.isPositionalClient(driver.client))
+    );
+  }
+
+  private static isPositionalClient(client: SQLite3Database): boolean {
+    return (
+      Object.getPrototypeOf(client) === Database.prototype &&
+      !Object.hasOwn(client, "prepare") &&
+      Object.getOwnPropertyDescriptor(Database.prototype, "prepare")?.value ===
+        SQLite3Driver.canonicalNativePrepare
+    );
   }
 
   private runStatement<T>(

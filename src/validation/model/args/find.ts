@@ -125,7 +125,7 @@ export const getFindFirstArgs = <
           omit: v.lazyRef(() => core.omit),
           // Prisma has distinct on findFirst too; it compiles through the same
           // findMany-with-limit path (ReadOperation), so nothing else changes.
-          distinct: getDistinctSchema(model),
+          distinct: v.lazyRef(() => getDistinctSchema(model)),
         },
         {
           optional: true,
@@ -184,7 +184,7 @@ export const getFindManyArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
           select: v.lazyRef(() => core.select),
           include: v.lazyRef(() => core.include),
           omit: v.lazyRef(() => core.omit),
-          distinct: getDistinctSchema(model),
+          distinct: v.lazyRef(() => getDistinctSchema(model)),
         },
         { optional: true }
       )

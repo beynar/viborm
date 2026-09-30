@@ -11,7 +11,7 @@ import {
   type RelationResolution,
   resolveSchemaRelations,
 } from "@schema/validation/relation-resolution";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 const resolve = (schema: Record<string, Model<any>>): RelationResolution => {
   hydrateSchemaNames(schema);
@@ -268,7 +268,17 @@ describe("a foreign key inherits its target's domain", () => {
         .references("id"),
     });
     const index = okIndex({ user, post });
-    expect(idDomainsOf(index)).toBe(idDomainsOf(index));
+    const scalarReads = vi.spyOn(post, "~", "get");
+    try {
+      const domains = idDomainsOf(index);
+      expect(domains.get(post)?.get("authorId")).toMatchObject({
+        format: "uuid",
+      });
+      expect(idDomainsOf(index)).toBe(domains);
+      expect(scalarReads).not.toHaveBeenCalled();
+    } finally {
+      scalarReads.mockRestore();
+    }
   });
 });
 

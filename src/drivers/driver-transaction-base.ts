@@ -160,10 +160,47 @@ export abstract class DriverTransactionBase<
    * Execute a query with instrumentation (tracing + logging).
    * Converts Sql to string/params ONCE, then calls run().
    */
-  async _execute<T = Record<string, unknown>>(
+  _execute<T = Record<string, unknown>>(
     query: Sql,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
+    return this.executeTypedStatement(
+      query,
+      context,
+      this.executeNormalizedProvider<T>
+    );
+  }
+
+  private async executeNormalizedProvider<T>(
+    client: TClient | TTransaction,
+    sql: string,
+    executionParams: unknown[],
+    executionContext: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    const providerResult = await this.execute<T>(
+      client,
+      sql,
+      executionParams,
+      executionContext
+    );
+    assertNormalizedQueryResult(providerResult, {
+      provider: this.driverName,
+      operation: executionContext.operation ?? "execute",
+    });
+    return providerResult;
+  }
+
+  /** The one typed statement lifecycle, shared by public and internal transport. */
+  protected async executeTypedStatement<Result>(
+    query: Sql,
+    context: QueryExecutionContext | undefined,
+    executeProvider: (
+      client: TClient | TTransaction,
+      sql: string,
+      executionParams: unknown[],
+      executionContext: QueryExecutionContext
+    ) => Promise<Result>
+  ): Promise<Result> {
     const executionContext = this.resolveExecutionContext(context, "execute");
     const hasStatementObservers = this.hasTrustedObservers(executionContext);
     let transformedQuery = hasStatementObservers
@@ -175,7 +212,7 @@ export abstract class DriverTransactionBase<
         );
     const executeQuery = async (
       gate = ungatedStatementExecution
-    ): Promise<QueryResult<T>> => {
+    ): Promise<Result> => {
       transformedQuery ??= this.applyTrustedStatementTransforms(
         query,
         executionContext,
@@ -190,21 +227,7 @@ export abstract class DriverTransactionBase<
         executionParams,
         executionContext
       );
-      const resultContext = {
-        provider: this.driverName,
-        operation: executionContext.operation ?? "execute",
-      };
       const client = await this.getClient(executionContext);
-      const executeProvider = async () => {
-        const providerResult = await this.execute<T>(
-          client,
-          sql,
-          executionParams,
-          executionContext
-        );
-        assertNormalizedQueryResult(providerResult, resultContext);
-        return providerResult;
-      };
       return gate.execute(
         {
           context: executionContext,
@@ -217,7 +240,14 @@ export abstract class DriverTransactionBase<
             sql,
             diagnosticParams,
             executionContext,
-            executeProvider,
+            () =>
+              executeProvider.call(
+                this,
+                client,
+                sql,
+                executionParams,
+                executionContext
+              ),
             true
           )
       );

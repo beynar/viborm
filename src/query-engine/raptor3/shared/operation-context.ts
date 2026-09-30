@@ -10,6 +10,10 @@ import {
   deriveStatementExecutionContext,
   getExecutionExtensionChain,
 } from "@drivers/execution-context";
+import {
+  borrowPositionalResult,
+  resolvePositionalResultDriver,
+} from "@drivers/positional-result";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import type {
   BatchQuery,
@@ -946,18 +950,22 @@ export class OperationContext {
    * site. `terminal` marks the operation's result-publishing transport, which is
    * followed by nothing.
    */
-  private async dispatch<T>(
+  private dispatch<T>(
     statements: number,
     terminal: boolean,
     execute: () => Promise<T>
   ): Promise<T> {
-    if (this.envelope === "deferred") {
-      if (!(terminal && statements === 1 && this.performed === 0))
-        throw this.requiresEnvelope;
-      this.envelope = "statement";
+    try {
+      if (this.envelope === "deferred") {
+        if (!(terminal && statements === 1 && this.performed === 0))
+          throw this.requiresEnvelope;
+        this.envelope = "statement";
+      }
+      this.performed += statements;
+      return execute();
+    } catch (error) {
+      return Promise.reject(error);
     }
-    this.performed += statements;
-    return execute();
   }
   /** Discard the un-executed plan so the body can be constructed again. */
   private restart(attempt = new TransportAttempt()): void {
@@ -1175,6 +1183,40 @@ export class OperationContext {
   async publish(read: Read, missing?: () => Error): Promise<unknown> {
     if (this.ownership === "batch-preparation")
       return this.publishPrepared(read, missing);
+    const positional =
+      this.ownership === "standalone" && read.value.kind === "collection"
+        ? resolvePositionalResultDriver(this.transport)
+        : undefined;
+    if (positional) {
+      const response = await this.dispatch(1, true, () =>
+        positional(read.query.sql, this.attribution)
+      );
+      if (
+        response.kind === "positional" &&
+        resolvePositionalResultDriver(this.transport) === positional
+      ) {
+        this.queries.assertExpectedRows(read.query, response.rows.length);
+        return this.decideRead(
+          read,
+          missing,
+          this.queries.decodeProjection(
+            read.query.shape,
+            response.rows,
+            false,
+            response.columns
+          )
+        );
+      }
+      const borrowed =
+        response.kind === "borrowed"
+          ? response.result
+          : borrowPositionalResult(response);
+      return this.decideRead(
+        read,
+        missing,
+        this.publishedTerminal([read.query], [borrowed.rows.map(record)])
+      );
+    }
     const response = await this.answer(read.query, true);
     return this.decideRead(
       read,

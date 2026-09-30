@@ -494,7 +494,7 @@ describe("projecting an identifier column", () => {
       select: { id: true, slug: true },
     }).toStatement("$n");
     expect(select).toBe(
-      `SELECT "q0"."id" AS "id", "q0"."slug" AS "slug" FROM "public"."user" AS "q0" WHERE TRUE`
+      `SELECT "q0"."id" AS "id", "q0"."slug" AS "slug" FROM "public"."user" AS "q0"`
     );
   });
 

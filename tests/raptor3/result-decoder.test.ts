@@ -27,6 +27,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import type { Dialect, DriverResultParser } from "@drivers";
 import { Driver } from "@drivers";
+import { resolvePositionalResultDriver } from "@drivers/positional-result";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
 import {
@@ -36,6 +37,7 @@ import {
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { POLYMORPHIC_COLLECTION_ORPHANS_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { describe, expect, it } from "vitest";
 
 const user = s
@@ -634,6 +636,55 @@ function thrown(decode: () => unknown): unknown {
 }
 
 describe("one continuation per physical value, bound to the execution", () => {
+  it("observes a changing adapter hook per cell and preserves its receiver under a stock driver parser", async () => {
+    const driver = new ScriptedDriver(
+      [
+        { id: 1, title: "a" },
+        { id: 2, title: "b" },
+      ],
+      new SQLite3Driver().result
+    );
+    let lookups = 0;
+    let calls = 0;
+    const adapter = driver.adapter.result;
+    const stockParseField = adapter.parseField;
+    const replacement: SQLiteAdapter["result"]["parseField"] = function (
+      this: SQLiteAdapter["result"],
+      value,
+      type,
+      next
+    ) {
+      expect(this).toBe(adapter);
+      calls++;
+      return type === "string" ? next(`changed:${String(value)}`) : next();
+    };
+    Object.defineProperty(replacement, "call", {
+      get() {
+        throw new Error("A parser call must not read its call property.");
+      },
+    });
+    Object.defineProperty(adapter, "parseField", {
+      configurable: true,
+      get() {
+        lookups++;
+        return lookups === 1 ? stockParseField : replacement;
+      },
+    });
+    const client = createClient({ schema: scriptedSchema, driver });
+    try {
+      expect(
+        await client.item.findMany({ select: { id: true, title: true } })
+      ).toEqual([
+        { id: 1, title: "changed:a" },
+        { id: 2, title: "changed:b" },
+      ]);
+      expect(lookups).toBe(4);
+      expect(calls).toBe(3);
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
   it("asks the driver, then the adapter, exactly once per physical non-null cell", () => {
     const asks: Ask[] = [];
     const decode = executionDecoder(
@@ -1046,5 +1097,130 @@ describe("compatibility choices, as ruled on 2026-09-25", () => {
       "Polymorphic relation 'subject' references a missing 'clip' record."
     );
     await orphaned.$disconnect();
+  });
+});
+
+describe("internal positional projection transport", () => {
+  it("decodes reordered native cells without changing public driver rows", async () => {
+    const { driver, client } = await world();
+    try {
+      const execute = resolvePositionalResultDriver(driver);
+      expect(execute).toBeTypeOf("function");
+      if (!execute) throw new Error("stock positional transport is absent");
+      const response = await execute(
+        sql`SELECT "views", "title", "id" FROM "posts"`,
+        { operation: "findMany" }
+      );
+      expect(response.kind).toBe("positional");
+      if (response.kind !== "positional")
+        throw new Error("stock transport was not positional");
+      const queries = new Queries(
+        new EngineSchema(schema),
+        driver.adapter,
+        driver.result
+      );
+      const read = queries.read(
+        post,
+        "findMany",
+        new EngineSchema(schema).admit(post, "findMany", {
+          select: { id: true, title: true, views: true },
+        })
+      );
+      Object.freeze(response.rows[0]);
+      Object.freeze(response.rows);
+      expect(
+        queries.decodeProjection(
+          read.query.shape,
+          response.rows,
+          false,
+          response.columns
+        )
+      ).toEqual([{ id: "p0", title: "Post 0", views: 7 }]);
+      const typed = await driver._execute(sql`SELECT "views" FROM "posts"`);
+      expect(typed.rows).toEqual([{ views: 7n }]);
+      const raw = await driver._executeRaw('SELECT "views" FROM "posts"');
+      expect(raw.rows).toEqual([{ views: 7 }]);
+      expect(
+        await client.post.findMany({ select: { id: true, views: true } })
+      ).toEqual([{ id: "p0", views: 7 }]);
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  it("keeps native aliases authoritative after statement transforms", async () => {
+    const { driver, client } = await world();
+    try {
+      const reordered = client.$extends({
+        name: "reordered-projection",
+        statement: () => sql`SELECT "views", "title", "id" FROM "posts"`,
+      });
+      expect(
+        await reordered.post.findMany({
+          select: { id: true, title: true, views: true },
+        })
+      ).toEqual([{ id: "p0", title: "Post 0", views: 7 }]);
+      const missing = client.$extends({
+        name: "missing-projection",
+        statement: () => sql`SELECT "id" FROM "posts"`,
+      });
+      const inherited = Object.getOwnPropertyDescriptor(Array.prototype, "-1");
+      Object.defineProperty(Array.prototype, "-1", {
+        configurable: true,
+        value: "inherited",
+      });
+      try {
+        await expect(
+          missing.post.findMany({ select: { id: true, title: true } })
+        ).rejects.toThrow("the value is absent");
+      } finally {
+        if (inherited) Object.defineProperty(Array.prototype, "-1", inherited);
+        else Reflect.deleteProperty(Array.prototype, "-1");
+      }
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  it("preserves strict boolean and exact integer refusals in the live positional path", async () => {
+    const { driver, client } = await world();
+    try {
+      await driver._executeRaw('UPDATE "posts" SET "views" = 9007199254740993');
+      await expect(client.post.findMany()).rejects.toThrow(
+        "the integer is outside the safe range"
+      );
+      await driver._executeRaw(
+        'UPDATE "posts" SET "views" = 7, "published" = 2'
+      );
+      await expect(client.post.findMany()).rejects.toThrow(
+        "the value is not true, false, zero, or one"
+      );
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  it("keeps custom result middleware on borrowed object rows", async () => {
+    let calls = 0;
+    const { driver, client } = await world((driver) =>
+      installDriverParser(driver, {
+        parseResult(rows, operation, next) {
+          expect(Array.isArray(rows)).toBe(true);
+          if (!Array.isArray(rows)) throw new Error("result rows missing");
+          for (const row of rows) expect(Array.isArray(row)).toBe(false);
+          calls++;
+          return next(rows, operation);
+        },
+      })
+    );
+    try {
+      expect(resolvePositionalResultDriver(driver)).toBeUndefined();
+      expect(await client.post.findMany({ select: { id: true } })).toEqual([
+        { id: "p0" },
+      ]);
+      expect(calls).toBe(1);
+    } finally {
+      await driver.disconnect();
+    }
   });
 });

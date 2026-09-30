@@ -3,6 +3,14 @@
 Performance suite for viborm's hot paths, run with vitest's built-in
 benchmark runner (tinybench: warmup, mean/p75/p99, relative comparison).
 
+## Retained performance work
+
+See the [integration review](../docs/architecture/performance-review/README.md)
+for baseline identities, reproducible fresh-schema/first-query comparisons,
+CPU/allocation comparisons against Drizzle's relational API, and client-disposal
+diagnostics. Historical measurements and new PR checks are labeled separately.
+
+
 ## Suites
 
 - **`e2e-overhead.bench.ts`** — the headline metric. Full client operations vs
