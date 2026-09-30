@@ -205,8 +205,10 @@ rows: { control: string; default: string;
   policy, same owner; not create, update data, link/unlink, field use, raw
   SQL or statements; never tenant isolation or authorization (docs: v2 §3.3).
 - **Owner and invariants.** `rows.ts` computes each mode's row domain (the
-  admitted predicate lists) and the row identity at binding; `chain.ts`
-  stores them; the engine prepares each domain at most once per engine view,
+  admitted predicate lists) at binding; `chain.ts` stores them, and its frozen
+  `rows` declarations are the row identity a cached read's key carries
+  (amended at compression C3: the key reads `chain.rows` itself, not a second
+  stored copy); the engine prepares each domain at most once per engine view,
   model and purpose (`PreparedDomain`, memoized in `commands/index.ts`);
   `select()` takes the lookup's purpose and reads the domain from its
   `Queries` (amended after U4, U4R-4: prepared meaning belongs to the

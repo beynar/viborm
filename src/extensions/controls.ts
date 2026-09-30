@@ -13,7 +13,6 @@ import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedControl } from "./chain";
 import type { ControlLiteral, RuntimeExtensionDefinition } from "./definition";
 
 // =============================================================================
@@ -234,9 +233,10 @@ const DELETE_OPERATIONS: ReadonlySet<string> = new Set([
   "deleteMany",
 ]);
 
-/** One control of a definition with the placement its capability gives it. */
-export interface PlacedControlDeclaration {
+/** One control of a chain: its owner, its placement and how a value is admitted. */
+export interface ResolvedControl {
   readonly name: string;
+  readonly extension: string;
   readonly declaration: ControlDeclaration;
   /** The operations that accept it. */
   readonly operations: ReadonlySet<string>;
@@ -255,21 +255,25 @@ export interface PlacedControlDeclaration {
  */
 export function placeControls(
   definition: RuntimeExtensionDefinition
-): readonly PlacedControlDeclaration[] {
-  const placed: PlacedControlDeclaration[] = [];
-  const { controls, rows, deletion } = definition;
+): readonly ResolvedControl[] {
+  const placed: ResolvedControl[] = [];
+  const { name: extension, controls, rows, deletion } = definition;
   const removeWhen = deletion?.removeWhen ?? {};
   const managed = new Set(Object.keys(deletion?.models ?? {}));
   for (const [name, declaration] of Object.entries(controls ?? {})) {
-    placed.push(
-      Object.hasOwn(removeWhen, name)
-        ? { name, declaration, operations: DELETE_OPERATIONS, models: managed }
-        : { name, declaration, operations: placementOf(declaration.on) }
-    );
+    const removes = Object.hasOwn(removeWhen, name);
+    placed.push({
+      name,
+      extension,
+      declaration,
+      operations: removes ? DELETE_OPERATIONS : placementOf(declaration.on),
+      models: removes ? managed : undefined,
+    });
   }
   if (rows !== undefined) {
     placed.push({
       name: rows.control,
+      extension,
       declaration: Object.freeze({ oneOf: Object.freeze(rowsModes(rows)) }),
       operations: CANDIDATE_OPERATIONS,
       fallback: rows.default,

@@ -3,10 +3,14 @@ import type {
   ModelDomain,
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
-import type { ResolvedDeletion, ResolvedRows } from "./chain";
-import { type AdmittedControls, rowsModes } from "./controls";
+import type { ResolvedDeletion } from "./chain";
+import {
+  type AdmittedControls,
+  type RowsContribution,
+  rowsModes,
+} from "./controls";
 
-type Predicates = ResolvedRows["models"][string][string];
+type Predicates = RowsContribution["models"][string][string];
 
 /** One `rows` member: its control, and where each of its modes sits. */
 interface BoundRowsMember {
@@ -30,12 +34,6 @@ export interface RowsBinding {
   readonly tombstoning: readonly CallRows[];
   /** Indexed by mode combination: the call deletes physically. */
   readonly physical: readonly CallRows[];
-  /**
-   * The declarations every domain is computed from, as plain data: part of a
-   * cached read's key, so two chains whose `rows` differ never share an entry
-   * and two that declare the same always do. Absent without `rows`.
-   */
-  readonly identity?: readonly unknown[];
 }
 
 const NO_DELETION: Readonly<Record<string, ResolvedDeletion>> = Object.freeze(
@@ -44,7 +42,7 @@ const NO_DELETION: Readonly<Record<string, ResolvedDeletion>> = Object.freeze(
 
 /** One purpose's predicates per model, for one mode of every member. */
 function modelDomain(
-  rows: readonly ResolvedRows[],
+  rows: readonly RowsContribution[],
   modes: readonly string[],
   purpose: keyof Predicates
 ): ModelDomain {
@@ -62,7 +60,7 @@ function modelDomain(
 }
 
 export function bindRows(
-  rows: readonly ResolvedRows[] | undefined,
+  rows: readonly RowsContribution[] | undefined,
   deletion: Readonly<Record<string, ResolvedDeletion>> | undefined
 ): RowsBinding {
   const declared = rows ?? [];
@@ -107,15 +105,6 @@ export function bindRows(
     deletion === undefined ? undefined : new Map(Object.entries(deletion));
   const physical = domains.map((domain) => Object.freeze({ domain, defaults }));
   return Object.freeze({
-    ...(declared.length === 0
-      ? {}
-      : {
-          identity: Object.freeze(
-            declared.map((member) =>
-              Object.freeze([member.control, member.default, member.models])
-            )
-          ),
-        }),
     members,
     deletion: deletion ?? NO_DELETION,
     physical,

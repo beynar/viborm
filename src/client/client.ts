@@ -52,7 +52,6 @@ import {
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
-import type { RowsBinding } from "@extensions/rows";
 import {
   createCacheExecutionOptions,
   executeCachedResultOperation,
@@ -488,14 +487,14 @@ export type ExtendedOperationResult<
  * today's key, the prepared arguments byte for byte; otherwise the key is the
  * pair of those arguments and the admitted controls, which no base key can
  * spell (its arguments are always an object), and, on a chain with `rows`,
- * the identity of its declarations, since the same control value selects
+ * those declarations themselves, since the same control value selects
  * different rows under different declarations. A control value that is not
  * plain data has no canonical form: `undefined` bypasses the cache.
  */
 function cacheKeyOf(
   args: Record<string, unknown>,
   controls: AdmittedControls | undefined,
-  rows: RowsBinding["identity"]
+  rows: ResolvedExtensionChain["rows"]
 ): unknown {
   if (controls === undefined) return args;
   if (!isCanonicalKeyData(controls)) return undefined;
@@ -792,7 +791,7 @@ export class VibORM<C extends VibORMConfig> {
         const key = cacheKeyOf(
           cacheResult.args,
           cacheResult.controls,
-          engine.extensionChain?.callRows?.identity
+          engine.extensionChain?.rows
         );
         if (key === undefined) return execute();
         return executeCachedResultOperation(

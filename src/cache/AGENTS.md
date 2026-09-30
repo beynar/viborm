@@ -50,8 +50,8 @@ that identity.
 
 A read that admitted a declared control (`src/extensions/controls.ts`) is keyed
 on the pair of its arguments and its admitted controls, and on a chain with
-`rows` also on the row identity `bindRows` computed at application
-(`cacheKeyOf`, `src/client/client.ts`); a read that admitted none keeps today's
+`rows` also on the chain's `rows` declarations themselves, the frozen plain
+data application admitted (`cacheKeyOf`, `src/client/client.ts`); a read that admitted none keeps today's
 key byte for byte, and a control value that is not plain data bypasses the
 cache. The mutation `cache` argument is the cache's own declared control on
 writes: it is taken out of the arguments before request transforms and read
