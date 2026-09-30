@@ -23,6 +23,7 @@ import { callRows } from "@extensions/rows";
 import { s } from "@schema";
 import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capability-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
@@ -68,15 +69,6 @@ async function fixture(driver = createInMemorySQLite3Driver()) {
   const opened = await openDeletionFixture(driver);
   clients.push(opened.base);
   return opened;
-}
-
-async function failure(pending: PromiseLike<unknown>): Promise<unknown> {
-  try {
-    await pending;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("expected the operation to fail");
 }
 
 const tombstoneUpdates = (

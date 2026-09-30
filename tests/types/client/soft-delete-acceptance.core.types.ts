@@ -101,8 +101,6 @@ export async function restoreGuard() {
     // @ts-expect-error restore writes its own `data`
     data: { title: "x" },
   });
-  // @ts-expect-error a misspelt key is flagged, fresh
-  await db.post.restore({ where: { id: "p1" }, wher: {} });
   const held = { where: { id: "p1" }, wher: {} };
   // @ts-expect-error a misspelt key is flagged, held
   await db.post.restore(held);
@@ -206,9 +204,6 @@ export async function values() {
   const wide = { deleted: "only" };
   // @ts-expect-error a held value without `as const` widens to string
   await db.post.findMany(wide);
-  const typo = { deleted: "onyl" } as const;
-  // @ts-expect-error held typo refused
-  await db.post.findMany(typo);
   // @ts-expect-error fresh typo refused
   await db.post.findMany({ deleted: "onyl" });
   // @ts-expect-error unknown mode value

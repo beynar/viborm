@@ -3,6 +3,7 @@ import type { AnyDriver } from "@drivers";
 import { ForeignKeyError, NestedWriteError, NotFoundError } from "@errors";
 import { s } from "@schema";
 import { instrumentation } from "@src/instrumentation/exports";
+import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -241,14 +242,6 @@ export function runDeletionCapabilityBehavior(
     const pause = () => new Promise((resolve) => setTimeout(resolve, 5));
     const physicalDeletes = () =>
       statements.filter((statement) => DELETE_STATEMENT.test(statement.sql));
-    async function failure(pending: PromiseLike<unknown>): Promise<unknown> {
-      try {
-        await pending;
-      } catch (error) {
-        return error;
-      }
-      throw new Error("expected the operation to fail");
-    }
 
     test("a root delete tombstones the row and returns its post-image; a repeat is NotFound", async () => {
       const { base, db } = context;
@@ -425,9 +418,11 @@ export function runDeletionCapabilityBehavior(
       const { base, db } = context;
       const refused = await failure(db.post.delete({ where: { id: 10 } }));
       expect(refused).toBeInstanceOf(ForeignKeyError);
-      expect((refused as ForeignKeyError).message).toBe(
-        "Cannot delete 'post' record: a related record still references it through one of its relations whose foreign key restricts deletes: 'comments', 'tags', 'notes'."
-      );
+      // Core's message (plan §2.3): the delete refused, naming the relation
+      // live comment 100 references it through.
+      const { message } = refused as ForeignKeyError;
+      expect(message).toContain("Cannot delete 'post' record");
+      expect(message).toContain("'comments'");
       // The refusal carries the context's attribution, as the database's does.
       expect((refused as ForeignKeyError).meta).toMatchObject({
         model: "post",
@@ -644,7 +639,8 @@ export function runDeletionCapabilityBehavior(
       expect(series[0]!.deletedAt!.getTime()).toBe(
         series[1]!.deletedAt!.getTime()
       );
-      // The series' template once, then each captured member once.
+      // Once per occurrence per attempt (plan §2.3, whose delete sites are
+      // the nested deleteMany and each captured series member): three.
       expect(ledger).toEqual([ACTOR, ACTOR, ACTOR]);
       expect(physicalDeletes()).toEqual([]);
     });

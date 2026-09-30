@@ -29,6 +29,7 @@ import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -111,15 +112,6 @@ function callUnchecked(
   return Promise.resolve(
     Reflect.apply(Reflect.get(delegate, operation), delegate, [args])
   );
-}
-
-async function failure(pending: PromiseLike<unknown>): Promise<unknown> {
-  try {
-    await pending;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("expected the operation to fail");
 }
 
 function refusal(action: () => unknown): ClientInitializationError {

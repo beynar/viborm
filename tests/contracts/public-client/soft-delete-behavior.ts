@@ -3,31 +3,35 @@ import { cache } from "@src/cache/exports";
 import type { AnyDriver } from "@src/drivers";
 import {
   createClient,
-  ForeignKeyError,
   NotFoundError,
   s,
   UniqueConstraintError,
 } from "@src/index";
 import { softDelete } from "@src/soft-delete";
+import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 /**
  * `viborm/soft-delete` end to end (extension-capabilities plan v3.1 §1.1):
  * the plan's use block, run through public entry points only, on a real
- * database.
+ * database. It witnesses what the entry itself decides: the modes per model,
+ * the actor, restore, the purge and the guide's recipes. What core derives
+ * from its step A (restrict relations, quantifiers, counts, cursors,
+ * recursion, to-one references) is witnessed once, at its owner:
+ * `row-scope-behavior.ts` and `deletion-capability-behavior.ts` run the same
+ * step A on these providers and more.
  *
  * The client is §1.1's: `post` is managed (`deletedAt`, actor in
- * `deletedById`), `user` and `comment` are not. `base` is the same database
+ * `deletedById`), `user` is not. `base` is the same database
  * without the extension; its answers are the negative control beside each
  * soft-delete answer.
  *
  * Fixture (hand-computed oracles below; CUTOFF = 2026-06-01): users u1, u2,
  * u3. Posts (author, createdAt, parent, deletedAt): p1 (u1, 2025-01, -, live);
  * p2 (u1, 2025-02, p1, live); p3 (u2, 2025-03, -, 2026-01); p4 (u2, 2026-07,
- * p1, 2026-08); p5 (u2, 2026-07, p4, live); p6 (u2, 2026-07, -, live), which
- * comment c1 references through a RESTRICT foreign key; p7 (u3, 2025-04, -,
- * 2025-05). Live: p1, p2, p5, p6. Tombstones: p3, p4, p7. Post `pN` has
+ * p1, 2026-08); p5 (u2, 2026-07, p4, live); p6 (u2, 2026-07, -, live); p7
+ * (u3, 2025-04, -, 2025-05). Live: p1, p2, p5, p6. Tombstones: p3, p4, p7. Post `pN` has
  * slug `slug-pN`, unique among live posts (a partial unique index) on
  * every dialect but MySQL, which has no partial index (the recipe there is a
  * generated column, v2 plan §4.5): its slug index is plain, and the one
@@ -63,7 +67,6 @@ export function softDeleteSchema(partialUnique = true) {
         .fields("parentId")
         .references("id"),
       replies: s.toMany(() => post).name("thread"),
-      comments: s.toMany(() => comment),
       deletedAt: s.dateTime().nullable(),
       deletedById: s.string().nullable(),
     })
@@ -74,17 +77,7 @@ export function softDeleteSchema(partialUnique = true) {
         ? { unique: true, where: '"deletedAt" IS NULL' }
         : { unique: false }
     );
-  const comment = s.model({
-    id: s.string().id(),
-    body: s.string(),
-    postId: s.string(),
-    post: s
-      .toOne(() => post)
-      .fields("postId")
-      .references("id")
-      .onDelete("restrict"),
-  });
-  return { user, post, comment };
+  return { user, post };
 }
 
 /** §1.1's configuration: `post` managed, the actor bound to this client. */
@@ -125,7 +118,6 @@ export async function openSoftDeleteFixture(
         deletedAt: deletedAt === null ? null : day(deletedAt),
       },
     });
-  await base.comment.create({ data: { id: "c1", body: "hi", postId: "p6" } });
   return base;
 }
 
@@ -133,15 +125,6 @@ export type SoftDeleteBase = Awaited<ReturnType<typeof openSoftDeleteFixture>>;
 
 export const ids = (rows: readonly { readonly id: string }[]) =>
   rows.map((row) => row.id);
-
-export async function failure(pending: PromiseLike<unknown>): Promise<unknown> {
-  try {
-    await pending;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("expected the operation to fail");
-}
 
 /** The seeded database, its base client and §1.1's client over it. */
 export async function openSoftDeleteClients(
@@ -383,19 +366,6 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
       ]);
     });
 
-    test("a live comment through a restricting key refuses the soft delete", async () => {
-      const refused = await failure(db.post.delete({ where: { id: "p6" } }));
-      expect(refused).toBeInstanceOf(ForeignKeyError);
-      expect(await physical("p6")).toEqual({
-        id: "p6",
-        deletedAt: null,
-        deletedById: null,
-      });
-      await base.comment.delete({ where: { id: "c1" } });
-      await db.post.delete({ where: { id: "p6" } });
-      expect(await physical("p6")).toMatchObject({ deletedById: ACTOR });
-    });
-
     test('a purge says `deleted: "only"` and `mode: "hard"`: it removes old tombstones and nothing else', async () => {
       expect(
         await db.post.deleteMany({
@@ -444,114 +414,6 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
         "p6",
         "p7",
       ]);
-    });
-
-    test("quantifiers, relation counts, counts and aggregates see live posts", async () => {
-      const users = async (rows: PromiseLike<{ readonly id: string }[]>) =>
-        ids(await rows);
-      const some = { where: { posts: { some: {} } }, ...byId } as const;
-      const recent = {
-        where: { posts: { every: { createdAt: { gt: CUTOFF } } } },
-        ...byId,
-      } as const;
-      expect(await users(db.user.findMany(some))).toEqual(["u1", "u2"]);
-      expect(await users(base.user.findMany(some))).toEqual(["u1", "u2", "u3"]);
-      expect(
-        await users(db.user.findMany({ where: { posts: { none: {} } } }))
-      ).toEqual(["u3"]);
-      expect(await users(db.user.findMany(recent))).toEqual(["u2", "u3"]);
-      expect(await users(base.user.findMany(recent))).toEqual([]);
-      const counted = await db.user.findMany({
-        ...byId,
-        select: { id: true, _count: { select: { posts: true } } },
-      });
-      expect(counted.map((row) => [row.id, row._count.posts])).toEqual([
-        ["u1", 2],
-        ["u2", 2],
-        ["u3", 0],
-      ]);
-      expect(await db.post.count()).toBe(4);
-      expect(await db.post.count({ deleted: "only" })).toBe(3);
-      expect(await base.post.count()).toBe(7);
-      expect(
-        (await db.post.aggregate({ _count: { _all: true } }))._count
-      ).toEqual({ _all: 4 });
-      const grouped = await db.post.groupBy({
-        by: ["authorId"],
-        _count: { _all: true },
-        orderBy: { authorId: "asc" },
-      });
-      expect(grouped.map((row) => [row.authorId, row._count._all])).toEqual([
-        ["u1", 2],
-        ["u2", 2],
-      ]);
-    });
-
-    test("a cursor on a tombstone is a missing anchor: an empty page", async () => {
-      const page = (cursor: string) =>
-        ({ cursor: { id: cursor }, take: 2, ...byId }) as const;
-      expect(ids(await db.post.findMany(page("p2")))).toEqual(["p2", "p5"]);
-      expect(ids(await db.post.findMany(page("p4")))).toEqual([]);
-      expect(
-        ids(await db.post.findMany({ ...page("p4"), deleted: "with" }))
-      ).toEqual(["p4", "p5"]);
-      expect(ids(await base.post.findMany(page("p4")))).toEqual(["p4", "p5"]);
-    });
-
-    test("a recursive read of replies cuts the thread below a tombstone", async () => {
-      const thread = {
-        where: { id: "p1" },
-        select: {
-          id: true,
-          replies: { recurse: { depth: 3 }, ...byId, select: { id: true } },
-        },
-      } as const;
-      expect(await db.post.findUnique(thread)).toEqual({
-        id: "p1",
-        replies: [{ id: "p2", replies: [] }],
-      });
-      expect(await base.post.findUnique(thread)).toEqual({
-        id: "p1",
-        replies: [
-          { id: "p2", replies: [] },
-          { id: "p4", replies: [{ id: "p5", replies: [] }] },
-        ],
-      });
-    });
-
-    test("a to-one relation to a tombstone reads null, upward recursion stops there, and a restore brings it back", async () => {
-      const ancestry = {
-        where: { id: "p5" },
-        select: {
-          id: true,
-          parent: { recurse: { depth: 3 }, select: { id: true } },
-        },
-      } as const;
-      // p5's parent p4 is a tombstone; p4's parent is p1.
-      expect(await db.post.findUnique(ancestry)).toEqual({
-        id: "p5",
-        parent: null,
-      });
-      expect(await base.post.findUnique(ancestry)).toEqual({
-        id: "p5",
-        parent: { id: "p4", parent: { id: "p1", parent: null } },
-      });
-      const reply = await db.post.findUniqueOrThrow({
-        where: { id: "p5" },
-        include: { parent: { select: { id: true } } },
-      });
-      expect(reply.parent).toBeNull();
-      const childrenOfP4 = {
-        where: { parent: { is: { title: "title p4" } } },
-        select: { id: true },
-      } as const;
-      expect(await db.post.findMany(childrenOfP4)).toEqual([]);
-      expect(await base.post.findMany(childrenOfP4)).toEqual([{ id: "p5" }]);
-      await db.post.restore({ where: { id: "p4" } });
-      expect(await db.post.findUnique(ancestry)).toEqual({
-        id: "p5",
-        parent: { id: "p4", parent: { id: "p1", parent: null } },
-      });
     });
 
     const partialUniqueRecipe = provider.partialUnique ?? true;

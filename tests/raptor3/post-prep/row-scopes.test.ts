@@ -18,7 +18,6 @@ import { NotFoundError, UniqueConstraintError } from "@errors";
 import { PreparedDomain, Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import {
-  failure,
   ids,
   openRowScopeFixture,
   type RowScopeFixture,
@@ -26,6 +25,7 @@ import {
   runRowScopeBehavior,
 } from "@tests/contracts/engine/query/row-scope-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { failure } from "@tests/fixtures/failure";
 import {
   createBatchOnlySQLite3Driver,
   createNonReturningSQLite3Driver,
@@ -126,15 +126,6 @@ describe("unique keys under a domain (SQLite3)", () => {
       create: { id, title, slug: `s${id}`, authorId: 1 },
       update: { title },
     }) as const;
-
-  test("the RETURNING confirmation fast path declines under a domain: one confirmation read more", async () => {
-    const { base, db, driver } = await open(false);
-    await base.post.upsert(upsert(10, "base"));
-    const physical = driver.statements.length;
-    driver.statements.length = 0;
-    await db.post.upsert(upsert(10, "scoped"));
-    expect(driver.statements).toHaveLength(physical + 1);
-  });
 
   test("a soft delete landing after the unlocked probe is not overwritten: the upsert is not found", async () => {
     const { base, db, driver } = await open(false);

@@ -264,7 +264,10 @@ type Extended = ExtendedOperationResult<
   { include: { post: true } }
 >;
 type _extended = Expect<Equal<Extended["post"], PostRow | null>>;
-// Schema-only helpers stay schema-only: wrong for a rows client, documented.
+// Not a pin, documentation of a known limitation (plan §5.3): a schema-only
+// helper cannot see extension state, so `OperationResult` types a hideable
+// to-one as non-null on a rows client. The helper to use on one is the
+// exported `ExtendedOperationResult`, above.
 type SchemaOnly = OperationResult<
   "findFirstOrThrow",
   typeof comment,

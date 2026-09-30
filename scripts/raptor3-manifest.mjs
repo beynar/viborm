@@ -225,9 +225,10 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // arms, is/isNot, to-one order, upward recursion) and physical integrity;
 // U6 repair: the recursive step at the second hop, both directions, and a
 // required polymorphic row carrier. Compression C1: the shared behaviour (24
-// cells) on a third substrate without RETURNING.
+// cells) on a third substrate without RETURNING. Compression C6: the
+// RETURNING statement-count pin goes; its race twin owns the decline.
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 81,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 80,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)

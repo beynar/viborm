@@ -9,6 +9,7 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
@@ -322,15 +323,6 @@ export type RowScopeFixture = Awaited<ReturnType<typeof openRowScopeFixture>>;
 
 export const ids = (rows: readonly { readonly id: number }[]) =>
   rows.map((row) => row.id);
-
-export async function failure(pending: PromiseLike<unknown>): Promise<unknown> {
-  try {
-    await pending;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("expected the operation to fail");
-}
 
 type RawClient = RowScopeFixture["base"];
 
