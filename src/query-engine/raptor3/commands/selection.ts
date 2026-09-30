@@ -4,6 +4,7 @@ import type {
   PreparedSelector,
   SelectorFacts,
 } from "../shared/query";
+import type { RowPurpose } from "../shared/row-scope";
 import type { Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
 import { storedFields } from "../shared/storage";
@@ -43,6 +44,12 @@ export type SelectionSource =
       readonly unique?: boolean;
       readonly selector?: PreparedSelector;
       readonly membership?: BoundMembership;
+      /**
+       * Whose rows this lookup takes: the call's own (`root`) or rows reached
+       * through a relation (`related`), conjoined with its selector. Absent,
+       * the lookup is a premise or physical and takes its selector as handed.
+       */
+      readonly purpose?: RowPurpose;
     }
   | {
       readonly kind: "producer";
@@ -50,6 +57,7 @@ export type SelectionSource =
       readonly unique?: boolean;
       readonly selector?: PreparedSelector;
       readonly producer: Assignments;
+      readonly purpose?: RowPurpose;
     };
 
 /**
@@ -148,30 +156,43 @@ export class Selection {
    */
   insertsWhenAbsent?: boolean;
 
+  private readonly execution: CommandExecution;
+  readonly model: AnyModel;
+  readonly source: SelectionSource;
+  readonly required: DeferredFailure | undefined;
+
   constructor(
-    private readonly execution: CommandExecution,
-    readonly model: AnyModel,
-    readonly source: SelectionSource,
-    readonly required?: DeferredFailure,
+    execution: CommandExecution,
+    model: AnyModel,
+    source: SelectionSource,
+    required?: DeferredFailure,
     facts?: SelectorFacts
   ) {
+    this.execution = execution;
+    this.model = model;
+    this.source = source;
+    this.required = required;
     const queries = execution.context.queries;
     this.fields = new Assignments(model, "select");
-    this.selector =
+    const selector =
       source.selector ??
       queries.prepareSelector(model, source.where, source.unique === true);
+    this.selector =
+      source.purpose === undefined
+        ? selector
+        : queries.candidates(selector, source.purpose);
     this.facts = facts ?? queries.selectorFacts(this.selector);
     this.rowProjection = queries.prepareProjection(model, {
       select: Object.fromEntries(
         storedFields(execution.context.schema, model).map((field) => [
           field,
           true,
-        ]),
+        ])
       ),
     });
     this.identityProjection = queries.prepareProjection(model, {
       select: Object.fromEntries(
-        execution.context.schema.keys(model).map((field) => [field, true]),
+        execution.context.schema.keys(model).map((field) => [field, true])
       ),
     });
   }
@@ -182,6 +203,7 @@ export class Selection {
   identityOnly(): boolean {
     const selected = this.selector.uniqueKey;
     return (
+      this.selector.scoped === undefined &&
       selected !== undefined &&
       selected === getModelKeyCatalog(this.model).rowKey &&
       this.facts.keys.size === selected.fields.length
@@ -202,7 +224,7 @@ export class Selection {
     selector: PreparedSelector,
     membership: BoundMembership | undefined,
     identity?: Input,
-    unlocked = false,
+    unlocked = false
   ) {
     const ctx = this.execution.context;
     return ctx.queries.select(
@@ -216,7 +238,7 @@ export class Selection {
         identity,
         projection: this.rowProjection,
         selector,
-      },
+      }
     );
   }
   /**
@@ -264,18 +286,13 @@ export class Selection {
    */
   unrepresentable(field: string) {
     const ctx = this.execution.context;
-    return ctx.queries.select(
-      this.model,
-      { take: 1 },
-      undefined,
-      {
-        condition: ctx.driver.adapter.operators.isNull(
-          ctx.queries.column(this.model, field),
-        ),
-        identity: this.execution.identity(this.fields),
-        projection: this.identityProjection,
-      },
-    );
+    return ctx.queries.select(this.model, { take: 1 }, undefined, {
+      condition: ctx.driver.adapter.operators.isNull(
+        ctx.queries.column(this.model, field)
+      ),
+      identity: this.execution.identity(this.fields),
+      projection: this.identityProjection,
+    });
   }
   /**
    * The rows the selector names OUTSIDE the membership: a batch premise of
@@ -288,7 +305,7 @@ export class Selection {
       this.model,
       { take: 1 },
       bound && { ...bound, outside: true },
-      { projection: this.identityProjection, selector: this.selector },
+      { projection: this.identityProjection, selector: this.selector }
     );
   }
   query() {
@@ -300,7 +317,7 @@ export class Selection {
       this.selector,
       this.membership(),
       identity,
-      this.insertsWhenAbsent,
+      this.insertsWhenAbsent
     );
   }
   /**
@@ -334,7 +351,7 @@ export class Selection {
         identity: this.execution.identity(this.fields),
         projection: this.identityProjection,
         selector: condition.selector,
-      },
+      }
     );
   }
 }

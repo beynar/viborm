@@ -215,6 +215,16 @@ export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)
 );
+// Extension capabilities U4: the rows capability at every set scope (root
+// reads, aggregates, pages, to-many relations, quantifiers, recursion, write
+// lookups) and the unique-key consumers under a domain, on the interactive and
+// the batch-only substrate.
+export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/row-scopes.test.ts": 37,
+});
+export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
+  Object.keys(POST_G3_ROW_SCOPE_COUNTS)
+);
 export const POST_G3_HISTORY_ANALYSIS_COUNTS = Object.freeze({
   "tests/raptor3/post-prep/history-analysis.test.ts": 5,
 });
@@ -1577,6 +1587,7 @@ export const RAPTOR3_DETERMINISTIC_TESTS = Object.freeze([
   ...POST_G3_PROJECTION_PREPARATION_TESTS,
   ...POST_G3_SELECTOR_PREPARATION_TESTS,
   ...POST_G3_DELETION_SITE_TESTS,
+  ...POST_G3_ROW_SCOPE_TESTS,
   ...POST_G3_HISTORY_ANALYSIS_TESTS,
   ...G29_MEMBER_DEPENDENCY_TESTS,
   ...G29_DEPENDENCY_BOUNDARY_TESTS,

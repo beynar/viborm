@@ -57,6 +57,26 @@ select that operand form. Positive observations live in `CommandAttempt`;
 absence is consumed lexically and is deliberately not cached across re-entry.
 Junction capture stores the exact membership pair, not a synthetic row lookup.
 
+*Row domains (extension `rows`, extension-capabilities plan v3.1 §2.2).* A call
+of a client with `rows` carries its facts (`CallScope`, `shared/row-scope.ts`):
+the domain its controls chose and the default one, each a `PreparedDomain`
+prepared at most once per engine view, model and purpose. A `Queries` is scoped
+to one domain: reads get one per domain (a `WeakMap` in `commands/index.ts`),
+write contexts one per call, sharing the prepared domain. The RELATED domain
+enters only in `correlation()`, outside every quantifier's negation, and in
+milestone 1 only for to-many edges; the ROOT domain enters where a lookup names
+its purpose (`read()`, `lowerWhere` for the aggregates, a cursor's anchor, and
+the `SelectionSource.purpose` of root and nested write lookups). A lookup that
+names none is a premise or physical: identity re-reads, `capture()`,
+`locateSuppressed`, `disconnect`, `set` cleanup and the integrity probes take
+exactly the selector they are handed, and a relation predicate marked
+`unscoped` (the referential requirement) states its own visibility.
+`Queries.candidates` is the one conjunction: it keeps the unique key, so race
+convergence and a hidden conflict's rethrow behave as without a domain, and
+marks the selector `scoped`, so the two consumers that trust the key alone —
+the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
+decline. The engine never sees a control, a mode or an extension name.
+
 `RelationBody` binds membership lazily at the first admitted ordinary verb or
 tagged variant and caches it per variant. That binding owns literal requirements;
 executed relation construction still owns transition registration. Do not move

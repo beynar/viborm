@@ -271,8 +271,9 @@ export class RelationBody {
         for (const selector of lax ? [undefined] : entries(payload)) {
           const origin = entryOrigin();
           const unique = nestedTargetAddressesConstraint(edge, verb);
-          // A managed target is tombstoned: its candidates are the call's and
-          // the default domain's, and it keeps every link it has.
+          // A delete takes related rows; a managed target is tombstoned, from
+          // the default domain's too, and keeps every link it has. A
+          // disconnect is physical: it may detach a row no domain shows.
           const tombstone =
             verb === "delete"
               ? this.commands.tombstone(edge.target)
@@ -283,17 +284,19 @@ export class RelationBody {
               kind: "query",
               where: selector,
               unique,
-              ...(tombstone && {
-                selector: this.commands.deleteCandidates(
-                  this.commands.context.queries.prepareSelector(
-                    edge.target,
-                    selector,
-                    unique
-                  ),
-                  "related",
-                  true
-                ),
-              }),
+              ...(verb === "delete"
+                ? {
+                    selector: this.commands.candidates(
+                      this.commands.context.queries.prepareSelector(
+                        edge.target,
+                        selector,
+                        unique
+                      ),
+                      "related",
+                      tombstone !== undefined
+                    ),
+                  }
+                : {}),
               membership: { edge, parent: parent.located!.fields },
             },
             lax
@@ -535,10 +538,13 @@ export class RelationBody {
             )
               createdTargets.push(addressed);
           }
+          // Targets are related rows: a hidden one is not found, so a connect
+          // never links it and an upsert never updates it.
           let selectionSource: SelectionSource = {
             kind: "query",
             where: conditional.where as Input | undefined,
             selector: ownSelector,
+            purpose: "related",
           };
           let facts: SelectorFacts | undefined;
           if (suppliedSelector) {
@@ -546,6 +552,7 @@ export class RelationBody {
             const ownFacts = queries.selectorFacts(ownSelector);
             const supplierFacts = queries.selectorFacts(supplierSelector);
             facts = ownFacts.fields.size === 0 ? supplierFacts : ownFacts;
+            // The supplier's selector already takes related rows.
             selectionSource = {
               kind: "query",
               selector: queries.andSelectors(edge.target, [
@@ -560,6 +567,7 @@ export class RelationBody {
               where: selectionSource.where,
               selector: selectionSource.selector,
               producer: continuation.producer,
+              purpose: selectionSource.purpose,
             };
             continuation.producer.select(
               storedFields(this.commands.context.schema, edge.target)
@@ -610,6 +618,7 @@ export class RelationBody {
                 where: selectionSource.where,
                 selector: selectionSource.selector,
                 membership,
+                purpose: selectionSource.purpose,
               };
           }
           const lookup = this.commands.lookup(
@@ -760,10 +769,11 @@ export class RelationBody {
             verb === "deleteMany"
               ? this.commands.tombstone(edge.target)
               : undefined;
-          const filter = context.queries.prepareSelector(edge.target, where);
-          const selector = tombstone
-            ? this.commands.deleteCandidates(filter, "related", true)
-            : filter;
+          const selector = this.commands.candidates(
+            context.queries.prepareSelector(edge.target, where),
+            "related",
+            tombstone !== undefined
+          );
           const data = tombstone ? tombstone.admitted : record(input.data);
           if (
             edge.kind === "reference" &&
@@ -912,6 +922,7 @@ export class RelationBody {
           kind: "query",
           where,
           unique: nestedTargetAddressesConstraint(edge, "set"),
+          purpose: "related",
         },
         () =>
           new NestedWriteError(
@@ -1099,8 +1110,7 @@ export class RelationBody {
       return occurrence;
     }
     if (conditionalParentBinding && conditionalFound) {
-      const { edge: reference, target: conditionalTarget } =
-        conditionalParentBinding;
+      const { edge: reference } = conditionalParentBinding;
       const contribution = origin
         ? {
             origin,

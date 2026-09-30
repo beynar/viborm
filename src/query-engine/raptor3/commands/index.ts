@@ -9,8 +9,8 @@ import {
   OperationContext,
 } from "../shared/operation-context";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
-import { Queries } from "../shared/query";
-import type { CallRows, CallScope } from "../shared/row-scope";
+import { PreparedDomain, Queries } from "../shared/query";
+import type { CallRows, CallScope, RowDomain } from "../shared/row-scope";
 import {
   type Arguments,
   type EngineConfig,
@@ -156,6 +156,33 @@ export function createCommandEngine(config: EngineConfig) {
     config.driver.adapter,
     config.driver.result
   );
+  // Each row domain a call selects is prepared once for this engine view, and
+  // read through one `Queries` scoped to it; write contexts share the prepared
+  // domain. A client without `rows` reaches neither map.
+  const domains = new WeakMap<RowDomain, PreparedDomain>();
+  const domainOf = (rows: RowDomain): PreparedDomain => {
+    let domain = domains.get(rows);
+    if (domain === undefined) {
+      domain = new PreparedDomain(rows, queries);
+      domains.set(rows, domain);
+    }
+    return domain;
+  };
+  const scopedReads = new WeakMap<PreparedDomain, Queries>();
+  const readsOf = (scope: CallScope | undefined): Queries => {
+    if (scope === undefined) return queries;
+    let reads = scopedReads.get(scope.domain);
+    if (reads === undefined) {
+      reads = new Queries(
+        schema,
+        config.driver.adapter,
+        config.driver.result,
+        scope.domain
+      );
+      scopedReads.set(scope.domain, reads);
+    }
+    return reads;
+  };
   class PreparedCommand implements PreparedOperation {
     readonly #operation: Operation;
     readonly #model: EngineConfig["schema"][string];
@@ -176,7 +203,12 @@ export function createCommandEngine(config: EngineConfig) {
       // The call's one instant lives with the prepared call, so a replan and
       // every occurrence it re-admits share it.
       let instant: Date | undefined;
-      this.#scope = rows && { rows, instant: () => (instant ??= new Date()) };
+      this.#scope = rows && {
+        rows,
+        domain: domainOf(rows.domain),
+        defaults: domainOf(rows.defaults),
+        instant: () => (instant ??= new Date()),
+      };
       this.#operation = admittedOperation(requested);
       this.#model = config.schema[modelName]!;
       this.#modelName = modelName;
@@ -201,7 +233,7 @@ export function createCommandEngine(config: EngineConfig) {
 
     #read(): Read | undefined {
       if (!isReadOperation(this.#operation)) return undefined;
-      return (this.#prepared ??= queries.read(
+      return (this.#prepared ??= readsOf(this.#scope).read(
         this.#model,
         this.#operation,
         this.args

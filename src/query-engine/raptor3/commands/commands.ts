@@ -15,6 +15,7 @@ import {
   type SelectorFacts,
   wholeValue,
 } from "../shared/query";
+import type { RowPurpose } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import { type Membership, physicalField } from "../shared/storage";
 import {
@@ -421,30 +422,21 @@ export class Commands {
     return { raw, admitted: this.context.schema.update(model, raw, true) };
   }
   /**
-   * A delete's candidates: the caller's selector AND the call's domain for
+   * A write's candidates: the caller's selector AND the call's domain for
    * `purpose`, AND, for a tombstone, the model's default domain — once when the
-   * call's controls select the default.
+   * call's controls select the default. The selector's unique key is kept.
    */
-  deleteCandidates(
+  candidates(
     selector: PreparedSelector,
-    purpose: "root" | "related",
+    purpose: RowPurpose,
     tombstone: boolean
   ): PreparedSelector {
-    const rows = this.context.scope?.rows;
-    const model = selector.model;
-    const name = model["~"].names.ts!;
-    const inputs = [
-      ...(rows?.domain[purpose].get(name) ?? []),
-      ...((tombstone && rows?.defaults !== rows?.domain
-        ? rows?.defaults[purpose].get(name)
-        : undefined) ?? []),
-    ];
-    if (inputs.length === 0) return selector;
+    const scope = this.context.scope;
     const queries = this.context.queries;
-    return queries.andSelectors(model, [
-      selector,
-      ...inputs.map((where) => queries.prepareSelector(model, where)),
-    ]);
+    const candidates = queries.candidates(selector, purpose);
+    return tombstone && scope && scope.defaults !== scope.domain
+      ? queries.candidates(candidates, purpose, scope.defaults)
+      : candidates;
   }
   /**
    * The candidates a tombstoning delete may not take: those a member in its
@@ -462,12 +454,7 @@ export class Commands {
     const queries = this.context.queries;
     return queries.andSelectors(model, [
       candidates,
-      queries.referenced(
-        model,
-        slots,
-        this.context.scope?.rows.defaults.related,
-        except
-      ),
+      queries.referenced(model, slots, this.context.scope?.defaults, except),
     ]);
   }
   /**
@@ -1663,7 +1650,11 @@ export class Commands {
     if (!returningSafeProjection(projection)) return undefined;
     const values = ctx.schema.scalars(model, args.data);
     const candidates =
-      selector ?? ctx.queries.prepareSelector(model, args.where, true);
+      selector ??
+      ctx.queries.candidates(
+        ctx.queries.prepareSelector(model, args.where, true),
+        "root"
+      );
     return () =>
       ctx.updateMany(
         model,
@@ -1779,13 +1770,17 @@ export class Commands {
       kind: "query",
       where: args.where,
       unique: true,
+      purpose: "root",
     });
     // The arm this probe chooses INSERTS the key it just looked for, so the
     // probe does not lock the absence it may find (`Selection.insertsWhenAbsent`).
     lookup.insertsWhenAbsent = true;
     const key = lookup.selector.uniqueKey;
+    // The targeted fold evaluates no selector: under a domain its conflict
+    // could be a hidden row, which it would update.
     const spelled =
       capabilities.supportsTargetedUpsert &&
+      lookup.selector.scoped === undefined &&
       key !== undefined &&
       lookup.selector.uniqueValues !== undefined &&
       fields.every((field) => wholeValue(updates[field])) &&
@@ -1814,10 +1809,15 @@ export class Commands {
         const rows = await ctx.planningLocate(lookup.query(), model);
         const captured = rows[0];
         if (!captured) return missing();
-        const selector = ctx.queries.prepareSelector(
-          model,
-          ctx.schema.identity(model, captured),
-          true
+        // The row the unlocked probe found is updated only while it is still
+        // a candidate: one hidden since then is the other's race, not found.
+        const selector = ctx.queries.candidates(
+          ctx.queries.prepareSelector(
+            model,
+            ctx.schema.identity(model, captured),
+            true
+          ),
+          "root"
         );
         return ctx.updateMany(
           model,
@@ -1912,7 +1912,7 @@ export class Commands {
           run: async () => ctx.emptyBulkResult(projection),
         };
       const tombstone = this.tombstone(model);
-      const selector = this.deleteCandidates(
+      const selector = this.candidates(
         ctx.queries.prepareSelector(model, args.where),
         "root",
         tombstone !== undefined
@@ -1938,7 +1938,7 @@ export class Commands {
     if (ctx.operation === "delete") {
       const projection = ctx.queries.prepareProjection(model, args);
       const tombstone = this.tombstone(model);
-      const selector = this.deleteCandidates(
+      const selector = this.candidates(
         ctx.queries.prepareSelector(model, args.where, true),
         "root",
         tombstone !== undefined
@@ -1990,6 +1990,7 @@ export class Commands {
         kind: "query",
         where: args.where,
         unique: true,
+        purpose: "root",
       });
       // As above: the missing arm below inserts this very key
       // (`Selection.insertsWhenAbsent`).
@@ -2103,7 +2104,12 @@ export class Commands {
           : this.update(
               this.lookup(
                 model,
-                { kind: "query", where: args.where!, unique: true },
+                {
+                  kind: "query",
+                  where: args.where!,
+                  unique: true,
+                  purpose: "root",
+                },
                 () => new NotFoundError(model["~"].names.ts!, "update")
               ),
               args.data,
@@ -2122,7 +2128,10 @@ export class Commands {
     if (args.limit === 0)
       return { single: true, run: async () => ctx.emptyBulkResult(projection) };
     if (!relationBearing) {
-      const selector = ctx.queries.prepareSelector(model, args.where);
+      const selector = ctx.queries.candidates(
+        ctx.queries.prepareSelector(model, args.where),
+        "root"
+      );
       const values = ctx.schema.scalars(model, updateData);
       return {
         single: !projection || returning,
@@ -2132,7 +2141,7 @@ export class Commands {
     }
     const selection = this.lookup(
       model,
-      { kind: "query", where: args.where },
+      { kind: "query", where: args.where, purpose: "root" },
       () => new NotFoundError(model["~"].names.ts!, "update")
     );
     const analysis = this.update(selection, updateData, raw.data, true);

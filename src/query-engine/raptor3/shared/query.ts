@@ -83,7 +83,7 @@ import {
   EngineInvariantError,
   unreachable,
 } from "./invariant";
-import type { ModelDomain } from "./row-scope";
+import type { RowDomain, RowPurpose } from "./row-scope";
 import {
   type Arguments,
   type EngineSchema,
@@ -413,6 +413,12 @@ type PreparedPredicate =
       readonly edge: Membership;
       readonly quantifier: string;
       readonly predicate?: PreparedPredicate;
+      /**
+       * The relation is correlated by membership alone: the predicate states
+       * which members count itself, so the lowering `Queries`' domain never
+       * joins it (a premise that names its own visibility).
+       */
+      readonly unscoped?: true;
     };
 /**
  * A conjunction of nothing states nothing; every other prepared predicate is a
@@ -527,6 +533,12 @@ export interface PreparedSelector {
   readonly uniqueKey?: OrderedModelKey;
   readonly uniqueValues?: ReadonlyMap<string, unknown>;
   readonly predicate?: PreparedPredicate;
+  /**
+   * A row domain narrowed this selector ({@link Queries.candidates}): it
+   * states more than its unique key, so a consumer that would trust the key
+   * alone to name the row must not.
+   */
+  readonly scoped?: true;
 }
 /** The decoder identifies the invalid value; its operation owns public errors. */
 export class InvalidScalarResult extends TypeError {
@@ -748,6 +760,48 @@ function reversedRows(rows: Input[]): Input[] {
   return rows.reverse();
 }
 
+/** A filter read's controls: it takes the root domain's rows. */
+const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
+
+/**
+ * One row domain as prepared meaning: per purpose and model, the conjunction
+ * of the model's inputs, prepared at most once for every `Queries` of one
+ * engine view (its reads and its write contexts share it). Prepared meaning
+ * holds no alias, adapter or driver, so the view's own `Queries` prepares it.
+ */
+export class PreparedDomain {
+  readonly rows: RowDomain;
+  private readonly queries: Queries;
+  private readonly prepared = {
+    root: new Map<string, PreparedSelector>(),
+    related: new Map<string, PreparedSelector>(),
+  };
+  constructor(rows: RowDomain, queries: Queries) {
+    this.rows = rows;
+    this.queries = queries;
+  }
+  /** `model`'s predicate for `purpose`; `undefined` where it states none. */
+  selector(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
+    const name = model["~"].names.ts!;
+    const inputs = this.rows[purpose].get(name);
+    if (inputs === undefined) return undefined;
+    const prepared = this.prepared[purpose];
+    let selector = prepared.get(name);
+    if (selector === undefined) {
+      const queries = this.queries;
+      selector =
+        inputs.length === 1
+          ? queries.prepareSelector(model, inputs[0])
+          : queries.andSelectors(
+              model,
+              inputs.map((where) => queries.prepareSelector(model, where))
+            );
+      prepared.set(name, selector);
+    }
+    return selector;
+  }
+}
+
 export class Queries {
   readonly schema: EngineSchema;
   readonly adapter: DatabaseAdapter;
@@ -763,15 +817,23 @@ export class Queries {
    * boundary, and never for a value a JSON window already decoded.
    */
   private readonly result: DriverResultParser | undefined;
+  /**
+   * The row domain this `Queries` reads under: every to-many relation it
+   * correlates, and every root read or lookup that names a purpose. Absent on
+   * every path of a client without `rows`.
+   */
+  readonly domain: PreparedDomain | undefined;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
-    result?: DriverResultParser
+    result?: DriverResultParser,
+    domain?: PreparedDomain
   ) {
     this.schema = schema;
     this.adapter = adapter;
     this.views = schema.queryViews(adapter);
     this.result = result;
+    this.domain = domain;
   }
   /**
    * The ONE provider continuation for a physical value of `type`, bound to
@@ -1519,27 +1581,32 @@ export class Queries {
   referenced(
     model: AnyModel,
     slots: readonly string[],
-    visible: ModelDomain | undefined,
+    visible: PreparedDomain | undefined,
     except?: { readonly slot: string; readonly identity: Input }
   ): PreparedSelector {
     const predicates = slots.map((slot): PreparedPredicate => {
       const edge = bindMembership(this.schema, model, slot);
-      // The members' own facts: a premise states them, nothing plans on them.
-      const members = newSelectorFacts(false);
-      const arms = (visible?.get(edge.target["~"].names.ts!) ?? []).map(
-        (where) => this.prepareWhere(edge.target, where, members, [edge])
-      );
+      const arms: PreparedPredicate[] = [];
+      const domain = visible?.selector(edge.target, "related")?.predicate;
+      if (domain) arms.push(domain);
       if (except?.slot === slot)
         arms.push(
           this.combine("NOT", [
-            this.identityPredicate(edge.target, except.identity, members),
+            // The member's own facts: a premise states them, nothing plans on them.
+            this.identityPredicate(
+              edge.target,
+              except.identity,
+              newSelectorFacts(false)
+            ),
           ])
         );
+      // Visibility is the given domain's, never the lowering call's own.
       return Object.freeze({
         kind: "relation",
         edge,
         quantifier: "some",
         predicate: arms.length === 0 ? undefined : this.combine("AND", arms),
+        unscoped: true,
       });
     });
     return Object.freeze({
@@ -1590,6 +1657,39 @@ export class Queries {
             }),
     });
   }
+  /**
+   * The key-preserving conjunction: `selector` AND `domain`'s predicate for
+   * `purpose`, keeping the selector's unique key, so the consumers that read
+   * the key to recover (race convergence, a hidden conflict's rethrow) behave
+   * as without a domain; `scoped` tells the ones that trust the key alone to
+   * name the row (the RETURNING confirmation fast path, the targeted
+   * `ON CONFLICT` fold) that it no longer does. The selector itself where the
+   * domain states nothing for its model.
+   */
+  candidates(
+    selector: PreparedSelector,
+    purpose: RowPurpose,
+    domain: PreparedDomain | undefined = this.domain
+  ): PreparedSelector {
+    const scope = domain?.selector(selector.model, purpose);
+    if (scope === undefined) return selector;
+    return Object.freeze({
+      ...this.andSelectors(selector.model, [selector, scope]),
+      uniqueKey: selector.uniqueKey,
+      uniqueValues: selector.uniqueValues,
+      scoped: true,
+    });
+  }
+  /** A read's own candidates: `selector` (absent: every row) under `purpose`. */
+  private within(
+    model: AnyModel,
+    selector: PreparedSelector | undefined,
+    purpose: RowPurpose
+  ): PreparedSelector | undefined {
+    const scope = this.domain?.selector(model, purpose);
+    if (scope === undefined) return selector;
+    return selector === undefined ? scope : this.candidates(selector, purpose);
+  }
   lowerSelector(
     selector: PreparedSelector,
     alias?: string,
@@ -1599,12 +1699,18 @@ export class Queries {
       ? this.lowerPredicate(selector.predicate, alias, mutationTarget)
       : undefined;
   }
+  /** An aggregate read's root filter: its `where` under the root domain. */
   lowerWhere(
     model: AnyModel,
     where: Input | undefined,
     alias?: string
   ): Sql | undefined {
-    return this.lowerSelector(this.prepareSelector(model, where), alias);
+    const selector = this.within(
+      model,
+      where === undefined ? undefined : this.prepareSelector(model, where),
+      "root"
+    );
+    return selector && this.lowerSelector(selector, alias);
   }
   /**
    * The value a LOCATED row holds for one field, read where it is SPENT:
@@ -2223,6 +2329,13 @@ export class Queries {
           positive && !inexact
         )
       : undefined;
+    // The related domain's fields are read by this scope too, so a lookup
+    // that reads through it depends on a write to them (§2.2).
+    const domain = edge.many
+      ? this.domain?.selector(edge.target, "related")
+      : undefined;
+    if (domain)
+      for (const field of domain.facts.fields) nestedFacts.fields.add(field);
     facts.reads.push({
       model: edge.target,
       path: scope,
@@ -2706,7 +2819,12 @@ export class Queries {
       ? this.lowerPredicate(predicate.predicate, childAlias, mutationTarget)
       : undefined;
     const condition = a.operators.and(
-      this.correlation(predicate.edge, parentAlias ?? "", childAlias),
+      this.correlation(
+        predicate.edge,
+        parentAlias ?? "",
+        childAlias,
+        predicate.unscoped === undefined
+      ),
       ...(nested
         ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
         : [])
@@ -2802,8 +2920,28 @@ export class Queries {
       )
     );
   }
-  correlation(edge: Membership, parent: string, target: string): Sql {
-    return this.membershipWhere(edge, target, parent);
+  /**
+   * The one join of a relation to its parent, and the one place the related
+   * domain enters a relation: outside any quantifier's negation, so `every`,
+   * `none` and a negated count read "every VISIBLE member". Milestone 1 scopes
+   * to-many edges only; a reference stays physical.
+   */
+  correlation(
+    edge: Membership,
+    parent: string,
+    target: string,
+    scoped = true
+  ): Sql {
+    const member = this.membershipWhere(edge, target, parent);
+    const domain =
+      scoped && edge.many
+        ? this.domain?.selector(edge.target, "related")
+        : undefined;
+    if (domain === undefined) return member;
+    return this.adapter.operators.and(
+      member,
+      this.lowerSelector(domain, target)!
+    );
   }
   memberWhere(edge: Membership, parent: Input, alias: string): Sql {
     return this.membershipWhere(edge, alias, parent);
@@ -3059,7 +3197,8 @@ export class Queries {
       Partial<Arguments>,
       "orderBy" | "take" | "skip" | "cursor" | "distinct"
     >,
-    alias: string
+    alias: string,
+    purpose?: RowPurpose
   ): {
     readonly orderBy?: Sql;
     readonly limit?: Sql;
@@ -3090,7 +3229,8 @@ export class Queries {
           : this.cursorCondition(
               model,
               backward ? this.reverseOrder(total!) : total!,
-              args.cursor
+              args.cursor,
+              purpose
             ),
       distinct: args.distinct?.length
         ? sql.join(
@@ -3199,12 +3339,16 @@ export class Queries {
   private cursorCondition(
     model: AnyModel,
     order: readonly OrderTerm[],
-    cursor: Input
+    cursor: Input,
+    purpose: RowPurpose | undefined
   ): Sql {
     const a = this.adapter;
     const identity = this.identityEntries(model, cursor);
     const sourceAlias = this.alias();
+    // The anchor is a candidate like any other: a hidden one is a missing one.
+    const scope = purpose && this.domain?.selector(model, purpose);
     const where = a.operators.and(
+      ...(scope ? [this.lowerSelector(scope, sourceAlias)!] : []),
       ...Object.entries(identity).map(([field, value]) => {
         if (value === null)
           throw new QueryEngineError(
@@ -3307,6 +3451,8 @@ export class Queries {
       identity?: Input;
       projection?: PreparedProjection;
       selector?: PreparedSelector;
+      /** The rows the read takes: its selector and cursor anchor under it. */
+      purpose?: RowPurpose;
     } = {}
   ): Query {
     const alias = this.rootAlias();
@@ -3317,14 +3463,18 @@ export class Queries {
     // cursor refusal outranks a projection refusal and both outrank a `where`
     // refusal. Nothing below reads the projection or the selector, so this is
     // an ORDER, not a dependency (`g4/unit01-review-followup-3.md` finding K).
-    const page = this.page(model, args, alias);
+    const page = this.page(model, args, alias, controls.purpose);
     const prepared = controls.projection ?? this.prepareProjection(model, args);
     const projection = this.lowerProjection(prepared, alias);
-    const selector =
+    const given =
       controls.selector ??
       (args.where === undefined
         ? undefined
         : this.prepareSelector(model, args.where));
+    const selector =
+      controls.purpose === undefined
+        ? given
+        : this.within(model, given, controls.purpose);
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
     return {
       sql: assembleAdapterSelect(this.adapter, {
@@ -3376,6 +3526,7 @@ export class Queries {
             args.where === undefined
               ? undefined
               : this.prepareSelector(model, args.where, true),
+          purpose: "root",
         });
         return {
           query,
@@ -3388,7 +3539,12 @@ export class Queries {
         // A negative take selects from the end of the window: the signed unit
         // limit flips the total order and still returns one row.
         const take = args.take === undefined ? 1 : Math.sign(args.take);
-        const query = this.select(model, { ...args, take });
+        const query = this.select(
+          model,
+          { ...args, take },
+          undefined,
+          ROOT_CANDIDATES
+        );
         return {
           query,
           single: true,
@@ -3398,7 +3554,7 @@ export class Queries {
       }
       case "findMany": {
         const backward = args.take !== undefined && args.take < 0;
-        const query = this.select(model, args);
+        const query = this.select(model, args, undefined, ROOT_CANDIDATES);
         return {
           query,
           single: false,
@@ -3496,7 +3652,7 @@ export class Queries {
   ): Query {
     const a = this.adapter;
     const inner = this.rootAlias();
-    const page = this.page(model, args, inner);
+    const page = this.page(model, args, inner, "root");
     const filter = this.lowerWhere(model, args.where, inner);
     const window = assembleAdapterSelect(a, {
       columns: fields.length
@@ -4313,7 +4469,12 @@ export class Queries {
     const childFields = Object.keys(projection.shape.fields);
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
-    const window = this.page(edge.target, nested, childAlias);
+    const window = this.page(
+      edge.target,
+      nested,
+      childAlias,
+      edge.many ? "related" : undefined
+    );
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
       from: this.table(edge.target, childAlias),

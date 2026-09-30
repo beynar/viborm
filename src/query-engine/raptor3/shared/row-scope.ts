@@ -1,3 +1,4 @@
+import type { PreparedDomain } from "./query";
 import type { Input } from "./schema";
 
 /**
@@ -15,6 +16,13 @@ export interface RowDomain {
   readonly root: ModelDomain;
   readonly related: ModelDomain;
 }
+
+/**
+ * Which rows a candidate lookup takes: the call's own (`root`) or rows reached
+ * through a relation (`related`). A lookup that names no purpose is a premise
+ * or physical: it takes exactly the selector it is handed.
+ */
+export type RowPurpose = keyof RowDomain;
 
 /** What a delete of one model writes instead of removing the row. */
 export interface Tombstone {
@@ -44,6 +52,10 @@ export interface CallRows {
 /** The row facts one prepared call carries, and its one instant. */
 export interface CallScope {
   readonly rows: CallRows;
+  /** The call's domain, prepared once per engine view. */
+  readonly domain: PreparedDomain;
+  /** The default domain, prepared once per engine view. */
+  readonly defaults: PreparedDomain;
   /**
    * The call's deletion instant: sampled at its first use and kept for the
    * prepared call's lifetime, so every occurrence of every attempt shares it.

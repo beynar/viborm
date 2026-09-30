@@ -1310,6 +1310,71 @@ describe("controls: the cache key", () => {
     expect(second.recorder.keys).toEqual(first.recorder.keys);
   });
 
+  test("the key carries the rows declarations: one control value under two declarations never shares an entry", async () => {
+    const shared = new KeyRecordingCache();
+    const base = await seededBase();
+    await base.post.create({
+      data: { id: "p2", title: "gone", authorId: "u1", deletedAt: new Date() },
+    });
+    const byMarker = base
+      .$extends(cache({ driver: shared, version: "v" }))
+      .$extends({ ...softRows });
+    const byTitle = base
+      .$extends(cache({ driver: shared, version: "v" }))
+      .$extends({
+        ...softRows,
+        rows: {
+          ...softRows.rows,
+          models: {
+            post: {
+              ...softRows.rows.models.post,
+              without: { root: { title: "gone" }, related: { title: "gone" } },
+            },
+          },
+        },
+      });
+    const ids = (rows: readonly { readonly id: string }[]) =>
+      rows.map((row) => row.id);
+    expect(
+      ids(await byMarker.$withCache().post.findMany({ select: { id: true } }))
+    ).toEqual(["p1"]);
+    expect(
+      ids(await byTitle.$withCache().post.findMany({ select: { id: true } }))
+    ).toEqual(["p2"]);
+    expect(new Set(shared.keys).size).toBe(2);
+  });
+
+  test("a rows client never reads a base entry, at its root or through a relation, in either extension order", async () => {
+    for (const order of ["cache-first", "rows-first"] as const) {
+      const { recorder, db, base } = await cachedPair(order);
+      await base.post.create({
+        data: {
+          id: "p2",
+          title: "gone",
+          authorId: "u1",
+          deletedAt: new Date(),
+        },
+      });
+      const warm = base.$extends(cache({ driver: recorder, version: "v" }));
+      const byId = { select: { id: true }, orderBy: { id: "asc" } } as const;
+      const related = {
+        select: { id: true, posts: { select: { id: true } } },
+      } as const;
+      expect(await warm.$withCache().post.findMany(byId)).toEqual([
+        { id: "p1" },
+        { id: "p2" },
+      ]);
+      expect(await warm.$withCache().user.findMany(related)).toEqual([
+        { id: "u1", posts: [{ id: "p1" }, { id: "p2" }] },
+      ]);
+      expect(await db.$withCache().post.findMany(byId)).toEqual([{ id: "p1" }]);
+      expect(await db.$withCache().user.findMany(related)).toEqual([
+        { id: "u1", posts: [{ id: "p1" }] },
+      ]);
+      expect(recorder.keys).toHaveLength(4);
+    }
+  });
+
   test("a read that admits no control keeps today's key byte for byte", async () => {
     const plain = new KeyRecordingCache();
     const declared = new KeyRecordingCache();

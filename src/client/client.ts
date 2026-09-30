@@ -52,6 +52,7 @@ import {
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
+import type { RowsBinding } from "@extensions/rows";
 import {
   createCacheExecutionOptions,
   executeCachedResultOperation,
@@ -479,15 +480,19 @@ export type ExtendedOperationResult<
  * What one cached read is keyed on. A read that admitted no control keeps
  * today's key, the prepared arguments byte for byte; otherwise the key is the
  * pair of those arguments and the admitted controls, which no base key can
- * spell (its arguments are always an object). A control value that is not
+ * spell (its arguments are always an object), and, on a chain with `rows`,
+ * the identity of its declarations, since the same control value selects
+ * different rows under different declarations. A control value that is not
  * plain data has no canonical form: `undefined` bypasses the cache.
  */
 function cacheKeyOf(
   args: Record<string, unknown>,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  rows: RowsBinding["identity"]
 ): unknown {
   if (controls === undefined) return args;
-  return isCanonicalKeyData(controls) ? [args, controls] : undefined;
+  if (!isCanonicalKeyData(controls)) return undefined;
+  return rows === undefined ? [args, controls] : [args, controls, rows];
 }
 
 /**
@@ -777,7 +782,11 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
-        const key = cacheKeyOf(cacheResult.args, cacheResult.controls);
+        const key = cacheKeyOf(
+          cacheResult.args,
+          cacheResult.controls,
+          engine.extensionChain?.callRows?.identity
+        );
         if (key === undefined) return execute();
         return executeCachedResultOperation(
           cacheRead.capability.driver,

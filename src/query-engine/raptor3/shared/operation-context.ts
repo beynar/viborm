@@ -474,7 +474,12 @@ export class OperationContext {
     this.usesBatch =
       this.ownership === "batch-preparation" ||
       (this.ownership === "standalone" && !this.driver.supportsTransactions);
-    this.queries = new Queries(schema, this.driver.adapter, this.driver.result);
+    this.queries = new Queries(
+      schema,
+      this.driver.adapter,
+      this.driver.result,
+      scope?.domain
+    );
   }
   get attribution(): QueryExecutionContext {
     return (

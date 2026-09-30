@@ -30,6 +30,12 @@ export interface RowsBinding {
   readonly tombstoning: readonly CallRows[];
   /** Indexed by mode combination: the call deletes physically. */
   readonly physical: readonly CallRows[];
+  /**
+   * The declarations every domain is computed from, as plain data: part of a
+   * cached read's key, so two chains whose `rows` differ never share an entry
+   * and two that declare the same always do. Absent without `rows`.
+   */
+  readonly identity?: readonly unknown[];
 }
 
 const NO_DELETION: Readonly<Record<string, ResolvedDeletion>> = Object.freeze(
@@ -102,6 +108,15 @@ export function bindRows(
     deletion === undefined ? undefined : new Map(Object.entries(deletion));
   const physical = domains.map((domain) => Object.freeze({ domain, defaults }));
   return Object.freeze({
+    ...(declared.length === 0
+      ? {}
+      : {
+          identity: Object.freeze(
+            declared.map((member) =>
+              Object.freeze([member.control, member.default, member.models])
+            )
+          ),
+        }),
     members,
     deletion: deletion ?? NO_DELETION,
     physical,
