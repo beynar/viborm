@@ -494,6 +494,11 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ],
     []
   ),
+  "./soft-delete": surface(
+    ["softDelete"],
+    ["SoftDeleteConfig", "SoftDeleteModel"],
+    []
+  ),
   "./adapters": surface(
     [
       "MySQLAdapter",
@@ -557,6 +562,7 @@ export const ABSENT_PUBLIC_NAMES = Object.freeze({
     "ValidationRule",
     "defaultOmit",
     "instrumentation",
+    "softDelete",
   ],
   "./adapters": [
     "ASTError",

@@ -155,6 +155,7 @@ export default defineWorkspace([
         "tests/contracts/public-client/extensions-foundation.core.test.ts",
         "tests/contracts/public-client/official-cache-extension.core.test.ts",
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
+        "tests/contracts/public-client/soft-delete.core.test.ts",
         "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
         "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
         "tests/contracts/public-client/extensions/array-admission.core.test.ts",

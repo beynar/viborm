@@ -2,13 +2,14 @@
  * The soft-delete acceptance definition (extension-capabilities plan §1.1),
  * typed from public exports only.
  *
- * `./fixtures/soft-delete.ts` is §1.1 token for token: its two import
- * specifiers name the files behind `viborm` and `viborm/client`, and Biome
- * lays it out. It is generic over the receiving client's config and
- * extension state and applies its two steps, `controls`/`rows`/`deletion`
- * then the `restore` methods, to that client. This file is §1.1's use block
- * plus the typing contracts the plan names for M1 unit 1. The runtime does
- * not accept the three members yet; only the types are proven here.
+ * `viborm/soft-delete` (`src/soft-delete/index.ts`) is §1.1 token for token:
+ * its two import specifiers name the files behind `viborm` and
+ * `viborm/client`, and Biome lays it out. It is generic over the receiving
+ * client's config and extension state and applies its two steps,
+ * `controls`/`rows`/`deletion` then the `restore` methods, to that client.
+ * This file is §1.1's use block plus the typing contracts the plan names for
+ * M1 unit 1; `tests/contracts/public-client/soft-delete.core.test.ts` runs
+ * the same use block.
  *
  * Nothing in this file is called. Only the types matter.
  */
@@ -18,7 +19,7 @@ import { cache } from "@src/cache/exports";
 import { defaultOmit } from "@src/client/exports";
 import { PGliteDriver } from "@src/drivers/pglite";
 import { createClient, type ExtendedOperationResult, s } from "@src/index";
-import { softDelete } from "./fixtures/soft-delete";
+import { softDelete } from "@src/soft-delete";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <

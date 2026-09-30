@@ -81,6 +81,33 @@ marks the selector `scoped`, so the two consumers that trust the key alone —
 the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
 decline. The engine never sees a control, a mode or an extension name.
 
+*Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
+`tombstones` (absent when its controls matched `removeWhen`) writes an update
+wherever core would delete a row of a managed model: root `delete` and
+`deleteMany`, nested `delete`/`deleteMany`/`delete: true`, and each member a
+captured series removes. `Commands.tombstone(model)` owns one occurrence's
+data: the declared `assign` plus the call's one `CallScope.instant()` in `at`,
+admitted once per occurrence per attempt through `EngineSchema.update(model,
+data, true)`, so `updatedAt` and field transforms behave as an update's and a
+re-plan re-admits captured members at the same instant. Root `delete` reuses
+`rootUpdate`'s RETURNING fold, else the record route whose terminal read
+publishes the post-image by identity, with `root.operation` kept `delete`;
+root `deleteMany` is the bulk `updateMany` owner; a nested `Deletion`
+placement carries `values` and updates the located row by identity, keeping
+its foreign key, junction rows and the parent-held link. Candidates are
+`Commands.candidates(selector, purpose, true)`: the caller's selector, the
+call's domain and the model's DEFAULT domain (one conjunction when the call
+chose the default). The referential requirement is one premise before the
+effect, never also in the effect's WHERE: `Commands.unreferenced` at the root
+(a packaged `foreignKey` guard inside a batch-only array), and a nested
+`AbsenceRequirement` with `restrict` placed after earlier siblings
+(`RelationBody.requireUnreferenced`, the parent's own link excepted). Its
+slots are `EngineSchema.restrictingSlots`, read from the migration
+serializer's own ON DELETE owners, and its relation predicates are `unscoped`:
+they read the child model's default related domain, whatever the call chose.
+Statement attribution, observers, errors and `NotFoundError` verbs still say
+the caller's delete (`ctx.operation`).
+
 `RelationBody` binds membership lazily at the first admitted ordinary verb or
 tagged variant and caches it per variant. That binding owns literal requirements;
 executed relation construction still owns transition registration. Do not move

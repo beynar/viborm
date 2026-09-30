@@ -5,6 +5,42 @@ Versioning.
 
 ## Unreleased
 
+- **Added: `viborm/soft-delete`, the official soft-delete extension.**
+  `softDelete({ models, actor })(client)` turns deletes of the named models
+  into tombstones (the call's time in a nullable `DateTime` field, and
+  optionally the actor), hides tombstones from every query that selects rows,
+  and adds `restore`/`restoreMany`. `deleted: "without" | "with" | "only"`
+  chooses the rows of one call; `mode: "hard"` deletes physically (a purge
+  also says `deleted: "only"`, see the guide's warning). The extension is
+  about 75 lines built only from the public capabilities below, in its own
+  entry point: the root entry never imports it.
+- **Added: three extension capabilities, `controls`, `rows` and `deletion`.**
+  An extension now has nine capabilities. `controls` declares call arguments
+  (a closed list or a Standard Schema, placed on reads, writes or named
+  operations), checked once before request handlers and visible only to the
+  declaring extension's handlers (`context.controls`). `rows` declares constant
+  row filters per model, one set per mode, chosen per call by a control;
+  core applies them at every place a query selects rows (root reads and
+  writes, aggregates, cursors, to-many relations, quantifiers, counts,
+  recursion, nested write targets). In this release a to-one relation read
+  still shows a filtered-out target. `deletion` turns a delete of the named
+  models into an update with the call's one time and constant data, refused
+  while a visible row still references it through a restricting foreign key,
+  unless the call's controls match `removeWhen`. A cached read that receives
+  a control is keyed on its value and, on a client with `rows`, on the `rows`
+  declarations; a read that receives none keeps today's key.
+- **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
+  `viborm`, for plugins generic over the client they receive. `Client` gains
+  an optional fourth type parameter (the chain's controls), and `$withCache()`
+  accepts the chain's controls.
+- **Changed (types): extension typing for plugins generic over their client.**
+  Inside a function generic over `VibORMClient<C, X>`, index a model with
+  `M[K & keyof M]`: `VibORMClient<C, X>["post"]` is now a TypeScript error
+  there. A definition written against one client and applied to another now
+  compiles, with its method types following the first client; build each
+  definition from the client it is applied to. Replacing an earlier
+  extension's model method is refused when the extension is applied, and is
+  no longer flagged in your editor.
 - **Breaking: a mutation's `cache` option is the cache extension's declared
   control.** VibORM now takes `cache` out of a mutation's arguments and checks
   it once, before any request handler runs, the way it handles every argument

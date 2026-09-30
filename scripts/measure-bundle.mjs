@@ -229,6 +229,8 @@ const PACKAGE_FIXTURES = [
   ["decimal-only", "decimal-only.mjs"],
   ["pg-representative", "pg-representative.mjs"],
   ["full", "full.mjs"],
+  ["pg-soft-delete", "pg-soft-delete.mjs"],
+  ["soft-delete-entry", "soft-delete-entry.mjs"],
 ];
 
 const LIBRARY_FIXTURES = [

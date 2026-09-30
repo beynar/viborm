@@ -48,6 +48,15 @@ operation, projection, version namespace, and the private snapshot-format
 revision. `CacheExecutionOptions.key` contributes a suffix; it never replaces
 that identity.
 
+A read that admitted a declared control (`src/extensions/controls.ts`) is keyed
+on the pair of its arguments and its admitted controls, and on a chain with
+`rows` also on the row identity `bindRows` computed at application
+(`cacheKeyOf`, `src/client/client.ts`); a read that admitted none keeps today's
+key byte for byte, and a control value that is not plain data bypasses the
+cache. The mutation `cache` argument is the cache's own declared control on
+writes: it is taken out of the arguments before request transforms and read
+from the operation's admission record, never from request input.
+
 Official namespaces are injectively encoded and authenticated by a private
 capability. Public/unscoped driver methods must refuse the reserved
 `viborm:cache:` namespace before backend or executor effects. Other

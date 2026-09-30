@@ -264,9 +264,10 @@ We need to intercept: (1) model name, (2) operation name, (3) the actual call. E
 ## Extension ownership
 
 `$extends()` creates an immutable derived client carrying a frozen compiled
-chain. The public extension language has exactly six capabilities: `request`,
-`query`, `statement`, `observe`, `client`, and `model`. Do not add another hook
-registry, priority system, public operation token, or deferred-operation type.
+chain. The public extension language has exactly nine capabilities: `request`,
+`query`, `statement`, `observe`, `client`, `model`, `controls`, `rows`, and
+`deletion`. Do not add another hook registry, priority system, public operation
+token, or deferred-operation type.
 
 `src/extensions/` owns the one normalized definition boundary, immutable chain,
 method binding, and one runner per execution capability. A resolved chain keeps
@@ -280,6 +281,8 @@ provider dispatch, parsing, result order, and commit publication.
 |---|---|
 | `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization |
 | `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup |
+| `src/extensions/controls.ts` | Declared-control types, placement per (model, operation), and the one admission of a call's controls |
+| `src/extensions/rows.ts` | Row domains, tombstones and row identity bound once per application; a call's facts looked up from its admitted controls |
 | `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding |
 | `src/extensions/request.ts` | Synchronous request-transform contract and runner |
 | `src/extensions/query.ts` | Query interception, authoritative continuation, and write-outcome rail |
@@ -290,7 +293,8 @@ provider dispatch, parsing, result order, and commit publication.
 
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and
-`src/client/default-omit-extension.ts`. Do not recreate a generic extension
+`src/client/default-omit-extension.ts`; `src/soft-delete/index.ts` is an
+ordinary definition over public exports only. Do not recreate a generic extension
 representation or runner in `src/client/`, `src/query-engine/`, or
 `src/drivers/`.
 

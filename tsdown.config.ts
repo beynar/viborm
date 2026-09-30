@@ -57,6 +57,10 @@ export default defineConfig({
     // Instrumentation (viborm/instrumentation)
     instrumentation: "./src/instrumentation/exports.ts",
 
+    // Soft delete (viborm/soft-delete): an extension built from public
+    // capabilities only; the root entry never imports it.
+    "soft-delete": "./src/soft-delete/index.ts",
+
     // Adapters (internal, but exposed for advanced usage)
     adapters: "./src/adapters/index.ts",
 

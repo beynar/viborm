@@ -1,13 +1,13 @@
 // viborm/soft-delete: the entire extension.
 
-import type { OperationPayload } from "@src/client/exports"; // public today
+import type { OperationPayload } from "../client/exports"; // public today
 import type {
   ExtendedOperationResult,
   ExtensionState,
   PendingOperation,
   VibORMClient,
   VibORMConfig,
-} from "@src/index";
+} from "../index";
 
 export interface SoftDeleteModel {
   readonly deletedAt: string; // a DateTime field of this model

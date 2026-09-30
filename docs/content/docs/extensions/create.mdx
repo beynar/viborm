@@ -56,6 +56,9 @@ deliberately small so the query protocol is visible.
 | Record lifecycle completion | `observe` | Protected, failure-contained observation |
 | Add client methods | `client` | Factory returning dollar-prefixed functions |
 | Add model methods | `model` | Per-model factory returning functions |
+| Accept a new call argument | `controls` | Declared values, checked once; only your handlers see them |
+| Hide rows from every query | `rows` | Constant filters per model, chosen per call |
+| Change what a delete does | `deletion` | An update with fixed data and the call's time |
 
 Do not put every concern into `query`. Each capability exposes only the facts
 and authority appropriate to its boundary.
@@ -245,6 +248,175 @@ raw errors. Their throws, rejected promises, and returned promises cannot alter
 or delay the application operation. Their synchronous JavaScript still runs on
 the application thread, so keep it small.
 
+## Declare arguments with `controls`
+
+A control is a call argument your extension declares. Core takes it out of the
+arguments before any request handler runs, checks it once, and hands its value
+to your extension's own request and query handlers in `controls`. No other
+extension sees it, and no request handler can add or change it.
+
+```ts
+const auditReason = defineExtension({
+  name: "audit-reason",
+  controls: {
+    reason: { oneOf: ["typo", "moderation", "legal"], on: "writes" },
+  },
+  async query(context) {
+    const result = await context.proceed();
+    if (context.kind === "model") {
+      recordAudit(context.model, context.operation, context.controls?.reason);
+    }
+    return result;
+  },
+});
+
+const db = client.$extends(auditReason);
+await db.post.update({ where: { id }, data: { title }, reason: "typo" });
+```
+
+- Values come from `oneOf` (a closed list) or `schema` (any Standard Schema).
+  A value held in a variable keeps its literal type only with `as const`.
+- `on` says which operations accept it: `"reads"`, `"writes"`, `"all"` (the
+  default) or a list of operation names. TypeScript flags it elsewhere in your
+  editor, and an undeclared or misplaced control is refused at runtime as an
+  unknown argument is.
+- A value outside the declaration is a `ValidationError` at the control's
+  path. A `schema` that throws, is asynchronous or cannot be read is a
+  `QueryError`; a VibORM error it throws passes through.
+- Control names are one list per client, shared with `rows.control`. A name
+  core already uses as an argument (`where`, `data`, `select`, …) or one
+  another extension declared is refused when the extension is applied.
+- The official [cache](/docs/extensions/cache) declares its mutation `cache`
+  option this way. A cached read is keyed on the controls it received.
+
+## Choose visible rows with `rows`
+
+`rows` declares, per model, constant filters that every query of the client
+applies, and a control that picks one set of filters per call:
+
+```ts
+const archiving = defineExtension({
+  name: "archiving",
+  controls: { purge: { oneOf: [true] } },
+  rows: {
+    control: "archived", // the call argument that picks a mode
+    default: "hide", // the mode of a call that does not say
+    models: {
+      project: {
+        hide: { root: { archivedAt: null }, related: { archivedAt: null } },
+        show: {},
+        only: { root: { archivedAt: { not: null } } },
+      },
+    },
+  },
+  deletion: {
+    removeWhen: { purge: true },
+    models: { project: { at: "archivedAt", assign: { archivedBy: "system" } } },
+  },
+});
+
+const db = client.$extends(archiving);
+await db.project.findMany(); // projects not archived
+await db.project.findMany({ archived: "only" }); // archived projects
+```
+
+- `root` filters the rows the call itself selects; `related` filters rows
+  reached through a relation. An absent filter filters nothing, so a model
+  without an entry reads as before.
+- Every model entry declares the same mode names, `default` among them. The
+  control is accepted by every operation that selects rows (reads, `count`,
+  `aggregate`, `groupBy`, updates, `upsert`, deletes) of every model;
+  `create` and `createMany` do not take it.
+- Filters are constant `where` data on scalar fields, checked against each
+  model when the extension is applied (a wrong model or field is refused then,
+  naming it). TypeScript does not check them in your editor.
+- Core applies them everywhere a query selects rows: root reads and writes,
+  aggregates, cursors, to-many `include`/`select`, `some`/`none`/`every`,
+  relation counts, recursive reads, and the targets of nested writes. In this
+  release, reading a to-one relation still shows a filtered-out target; a
+  nested `connect` or `update` through it treats that target as missing.
+- A client with `rows` keys its cached reads on the declarations, so it never
+  shares a cache entry with a client without them.
+- Apply an extension with `rows` before any extension that adds model-mapped
+  `query` handlers or `client`/`model` methods: after one, the application is
+  refused, as `defaultOmit()` is.
+- `rows` decides which rows are visible. It is not authorization: any caller
+  can choose another mode, and raw SQL, `create` and update `data` are not
+  filtered. Never use it for tenant isolation.
+
+## Change what a delete does with `deletion`
+
+For the models `deletion.models` names, a delete (root, bulk, nested, or a
+member a relation write removes) becomes an update: `at` receives the call's
+time and `assign` its constant data. The row stays, with every link.
+
+- The update is admitted like any update: `updatedAt` is refreshed and field
+  transforms run once per row. Handlers, errors and logs still see a `delete`,
+  and `delete` returns the row after the update.
+- Every row one call updates this way gets the same time; separate calls get
+  their own.
+- A delete takes only the rows the model's **default** `rows` mode shows,
+  whatever the call's control says, so deleting a hidden row is
+  `NotFoundError`. A model with a `deletion` entry and no `rows` entry has
+  every row eligible: deleting it again writes a new time.
+- It is refused with `ForeignKeyError` while a row the child model's default
+  mode shows still references it through a foreign key that restricts deletes,
+  as the database refuses a physical delete.
+- `removeWhen` names control values (declared `oneOf` values of a control that
+  says no `on`) for which the delete stays physical. That control is accepted
+  only on `delete` and `deleteMany` of the managed models.
+- `at` must be a `DateTime` field; `assign` names scalar fields, never `at`'s.
+  An entry that writes nothing behaves as an update with empty `data`: a root
+  delete fails, a nested one does nothing.
+
+The official [soft delete](/docs/extensions/soft-delete) is these three
+capabilities plus two model methods.
+
+## Methods that call another extension's arguments
+
+A model method that passes an argument an earlier extension declared needs
+the client that already carries that extension. Apply in two steps, and type
+the second step's factories against the first step's client:
+
+```ts
+const archived = client.$extends(archiving); // step A: controls, rows, deletion
+
+const db = archived.$extends({
+  // step B: methods typed against step A's client
+  name: "archiving.unarchive",
+  model: {
+    project: (delegate: (typeof archived)["project"]) => ({
+      unarchive: (id: string) =>
+        delegate.update({
+          where: { id },
+          data: { archivedAt: null, archivedBy: null },
+          archived: "only",
+        }),
+    }),
+  },
+});
+
+await db.project.unarchive("p1");
+```
+
+A plugin generic over the client it receives (a function of
+`VibORMClient<C, X>`, with `C extends VibORMConfig` and
+`X extends ExtensionState`) cannot see a model's methods inside that function,
+and indexes the client type with `M[K & keyof M]`. It declares the signatures
+of the methods it returns with `ExtendedOperationResult<Client, Model,
+Operation, Args>`, the result type of one operation on that client with its
+`defaultOmit` applied, and calls the delegate's method through one cast. The
+[soft-delete source](https://github.com/beynar/viborm/blob/main/src/soft-delete/index.ts)
+is that pattern in full.
+
+A definition is typed against the client it was written for. Written against
+one client and applied to another, it still compiles, but its method types
+follow the first client (for example, a field the second client's
+`defaultOmit` hides still appears in the type). Build each definition from the
+client it is applied to, as above. Replacing another extension's model method
+is refused when the extension is applied; TypeScript does not flag it in your
+editor.
+
 ## Compose extensions
 
 Apply extensions in the order they should wrap one another:
@@ -317,9 +489,13 @@ and sibling-client operations.
 - Register write-outcome work before `proceed()`.
 - Treat statement transforms as trusted SQL code.
 - Use the supplied scope in client and model factories.
+- Build a definition from the client it is applied to. Apply `rows` and
+  `defaultOmit()` before extensions that add model-mapped query handlers or
+  client/model methods.
+- Keep `rows` for visibility, never for authorization or tenant isolation.
 - Test direct, callback-transaction, and array-transaction execution when the
   extension participates in those modes.
 
 See the [extension overview](/docs/extensions) for the complete lifecycle and
 the [official extensions](/docs/extensions#official-extensions) for production
-cache, instrumentation, and default omission.
+cache, instrumentation, default omission, and soft delete.

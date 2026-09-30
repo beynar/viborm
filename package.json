@@ -114,6 +114,10 @@
       "types": "./dist/instrumentation.d.mts",
       "import": "./dist/instrumentation.mjs"
     },
+    "./soft-delete": {
+      "types": "./dist/soft-delete.d.mts",
+      "import": "./dist/soft-delete.mjs"
+    },
     "./adapters": {
       "types": "./dist/adapters.d.mts",
       "import": "./dist/adapters.mjs"
