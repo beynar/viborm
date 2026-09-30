@@ -110,10 +110,14 @@ export interface AbsenceRequirement {
    * A tombstoning delete's referential requirement: only its candidates count,
    * and only while a visible member still references one. `except` names the
    * slot through which the parent keeps its own link, which does not block.
+   * `lock` marks candidates no earlier locate holds (a set-oriented
+   * `deleteMany`): an interactive session locks them first (DC14,
+   * {@link Commands.unreferenced}).
    */
   readonly restrict?: {
     readonly candidates: PreparedSelector;
     readonly except?: string;
+    readonly lock?: true;
   };
 }
 export interface Condition {
@@ -1669,6 +1673,13 @@ export class Commands {
    * A tombstoning root delete's plan: `effect` behind its referential premise,
    * stated first — no candidate is still referenced through a restricting
    * slot. A model without such a slot runs `effect` alone.
+   *
+   * An interactive session locks the candidates before it asks (DC14): the
+   * premise is then a later statement, so it sees a child a concurrent writer
+   * committed while holding a candidate, and a writer that reaches a
+   * candidate afterwards waits for the tombstone and no longer finds it live.
+   * Measured on PostgreSQL: without the lock both interleavings of a
+   * create-with-connect leave a live child under a tombstone.
    */
   private unreferenced(
     candidates: PreparedSelector,
@@ -1683,17 +1694,20 @@ export class Commands {
     return {
       single: false,
       run: async () => {
-        const query = ctx.queries.select(
-          model,
-          {
-            take: 1,
-            select: Object.fromEntries(
-              ctx.schema.keys(model).map((field) => [field, true])
-            ),
-          },
-          undefined,
-          { selector: blocked, forUpdate: !ctx.usesBatch }
-        );
+        const locked = (selector: PreparedSelector, take?: number) =>
+          ctx.queries.select(
+            model,
+            {
+              take,
+              select: Object.fromEntries(
+                ctx.schema.keys(model).map((field) => [field, true])
+              ),
+            },
+            undefined,
+            { selector, forUpdate: !ctx.usesBatch }
+          );
+        if (!ctx.usesBatch) await ctx.read(locked(candidates), true);
+        const query = locked(blocked, 1);
         // A packaged array member states it inside the array's atomic unit.
         if (ctx.preparesBatch)
           ctx.packageGuard(model, query.sql, "notExists", failure);

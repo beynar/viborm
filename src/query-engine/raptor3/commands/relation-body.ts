@@ -793,7 +793,13 @@ export class RelationBody {
               origin,
             };
             if (tombstone)
-              this.requireUnreferenced(edge, parent.fields, selector, origin);
+              this.requireUnreferenced(
+                edge,
+                parent.fields,
+                selector,
+                origin,
+                true
+              );
             this.commands.place(parent, mutation, "after", origin);
             continue;
           }
@@ -864,7 +870,8 @@ export class RelationBody {
     edge: Membership,
     parent: Assignments,
     candidates: PreparedSelector,
-    origin: Origin
+    origin: Origin,
+    lock?: true
   ): void {
     const commands = this.commands;
     const schema = commands.context.schema;
@@ -881,7 +888,7 @@ export class RelationBody {
       membership: { edge, parent },
       excluding: [],
       failure: commands.restrictFailure(edge.target),
-      restrict: { candidates, ...(except === undefined ? {} : { except }) },
+      restrict: { candidates, except, lock },
     };
     commands.place(this.parent, requirement, "after", origin);
   }

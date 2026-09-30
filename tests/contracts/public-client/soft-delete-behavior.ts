@@ -28,14 +28,17 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * p1, 2026-08); p5 (u2, 2026-07, p4, live); p6 (u2, 2026-07, -, live), which
  * comment c1 references through a RESTRICT foreign key; p7 (u3, 2025-04, -,
  * 2025-05). Live: p1, p2, p5, p6. Tombstones: p3, p4, p7. Post `pN` has
- * slug `slug-pN`, unique among live posts (a partial unique index).
+ * slug `slug-pN`, unique among live posts (a partial unique index) on
+ * every dialect but MySQL, which has no partial index (the recipe there is a
+ * generated column, v2 plan §4.5): its slug index is plain, and the one
+ * witness of the recipe is not registered.
  */
 
 export const ACTOR = "admin-1";
 export const CUTOFF = new Date("2026-06-01T00:00:00.000Z");
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
-export function softDeleteSchema() {
+export function softDeleteSchema(partialUnique = true) {
   const user = s.model({
     id: s.string().id(),
     name: s.string(),
@@ -65,7 +68,12 @@ export function softDeleteSchema() {
       deletedById: s.string().nullable(),
     })
     // The partial-unique recipe: a slug is unique among live posts only.
-    .index(["slug"], { unique: true, where: '"deletedAt" IS NULL' });
+    .index(
+      ["slug"],
+      partialUnique
+        ? { unique: true, where: '"deletedAt" IS NULL' }
+        : { unique: false }
+    );
   const comment = s.model({
     id: s.string().id(),
     body: s.string(),
@@ -86,8 +94,14 @@ export const USE_CONFIG = {
 } as const;
 
 /** The seeded database and its base client. */
-export async function openSoftDeleteFixture(driver: AnyDriver) {
-  const base = createClient({ schema: softDeleteSchema(), driver });
+export async function openSoftDeleteFixture(
+  driver: AnyDriver,
+  partialUnique = true
+) {
+  const base = createClient({
+    schema: softDeleteSchema(partialUnique),
+    driver,
+  });
   await syncLiveSchema(base);
   for (const id of ["u1", "u2", "u3"])
     await base.user.create({ data: { id, name: id } });
@@ -130,14 +144,19 @@ export async function failure(pending: PromiseLike<unknown>): Promise<unknown> {
 }
 
 /** The seeded database, its base client and §1.1's client over it. */
-export async function openSoftDeleteClients(driver: AnyDriver) {
-  const base = await openSoftDeleteFixture(driver);
+export async function openSoftDeleteClients(
+  driver: AnyDriver,
+  partialUnique = true
+) {
+  const base = await openSoftDeleteFixture(driver, partialUnique);
   return { base, db: softDelete(USE_CONFIG)(base) };
 }
 
 export interface SoftDeleteProvider {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
+  /** `false` on MySQL: no partial index, so no partial-unique witness. */
+  readonly partialUnique?: false;
 }
 
 export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
@@ -146,7 +165,10 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
     let db: Awaited<ReturnType<typeof openSoftDeleteClients>>["db"];
 
     beforeEach(async () => {
-      ({ base, db } = await openSoftDeleteClients(provider.createDriver()));
+      ({ base, db } = await openSoftDeleteClients(
+        provider.createDriver(),
+        provider.partialUnique ?? true
+      ));
     });
     afterEach(async () => {
       await base.$disconnect();
@@ -532,27 +554,29 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
       });
     });
 
-    test("the partial-unique recipe: a tombstone frees its slug; restoring into a live duplicate is refused and rolls back", async () => {
-      await db.post.delete({ where: { id: "p2" } });
-      const again = {
-        id: "p8",
-        title: "again",
-        slug: "slug-p2",
-        createdAt: CUTOFF,
-        authorId: "u1",
-      };
-      await db.post.create({ data: again });
-      expect(
-        await failure(
-          db.$transaction(async (tx) => {
-            await tx.post.restore({ where: { id: "p3" } });
-            await tx.post.restore({ where: { id: "p2" } });
-          })
-        )
-      ).toBeInstanceOf(UniqueConstraintError);
-      expect(await physical("p2")).toMatchObject({ deletedById: ACTOR });
-      expect((await physical("p3"))?.deletedAt).toEqual(day("2026-01-01"));
-    });
+    const partialUniqueRecipe = provider.partialUnique ?? true;
+    if (partialUniqueRecipe)
+      test("the partial-unique recipe: a tombstone frees its slug; restoring into a live duplicate is refused and rolls back", async () => {
+        await db.post.delete({ where: { id: "p2" } });
+        const again = {
+          id: "p8",
+          title: "again",
+          slug: "slug-p2",
+          createdAt: CUTOFF,
+          authorId: "u1",
+        };
+        await db.post.create({ data: again });
+        expect(
+          await failure(
+            db.$transaction(async (tx) => {
+              await tx.post.restore({ where: { id: "p3" } });
+              await tx.post.restore({ where: { id: "p2" } });
+            })
+          )
+        ).toBeInstanceOf(UniqueConstraintError);
+        expect(await physical("p2")).toMatchObject({ deletedById: ACTOR });
+        expect((await physical("p3"))?.deletedAt).toEqual(day("2026-01-01"));
+      });
 
     test("a callback transaction rolls a soft delete back", async () => {
       const rollback = new Error("rollback");

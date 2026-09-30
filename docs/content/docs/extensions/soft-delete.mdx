@@ -206,6 +206,11 @@ call's `deleted` says. A child model you did not configure has no tombstones,
 so any child blocks, as the database does. A nested `delete` does not count the
 parent it runs under: the parent's own link never blocks it.
 
+On PostgreSQL and MySQL the check holds under concurrency too: a soft delete
+locks the rows it is about to tombstone before it looks for live children. A
+`create` that connects one of them at the same moment either lands first, and
+the delete is refused, or waits and then finds its target deleted.
+
 `set` over a **required** foreign key keeps today's refusal ("rows removed from
 the set cannot be disconnected. Delete them instead."), and counts tombstoned
 children too. Purge the tombstoned child first.

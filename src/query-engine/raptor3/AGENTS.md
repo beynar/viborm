@@ -112,6 +112,11 @@ effect, never also in the effect's WHERE: `Commands.unreferenced` at the root
 slots are `EngineSchema.restrictingSlots`, read from the migration
 serializer's own ON DELETE owners, and its relation predicates are `unscoped`:
 they read the child model's default related domain, whatever the call chose.
+An interactive session locks the candidates no earlier read holds before the
+requirement reads (DC14: `unreferenced`, and a nested set-oriented
+`deleteMany` through `restrict.lock`), so a concurrent `connect` cannot leave a
+live child under a tombstone; measured on PostgreSQL with
+`tests/providers/docker/pg-deletion-races.test.ts`.
 Statement attribution, observers, errors and `NotFoundError` verbs still say
 the caller's delete (`ctx.operation`).
 

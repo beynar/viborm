@@ -219,24 +219,24 @@ export interface ClientHiddenContext<Surfaces> {
   readonly hidden: Surfaces;
 }
 
-type HiddenSurfaces<Context> =
-  Context extends ClientHiddenContext<infer Surfaces> ? Surfaces : never;
-
 /**
  * `null` where a relation read can find this target hidden, and nothing
  * otherwise. Models are compared by their shallow surface, as the omission
  * defaults are: a target that shares its surface with a hidden model widens
  * with it, and a surface too wide to compare widens too, both on the `| null`
- * side. The context is read first, so a client without `rows` never resolves
- * a target.
+ * side. It distributes over the context, so a client without `rows` never
+ * resolves a target, and TypeScript measures the context parameter of every
+ * result type through it cheaply: the `[Hidden] extends [never]` form it
+ * replaces cost the schema-only floor 33,535 types (measured, U7 repair).
  */
-type HiddenTargetNull<R extends AnyRelation, Context> = [
-  HiddenSurfaces<Context>,
-] extends [never]
-  ? never
-  : true extends HidesTarget<R, HiddenSurfaces<Context>>
+type HiddenTargetNull<
+  R extends AnyRelation,
+  Context,
+> = Context extends ClientHiddenContext<infer Hidden>
+  ? true extends HidesTarget<R, Hidden>
     ? null
-    : never;
+    : never
+  : never;
 
 type HidesTarget<R extends AnyRelation, Hidden> = Hidden extends unknown
   ? IsUsableModelResultSurface<Hidden> extends false

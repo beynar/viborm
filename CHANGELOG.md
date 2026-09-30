@@ -27,7 +27,9 @@ Versioning.
   when its target model has an entry (or the same field and relation names as
   one); a reference to a missing row is still an error. `deletion` turns a delete of the named
   models into an update with the call's one time and constant data, refused
-  while a visible row still references it through a restricting foreign key,
+  while a visible row still references it through a restricting foreign key
+  (on PostgreSQL and MySQL it locks its candidates before that check, so a
+  concurrent `connect` cannot leave a live row referencing a tombstone),
   unless the call's controls match `removeWhen`. A cached read that receives
   a control is keyed on its value and, on a client with `rows`, on the `rows`
   declarations; a read that receives none keeps today's key.

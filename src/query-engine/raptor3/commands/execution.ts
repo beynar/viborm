@@ -868,11 +868,11 @@ export class CommandExecution {
           ctx.queries.lowerIdentity(command.model, this.identity(fields))
         );
         const restrict = command.restrict;
-        await ctx.requireAbsent(
+        const locked = (selector?: PreparedSelector, take?: number) =>
           ctx.queries.select(
             command.model,
             {
-              take: 1,
+              take,
               select: Object.fromEntries(
                 storedFields(ctx.schema, command.model).map((field) => [
                   field,
@@ -894,19 +894,27 @@ export class CommandExecution {
                     ctx.driver.adapter.operators.or(...exclude)
                   )
                 : undefined,
-              // The parent's identity is known here, where the requirement runs.
-              selector:
-                restrict &&
-                this.commands.blocked(
-                  restrict.candidates,
-                  restrict.except === undefined
-                    ? undefined
-                    : {
-                        slot: restrict.except,
-                        identity: this.identity(command.membership.parent),
-                      }
-                ),
+              selector,
             }
+          );
+        // DC14, as `Commands.unreferenced`: candidates no locate holds are
+        // locked before the requirement reads.
+        if (restrict?.lock && !ctx.usesBatch)
+          await ctx.read(locked(restrict.candidates), true);
+        await ctx.requireAbsent(
+          locked(
+            // The parent's identity is known here, where the requirement runs.
+            restrict &&
+              this.commands.blocked(
+                restrict.candidates,
+                restrict.except === undefined
+                  ? undefined
+                  : {
+                      slot: restrict.except,
+                      identity: this.identity(command.membership.parent),
+                    }
+              ),
+            1
           ),
           command.failure()
         );

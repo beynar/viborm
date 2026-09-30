@@ -19,87 +19,115 @@ import {
 import {
   assertEquivalentExtensionCampaignReceipts,
   assertExtensionCampaignReceipt,
-  assertGeneratedBatchReceipt,
   assertG3GeneratedBatchReceipt,
-  assertStructuralMeasurementRuntime,
+  assertG4GeneratedBatchReceipt,
+  assertG4OracleValidationReceipt,
+  assertGeneratedBatchReceipt,
   assertStructuralMeasurementPatch,
-  RAPTOR3_ROOT,
+  assertStructuralMeasurementRuntime,
+  CS01_EXTENSION_A_TESTS,
+  CS01_EXTENSION_B_TESTS,
+  CS01_EXTENSION_COMPOSITION_TESTS,
+  CS01_STRUCTURAL_REFERENCE_TESTS,
+  CS02_REPEATED_OCCURRENCE_TESTS,
+  CS03_EXTENSION_CAMPAIGNS,
+  CS03_EXTENSION_SUPPORT_TESTS,
+  CS03_MEMBER_SCOPE_TESTS,
   G2_CAMPAIGN,
   G2_TRANSPORT_CAMPAIGN,
-  G3P06_CAMPAIGN,
-  G3P06_TRANSPORT_CAMPAIGN,
+  G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+  G3_BULK_RESULT_BOUNDARY_TESTS,
+  G3_BULK_SERIES_TESTS,
+  G3_DEPTH_RECURRENCE_TESTS,
+  G3_EXECUTION_REVIEW_TESTS,
   G3_GENERATED_CAMPAIGN,
+  G3_GENERATED_SMOKE_TESTS,
   G3_GENERATED_TRANSPORT_CAMPAIGN,
-  G27_CONTRACT_TESTS,
-  G27_PG_CONTRACT_TESTS,
+  G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+  G3_SCOPE_COMPOSITION_PG_TESTS,
+  G3_SCOPE_FAILURE_TESTS,
+  G3_SUPPRESSION_RETRY_TESTS,
+  G3_TRANSACTION_ARRAY_TESTS,
   G3P03_CONTRACT_TESTS,
   G3P03_PG_CONTRACT_TESTS,
   G3P04_CONTRACT_TESTS,
   G3P04_PG_CONTRACT_TESTS,
   G3P04_REVIEW_CONTRACT_TESTS,
   G3P05_CONTRACT_TESTS,
-  G3_BULK_SERIES_TESTS,
-  G3_SUPPRESSION_RETRY_TESTS,
-  G3_TRANSACTION_ARRAY_TESTS,
-  G3_DEPTH_RECURRENCE_TESTS,
-  G3_SCOPE_COMPOSITION_PG_TESTS,
-  G3_GENERATED_SMOKE_TESTS,
-  G3_GENERATED_TRANSPORT_SMOKE_TESTS,
-  G3_EXECUTION_REVIEW_TESTS,
-  G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
-  G3_SCOPE_FAILURE_TESTS,
-  G3_BULK_RESULT_BOUNDARY_TESTS,
-  POST_G3_CLEARABILITY_CONTRACT_TESTS,
-  POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
-  POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
-  POST_G3_SCHEMA_VIEW_TESTS,
-  POST_G3_PROJECTION_PREPARATION_TESTS,
-  POST_G3_SELECTOR_PREPARATION_TESTS,
-  POST_G3_DELETION_SITE_TESTS,
-  POST_G3_ROW_SCOPE_TESTS,
-  POST_G3_HISTORY_ANALYSIS_TESTS,
-  G29_MEMBER_DEPENDENCY_TESTS,
-  G29_DEPENDENCY_BOUNDARY_TESTS,
-  G29_DEPENDENCY_CHOICE_TESTS,
-  G29_RESULT_PROGRESS_TESTS,
-  CS01_STRUCTURAL_REFERENCE_TESTS,
-  CS01_EXTENSION_A_TESTS,
-  CS01_EXTENSION_B_TESTS,
-  CS01_EXTENSION_COMPOSITION_TESTS,
-  CS03_MEMBER_SCOPE_TESTS,
-  CS03_EXTENSION_CAMPAIGNS,
-  CS03_EXTENSION_SUPPORT_TESTS,
-  RAPTOR3_RUNNER_ONLY_TESTS,
-  CS02_REPEATED_OCCURRENCE_TESTS,
-  G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
-  G29_MEMBER_DEPENDENCY_PG_TESTS,
-  G4_READ_TESTS,
-  G4_READ_COUNTS,
-  G4_GENERATION_SELFTEST_TESTS,
+  G3P06_CAMPAIGN,
+  G3P06_TRANSPORT_CAMPAIGN,
   G4_GENERATED_CAMPAIGN,
   G4_GENERATED_CAMPAIGN_TESTS,
   G4_GENERATED_TRANSPORT_CAMPAIGN,
   G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
-  G4_WRITE_CAMPAIGN,
-  G4_WRITE_CAMPAIGN_TESTS,
-  G4_WRITE_TRANSPORT_CAMPAIGN,
-  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+  G4_GENERATION_SELFTEST_TESTS,
+  G4_NATIVE_MYSQL_TESTS,
+  G4_NATIVE_PG_TESTS,
+  G4_READ_CONTRACT_FAMILIES,
+  G4_READ_COUNTS,
+  G4_READ_TESTS,
+  G4_TRANSPORT_MODELS,
   G4_UNIT01_AUTHOR_COUNTS,
   G4_UNIT01_AUTHOR_TESTS,
   G4_UNIT01_REVIEW_COUNTS,
   G4_UNIT01_REVIEW_TESTS,
-  G4_NATIVE_PG_TESTS,
-  G4_NATIVE_MYSQL_TESTS,
-  G4_READ_CONTRACT_FAMILIES,
-  G4_TRANSPORT_MODELS,
-  assertG4GeneratedBatchReceipt,
-  assertG4OracleValidationReceipt,
+  G4_WRITE_CAMPAIGN,
+  G4_WRITE_CAMPAIGN_TESTS,
+  G4_WRITE_TRANSPORT_CAMPAIGN,
+  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+  G27_CONTRACT_TESTS,
+  G27_PG_CONTRACT_TESTS,
+  G29_DEPENDENCY_BOUNDARY_TESTS,
+  G29_DEPENDENCY_CHOICE_TESTS,
+  G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+  G29_MEMBER_DEPENDENCY_PG_TESTS,
+  G29_MEMBER_DEPENDENCY_TESTS,
+  G29_RESULT_PROGRESS_TESTS,
+  POST_G3_CLEARABILITY_CONTRACT_TESTS,
+  POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+  POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+  POST_G3_DELETION_SITE_TESTS,
+  POST_G3_HISTORY_ANALYSIS_TESTS,
+  POST_G3_PROJECTION_PREPARATION_TESTS,
+  POST_G3_ROW_SCOPE_TESTS,
+  POST_G3_SCHEMA_VIEW_TESTS,
+  POST_G3_SELECTOR_PREPARATION_TESTS,
+  RAPTOR3_ROOT,
+  RAPTOR3_RUNNER_ONLY_TESTS,
 } from "./raptor3-manifest.mjs";
-import * as manifest from "./raptor3-manifest.mjs";
 import {
   archiveG3GeneratedCorpus,
   parseRaptor3Request,
 } from "./run-raptor3.mjs";
+
+// The whole module namespace: every frozen seed range it declares is read.
+const manifest = await import("./raptor3-manifest.mjs");
+
+const CANDIDATE = /candidate/;
+const CANNOT_BE_FILTERED = /cannot be filtered/;
+const CD_COMMAND = /^cd /;
+const CS03_DIVERGED = /CS-03 alternatives diverged/;
+const FROZEN_BOUNDARY = /exact frozen boundary/;
+const G3_REPLAY_COMMAND =
+  /node scripts\/run-raptor3\.mjs replay "\$g3_corpus_restore_dir\/generated-corpus\.json"$/;
+const GZIP_CORPUS_RESTORE = /gzip -dc .*generated-corpus\.json\.gz/;
+const LEGAL_INJECTED_FAILURE = /legal injected failure/;
+const MISSING_ACTOR_QUOTA = /Missing two-actor quota/;
+const MISSING_FAULT_QUOTA = /Missing actually injected fault quota/;
+const NODE_REPLAY_COMMAND = /node scripts\/run-raptor3\.mjs replay/;
+const OUTSIDE_FROZEN_CAMPAIGN = /outside the frozen campaign/;
+const OVERLAP_CUT = /actual overlap cut/;
+const REPLAY_COMMAND = /run-raptor3\.mjs replay/;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const SHIPPED = /shipped/;
+const STALE_EVIDENCE = /Stale Raptor 3 evidence/;
+const STRICT_EQUAL_FAILURE = /Expected values to be strictly equal/;
+const SUBJECT_G4_ONLY =
+  /Subject selection applies only to the G4 generated read campaign/;
+const SUBJECT_ONCE = /Subject may be specified only once/;
+const SUBJECT_VALUES = /Subject is candidate or shipped/;
+const UNQUALIFIED_BASE_RUNTIME =
+  /base runtime is not the qualified Node version/;
 
 /** The refusal a structural measurement gives a patch its tree does not carry. */
 const PATCH_NOT_APPLIED =
@@ -178,13 +206,10 @@ test("a verified G3 child corpus archives and restores byte-for-byte", async () 
       archive
     );
     assert.equal(archive.originalBytes, source.length);
-    assert.match(archive.originalSha256, /^[0-9a-f]{64}$/);
-    assert.match(archive.restoreCommand, /gzip -dc .*generated-corpus\.json\.gz/);
-    assert.match(archive.replayCommand, /^cd /);
-    assert.match(
-      archive.replayCommand,
-      /node scripts\/run-raptor3\.mjs replay/
-    );
+    assert.match(archive.originalSha256, SHA256_HEX);
+    assert.match(archive.restoreCommand, GZIP_CORPUS_RESTORE);
+    assert.match(archive.replayCommand, CD_COMMAND);
+    assert.match(archive.replayCommand, NODE_REPLAY_COMMAND);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -212,26 +237,21 @@ test("a child corpus archive carries the replay command of its own lane", async 
     );
     assert.doesNotMatch(
       archive.replayCommand,
-      /run-raptor3\.mjs replay/,
+      REPLAY_COMMAND,
       "a G4 lane receipt kept the G0/G3 replay default"
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
   // ...and the one-argument call still spells the G0/G3 default exactly.
-  const g3Directory = mkdtempSync(
-    join(tmpdir(), "viborm-g3-archive-default-")
-  );
+  const g3Directory = mkdtempSync(join(tmpdir(), "viborm-g3-archive-default-"));
   try {
     writeFileSync(
       join(g3Directory, "generated-corpus.json"),
       Buffer.from('{"records":[]}\n')
     );
     const archive = await archiveG3GeneratedCorpus(g3Directory);
-    assert.match(
-      archive.replayCommand,
-      /node scripts\/run-raptor3\.mjs replay "\$g3_corpus_restore_dir\/generated-corpus\.json"$/
-    );
+    assert.match(archive.replayCommand, G3_REPLAY_COMMAND);
   } finally {
     rmSync(g3Directory, { recursive: true, force: true });
   }
@@ -320,7 +340,7 @@ test("structural measurement qualification pins the exact Node runtime", () => {
   const wrong = { runtime: { node: "v24.14.0" } };
   assert.throws(
     () => assertStructuralMeasurementRuntime(wrong, wrong),
-    /base runtime is not the qualified Node version/
+    UNQUALIFIED_BASE_RUNTIME
   );
 });
 
@@ -347,7 +367,10 @@ test("structural measurement refuses an instrumentation patch the measured tree 
     git("add", "--all");
     git("commit", "--quiet", "-m", "base");
     // The instrumentation this tree carries: applied, so it reverse-applies.
-    writeFileSync(measured, "export const counters = 1;\nexport const read = 2;\n");
+    writeFileSync(
+      measured,
+      "export const counters = 1;\nexport const read = 2;\n"
+    );
     const applied = join(root, "instrumentation.patch");
     writeFileSync(applied, git("diff"));
     assert.doesNotThrow(() => assertStructuralMeasurementPatch(applied, root));
@@ -516,7 +539,7 @@ test("CS-03 extension modes bind exact ranges, identities, cells, and replays", 
     for (const extra of ["7100", "--profile=sqlite-interactive"])
       assert.throws(
         () => parseRaptor3Request([mode, extra]),
-        /cannot be filtered/
+        CANNOT_BE_FILTERED
       );
     const valid = unitExtensionReceipt(campaign, identity);
     assertExtensionCampaignReceipt(valid, campaign, identity);
@@ -575,7 +598,7 @@ test("CS-03 extension alternatives compare canonical recipes, schedules, and out
     mutate(divergent);
     assert.throws(
       () => assertEquivalentExtensionCampaignReceipts(reference, divergent),
-      /CS-03 alternatives diverged/
+      CS03_DIVERGED
     );
   }
 });
@@ -592,7 +615,7 @@ test("G2.5 admits its fixed unfiltered checkpoint without changing G2 campaigns"
   ])
     assert.throws(
       () => parseRaptor3Request(["g25-contracts", filter]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
 });
 
@@ -604,7 +627,7 @@ test("G3 bulk series admits its exact fixed contract without filters", () => {
   ])
     assert.throws(
       () => parseRaptor3Request(["g3-bulk-series", filter]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
 });
 
@@ -619,7 +642,7 @@ test("G3 suppression retry admits its exact fixed contract without filters", () 
   ])
     assert.throws(
       () => parseRaptor3Request(["g3-suppression-retry", filter]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
 });
 
@@ -634,7 +657,7 @@ test("G3 transaction array admits its exact fixed contract without filters", () 
   ])
     assert.throws(
       () => parseRaptor3Request(["g3-transaction-array", filter]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
 });
 
@@ -649,7 +672,7 @@ test("G3 generated smoke admits its exact contract without filters", () => {
   ])
     assert.throws(
       () => parseRaptor3Request(["g3-generated-smoke", filter]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
 });
 
@@ -664,7 +687,7 @@ test("G3 transport smoke admits its exact contract without filters", () => {
         "g3-generated-transport-smoke",
         "--profile=scripted-returning-ack",
       ]),
-    /cannot be filtered/
+    CANNOT_BE_FILTERED
   );
 });
 
@@ -679,7 +702,7 @@ test("G3 failure minimization admits its exact contract without filters", () => 
         "g3-generated-minimization",
         "--testNamePattern=absent",
       ]),
-    /cannot be filtered/
+    CANNOT_BE_FILTERED
   );
 });
 
@@ -690,7 +713,7 @@ test("G3 depth recurrence admits its exact fixed contract without filters", () =
   );
   assert.throws(
     () => parseRaptor3Request(["g3-depth-recurrence", "--profile=sqlite"]),
-    /cannot be filtered/
+    CANNOT_BE_FILTERED
   );
 });
 
@@ -702,7 +725,7 @@ test("G3 execution review admits its exact diagnostic contract", () => {
   assert.throws(
     () =>
       parseRaptor3Request(["g3-execution-review", "--testNamePattern=absent"]),
-    /cannot be filtered/
+    CANNOT_BE_FILTERED
   );
 });
 
@@ -717,7 +740,7 @@ test("G3 author execution regressions admit their exact fixed contract", () => {
         "g3-author-execution-regressions",
         "--testNamePattern=absent",
       ]),
-    /cannot be filtered/
+    CANNOT_BE_FILTERED
   );
 });
 
@@ -726,7 +749,7 @@ for (const mode of ["g3-scope-failure", "g3-bulk-result-boundary"]) {
     assert.equal(parseRaptor3Request([mode]).mode, mode);
     assert.throws(
       () => parseRaptor3Request([mode, "--testNamePattern=absent"]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
   });
 }
@@ -737,7 +760,7 @@ for (const provider of ["pg", "mysql"]) {
     assert.equal(parseRaptor3Request([mode]).mode, mode);
     assert.throws(
       () => parseRaptor3Request([mode, "--testNamePattern=absent"]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
   });
 }
@@ -800,7 +823,7 @@ for (const lane of g3GeneratedLanes) {
     stale.identity.harness = "stale-harness-source";
     assert.throws(
       () => assertG3GeneratedBatchReceipt(stale, 8000, lane.campaign, identity),
-      /Stale Raptor 3 evidence/
+      STALE_EVIDENCE
     );
 
     const missing = structuredClone(receipt);
@@ -808,7 +831,7 @@ for (const lane of g3GeneratedLanes) {
     assert.throws(
       () =>
         assertG3GeneratedBatchReceipt(missing, 8000, lane.campaign, identity),
-      /Expected values to be strictly equal/
+      STRICT_EQUAL_FAILURE
     );
 
     const corrupt = structuredClone(receipt);
@@ -816,7 +839,7 @@ for (const lane of g3GeneratedLanes) {
     assert.throws(
       () =>
         assertG3GeneratedBatchReceipt(corrupt, 8000, lane.campaign, identity),
-      /actual overlap cut/
+      OVERLAP_CUT
     );
   });
 }
@@ -832,11 +855,11 @@ for (const [mode, batchMode, campaign] of [
   test(`${mode} binds the exact G3 range and batch boundary`, () => {
     assert.equal(parseRaptor3Request([mode]).mode, mode);
     assert.equal(parseRaptor3Request([batchMode, "8000"]).firstSeed, 8000);
-    assert.equal(parseRaptor3Request([batchMode, "17900"]).firstSeed, 17900);
-    for (const firstSeed of [7999, 8001, 17901, 18000])
+    assert.equal(parseRaptor3Request([batchMode, "17900"]).firstSeed, 17_900);
+    for (const firstSeed of [7999, 8001, 17_901, 18_000])
       assert.throws(
         () => parseRaptor3Request([batchMode, String(firstSeed)]),
-        /exact frozen boundary/
+        FROZEN_BOUNDARY
       );
     assert.equal(campaign.seedCount, 10_000);
   });
@@ -858,7 +881,7 @@ for (const lane of lanes) {
     for (const firstSeed of [1900, 1999, 2001, 6999, 7000, 2000.5]) {
       assert.throws(
         () => parseRaptor3Request([lane.batchMode, String(firstSeed)]),
-        /exact frozen boundary/,
+        FROZEN_BOUNDARY,
         `Must reject batch start ${firstSeed}`
       );
     }
@@ -868,9 +891,9 @@ for (const lane of lanes) {
       [lane.mode, "--testNamePattern=absent"],
       [lane.batchMode, "2000", "--seed-count=1"],
       [lane.batchMode, "2000", "--testNamePattern=absent"],
-      [lane.batchMode, "2000", "--profile=" + lane.profiles[0]],
+      [lane.batchMode, "2000", `--profile=${lane.profiles[0]}`],
     ]) {
-      assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+      assert.throws(() => parseRaptor3Request(args), CANNOT_BE_FILTERED);
     }
   });
 
@@ -939,8 +962,8 @@ for (const lane of lanes) {
     assertGeneratedBatchReceipt(valid, 2000, lane.campaign);
     for (const deficientProfile of lane.profiles) {
       for (const [field, below, extra, reason] of [
-        ["actors", 1, 2, /Missing two-actor quota/],
-        ["faults", 0, 1, /Missing actually injected fault quota/],
+        ["actors", 1, 2, MISSING_ACTOR_QUOTA],
+        ["faults", 0, 1, MISSING_FAULT_QUOTA],
       ]) {
         const invalid = structuredClone(valid);
         // Keep the aggregate at forty qualifying cells: a healthy profile
@@ -976,7 +999,7 @@ for (const lane of prepLanes) {
     for (const firstSeed of [6900, 6999, 7001, 7100, 7000.5]) {
       assert.throws(
         () => parseRaptor3Request([lane.batchMode, String(firstSeed)]),
-        /exact frozen boundary/,
+        FROZEN_BOUNDARY,
         `Must reject prep batch start ${firstSeed}`
       );
     }
@@ -986,9 +1009,9 @@ for (const lane of prepLanes) {
       [lane.mode, "--testNamePattern=absent"],
       [lane.batchMode, "7000", "--seed-count=1"],
       [lane.batchMode, "7000", "--testNamePattern=absent"],
-      [lane.batchMode, "7000", "--profile=" + lane.profiles[0]],
+      [lane.batchMode, "7000", `--profile=${lane.profiles[0]}`],
     ])
-      assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+      assert.throws(() => parseRaptor3Request(args), CANNOT_BE_FILTERED);
   });
 
   test(`${lane.name}: G3P-06 receipts bind every new profile/seed cell`, () => {
@@ -1070,7 +1093,7 @@ test("G4 fixed modes admit their exact contract without filters", () => {
     for (const extra of ["20000", "--testNamePattern=absent"])
       assert.throws(
         () => parseRaptor3Request([mode, extra]),
-        /cannot be filtered/
+        CANNOT_BE_FILTERED
       );
   }
   const total = Object.values(G4_READ_COUNTS).reduce(
@@ -1197,20 +1220,17 @@ test("G4 write lanes reuse the G3 campaign on fresh disjoint ranges", () => {
     for (const off of [firstSeed - 1, firstSeed + 1, last + 1, last + 100])
       assert.throws(
         () => parseRaptor3Request([lane.batchMode, String(off)]),
-        /exact frozen boundary/
+        FROZEN_BOUNDARY
       );
     // One subject, so the read campaign's flag is refused rather than ignored.
     for (const args of [
       [lane.mode, "--subject=shipped"],
       [lane.batchMode, String(firstSeed), "--subject=candidate"],
     ])
-      assert.throws(
-        () => parseRaptor3Request(args),
-        /Subject selection applies only to the G4 generated read campaign/
-      );
+      assert.throws(() => parseRaptor3Request(args), SUBJECT_G4_ONLY);
     assert.throws(
       () => parseRaptor3Request([lane.mode, "--testNamePattern=absent"]),
-      /cannot be filtered/
+      CANNOT_BE_FILTERED
     );
 
     const completion = (seed, profile) => ({
@@ -1238,9 +1258,7 @@ test("G4 write lanes reuse the G3 campaign on fresh disjoint ranges", () => {
       profiles: campaign.profiles,
       completed,
       replays:
-        campaign.batchSize *
-        campaign.profiles.length *
-        campaign.replayCount,
+        campaign.batchSize * campaign.profiles.length * campaign.replayCount,
       skipped: 0,
     };
     assert.doesNotThrow(() =>
@@ -1256,14 +1274,14 @@ test("G4 write lanes reuse the G3 campaign on fresh disjoint ranges", () => {
           G3_GENERATED_CAMPAIGN,
           identity
         ),
-      /outside the frozen campaign/
+      OUTSIDE_FROZEN_CAMPAIGN
     );
     const corrupt = structuredClone(receipt);
     for (const cell of corrupt.completed) cell.faults = 1;
     assert.throws(
       () =>
         assertG3GeneratedBatchReceipt(corrupt, firstSeed, campaign, identity),
-      /legal injected failure/
+      LEGAL_INJECTED_FAILURE
     );
   }
 });
@@ -1328,15 +1346,15 @@ test("G4 campaign modes bind the frozen disjoint ranges and their subjects", () 
   );
   assert.throws(
     () => parseRaptor3Request(["g4-seed-batch", "19999"]),
-    /exact frozen boundary/
+    FROZEN_BOUNDARY
   );
   assert.throws(
     () => parseRaptor3Request(["g4-seed-batch", "45000"]),
-    /exact frozen boundary/
+    FROZEN_BOUNDARY
   );
   assert.throws(
     () => parseRaptor3Request(["g4-transport-seed-batch", "20000"]),
-    /exact frozen boundary/
+    FROZEN_BOUNDARY
   );
 
   // The subject belongs to the command. The default is the claim; the
@@ -1358,7 +1376,7 @@ test("G4 campaign modes bind the frozen disjoint ranges and their subjects", () 
     );
     assert.throws(
       () => parseRaptor3Request([...positional, "--subject=anything"]),
-      /Subject is candidate or shipped/
+      SUBJECT_VALUES
     );
     assert.throws(
       () =>
@@ -1367,13 +1385,13 @@ test("G4 campaign modes bind the frozen disjoint ranges and their subjects", () 
           "--subject=shipped",
           "--subject=candidate",
         ]),
-      /Subject may be specified only once/
+      SUBJECT_ONCE
     );
   }
   for (const mode of ["g0", "g3-seeds", "g4-read-contracts"])
     assert.throws(
       () => parseRaptor3Request([mode, "--subject=shipped"]),
-      /Subject selection applies only to the G4 generated read campaign/
+      SUBJECT_G4_ONLY
     );
   assert.equal(parseRaptor3Request(["g0"]).subject, undefined);
 
@@ -1394,7 +1412,7 @@ test("G4 campaign modes bind the frozen disjoint ranges and their subjects", () 
           campaign,
           identity
         ),
-      /Stale Raptor 3 evidence/
+      STALE_EVIDENCE
     );
     assert.throws(() =>
       assertG4GeneratedBatchReceipt(
@@ -1427,8 +1445,9 @@ test("G4 campaign modes bind the frozen disjoint ranges and their subjects", () 
     );
     const validation = g4UnitReceipt(first, 5, campaign, "shipped", identity);
     assert.throws(
-      () => assertG4GeneratedBatchReceipt(validation, first, campaign, identity),
-      /candidate/
+      () =>
+        assertG4GeneratedBatchReceipt(validation, first, campaign, identity),
+      CANDIDATE
     );
     assert.doesNotThrow(() =>
       assertG4OracleValidationReceipt(validation, first, campaign, identity)
@@ -1436,7 +1455,7 @@ test("G4 campaign modes bind the frozen disjoint ranges and their subjects", () 
     assert.throws(
       () =>
         assertG4OracleValidationReceipt(qualifying, first, campaign, identity),
-      /shipped/
+      SHIPPED
     );
   }
 });

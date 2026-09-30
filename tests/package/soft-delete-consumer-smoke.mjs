@@ -10,12 +10,15 @@
  * spelled as a consumer spells them, `viborm` and `viborm/client`; this script
  * refuses any other import, so the definition provably needs nothing
  * private. Its `use.ts` is §1.1's use block against `viborm/sqlite3`, with
- * each result checked.
+ * each result checked; `use-entry.ts` is the same block importing `softDelete`
+ * from the published `viborm/soft-delete` entry, whose declarations name the
+ * package's hashed chunks, so the shipped entry itself is type-checked and run.
  *
  *   A. TYPES — `tsc --strict` over the consumer, against the published
  *              declarations: the definition compiles with its three casts, the
- *              use block type-checks, `restore` narrows exactly to its
- *              `select`, and the three `@ts-expect-error` lines are needed.
+ *              use block type-checks through both imports, `restore` narrows
+ *              exactly to its `select`, and the five `@ts-expect-error` lines
+ *              are needed.
  *   B. RUN   — Node runs the same files (type stripping): reads show live
  *              posts, the recycle bin shows tombstones, delete returns the
  *              post-image with the actor, restore narrows, the purge removes
@@ -164,11 +167,21 @@ export async function flagged() {
   await db.post.restore({ where: { id: "p1" }, data: { title: "x" } });
   // @ts-expect-error mode goes only on the deletes of managed models
   await db.user.delete({ where: { id: "u1" }, mode: "hard" });
+  // @ts-expect-error a misspelt restore key is flagged
+  await db.post.restore({ where: { id: "p1" }, selcet: { id: true } });
+  // @ts-expect-error deleted takes the declared modes only
+  await db.post.findMany({ deleted: "gone" });
 }
 
 await base.$disconnect();
-console.log("soft-delete consumer: pass");
+console.log("LABEL: pass");
 `;
+
+/** The use block importing `softDelete` from `source`, reporting as `label`. */
+const useFrom = (source, label) =>
+  use
+    .replace('from "./soft-delete.ts"', `from "${source}"`)
+    .replace("LABEL: pass", `${label}: pass`);
 
 try {
   let archive = process.env.VIBORM_PACKAGE_TARBALL;
@@ -210,7 +223,13 @@ try {
     JSON.stringify({ name: "viborm-soft-delete-consumer", type: "module" })
   );
   writeFileSync(join(consumerRoot, "soft-delete.ts"), consumerDefinition());
-  writeFileSync(join(consumerRoot, "use.ts"), use);
+  const uses = {
+    "use.ts": useFrom("./soft-delete.ts", "soft-delete consumer"),
+    "use-entry.ts": useFrom("viborm/soft-delete", "soft-delete entry consumer"),
+  };
+  for (const [file, source] of Object.entries(uses)) {
+    writeFileSync(join(consumerRoot, file), source);
+  }
 
   try {
     execFileSync(
@@ -230,7 +249,7 @@ try {
         "node",
         "--typeRoots",
         join(repositoryRoot, "node_modules", "@types"),
-        "use.ts",
+        ...Object.keys(uses),
       ],
       { cwd: consumerRoot, encoding: "utf8", stdio: "pipe" }
     );
@@ -239,15 +258,20 @@ try {
       `The soft-delete consumer does not type-check:\n${error.stdout ?? ""}${error.stderr ?? ""}`
     );
   }
-  const output = execFileSync(process.execPath, ["use.ts"], {
-    cwd: consumerRoot,
-    encoding: "utf8",
-    stdio: "pipe",
-  });
-  if (!output.includes("soft-delete consumer: pass")) {
-    throw new Error(`The soft-delete consumer did not finish:\n${output}`);
+  for (const [file, label] of [
+    ["use.ts", "soft-delete consumer"],
+    ["use-entry.ts", "soft-delete entry consumer"],
+  ]) {
+    const output = execFileSync(process.execPath, [file], {
+      cwd: consumerRoot,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    if (!output.includes(`${label}: pass`)) {
+      throw new Error(`The ${label} did not finish:\n${output}`);
+    }
   }
-  console.log("packed soft-delete consumer: pass");
+  console.log("packed soft-delete consumer and entry consumer: pass");
 } finally {
   rmSync(fixtureRoot, { force: true, recursive: true });
 }

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+import invariant from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -19,30 +19,98 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { createGunzip, createGzip } from "node:zlib";
 import {
-  RAPTOR3_ROOT,
-  RAPTOR3_TESTS,
-  G1_COMPARISON_TESTS,
-  G1_COMPARISON_COUNTS,
-  G1_BASELINE_TESTS,
+  assertExtensionCampaignReceipt,
+  assertG0CampaignReceipt,
+  assertG3GeneratedBatchReceipt,
+  assertG4GeneratedBatchReceipt,
+  assertG4OracleValidationReceipt,
+  assertGeneratedBatchReceipt,
+  assertRaptor3Identity,
+  assertStructuralMeasurementPatch,
+  assertStructuralMeasurementRuntime,
+  CS01_EXTENSION_A_COUNTS,
+  CS01_EXTENSION_A_TESTS,
+  CS01_EXTENSION_B_COUNTS,
+  CS01_EXTENSION_B_TESTS,
+  CS01_EXTENSION_COMPOSITION_COUNTS,
+  CS01_EXTENSION_COMPOSITION_TESTS,
+  CS01_STRUCTURAL_REFERENCE_COUNTS,
+  CS01_STRUCTURAL_REFERENCE_TESTS,
+  CS02_STRUCTURE_MEASUREMENT_COUNTS,
+  CS02_STRUCTURE_MEASUREMENT_TESTS,
+  CS03_EXTENSION_CAMPAIGN_COUNTS,
+  CS03_EXTENSION_CAMPAIGN_TESTS,
+  CS03_EXTENSION_CAMPAIGNS,
+  CS03_MEMBER_SCOPE_COUNTS,
+  CS03_MEMBER_SCOPE_TESTS,
+  captureRaptor3Identity,
+  G0_RESOURCES,
   G1_BASELINE_COUNTS,
-  G1_CONTRACT_TESTS,
+  G1_BASELINE_TESTS,
+  G1_CAMPAIGN,
+  G1_CAMPAIGN_TESTS,
+  G1_COMPARISON_COUNTS,
+  G1_COMPARISON_TESTS,
   G1_CONTRACT_COUNTS,
-  G2_BASELINE_TESTS,
+  G1_CONTRACT_TESTS,
+  G1_GENERATED_COUNTS,
+  G1_GENERATED_TESTS,
+  G1_TRANSPORT_CAMPAIGN,
+  G1_TRANSPORT_CAMPAIGN_TESTS,
+  G1_TRANSPORT_COUNTS,
+  G1_TRANSPORT_TESTS,
   G2_BASELINE_COUNTS,
-  G2_CONTRACT_TESTS,
-  G2_DIAGNOSTIC_TESTS,
-  G2_DIAGNOSTIC_COUNTS,
+  G2_BASELINE_TESTS,
+  G2_CAMPAIGN,
+  G2_CAMPAIGN_TESTS,
   G2_CONTRACT_COUNTS,
-  G25_CONTRACT_COUNTS,
-  G25_CONTRACT_TESTS,
-  G25_PG_CONTRACT_COUNTS,
-  G25_PG_CONTRACT_TESTS,
-  G27_CONTRACT_COUNTS,
-  G27_CONTRACT_TESTS,
-  G27_MYSQL_CONTRACT_COUNTS,
-  G27_MYSQL_CONTRACT_TESTS,
-  G27_PG_CONTRACT_COUNTS,
-  G27_PG_CONTRACT_TESTS,
+  G2_CONTRACT_TESTS,
+  G2_DIAGNOSTIC_COUNTS,
+  G2_DIAGNOSTIC_TESTS,
+  G2_GENERATED_COUNTS,
+  G2_GENERATED_TESTS,
+  G2_MYSQL_BASELINE_COUNTS,
+  G2_MYSQL_BASELINE_TESTS,
+  G2_MYSQL_CONTRACT_COUNTS,
+  G2_MYSQL_CONTRACT_TESTS,
+  G2_PG_BASELINE_COUNTS,
+  G2_PG_BASELINE_TESTS,
+  G2_PG_CONTRACT_COUNTS,
+  G2_PG_CONTRACT_TESTS,
+  G2_TRANSPORT_CAMPAIGN,
+  G2_TRANSPORT_CAMPAIGN_TESTS,
+  G2_TRANSPORT_COUNTS,
+  G2_TRANSPORT_TESTS,
+  G3_AUTHOR_EXECUTION_REGRESSION_COUNTS,
+  G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+  G3_BULK_RESULT_BOUNDARY_COUNTS,
+  G3_BULK_RESULT_BOUNDARY_TESTS,
+  G3_BULK_SERIES_COUNTS,
+  G3_BULK_SERIES_TESTS,
+  G3_DEPTH_RECURRENCE_COUNTS,
+  G3_DEPTH_RECURRENCE_TESTS,
+  G3_EXECUTION_REVIEW_COUNTS,
+  G3_EXECUTION_REVIEW_TESTS,
+  G3_GENERATED_CAMPAIGN,
+  G3_GENERATED_CAMPAIGN_TESTS,
+  G3_GENERATED_MINIMIZATION_COUNTS,
+  G3_GENERATED_MINIMIZATION_TESTS,
+  G3_GENERATED_SMOKE_COUNTS,
+  G3_GENERATED_SMOKE_TESTS,
+  G3_GENERATED_TRANSPORT_CAMPAIGN,
+  G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  G3_GENERATED_TRANSPORT_SMOKE_COUNTS,
+  G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+  G3_SCOPE_COMPOSITION_MYSQL_COUNTS,
+  G3_SCOPE_COMPOSITION_MYSQL_TESTS,
+  G3_SCOPE_COMPOSITION_PG_COUNTS,
+  G3_SCOPE_COMPOSITION_PG_TESTS,
+  G3_SCOPE_FAILURE_COUNTS,
+  G3_SCOPE_FAILURE_TESTS,
+  G3_SUPPRESSION_RETRY_COUNTS,
+  G3_SUPPRESSION_RETRY_TESTS,
+  G3_TRANSACTION_ARRAY_COUNTS,
+  G3_TRANSACTION_ARRAY_TESTS,
   G3P02_CONTRACT_COUNTS,
   G3P02_CONTRACT_TESTS,
   G3P02_MYSQL_CONTRACT_COUNTS,
@@ -57,155 +125,52 @@ import {
   G3P03_PG_CONTRACT_TESTS,
   G3P04_CONTRACT_COUNTS,
   G3P04_CONTRACT_TESTS,
-  G3P04_REVIEW_CONTRACT_COUNTS,
-  G3P04_REVIEW_CONTRACT_TESTS,
   G3P04_MYSQL_CONTRACT_COUNTS,
   G3P04_MYSQL_CONTRACT_TESTS,
   G3P04_PG_CONTRACT_COUNTS,
   G3P04_PG_CONTRACT_TESTS,
+  G3P04_REVIEW_CONTRACT_COUNTS,
+  G3P04_REVIEW_CONTRACT_TESTS,
   G3P05_CONTRACT_COUNTS,
   G3P05_CONTRACT_TESTS,
-  G3_BULK_SERIES_COUNTS,
-  G3_BULK_SERIES_TESTS,
-  G3_SUPPRESSION_RETRY_COUNTS,
-  G3_SUPPRESSION_RETRY_TESTS,
-  G3_TRANSACTION_ARRAY_COUNTS,
-  G3_TRANSACTION_ARRAY_TESTS,
-  G3_DEPTH_RECURRENCE_COUNTS,
-  G3_DEPTH_RECURRENCE_TESTS,
-  G3_SCOPE_COMPOSITION_PG_COUNTS,
-  G3_SCOPE_COMPOSITION_PG_TESTS,
-  G3_SCOPE_COMPOSITION_MYSQL_COUNTS,
-  G3_SCOPE_COMPOSITION_MYSQL_TESTS,
-  G3_GENERATED_SMOKE_COUNTS,
-  G3_GENERATED_SMOKE_TESTS,
-  G3_GENERATED_TRANSPORT_SMOKE_COUNTS,
-  G3_GENERATED_TRANSPORT_SMOKE_TESTS,
-  G3_GENERATED_MINIMIZATION_COUNTS,
-  G3_GENERATED_MINIMIZATION_TESTS,
-  G3_EXECUTION_REVIEW_COUNTS,
-  G3_EXECUTION_REVIEW_TESTS,
-  G3_AUTHOR_EXECUTION_REGRESSION_COUNTS,
-  G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
-  G3_SCOPE_FAILURE_COUNTS,
-  G3_SCOPE_FAILURE_TESTS,
-  G3_BULK_RESULT_BOUNDARY_COUNTS,
-  G3_BULK_RESULT_BOUNDARY_TESTS,
-  POST_G3_CLEARABILITY_CONTRACT_COUNTS,
-  POST_G3_CLEARABILITY_CONTRACT_TESTS,
-  POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS,
-  POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
-  POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS,
-  POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
-  POST_G3_SCHEMA_VIEW_COUNTS,
-  POST_G3_SCHEMA_VIEW_TESTS,
-  POST_G3_PROJECTION_PREPARATION_COUNTS,
-  POST_G3_PROJECTION_PREPARATION_TESTS,
-  POST_G3_SELECTOR_PREPARATION_COUNTS,
-  POST_G3_SELECTOR_PREPARATION_TESTS,
-  POST_G3_DELETION_SITE_COUNTS,
-  POST_G3_ROW_SCOPE_COUNTS,
-  POST_G3_DELETION_SITE_TESTS,
-  POST_G3_ROW_SCOPE_TESTS,
-  POST_G3_HISTORY_ANALYSIS_COUNTS,
-  POST_G3_HISTORY_ANALYSIS_TESTS,
-  G29_MEMBER_DEPENDENCY_COUNTS,
-  G29_MEMBER_DEPENDENCY_TESTS,
-  G29_DEPENDENCY_BOUNDARY_COUNTS,
-  G29_DEPENDENCY_BOUNDARY_TESTS,
-  G29_DEPENDENCY_CHOICE_COUNTS,
-  G29_DEPENDENCY_CHOICE_TESTS,
-  G29_RESULT_PROGRESS_COUNTS,
-  G29_RESULT_PROGRESS_TESTS,
-  CS01_STRUCTURAL_REFERENCE_COUNTS,
-  CS01_STRUCTURAL_REFERENCE_TESTS,
-  CS01_EXTENSION_A_COUNTS,
-  CS01_EXTENSION_A_TESTS,
-  CS01_EXTENSION_B_COUNTS,
-  CS01_EXTENSION_B_TESTS,
-  CS01_EXTENSION_COMPOSITION_COUNTS,
-  CS01_EXTENSION_COMPOSITION_TESTS,
-  CS03_MEMBER_SCOPE_COUNTS,
-  CS03_MEMBER_SCOPE_TESTS,
-  CS03_EXTENSION_CAMPAIGNS,
-  CS03_EXTENSION_CAMPAIGN_COUNTS,
-  CS03_EXTENSION_CAMPAIGN_TESTS,
-  CS02_STRUCTURE_MEASUREMENT_COUNTS,
-  CS02_STRUCTURE_MEASUREMENT_TESTS,
-  G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
-  G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
-  G29_MEMBER_DEPENDENCY_PG_COUNTS,
-  G29_MEMBER_DEPENDENCY_PG_TESTS,
   G3P05_RECURSIVE_READ_FIT_COUNTS,
   G3P05_RECURSIVE_READ_FIT_TESTS,
   G3P05_SELECTOR_DEPENDENCY_COUNTS,
   G3P05_SELECTOR_DEPENDENCY_TESTS,
   G3P05_VARIANT_COLLECTION_ORDER_COUNTS,
   G3P05_VARIANT_COLLECTION_ORDER_TESTS,
-  G2_MYSQL_BASELINE_TESTS,
-  G2_MYSQL_BASELINE_COUNTS,
-  G2_MYSQL_CONTRACT_TESTS,
-  G2_MYSQL_CONTRACT_COUNTS,
-  G2_PG_BASELINE_TESTS,
-  G2_PG_CONTRACT_TESTS,
-  G2_PG_BASELINE_COUNTS,
-  G2_PG_CONTRACT_COUNTS,
-  G1_GENERATED_TESTS,
-  G1_GENERATED_COUNTS,
-  G1_CAMPAIGN_TESTS,
-  G1_CAMPAIGN,
-  G2_CAMPAIGN,
-  G2_CAMPAIGN_TESTS,
-  G2_GENERATED_COUNTS,
-  G2_GENERATED_TESTS,
-  G1_TRANSPORT_COUNTS,
-  G1_TRANSPORT_TESTS,
-  G1_TRANSPORT_CAMPAIGN_TESTS,
-  G1_TRANSPORT_CAMPAIGN,
-  G2_TRANSPORT_COUNTS,
-  G2_TRANSPORT_TESTS,
-  G2_TRANSPORT_CAMPAIGN,
-  G2_TRANSPORT_CAMPAIGN_TESTS,
   G3P06_CAMPAIGN,
   G3P06_CAMPAIGN_TESTS,
   G3P06_TRANSPORT_CAMPAIGN,
   G3P06_TRANSPORT_CAMPAIGN_TESTS,
-  G3_GENERATED_CAMPAIGN,
-  G3_GENERATED_CAMPAIGN_TESTS,
-  G3_GENERATED_TRANSPORT_CAMPAIGN,
-  G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
-  G4_READ_OPERATIONS_COUNTS,
-  G4_READ_OPERATIONS_TESTS,
+  G4_GENERATED_CAMPAIGN,
+  G4_GENERATED_CAMPAIGN_TESTS,
+  G4_GENERATED_TRANSPORT_CAMPAIGN,
+  G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  G4_GENERATION_SELFTEST_COUNTS,
+  G4_GENERATION_SELFTEST_TESTS,
+  G4_NATIVE_MYSQL_COUNTS,
+  G4_NATIVE_MYSQL_TESTS,
+  G4_NATIVE_PG_COUNTS,
+  G4_NATIVE_PG_TESTS,
+  G4_READ_AGGREGATE_COUNTS,
+  G4_READ_AGGREGATE_TESTS,
+  G4_READ_CODEC_COUNTS,
+  G4_READ_CODEC_TESTS,
+  G4_READ_COUNTS,
   G4_READ_FILTERS_COUNTS,
   G4_READ_FILTERS_TESTS,
+  G4_READ_OPERATIONS_COUNTS,
+  G4_READ_OPERATIONS_TESTS,
   G4_READ_ORDERING_COUNTS,
   G4_READ_ORDERING_TESTS,
   G4_READ_PAGINATION_COUNTS,
   G4_READ_PAGINATION_TESTS,
   G4_READ_PROJECTION_COUNTS,
   G4_READ_PROJECTION_TESTS,
-  G4_READ_AGGREGATE_COUNTS,
-  G4_READ_AGGREGATE_TESTS,
-  G4_READ_CODEC_COUNTS,
-  G4_READ_CODEC_TESTS,
   G4_READ_RECURSIVE_FIT_COUNTS,
   G4_READ_RECURSIVE_FIT_TESTS,
-  G4_READ_COUNTS,
   G4_READ_TESTS,
-  G4_GENERATION_SELFTEST_COUNTS,
-  G4_GENERATION_SELFTEST_TESTS,
-  G4_NATIVE_PG_COUNTS,
-  G4_NATIVE_PG_TESTS,
-  G4_NATIVE_MYSQL_COUNTS,
-  G4_NATIVE_MYSQL_TESTS,
-  G4_GENERATED_CAMPAIGN,
-  G4_GENERATED_CAMPAIGN_TESTS,
-  G4_GENERATED_TRANSPORT_CAMPAIGN,
-  G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
-  G4_WRITE_CAMPAIGN,
-  G4_WRITE_CAMPAIGN_TESTS,
-  G4_WRITE_TRANSPORT_CAMPAIGN,
-  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
   G4_UNIT01_AUTHOR_COUNTS,
   G4_UNIT01_AUTHOR_TESTS,
   G4_UNIT01_REVIEW_COUNTS,
@@ -216,18 +181,64 @@ import {
   G4_UNIT02_MYSQL_TESTS,
   G4_UNIT02_PG_COUNTS,
   G4_UNIT02_PG_TESTS,
-  assertGeneratedBatchReceipt,
-  assertG3GeneratedBatchReceipt,
-  assertG4GeneratedBatchReceipt,
-  assertG4OracleValidationReceipt,
-  G0_RESOURCES,
-  captureRaptor3Identity,
-  assertRaptor3Identity,
-  assertStructuralMeasurementRuntime,
-  assertStructuralMeasurementPatch,
-  assertG0CampaignReceipt,
-  assertExtensionCampaignReceipt,
+  G4_WRITE_CAMPAIGN,
+  G4_WRITE_CAMPAIGN_TESTS,
+  G4_WRITE_TRANSPORT_CAMPAIGN,
+  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+  G25_CONTRACT_COUNTS,
+  G25_CONTRACT_TESTS,
+  G25_PG_CONTRACT_COUNTS,
+  G25_PG_CONTRACT_TESTS,
+  G27_CONTRACT_COUNTS,
+  G27_CONTRACT_TESTS,
+  G27_MYSQL_CONTRACT_COUNTS,
+  G27_MYSQL_CONTRACT_TESTS,
+  G27_PG_CONTRACT_COUNTS,
+  G27_PG_CONTRACT_TESTS,
+  G29_DEPENDENCY_BOUNDARY_COUNTS,
+  G29_DEPENDENCY_BOUNDARY_TESTS,
+  G29_DEPENDENCY_CHOICE_COUNTS,
+  G29_DEPENDENCY_CHOICE_TESTS,
+  G29_MEMBER_DEPENDENCY_COUNTS,
+  G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
+  G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+  G29_MEMBER_DEPENDENCY_PG_COUNTS,
+  G29_MEMBER_DEPENDENCY_PG_TESTS,
+  G29_MEMBER_DEPENDENCY_TESTS,
+  G29_RESULT_PROGRESS_COUNTS,
+  G29_RESULT_PROGRESS_TESTS,
+  POST_G3_CLEARABILITY_CONTRACT_COUNTS,
+  POST_G3_CLEARABILITY_CONTRACT_TESTS,
+  POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS,
+  POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+  POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS,
+  POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+  POST_G3_DELETION_SITE_COUNTS,
+  POST_G3_DELETION_SITE_TESTS,
+  POST_G3_HISTORY_ANALYSIS_COUNTS,
+  POST_G3_HISTORY_ANALYSIS_TESTS,
+  POST_G3_PROJECTION_PREPARATION_COUNTS,
+  POST_G3_PROJECTION_PREPARATION_TESTS,
+  POST_G3_ROW_SCOPE_COUNTS,
+  POST_G3_ROW_SCOPE_TESTS,
+  POST_G3_SCHEMA_VIEW_COUNTS,
+  POST_G3_SCHEMA_VIEW_TESTS,
+  POST_G3_SELECTOR_PREPARATION_COUNTS,
+  POST_G3_SELECTOR_PREPARATION_TESTS,
+  RAPTOR3_ROOT,
+  RAPTOR3_TESTS,
 } from "./raptor3-manifest.mjs";
+
+const CLEARABILITY_PROVIDER_MODE = /^post-g3-clearability-(pg|mysql)-/;
+const CONTRACT_LANE_MODE = /^g(?:1|2|25|27|29|3p02|3p03|3p04|3p06)-/;
+const G29_PROVIDER_MODE = /^g29-member-dependency-(pg|mysql)$/;
+const G3_SCOPE_PROVIDER_MODE = /^g3-scope-composition-(pg|mysql)$/;
+const G4_READ_ENVELOPE_PROVIDER_MODE =
+  /^g4-read-envelope-(pg|mysql)-contracts$/;
+const G4_UNIT02_PROVIDER_MODE = /^g4-unit02-(pg|mysql)-contracts$/;
+const PROVIDER_LANE_MODE = /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/;
+const SEEDS_SUFFIX = /seeds$/;
+
 /** The only modes that admit `--subject=`; every other mode has one subject. */
 const G4_SUBJECT_MODES = Object.freeze([
   "g4-seeds",
@@ -262,32 +273,35 @@ function structuralMeasurementContext(mode, instrumentedIdentity) {
   const baseIdentityFile = process.env.VIBORM_RAPTOR3_MEASUREMENT_BASE_IDENTITY;
   const instrumentationPatchFile = process.env.VIBORM_RAPTOR3_MEASUREMENT_PATCH;
   const alternative = process.env.VIBORM_RAPTOR3_MEASUREMENT_ALTERNATIVE;
-  assert(
+  invariant(
     baseIdentityFile,
     "Structural measurement requires its base identity file"
   );
-  assert(
+  invariant(
     instrumentationPatchFile,
     "Structural measurement requires its instrumentation patch"
   );
-  assert(
+  invariant(
     alternative === "flat-history-reference" ||
       alternative === "shared-occurrence-candidate",
     "Structural measurement requires one named alternative"
   );
   const resolvedBaseIdentity = resolve(baseIdentityFile);
   const resolvedPatch = resolve(instrumentationPatchFile);
-  assert(
+  invariant(
     existsSync(resolvedBaseIdentity),
     "Structural measurement base identity is missing"
   );
-  assert(existsSync(resolvedPatch), "Structural measurement patch is missing");
+  invariant(
+    existsSync(resolvedPatch),
+    "Structural measurement patch is missing"
+  );
   // Present is not applied: a retired patch named here would be hashed into
   // `verified.json` beside counters another instrumentation produced.
   assertStructuralMeasurementPatch(resolvedPatch);
   const baseIdentity = JSON.parse(readFileSync(resolvedBaseIdentity, "utf8"));
   assertStructuralMeasurementRuntime(baseIdentity, instrumentedIdentity);
-  assert.notDeepEqual(
+  invariant.notDeepEqual(
     baseIdentity,
     instrumentedIdentity,
     "Structural measurement instrumentation did not change the executed identity"
@@ -331,12 +345,15 @@ export function parseRaptor3Request(arguments_) {
   const limitArguments = arguments_.filter((argument) =>
     argument.startsWith("--wall-limit-ms=")
   );
-  assert(limitArguments.length <= 1, "Wall limit may be specified only once");
+  invariant(
+    limitArguments.length <= 1,
+    "Wall limit may be specified only once"
+  );
   const wallMs =
     limitArguments.length === 0
       ? G0_RESOURCES.wallMs
       : Number(limitArguments[0].slice("--wall-limit-ms=".length));
-  assert(
+  invariant(
     Number.isSafeInteger(wallMs) && wallMs > 0 && wallMs <= G0_RESOURCES.wallMs,
     "Wall limit can only lower the G0 ceiling"
   );
@@ -353,22 +370,23 @@ export function parseRaptor3Request(arguments_) {
   const subjectArguments = arguments_.filter((argument) =>
     argument.startsWith("--subject=")
   );
-  assert(subjectArguments.length <= 1, "Subject may be specified only once");
+  invariant(subjectArguments.length <= 1, "Subject may be specified only once");
   const subject =
     subjectArguments.length === 0
       ? "candidate"
       : subjectArguments[0].slice("--subject=".length);
-  assert(
+  invariant(
     subject === "candidate" || subject === "shipped",
     "Subject is candidate or shipped"
   );
   const positional = arguments_.filter(
     (argument) =>
-      !limitArguments.includes(argument) && !subjectArguments.includes(argument)
+      !(
+        limitArguments.includes(argument) || subjectArguments.includes(argument)
+      )
   );
-  assert(
-    subjectArguments.length === 0 ||
-      G4_SUBJECT_MODES.includes(positional[0]),
+  invariant(
+    subjectArguments.length === 0 || G4_SUBJECT_MODES.includes(positional[0]),
     "Subject selection applies only to the G4 generated read campaign"
   );
   if (
@@ -500,7 +518,7 @@ export function parseRaptor3Request(arguments_) {
   ) {
     const firstSeed = Number(positional[1]);
     const campaign = campaignFor(positional[0]);
-    assert(
+    invariant(
       Number.isInteger(firstSeed) &&
         firstSeed >= campaign.firstSeed &&
         firstSeed + campaign.batchSize <=
@@ -517,7 +535,7 @@ export function parseRaptor3Request(arguments_) {
   }
   if (positional.length === 2 && positional[0] === "replay" && positional[1]) {
     const path = resolve(positional[1]);
-    assert(existsSync(path), "The replay corpus does not exist");
+    invariant(existsSync(path), "The replay corpus does not exist");
     return { mode: "replay", path, wallMs };
   }
   throw new Error(
@@ -526,25 +544,28 @@ export function parseRaptor3Request(arguments_) {
 }
 
 export function assertRaptor3TestReport(report, files) {
-  assert.equal(report.success, true, "The executed Raptor 3 tests failed");
-  assert(report.numTotalTests > 0, "Zero-case execution cannot pass the gate");
-  assert.equal(
+  invariant.equal(report.success, true, "The executed Raptor 3 tests failed");
+  invariant(
+    report.numTotalTests > 0,
+    "Zero-case execution cannot pass the gate"
+  );
+  invariant.equal(
     report.numPendingTests,
     0,
     "Required Raptor 3 tests were skipped"
   );
-  assert.deepEqual(
+  invariant.deepEqual(
     report.testResults.map((suite) => suite.name).sort(),
     files.map((file) => resolve(RAPTOR3_ROOT, file)).sort(),
     "Missing required Raptor 3 test file"
   );
   for (const suite of report.testResults) {
-    assert(
+    invariant(
       suite.assertionResults.length > 0,
       "Empty required Raptor 3 test file"
     );
     for (const test of suite.assertionResults)
-      assert.equal(test.status, "passed");
+      invariant.equal(test.status, "passed");
   }
 }
 
@@ -600,8 +621,8 @@ export async function archiveG3GeneratedCorpus(directory, replayCommand) {
   const archiveTemporaryPath = `${archivePath}.tmp`;
   const receiptPath = join(directory, receiptName);
   const receiptTemporaryPath = `${receiptPath}.tmp`;
-  assert(existsSync(sourcePath), "Verified G3 child corpus is missing");
-  assert(!existsSync(archivePath), "G3 child corpus archive already exists");
+  invariant(existsSync(sourcePath), "Verified G3 child corpus is missing");
+  invariant(!existsSync(archivePath), "G3 child corpus archive already exists");
   const original = await fileIdentity(sourcePath);
   await pipeline(
     createReadStream(sourcePath),
@@ -609,7 +630,7 @@ export async function archiveG3GeneratedCorpus(directory, replayCommand) {
     createWriteStream(archiveTemporaryPath, { flags: "wx" })
   );
   const restored = await fileIdentity(archiveTemporaryPath, "gzip");
-  assert.deepEqual(
+  invariant.deepEqual(
     restored,
     original,
     "Archived G3 child corpus does not restore exact source bytes"
@@ -649,7 +670,7 @@ async function run(request) {
       join(tmpdir(), `viborm-raptor3-${request.mode}-`)
     );
     writeAttemptReceipt(directory, request, identity);
-    const batchMode = request.mode.replace(/seeds$/, "seed-batch");
+    const batchMode = request.mode.replace(SEEDS_SUFFIX, "seed-batch");
     const batches = [];
     for (
       let firstSeed = campaign.firstSeed;
@@ -816,31 +837,31 @@ async function run(request) {
     replay: ["tests/raptor3/gate.test.ts"],
   }[request.mode];
   for (const file of files)
-    assert(
+    invariant(
       existsSync(resolve(RAPTOR3_ROOT, file)),
       `Missing required test ${file}`
     );
   const reportPath = join(directory, "vitest.json");
   const environment = { ...process.env };
   const provider =
-    /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/.exec(request.mode)?.[1] ??
-    /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
-    /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
-    /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1] ??
-    /^g4-read-envelope-(pg|mysql)-contracts$/.exec(request.mode)?.[1] ??
-    /^g4-unit02-(pg|mysql)-contracts$/.exec(request.mode)?.[1];
+    PROVIDER_LANE_MODE.exec(request.mode)?.[1] ??
+    CLEARABILITY_PROVIDER_MODE.exec(request.mode)?.[1] ??
+    G3_SCOPE_PROVIDER_MODE.exec(request.mode)?.[1] ??
+    G29_PROVIDER_MODE.exec(request.mode)?.[1] ??
+    G4_READ_ENVELOPE_PROVIDER_MODE.exec(request.mode)?.[1] ??
+    G4_UNIT02_PROVIDER_MODE.exec(request.mode)?.[1];
   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
-  delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
-  delete environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED;
+  Reflect.deleteProperty(environment, "VIBORM_RAPTOR3_REPLAY_PATH");
+  Reflect.deleteProperty(environment, "VIBORM_RAPTOR3_GENERATED_FIRST_SEED");
   // The batch size is the campaign's, never the shell's: an inherited count
   // used to shrink a child while its receipt stayed individually truthful, so
   // a 250-child parent could print "campaign verified" over 1% of its seeds.
-  delete environment.VIBORM_RAPTOR3_GENERATED_SEED_COUNT;
-  delete environment.VIBORM_RAPTOR3_EXTENSION_SLICE;
+  Reflect.deleteProperty(environment, "VIBORM_RAPTOR3_GENERATED_SEED_COUNT");
+  Reflect.deleteProperty(environment, "VIBORM_RAPTOR3_EXTENSION_SLICE");
   // The subject is the runner's, never the shell's: an inherited `shipped`
   // used to turn a candidate campaign into an oracle-validation run that still
   // printed "verified".
-  delete environment.VIBORM_RAPTOR3_G4_SUBJECT;
+  Reflect.deleteProperty(environment, "VIBORM_RAPTOR3_G4_SUBJECT");
   const requestedSubject = subjectRecord(request);
   if (requestedSubject.subject !== undefined)
     environment.VIBORM_RAPTOR3_G4_SUBJECT = requestedSubject.subject;
@@ -848,11 +869,15 @@ async function run(request) {
     environment.VIBORM_RAPTOR3_EXTENSION_SLICE = extensionCampaign.slice;
   if (request.mode.endsWith("seed-batch"))
     environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED = String(request.firstSeed);
-  if (/^g(?:1|2|25|27|29|3p02|3p03|3p04|3p06)-/.test(request.mode))
-    delete environment.VIBORM_RAPTOR3_SPECIMEN;
+  if (CONTRACT_LANE_MODE.test(request.mode))
+    Reflect.deleteProperty(environment, "VIBORM_RAPTOR3_SPECIMEN");
   if (request.mode === "g3p02-contracts")
     environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT = "1";
-  else delete environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT;
+  else
+    Reflect.deleteProperty(
+      environment,
+      "VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT"
+    );
   environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY = directory;
   if (request.mode === "replay")
     environment.VIBORM_RAPTOR3_REPLAY_PATH = request.path;
@@ -881,13 +906,14 @@ async function run(request) {
   };
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   const handlers = signals.map((signal) => () => interrupt(signal));
-  signals.forEach((signal, index) => process.on(signal, handlers[index]));
+  for (const [index, signal] of signals.entries())
+    process.on(signal, handlers[index]);
   try {
     const exitCode = await new Promise((resolveExit, reject) => {
       child.once("error", reject);
       child.once("close", resolveExit);
     });
-    assert(
+    invariant(
       !interrupted && exitCode === 0,
       `Raptor 3 verification failed; diagnostics: ${directory}`
     );
@@ -1018,7 +1044,7 @@ async function run(request) {
     // A child file that gained a second `it`, or lost its only one, is exactly
     // what this map exists to catch — so a seed-batch mode registered in the
     // files map above and forgotten here must not run silently unpinned.
-    assert(
+    invariant(
       expectedCounts !== undefined || !request.mode.endsWith("seed-batch"),
       `No registered cell count for ${request.mode}`
     );
@@ -1027,7 +1053,7 @@ async function run(request) {
         const comparison = report.testResults.find(
           (suite) => suite.name === resolve(RAPTOR3_ROOT, file)
         );
-        assert.equal(
+        invariant.equal(
           comparison.assertionResults.length,
           expected,
           `Missing candidate/profile/scenario cell in ${file}`
@@ -1035,7 +1061,7 @@ async function run(request) {
       }
     }
     if (replayInput) {
-      assert.equal(
+      invariant.equal(
         createHash("sha256")
           .update(readFileSync(replayInput.path))
           .digest("hex"),
@@ -1058,10 +1084,10 @@ async function run(request) {
       const corpus = JSON.parse(
         readFileSync(join(directory, "corpus.json"), "utf8")
       );
-      assert.equal(corpus.formatVersion, 1);
+      invariant.equal(corpus.formatVersion, 1);
       assertRaptor3Identity(corpus.identity, identity);
-      assert.equal(corpus.records[0], "array");
-      assert.equal(
+      invariant.equal(corpus.records[0], "array");
+      invariant.equal(
         corpus.records[1].length,
         extensionCampaign.seedCount * extensionCampaign.profiles.length
       );
@@ -1101,13 +1127,13 @@ async function run(request) {
       const receipt = JSON.parse(
         readFileSync(join(directory, "verified.json"), "utf8")
       );
-      assert.equal(receipt.mode, request.mode);
-      assert.equal(receipt.alternative, measurement.alternative);
-      assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
-      assert.deepEqual(receipt.instrumentedIdentity, identity);
-      assert.equal(receipt.cases.length, 28);
-      assert.equal(receipt.replays, 60);
-      assert.equal(receipt.skipped, 0);
+      invariant.equal(receipt.mode, request.mode);
+      invariant.equal(receipt.alternative, measurement.alternative);
+      invariant.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
+      invariant.deepEqual(receipt.instrumentedIdentity, identity);
+      invariant.equal(receipt.cases.length, 28);
+      invariant.equal(receipt.replays, 60);
+      invariant.equal(receipt.skipped, 0);
       process.stdout.write(
         `Raptor 3 ${request.mode} measurement verified. Evidence: ${directory}\n`
       );
@@ -1132,7 +1158,8 @@ async function run(request) {
     );
     return directory;
   } finally {
-    signals.forEach((signal, index) => process.off(signal, handlers[index]));
+    for (const [index, signal] of signals.entries())
+      process.off(signal, handlers[index]);
   }
 }
 
