@@ -1,4 +1,6 @@
-# Extension capabilities v3.1 and `viborm/soft-delete`: final qualification record (U7, amended by the U7 repair and the compression pass)
+# Extension capabilities v3.1 and `viborm/soft-delete`: final qualification record (U7, amended by the U7 repair, the compression pass and the trusted-definitions decision)
+
+**Section 000 (trusted definitions, owner decision of 2026-09-30, qualified on 45ba55973) supersedes section 00 wherever they differ.**
 
 **Section 00 (the compression pass, qualified on a26cbc8a3) supersedes section 0 and sections 1-12 wherever they differ.**
 
@@ -10,6 +12,160 @@ One thing still blocks a clean exit and needs the owner:
 And one qualification gap remains: **MySQL has never executed a witness** (no server; Docker down). PostgreSQL now has: the repair ran the pg-driver lane on a scratch PostgreSQL 18.3 server (§0.2).
 
 Labels: **MEASURED** means run in the qualification or the repair unless another unit is named. **JUDGEMENT** means reasoning, not measurement.
+
+## 000. Trusted definitions (2026-09-30, owner decision)
+
+The owner decided on 2026-09-30 that an extension definition is trusted. VibORM no longer checks `controls`, `rows` or `deletion` at runtime and has no hostile-input boundary for them. They are bound exactly as the definition writes them, and TypeScript is their only check. In the owner's words, deleting this is fine "as long as we can write powerful extensions". It is not a capability change: an extension can do everything it could before, and only what happens when a definition is wrong has changed. **This section supersedes §00 (and, through it, §0 and §1–12) wherever they differ.** Labels are as above: **MEASURED** means run by this qualification on 45ba55973 unless another revision is named; **JUDGEMENT** means reasoning.
+
+Two results change the open items. First, **the §5.2 bundle budget is now met**: +4,267 B gzip over main in one build and +4,184 B in the other, against +5 KB (§000.4). STOP U3R-1 was opened by the owner, so closing it is the owner's call. Second, **MySQL still has never run a witness** (§000.7).
+
+### 000.1 Identity
+
+| Item | Value |
+| --- | --- |
+| Qualified source (HEAD before this docs commit) | **45ba55973ebed819df1f6d0e1c57c107724618d3**, tree 653a0385c93840dcbe5ccf47234c6985d1b5c6f8 |
+| Base | origin/main = merge-base = 30ff17e69 |
+| Compressed tree | b63805451 (the compression repair; same tree 0d06fec24 as §00's a26cbc8a3), then its docs commit e0f36f7f6 |
+| Pre-pass tree | 2c1e896bb (§00.1) |
+| Commits of this decision | **3c93171d6** refactor(extensions): a declaration is trusted; the hostile boundary and the declaration checks are deleted (owner decision). **00509c9d0** (fold repair): `rows` predicates are bound as written, and the `where` admission is deleted too. **45ba55973** (fold repair, qualify): the raptor3 row-domain memo witness names the predicate as written. |
+| Commits over 30ff17e69 | 25 (22 before this decision, 3 for it) |
+| Working tree before this commit | Clean. Nothing pushed, nothing amended, no history rewritten. |
+| Trailers over main | 22 `Claude Fable 5.1` and 3 `Claude Opus 5.5` (the three commits above), MEASURED with `git log --format=%(trailers)`. Normalising them needs a reword at PR time (owner). |
+
+What the decision deleted, and what it kept:
+
+- **Deleted** in `src/extensions/definition.ts`: `refuse`, `readGuarded`, `emptyCopyOf`, `ControlValidator`, `readValidator`, `copyData`, `record`, `requireName`, `readSchemaModel`, `requireScalarField`, `isControlLiteral`, `assertControl`, `snapshotControls`, `sameNames`, `snapshotRows`, `requireTimestampField`, `assertRemoveWhen`, `assertDeletionEntry`, `snapshotDeletion`, `refuseCoreArgumentNames`, the `Shape` tables (CONTROLS, ROWS, DELETION), `NO_CONTROLS` and `ConstantFields`. The fold repair also deleted `admitWhere`, `admitRows` and `ExtensionSchemaRegistry`, the registry parameter of `normalizeExtensionDefinition` and `appendResolvedExtension`, and the client's `schemaRegistry` field. In `chain.ts`: the refusals "control already declared on this client" and "deletion model already managed". In validation: `SchemaRegistry.argumentNames` (`builder.ts` and `types.ts` are back to main).
+- **Kept**: the call-time admission of every control value (oneOf and Standard Schema, including their throw, async, malformed and unreadable paths), placement per (model, operation), `rows` binding, `deletion` binding, rows as the cache key, the official-extension admission, the duplicate-extension-name check, the "rows cannot follow a result consumer" order guard, and the TypeScript types. The six older members (request, query, statement, observe, client, model) keep main's handling byte for byte. `extensions-foundation.core.test.ts` was not touched.
+- **Why the `rows` admission went too** (review of 3c93171d6): Raptor 3's `prepareOperations` reads `where` shorthand itself (`null`, a non-object value or an operator-free record means `equals`). Prepared meaning holds no adapter, so no dialect is affected. The review ran 13 predicate shapes end to end on SQLite, with and without the admission, and got identical rows. The only thing the admission did was rewrite the null shorthand.
+
+### 000.2 Lines, MEASURED
+
+Scanner: `elegance/synthesis/loc.mjs` (a line counts only if it holds code outside comments), as in §00.2, run on `git show <rev>:<file>`. Each cell is **TS code lines / runtime lines**. Runtime lines are what remains after `esbuild 0.25.4 --loader=ts --format=esm` strips the types, counted with the same scanner. The perimeters are §00.2's.
+
+| Perimeter | main 30ff17e69 | pre-pass 2c1e896bb | compressed b63805451 | trusted 45ba55973 |
+| --- | --- | --- | --- | --- |
+| Four extension files (chain, controls, definition, rows) | 770 / 440 | 2,212 / 1,345 | 2,042 / 1,258 | **1,553 / 857** |
+| Eight files (the four + validation builder.ts and types.ts, client/client.ts, raptor3 row-scope.ts) | 2,111 / 1,231 | 3,641 / 2,162 | 3,470 / 2,075 | **2,963 / 1,658** |
+| Production perimeter (34 files) | 21,528 / 14,379 | 23,882 / 15,847 | 23,649 / 15,706 | **23,142 / 15,289** |
+| Test perimeter (34 files), TS lines | 2,698 | 8,215 | 8,222 | **7,745** |
+
+- **Per file, compressed → trusted:** definition.ts 940/590 → 467/203; chain.ts 536/346 → 520/332; controls.ts 445/244 (unchanged); rows.ts 121/78 (unchanged); client.ts 1,076/664 → 1,072/661; validation/builder.ts 183/153 → 170/140 (main's); validation/types.ts 146 → 145 (main's).
+- **By commit (four files):** 3c93171d6 took them to 1,600 / 880, and the fold repair to 1,553 / 857.
+- **Branch growth in production over main:** +2,354 (pre-pass), then +2,121 (compressed), now **+1,614** TS lines. Runtime lines grew +1,468, then +1,327, now **+910**.
+- **The probe's 707 runtime lines:** the probe's "Option T" reached 707 in the four files only because it also deleted main's handling of the six older members. That handling stays here.
+
+### 000.3 Tests deleted, by class
+
+| Class | Count | Where |
+| --- | --- | --- |
+| Pins of deleted declaration refusals: shape, oneOf, placement, core-argument names, rows modes/default/model/field/purpose, removeWhen, deletion model/`at`/`assign` | About 40 of the 47 cases in the "controls: definitions refused when applied" table | extension-controls.core.test.ts |
+| Hostile-definition cases for the three members: revoked proxies (3), throwing getters (2), a cycle, a symbol key, function or instance where plain data stands | The remaining cases of that table | extension-controls.core.test.ts |
+| The two deleted chain refusals | 1 test ("names are one space per chain, and one deletion entry per model") | extension-controls.core.test.ts |
+| Snapshot and hostile semantics (getters read once, post-binding mutation, Date/Uint8Array copies, a trapped proxy) | 1 test ("a definition is read once …") | extension-controls.core.test.ts |
+| **Total deleted** | **49** (extension-controls 71 → 22) | |
+| Rewritten, not deleted | extension-deletion's invalid-predicate refusal became an end-to-end witness: raw `{ archivedAt: null, hidden: false }` and `{ NOT: { archivedAt: null } }` filter rows, and a model the schema lacks is ignored (6 → 6). The raptor3 row-domain memo witness now expects the predicate as written, `{ deletedAt: null }` (row-scopes 80 → 80). The numeric oneOf admission joined the existing oneOf test (`level: 2` admitted, `"2"` a ValidationError). | |
+| Behavioural witnesses of valid definitions deleted | **0** (the review checked each deleted case) | |
+
+Counts: coverage-extensions 443 → **394**; layer-client 704 → **655**; `test:core` 9,413 → **9,364**. Guard ledger: 7 rows are replaced by "Deleted 2026-09-30, owner decision: the definition is trusted" notes. No manifest counts a changed test file.
+
+### 000.4 Bundle and types, MEASURED
+
+**Bundle.** tsdown + `scripts/measure-bundle.mjs` on path-limited archives (src scripts package.json tsconfig.json tsdown.config.ts benchmarks/internal), built one after another in this session. Cells are raw / gzip / brotli bytes. The trusted tree and the compressed tree were each built twice. Raw bytes are identical between the two builds of each tree. The compressed tree's gzip is also identical between its builds, and matches §00.6 exactly. The trusted tree's gzip moves by 83 B between its builds, so both builds are shown.
+
+| Fixture | main 30ff17e69 | compressed e0f36f7f6 | 3c93171d6 | **trusted 45ba55973** (build 1; build 2) | trusted − compressed | trusted − main |
+| --- | --- | --- | --- | --- | --- | --- |
+| **pg-representative** | 543,896 / 160,066 / 135,512 | 564,035 / 166,199 / 141,007 | 558,041 / 164,462 / 139,491 | **557,602 / 164,333 / 139,493**; 557,602 / 164,250 / 139,389 | −6,433 raw / **−1,866 gzip** | +13,706 raw / **+4,267 gzip** (+4,184) |
+| pg-soft-delete | n/a | 564,931 / 166,528 / 141,149 | 558,937 / 164,804 / 139,784 | 558,498 / 164,660 / 139,581; 558,498 / 164,586 / 139,667 | −6,433 / −1,868 | +4,594 gzip over main's pg-representative |
+| full | 917,160 / 267,890 / 221,230 | 937,961 / 274,283 / 226,983 | 931,962 / 272,430 / 225,309 | 931,523 / 272,298 / 225,238 (both builds) | −6,438 / −1,985 | +4,408 gzip |
+| soft-delete entry | n/a | 759 / 395 / 349 | 759 / 395 / 349 | 759 / 395 / 349 | 0 | n/a |
+| ids-only, decimal-only | 93,221 / 27,891; 93,072 / 27,867 | +1 gzip each | same | same as compressed | 0 | +1 |
+
+**§5.2 base entry ≤ +5 KB gzip: MET.** The two builds measure +4,267 and +4,184 B, 733 and 816 B under 5,000. The pre-pass was 6,374 B over main and the compressed tree 6,133 B. JUDGEMENT: the deleted boundary was the largest single remaining cost. Closing STOP U3R-1 is left to the owner.
+
+**Types.** tsc 5.9.3 `--extendedDiagnostics` under `node --max-old-space-size=1280`, on path-limited archives (src tests tsconfig.json package.json). §00.5's harness was used: `client-2` in main's chunking, and the schema-only `floor.ts`. One round each, compressed e0f36f7f6 then trusted. Every run exited 0 with 0 errors.
+
+| Program | Types compressed → trusted | Instantiations compressed → trusted | RSS MiB |
+| --- | --- | --- | --- |
+| client-2 | 857,083 → **856,225** (−858) | 3,664,996 → **3,662,216** (−2,780) | 1,422.9 → 1,439.0 |
+| schema-only floor | 747,674 → **746,821** (−853) | 2,908,218 → **2,905,463** (−2,755) | 1,443.9 → 1,392.5 |
+
+Both programs are **≤ the compressed tree** (the bar). The compressed column reproduces §00.5's post-pass values exactly.
+
+### 000.5 Gates run, one at a time, MEASURED on 45ba55973
+
+- **Static checks:**
+  - Biome on the 12 code files changed since e0f36f7f6: 0 diagnostics.
+  - `tsc` (typescript-native, whole tsconfig): exit 0 in 7.8 s.
+  - Refusal census, `node scripts/raptor3-refusal-census.mjs --at e0f36f7f6` against the tree: both 240 lines and 203 sites (invariant 25 sites / 24 sentences; inherited 76 / 76; candidate 44 / 35). **Delta 0.** The only differing line is the revision line; the one raptor3 source change is a comment.
+- **Direct vitest per layer project:** validation 998, scalars 1,159, operation-schemas 1,364, relations 119, schema-validation 470, schema-json 431, query-engine 739, write-engine 82, adapters 190, drivers 988, client **655**, cache 85, instrumentation 185, migrations 1,899. In total **446 files, 9,364 passed, 0 failed.**
+- **raptor3:**
+  - Before 45ba55973 the first run had 8 failures. One was new: row-scopes "prepares each row domain a call selects once …" pinned the admitted form `{ deletedAt: { equals: null } }`. It was repaired in 45ba55973.
+  - The rerun on the qualified source: 207 files (200 passed, 7 failed), 2,129 tests passed and 7 failed. The 7 are **exactly the known reds**: cs02-structure-measure; g3 sqlite-campaign and transport-campaign; g4 sqlite-campaign, transport-campaign, write-campaign and write-transport-campaign.
+  - `run-raptor3.mjs post-g3-row-scopes` 80/80 and `post-g3-deletion-sites` 45/45, both reporting "contract gate verified". raptor3-provider: 9 files, 32/32.
+- **Providers and extended-local:** provider-sqlite3, 16 files, 881 passed and 1 skipped. extended-local, 171 files passed and 22 skipped; 2,348 tests passed and 393 skipped.
+- **Coverage for extensions:** coverage-extensions, 20 files, 394/394, at 100 / 100 / 100 / 100 with the floors met.
+- **Live PGlite** via `node scripts/run-credential-free-tests.mjs --only …`, each run alone with teardown verified (peak RSS in MiB, ceiling 2,560):
+
+| Lane | Passed | Peak RSS (MiB) |
+| --- | --- | --- |
+| pglite-deletion-capability | 15/15 | 1,753.3 |
+| pglite-row-scopes | 24/24 | 1,590.1 |
+| pglite-soft-delete | 12/12 | 1,843.5 |
+| imported-pglite shard 2/2 (official-cache-extension, a touched file) | 163, 14 skipped | 1,993.1 |
+| shared-family shard 5/8 (official-cache-reads; the rows cache identity now holds predicates as written) | 239/239 | 2,259.1 |
+
+- **Lock scripts**, one at a time, each passing on its first run with no reruns (load average about 10):
+
+| Script | Result | Time | Details |
+| --- | --- | --- | --- |
+| `pnpm test:types` | exit 0 | 10 s | 7,553.7 MiB (ceiling 8,192) |
+| `pnpm test:core` | exit 0 | 79 s | 446 files, 9,364/9,364, 1,285.0 MiB (ceiling 1,536) |
+| `pnpm test:package` | exit 0 | 29 s | 13/13, including the packed public-surface golden |
+| `pnpm test:coverage` | exit 0 | 429 s | every threshold held, see below |
+| `pnpm test:layer:client` | exit 0 | 37 s | 655/655; type chunks 1,409.0 / 1,413.7 / 1,391.8 / 1,468.5 MiB |
+| `pnpm test:layer:query-engine` | exit 0 | 14 s | 739/739 |
+| `pnpm test:layer:instrumentation` | exit 0 | 11 s | 185/185 |
+
+- **Coverage** from `pnpm test:coverage` (statements / branches / functions / lines, floor in parentheses):
+  - Public, schema, validation, sql, instrumentation, extensions (394 tests), errors, adapters and CLI: 100 / 100 / 100 / 100 (100).
+  - query-engine core: 93.79 / 94.24 / 94.43 / 93.79 (87 / 91 / 90 / 87).
+  - drivers: 96.04 / 92.69 / 96.06 / 96.04 (96 / 92.5 / 96 / 96).
+  - client: 96.33 / 94.36 / 96.5 / 96.33 (96 / 94 / 96 / 96).
+  - cache: 100 (98).
+  - migrations: 98.68 / 97.3 / 99.89 / 98.68 (98 / 97.3 / 98 / 98).
+  - These are all identical to §00.4 apart from the extensions test count.
+
+### 000.6 What a wrong definition does now, MEASURED
+
+The fold's probe was rerun against a tsdown build of 45ba55973, on in-memory SQLite. Its log is byte-identical to the log from 3c93171d6 except for one timestamp. Every wrong definition below is **applied** without error; what differs is the first call.
+
+| Wrong definition | At the first call |
+| --- | --- |
+| `rows` names an unknown model (`posts` for `post`) | Ignored: reads are unfiltered. |
+| `deletion.at` names a String field | The delete fails with a `ValidationError` from the tombstone's `updateMany`, and no row changes. |
+| `removeWhen` names no declared control | Soft deletes still happen. Passing that control is "Unknown key". |
+| Two extensions declare the same control name | Both handlers receive the value. Each extension's `oneOf` admits only its own values, so a value one of them lacks is refused. |
+| A `rows` entry lacks its default mode (W5a, W5c) | Some reads throw a raw `TypeError: Invalid value used as weak map key`. This is the harshest of the unchecked behaviours. |
+| A row predicate names an unknown field | The engine refuses with "'gone' is neither a declared scalar of 'post' …". |
+| A control named like a core argument (`where`) | The control takes the argument: `where` is validated as the control. create.mdx says not to take such names. |
+| A control member typo (`onn`) | Not flagged by the types. It is applied and ignored. |
+| A later `deletion` entry for a model already managed | It replaces the earlier entry. |
+| In `softDelete`, a wrong field | Applied silently. |
+| In `softDelete`, an unknown model | **Still refused when applied**, through its `restore` methods (a `model` member, main's check). soft-delete.mdx says so after the owner's paragraph. |
+
+The docs carry the owner's paragraph verbatim: "A definition is not checked at runtime. TypeScript flags a misspelt member in your editor; an unknown model name, a field of the wrong type or a `removeWhen` that names no control is not caught and misbehaves at the first call." It appears in create.mdx and soft-delete.mdx. Other records of the decision:
+- The v3 plan §2.1 has a dated amendment, and the decisions file has TR-1..TR-9.
+- The CHANGELOG has the line "Definitions are trusted: VibORM does not check a declaration at runtime."
+- src/client/AGENTS.md has the owner paragraph and table row. `src/extensions/AGENTS.md` does not exist.
+
+### 000.7 Gaps
+
+1. **MySQL** has still never run a witness: there is no Docker and no local `mysqld`. The rerun command is in §00.9.
+2. **PostgreSQL** (the scratch-server lane of §00.4) was not rerun for this decision. JUDGEMENT: the change binds `rows` predicates as written. Prepared meaning is adapter-free, and PGlite ran every rows, deletion and soft-delete lane green.
+3. **Bundle** STOP U3R-1: now met by measurement (§000.4). Closing it is the owner's call.
+4. **The wrong-definition behaviours in §000.6** are accepted by the owner's decision. The raw `TypeError` for a `rows` entry that lacks its default mode, and a control named like a core argument, are the two a reader would notice first.
+5. **§00.8 D7 is still open**, and the trailer normalisation is still owed (§000.1). Owner questions §00.9.4–5 about hostile records are moot for the three members, since they are no longer read defensively.
+6. **The PR description is not updated.** Nothing was pushed; publishing is the owner's.
 
 ## 00. Compression pass (2026-09-30)
 
