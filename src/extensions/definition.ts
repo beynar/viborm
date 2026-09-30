@@ -249,12 +249,40 @@ function readGuarded<T>(read: () => T, label: string, extension?: string): T {
   }
 }
 
-/** An empty array or record to copy plain data into; none for an instance. */
+/**
+ * Where a declaration member's own shape stands: the one list of the members
+ * each position takes. A node is read by its own members, whatever object
+ * holds them (`"*"` is any member name), and refuses a member it does not
+ * list; a leaf is one value its position's check judges, a Standard Schema
+ * kept as its validator; `"data"` is caller data, copied as plain data. A
+ * value that does not fit a node or a leaf is copied as `null`, which no
+ * position admits: that position's check refuses it, so each refusal keeps
+ * the words of the position it breaks.
+ */
+type Position = Shape | "leaf" | "data";
+interface Shape {
+  readonly [member: string]: Position;
+}
+
+const CONTROLS: Shape = { "*": { oneOf: "data", schema: "leaf", on: "leaf" } };
+const ROWS: Shape = {
+  control: "leaf",
+  default: "leaf",
+  models: { "*": { "*": { root: "data", related: "data" } } },
+};
+const DELETION: Shape = {
+  removeWhen: { "*": "leaf" },
+  models: { "*": { at: "leaf", assign: "data" } },
+};
+
+/** An empty array or record to copy `value` into at `position`; none when it does not fit. */
 function emptyCopyOf(
-  value: object
+  value: object,
+  position: Position
 ): Record<string, unknown> | unknown[] | undefined {
   if (Array.isArray(value)) return [];
-  return isPlainRecord(value) ? {} : undefined;
+  if (typeof position === "object") return {};
+  return position === "data" && isPlainRecord(value) ? {} : undefined;
 }
 
 /**
@@ -298,39 +326,50 @@ function readValidator(
 
 /**
  * Copy one declaration member once; it is the only read of that member. Every
- * getter runs once, a `Date` or `Uint8Array` is copied, and nothing the caller
- * keeps can change what core holds. Which keys count is one rule for a member
- * and for the data inside it: the enumerable own string keys whose value is
- * not `undefined` (an undefined or non-enumerable member is absent; a symbol
- * key is refused). With `validators`, a value carrying `~standard` is kept as
- * its bound validator. Anything else that is not plain data (a function, a
- * class instance, a cycle) is refused.
+ * getter runs once, a `Date` or `Uint8Array` in caller data is copied, and
+ * nothing the caller keeps can change what core holds. Which keys count is one
+ * rule for a member and for the data inside it: the enumerable own string keys
+ * whose value is not `undefined` (an undefined or non-enumerable member is
+ * absent; a symbol key is refused). Where caller data starts is `position`'s:
+ * there anything that is not plain data (a function, a class instance, a
+ * cycle) is refused.
  */
 function copyData(
   value: unknown,
   label: string,
   extension: string,
-  validators = false,
+  position: Position = "data",
   seen: Set<object> = new Set()
 ): unknown {
-  if (validators && (typeof value === "object" || isFunction(value))) {
+  if (position === "leaf" && (typeof value === "object" || isFunction(value))) {
     const validator = value && readValidator(value, label, extension);
     if (validator) return validator;
   }
+  const data = position === "data";
   if (typeof value === "function" || typeof value === "symbol") {
-    refuse(extension, `${label} must be plain data.`);
+    if (data) refuse(extension, `${label} must be plain data.`);
+    return null;
   }
   if (value === null || typeof value !== "object") return value;
-  if (isDate(value)) return new Date(Date.prototype.getTime.call(value));
-  if (isUint8Array(value)) return new Uint8Array(value);
+  if (data && isDate(value)) {
+    return new Date(Date.prototype.getTime.call(value));
+  }
+  if (data && isUint8Array(value)) return new Uint8Array(value);
   if (seen.has(value)) {
     refuse(extension, `${label} must not contain itself.`);
   }
-  const copy = readGuarded(() => emptyCopyOf(value), label, extension);
+  const copy = readGuarded(
+    () => emptyCopyOf(value, position),
+    label,
+    extension
+  );
   if (copy === undefined) {
-    refuse(extension, `${label} must be plain data.`);
+    if (data) refuse(extension, `${label} must be plain data.`);
+    return null;
   }
-  seen.add(value);
+  const node = typeof position === "object" ? position : undefined;
+  // A node is never part of a cycle: the shape bounds its depth.
+  if (!node) seen.add(value);
   for (const key of readOwnKeys(value, extension)) {
     if (typeof key !== "string") {
       refuse(extension, `${label} contains a symbol key.`);
@@ -343,12 +382,20 @@ function copyData(
     if (descriptor?.enumerable !== true) continue;
     const entry = readGuarded(
       () => Reflect.get(value, key),
-      `${label}.${key}`,
+      node ? `member "${key}"` : `${label}.${key}`,
       extension
     );
     if (entry === undefined) continue;
+    const member = node
+      ? Object.hasOwn(node, key)
+        ? node[key]
+        : node["*"]
+      : "data";
+    if (member === undefined) {
+      refuse(extension, `${label} has unknown member "${key}".`);
+    }
     Object.defineProperty(copy, key, {
-      value: copyData(entry, `${label}.${key}`, extension, validators, seen),
+      value: copyData(entry, `${label}.${key}`, extension, member, seen),
       enumerable: true,
       writable: false,
       configurable: false,
@@ -358,19 +405,13 @@ function copyData(
   return Object.freeze(copy);
 }
 
-/** A copied value that must be a record, holding only the members `allowed` names. */
+/** A copied value that must be a record. */
 function record(
   value: unknown,
   label: string,
-  extension: string,
-  allowed?: readonly string[]
+  extension: string
 ): ConstantFields {
   if (!isPlainRecord(value)) refuse(extension, `${label} must be an object.`);
-  for (const key of Object.keys(value)) {
-    if (allowed && !allowed.includes(key)) {
-      refuse(extension, `${label} has unknown member "${key}".`);
-    }
-  }
   return value;
 }
 
@@ -431,11 +472,7 @@ function assertControl(
   label: string,
   extension: string
 ): asserts entry is ControlDeclaration {
-  const { oneOf, schema, on } = record(entry, label, extension, [
-    "oneOf",
-    "schema",
-    "on",
-  ]);
+  const { oneOf, schema, on } = record(entry, label, extension);
   if (on !== undefined && on !== "reads" && on !== "writes" && on !== "all") {
     if (!Array.isArray(on) || on.length === 0) {
       refuse(
@@ -483,7 +520,7 @@ function snapshotControls(
   extension: string
 ): ControlsContribution {
   const controls = record(
-    copyData(value, "controls", extension, true),
+    copyData(value, "controls", extension, CONTROLS),
     "controls",
     extension
   );
@@ -535,11 +572,11 @@ function snapshotRows(
   schema: Schema | undefined,
   registry: ExtensionSchemaRegistry | undefined
 ): RowsContribution {
-  const rows = record(copyData(value, "rows", extension), "rows", extension, [
-    "control",
-    "default",
-    "models",
-  ]);
+  const rows = record(
+    copyData(value, "rows", extension, ROWS),
+    "rows",
+    extension
+  );
   const control = requireName(rows.control, "rows.control", extension);
   const fallback = requireName(rows.default, "rows.default", extension);
   const models: Record<string, RowsContribution["models"][string]> =
@@ -556,7 +593,7 @@ function snapshotRows(
     )) {
       const predicates: Record<string, ConstantFields> = {};
       for (const [purpose, where] of Object.entries(
-        record(purposes, `${label}.${mode}`, extension, ["root", "related"])
+        record(purposes, `${label}.${mode}`, extension)
       )) {
         predicates[purpose] = admitWhere(
           where,
@@ -667,7 +704,7 @@ function assertDeletionEntry(
   extension: string
 ): asserts value is DeletionContribution["models"][string] {
   const label = `deletion.models.${modelName}`;
-  const { at, assign } = record(value, label, extension, ["at", "assign"]);
+  const { at, assign } = record(value, label, extension);
   if (at !== undefined) {
     const field = requireName(at, `${label}.at`, extension);
     requireTimestampField(model, modelName, field, `${label}.at`, extension);
@@ -693,10 +730,9 @@ function snapshotDeletion(
   declared: ControlsContribution
 ): DeletionContribution {
   const { removeWhen, models } = record(
-    copyData(value, "deletion", extension),
+    copyData(value, "deletion", extension, DELETION),
     "deletion",
-    extension,
-    ["removeWhen", "models"]
+    extension
   );
   if (removeWhen !== undefined) {
     assertRemoveWhen(removeWhen, extension, declared);

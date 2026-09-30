@@ -40,6 +40,7 @@ const UPDATE_STATEMENT = /^\s*UPDATE\b/i;
 /** An UPDATE whose SET starts with the marker: a tombstone write. */
 const TOMBSTONE_WRITE = /^\s*UPDATE\s+\S+\s+SET\s+["`]?deletedAt\b/i;
 const ACTOR = "actor-1";
+const QUOTED_NAME = /'[^']+'/g;
 
 function deletionSchema(ledger: string[]) {
   const author = s.model({
@@ -418,11 +419,12 @@ export function runDeletionCapabilityBehavior(
       const { base, db } = context;
       const refused = await failure(db.post.delete({ where: { id: 10 } }));
       expect(refused).toBeInstanceOf(ForeignKeyError);
-      // Core's message (plan §2.3): the delete refused, naming the relation
-      // live comment 100 references it through.
+      // Core's message (plan §2.3): the delete refused, naming every relation
+      // listed at binding as restricting it, in no particular order.
       const { message } = refused as ForeignKeyError;
       expect(message).toContain("Cannot delete 'post' record");
-      expect(message).toContain("'comments'");
+      const named = message.slice(message.indexOf(":")).match(QUOTED_NAME);
+      expect(named?.sort()).toEqual(["'comments'", "'notes'", "'tags'"]);
       // The refusal carries the context's attribution, as the database's does.
       expect((refused as ForeignKeyError).meta).toMatchObject({
         model: "post",

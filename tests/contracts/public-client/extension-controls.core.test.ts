@@ -1093,6 +1093,34 @@ describe("controls: definitions refused when applied", () => {
       "controls.a.schema must be a Standard Schema",
     ],
     [
+      "a control that is a function",
+      { name: "x", controls: { a: () => "1" } },
+      "controls.a must be an object",
+    ],
+    [
+      "a schema instance without its standard member",
+      { name: "x", controls: { a: { schema: new (class Schema {})() } } },
+      "controls.a.schema must be a Standard Schema",
+    ],
+    [
+      "a placement that is a function",
+      { name: "x", controls: { a: { oneOf: ["1"], on: () => "reads" } } },
+      'controls.a.on must be "reads"',
+    ],
+    [
+      "an unreadable control",
+      {
+        name: "x",
+        controls: Object.defineProperty({}, "a", {
+          enumerable: true,
+          get() {
+            throw new Error("getter");
+          },
+        }),
+      },
+      'member "a" could not be read',
+    ],
+    [
       "a oneOf value that is not finite",
       { name: "x", controls: { a: { oneOf: [1, Number.NaN] } } },
       "must hold distinct strings, finite numbers or booleans",
