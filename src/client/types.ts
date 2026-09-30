@@ -27,12 +27,7 @@ import type {
   GraphRecurse,
 } from "@validation/relations/recurrence";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
-import type { OfficialCacheControls } from "../cache/extension";
-import type {
-  DefinitionControls,
-  NoControls,
-  OperationControls,
-} from "../extensions/controls";
+import type { NoControls, OperationControls } from "../extensions/controls";
 import type { VibORMConfig } from "./client";
 import type {
   AggregateResultType,
@@ -510,7 +505,6 @@ export type ContextualOperationResult<
 export type Client<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
-  ExtensionCache extends boolean = false,
   Controls extends object = NoControls,
 > = {
   [K in keyof C["schema"]]: {
@@ -519,24 +513,10 @@ export type Client<
       C["schema"][K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
-      PlacedOperationControls<ClientControls<ExtensionCache, Controls>, K, O>
+      PlacedOperationControls<Controls, K, O>
     >;
   };
 };
-
-/**
- * The official cache's one control, `cache` on every write, placed as its
- * definition declares it; the client carries it while the cache bit is set.
- */
-type OfficialCacheControlState = DefinitionControls<{
-  readonly controls: OfficialCacheControls;
-}>;
-
-type ClientControls<ExtensionCache extends boolean, Controls> = [
-  ExtensionCache,
-] extends [true]
-  ? Controls & OfficialCacheControlState
-  : Controls;
 
 /** The controls one (model, operation) accepts; none without a declaration. */
 type PlacedOperationControls<Controls, ModelName, O> = [

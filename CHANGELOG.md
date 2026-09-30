@@ -37,9 +37,9 @@ Versioning.
   `viborm`, for plugins generic over the client they receive.
   `ExtendedOperationResult` and a model-mapped query handler's `proceed()`
   read the client's `rows`; `OperationResult`, `InferDatabase` and
-  `renderOperationResultType` stay schema-only. `Client` gains
-  an optional fourth type parameter (the chain's controls), and `$withCache()`
-  accepts the chain's controls.
+  `renderOperationResultType` stay schema-only. `Client`'s
+  optional third type parameter is now the chain's controls (see "Changed
+  (types)" below), and `$withCache()` accepts the chain's controls.
 - **Changed (types): extension typing for plugins generic over their client.**
   Inside a function generic over `VibORMClient<C, X>`, index a model with
   `M[K & keyof M]`: `VibORMClient<C, X>["post"]` is now a TypeScript error
@@ -47,7 +47,11 @@ Versioning.
   compiles, with its method types following the first client; build each
   definition from the client it is applied to. Replacing an earlier
   extension's model method is refused when the extension is applied, and is
-  no longer flagged in your editor.
+  no longer flagged in your editor. `Client`'s third type parameter used to
+  say whether the cache extension was applied; it is now the controls the
+  client's extensions declare, and the cache's `cache` option is one of them.
+  `Client<C, D, true>` no longer compiles: take the type from the client you
+  built (`typeof client`) instead.
 - **Breaking: a mutation's `cache` option is the cache extension's declared
   control.** VibORM now takes `cache` out of a mutation's arguments and checks
   it once, before any request handler runs, the way it handles every argument

@@ -9,6 +9,7 @@ import type {
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
+import type { OfficialCacheControls } from "../cache/extension";
 import type { ResolvedExtensionChain } from "./chain";
 import type { DefinitionControls, NoControls, RowsModels } from "./controls";
 import { extensionCause, extensionError } from "./definition";
@@ -68,14 +69,19 @@ export type HasExtensionCache<X extends ExtensionStateConstraint> = [
   ? true
   : false;
 
-/** Add the official cache capability without carrying its runtime config. */
+/**
+ * Add the official cache capability without carrying its runtime config. Its
+ * one control, `cache` on every write, joins the chain's controls as its
+ * definition declares it.
+ */
 export type EnableExtensionCache<X extends ExtensionStateConstraint> =
   ClientExtensionState<
     X["client"],
     X["models"],
     ExtensionCacheState,
     X["resultConsumer"],
-    X["controls"],
+    X["controls"] &
+      DefinitionControls<{ readonly controls: OfficialCacheControls }>,
     X["rows"]
   >;
 
@@ -96,12 +102,7 @@ export type ExtensionModelDelegate<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   ModelName extends keyof C["schema"],
-> = Client<
-  C,
-  ClientRowsContext<C, X["rows"]>,
-  HasExtensionCache<X>,
-  X["controls"]
->[ModelName] &
+> = Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName] &
   MethodsForModel<X, ModelName>;
 
 /**
